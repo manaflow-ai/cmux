@@ -13,7 +13,10 @@ extension CMUXCLI {
     ) throws {
         guard let surfaceRaw,
               let surfaceID = try normalizeSurfaceHandle(surfaceRaw, client: client) else {
-            throw CLIError(message: "browser download requires a surface handle")
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.browser.download.error.surfaceRequired",
+                defaultValue: "browser download requires a surface handle"
+            ))
         }
 
         switch subArgs.first?.lowercased() {
@@ -76,7 +79,7 @@ extension CMUXCLI {
             let rawValue: String
             if argument == "--limit" {
                 guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                    throw CLIError(message: "--limit requires an integer between 1 and 25")
+                    throw browserDownloadArgumentError("--limit requires an integer between 1 and 25")
                 }
                 rawValue = arguments[index + 1]
                 index += 2
@@ -84,13 +87,13 @@ extension CMUXCLI {
                 rawValue = String(argument.dropFirst("--limit=".count))
                 index += 1
             } else {
-                throw CLIError(message: "Unexpected argument '\(argument)' for browser download list; use --limit <1...25>")
+                throw browserDownloadArgumentError("Unexpected argument '\(argument)' for browser download list; use --limit <1...25>")
             }
             guard limit == nil else {
-                throw CLIError(message: "browser download list accepts --limit only once")
+                throw browserDownloadArgumentError("browser download list accepts --limit only once")
             }
             guard let value = Int(rawValue), (1...25).contains(value) else {
-                throw CLIError(message: "--limit must be an integer between 1 and 25")
+                throw browserDownloadArgumentError("--limit must be an integer between 1 and 25")
             }
             limit = value
         }
@@ -117,7 +120,7 @@ extension CMUXCLI {
                 let value: String
                 if argument == "--path" {
                     guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                        throw CLIError(message: "--path requires a destination path")
+                        throw browserDownloadArgumentError("--path requires a destination path")
                     }
                     value = arguments[index + 1]
                     index += 2
@@ -126,7 +129,7 @@ extension CMUXCLI {
                     index += 1
                 }
                 guard !value.isEmpty, path == nil else {
-                    throw CLIError(message: "browser download wait accepts one path")
+                    throw browserDownloadArgumentError("browser download wait accepts one path")
                 }
                 path = value
                 continue
@@ -135,7 +138,7 @@ extension CMUXCLI {
                 let value: String
                 if argument == "--timeout-ms" {
                     guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                        throw CLIError(message: "--timeout-ms requires an integer")
+                        throw browserDownloadArgumentError("--timeout-ms requires an integer")
                     }
                     value = arguments[index + 1]
                     index += 2
@@ -144,7 +147,7 @@ extension CMUXCLI {
                     index += 1
                 }
                 guard timeoutMs == nil, let parsed = Int(value) else {
-                    throw CLIError(message: "--timeout-ms must be an integer")
+                    throw browserDownloadArgumentError("--timeout-ms must be an integer")
                 }
                 timeoutMs = parsed
                 continue
@@ -153,7 +156,7 @@ extension CMUXCLI {
                 let value: String
                 if argument == "--timeout" {
                     guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                        throw CLIError(message: "--timeout requires a number")
+                        throw browserDownloadArgumentError("--timeout requires a number")
                     }
                     value = arguments[index + 1]
                     index += 2
@@ -161,31 +164,36 @@ extension CMUXCLI {
                     value = String(argument.dropFirst("--timeout=".count))
                     index += 1
                 }
+                // Keep the millisecond conversion below Int64.max even after
+                // Double rounding, so malformed input cannot trap the CLI.
+                let maximumRepresentableTimeoutSeconds = 9_000_000_000_000_000.0
                 guard timeoutMs == nil,
                       let seconds = Double(value),
                       seconds.isFinite,
-                      seconds * 1000.0 >= Double(Int.min),
-                      seconds * 1000.0 <= Double(Int.max) else {
-                    throw CLIError(message: "--timeout must be a finite number")
+                      seconds.magnitude <= maximumRepresentableTimeoutSeconds else {
+                    throw browserDownloadArgumentError("--timeout must be a finite number")
                 }
                 timeoutMs = max(1, Int(seconds * 1000.0))
                 continue
             }
             if argument.hasPrefix("-") {
-                throw CLIError(message: "Unknown browser download option '\(argument)'")
+                throw browserDownloadArgumentError("Unknown browser download option '\(argument)'")
             }
             positional.append(argument)
             index += 1
         }
         guard positional.count <= 1, path == nil || positional.isEmpty else {
-            throw CLIError(message: "browser download wait accepts one destination path")
+            throw browserDownloadArgumentError("browser download wait accepts one destination path")
         }
         return (path ?? positional.first, timeoutMs)
     }
 
     private func browserDownloadListText(_ payload: [String: Any]) -> String {
         guard let downloads = payload["downloads"] as? [[String: Any]], !downloads.isEmpty else {
-            return "No recent downloads."
+            return CMUXDiffViewerLocalization.string(
+                "cli.browser.download.list.empty",
+                defaultValue: "No recent downloads."
+            )
         }
         return downloads.enumerated().map { index, download in
             let status = browserDownloadTextValue(download["status"])
@@ -194,14 +202,29 @@ extension CMUXCLI {
             let path = browserDownloadTextValue(download["path"])
             let bytes = browserDownloadTextValue(download["bytes"])
             let pathExists = browserDownloadTextValue(download["path_exists"])
-            return [
-                "\(index + 1). \(status) \(filename)",
-                "   id: \(id)",
-                "   path: \(path)",
-                "   bytes: \(bytes)",
-                "   path_exists: \(pathExists)",
-            ].joined(separator: "\n")
+            let template = CMUXDiffViewerLocalization.string(
+                "cli.browser.download.list.entry",
+                defaultValue: "%1$lld. %2$@ %3$@\n   id: %4$@\n   path: %5$@\n   bytes: %6$@\n   path_exists: %7$@"
+            )
+            return String.localizedStringWithFormat(
+                template,
+                Int64(index + 1),
+                status,
+                filename,
+                id,
+                path,
+                bytes,
+                pathExists
+            )
         }.joined(separator: "\n")
+    }
+
+    private func browserDownloadArgumentError(_ detail: String) -> CLIError {
+        let template = CMUXDiffViewerLocalization.string(
+            "cli.browser.download.error.invalidArguments",
+            defaultValue: "Invalid browser download arguments: %@"
+        )
+        return CLIError(message: String.localizedStringWithFormat(template, detail))
     }
 
     private func browserDownloadTextValue(_ value: Any?) -> String {
