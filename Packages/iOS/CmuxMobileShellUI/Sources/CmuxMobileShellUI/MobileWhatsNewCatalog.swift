@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
@@ -16,7 +17,13 @@ struct MobileWhatsNewFeature {
 /// binary, or a cmux-owned webpage for content pushed after release.
 enum MobileWhatsNewPageBody {
     case features([MobileWhatsNewFeature])
+    case pairingSetup([MobileWhatsNewFeature])
     case web(URL)
+}
+
+struct MobileWhatsNewMacCompatibility: Equatable {
+    let stableVersion: String?
+    let nightlyVersion: String?
 }
 
 /// One What's New page: a binary catalog entry or a resolved remote
@@ -61,17 +68,10 @@ struct MobileWhatsNewPage: Identifiable {
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
-    /// Filled in precisely at the accompanying Mac release cut; the What's
-    /// New compat notice interpolates it. ONE value to edit at cut time.
-    static let requiredMacVersionLabel = L10n.string(
-        "mobile.connectionsUpdate.macUpdate.requiredVersion",
-        defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
-    )
-
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
-        [pairingOptInUpdate, connectionsUpdate]
+        [connectionsUpdate]
     }
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -98,53 +98,32 @@ enum MobileWhatsNewCatalog {
     /// positions in the FULL catalog so remotely hiding one entry cannot
     /// shift how other entries compare against the marker.
     static func index(ofID id: String) -> Int? {
-        entries.firstIndex { $0.id == id }
-    }
-
-    static var pairingOptInUpdate: MobileWhatsNewPage {
-        MobileWhatsNewPage(
-            id: "pairing-opt-in.v1",
-            releaseLabel: L10n.string(
-                "mobile.pairingOptInUpdate.releaseLabel",
-                defaultValue: "1.0.4 · September 2026"
-            ),
-            title: L10n.string(
-                "mobile.connectionsUpdate.title",
-                defaultValue: "What's New in cmux"
-            ),
-            body: .features([
-                .init(
-                    symbol: "lock.shield",
-                    title: L10n.string(
-                        "mobile.pairingOptInUpdate.title",
-                        defaultValue: "Required: Enable iOS pairing on Mac"
-                    ),
-                    detail: L10n.string(
-                        "mobile.pairingOptInUpdate.detail",
-                        defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
-                    )
-                ),
-            ]),
-            isAnnouncement: false,
-            footnote: L10n.string(
-                "mobile.pairingOptInUpdate.requirement",
-                defaultValue: "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."
-            )
-        )
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            return index
+        }
+        // These ids were acknowledged by earlier builds. Treat them as an
+        // older marker so the consolidated page is shown once, then advance
+        // the marker to the current entry id.
+        switch id {
+        case "pairing-opt-in.v1", "connections.v1":
+            return entries.count
+        default:
+            return nil
+        }
     }
 
     static var connectionsUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
-            id: "connections.v1",
+            id: "connections.v2",
             releaseLabel: L10n.string(
                 "mobile.connectionsUpdate.releaseLabel",
                 defaultValue: "1.0.5 · August 2026"
             ),
             title: L10n.string(
-                "mobile.connectionsUpdate.title",
-                defaultValue: "What's New in cmux"
+                "mobile.whatsNew.pairing.pageTitle",
+                defaultValue: "Pairing begins on your Mac"
             ),
-            body: .features([
+            body: .pairingSetup([
                 .init(
                     symbol: "desktopcomputer.and.macbook",
                     title: L10n.string(
@@ -190,38 +169,53 @@ enum MobileWhatsNewCatalog {
                     )
                 ),
             ]),
-            isAnnouncement: false,
-            // The compat requirement is one compact notice under the feature
-            // rows (owner feedback: the old full-width warning row read as
-            // clutter, and BETA users need the revert path).
-            footnote: macUpdateFootnote()
+            isAnnouncement: false
         )
     }
 
-    /// The compat-notice footnote, gated per distribution channel.
-    ///
-    /// Team builds include the BETA TestFlight rollback recipe. The public
-    /// App Store app has no older protocol version to revert to, so it gets
-    /// the update requirement only; App Review's Guideline 2.2 rejection also
-    /// bars beta-lane vocabulary from its UI.
-    static func macUpdateFootnote(buildType: MobileBuildType = .current()) -> String {
-        let requirement = String(
-            format: L10n.string(
-                "mobile.macUpdate.requiredOnMacFormat",
-                defaultValue: "Requires %@ on your Mac."
-            ),
-            requiredMacVersionLabel
-        )
-        guard buildType.usesInternalBuildVocabulary else {
-            return requirement
+    static func macCompatibility(
+        policy: MobileMacCompatPolicy,
+        iosVersion: String,
+        buildType: MobileBuildType
+    ) -> MobileWhatsNewMacCompatibility {
+        guard let tier = policy.tier(forIOSVersion: iosVersion) else {
+            return .init(stableVersion: nil, nightlyVersion: nil)
         }
-        return [
-            requirement,
-            L10n.string(
-                "mobile.macUpdate.revertShort",
-                defaultValue: "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+        let requirement = tier.buildKinds[buildType.token]
+            ?? .init(stableMinVersion: tier.stableMinVersion, nightly: tier.nightly)
+        let nightlyVersion = requirement.nightly.map {
+            "\($0.minBaseVersion.description)-nightly.\($0.minBuild)"
+        }
+        return .init(
+            stableVersion: requirement.stableMinVersion.description,
+            nightlyVersion: nightlyVersion
+        )
+    }
+
+    static func macUpdateDetail(
+        buildType: MobileBuildType,
+        requiredVersion: String?
+    ) -> String {
+        let version = requiredVersion ?? L10n.string(
+            "mobile.connectionsUpdate.macUpdate.requiredVersion",
+            defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
+        )
+        if buildType.usesInternalBuildVocabulary {
+            return String(
+                format: L10n.string(
+                    "mobile.connectionsUpdate.macUpdate.detail",
+                    defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+                ),
+                version
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.connectionsUpdate.macUpdate.detail.official",
+                defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
             ),
-        ].joined(separator: " ")
+            version
+        )
     }
 }
 #endif

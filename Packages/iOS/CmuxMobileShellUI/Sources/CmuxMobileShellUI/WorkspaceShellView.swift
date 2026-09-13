@@ -750,7 +750,7 @@ struct WorkspaceShellView: View {
         let readyPages = pages.filter { page in
             guard stillUnseen.contains(page.listID) else { return false }
             switch page.body {
-            case .features:
+            case .features, .pairingSetup:
                 return true
             case .web:
                 return loads[page.listID]?.phase == .loaded

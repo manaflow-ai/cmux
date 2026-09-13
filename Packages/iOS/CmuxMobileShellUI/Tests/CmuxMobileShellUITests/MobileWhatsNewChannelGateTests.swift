@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -49,44 +50,54 @@ import Testing
         #expect(center.unseenPages.isEmpty)
     }
 
-    @Test func pairingOptInEntryReappearsAfterThePreviousPageWasAcknowledged() async {
+    @Test func consolidatedPageReappearsAfterAnOlderPageWasAcknowledged() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["pairing-opt-in.v1", "connections.v1"],
+          "visibleEntryIds": ["connections.v2"],
           "announcements": []
         }
         """#
-        let center = makeCenter(
-            buildType: .beta,
-            payload: payload,
-            acknowledgedEntryID: "connections.v1"
-        )
-        await center.refresh()
-        #expect(center.unseenPages.map(\.id) == ["pairing-opt-in.v1"])
+        for oldMarker in ["pairing-opt-in.v1", "connections.v1"] {
+            let center = makeCenter(
+                buildType: .beta,
+                payload: payload,
+                acknowledgedEntryID: oldMarker
+            )
+            await center.refresh()
+            #expect(center.unseenPages.map(\.id) == ["connections.v2"])
+        }
     }
 
-    @Test func connectionsPageKeepsReleasedConnectionNotesSeparateFromPairingRequirement() throws {
-        guard case .features(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
-            Issue.record("connections.v1 should render native feature rows")
+    @Test func consolidatedPageCarriesPairingRequirementAndReleasedConnectionNotes() throws {
+        guard case .pairingSetup(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
+            Issue.record("connections.v2 should render the custom pairing page")
             return
         }
         let titles = features.map(\.title)
         #expect(titles.contains("Tailscale, on your terms"))
-        #expect(!titles.contains("Required: Enable iOS pairing on Mac"))
         #expect(features.last?.symbol == "qrcode.viewfinder")
         #expect(features.last?.detail.contains("Choosing Tailscale Only") == true)
         #expect(features.allSatisfy { !$0.detail.contains("Enable iOS pairing") })
+        #expect(MobileWhatsNewCatalog.connectionsUpdate.title == "Pairing begins on your Mac")
+        #expect(MobileWhatsNewCatalog.entry(withID: "pairing-opt-in.v1") == nil)
     }
 
-    @Test func pairingPageMakesMacSettingRequirementProminent() throws {
-        guard case .features(let features) = MobileWhatsNewCatalog.pairingOptInUpdate.body else {
-            Issue.record("pairing-opt-in.v1 should render native feature rows")
-            return
-        }
-        #expect(features.first?.title == "Required: Enable iOS pairing on Mac")
-        #expect(features.first?.detail.contains("Settings > Mobile") == true)
-        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Required before connecting") == true)
-        #expect(MobileWhatsNewCatalog.pairingOptInUpdate.footnote?.contains("Enable iOS pairing") == true)
+    @Test func compatibilityCopyUsesTheRemotePolicyShape() {
+        let beta = MobileWhatsNewCatalog.macCompatibility(
+            policy: .baked,
+            iosVersion: "1.0.4",
+            buildType: .beta
+        )
+        #expect(beta.stableVersion == "0.64.20")
+        #expect(beta.nightlyVersion == nil)
+
+        let official = MobileWhatsNewCatalog.macCompatibility(
+            policy: .baked,
+            iosVersion: "1.0.4",
+            buildType: .prod
+        )
+        #expect(official.stableVersion == "0.64.23")
+        #expect(official.nightlyVersion == "0.64.22-nightly.3345650013202")
     }
 
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {
@@ -103,10 +114,10 @@ import Testing
     @Test func legacyPayloadWithoutChannelFieldsKeepsTeamBehavior() async {
         // The pre-channel server payload shape must keep decoding and must
         // keep meaning "team lanes only" (not "everyone").
-        let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
+        let payload = #"{"visibleEntryIds":["connections.v2"],"announcements":[]}"#
         let team = makeCenter(buildType: .beta, payload: payload)
         await team.refresh()
-        #expect(team.visibleBinaryEntries.map(\.id) == ["connections.v1"])
+        #expect(team.visibleBinaryEntries.map(\.id) == ["connections.v2"])
 
         let official = makeCenter(buildType: .prod, payload: payload)
         await official.refresh()
@@ -117,15 +128,15 @@ import Testing
     @Test func remoteEntryChannelsOptABinaryEntryIntoOfficial() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v1"],
-          "entryChannels": { "connections.v1": ["dev", "beta", "internal", "prod"] },
+          "visibleEntryIds": ["connections.v2"],
+          "entryChannels": { "connections.v2": ["dev", "beta", "internal", "prod"] },
           "announcements": []
         }
         """#
         let center = makeCenter(buildType: .prod, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v1"])
-        #expect(center.unseenPages.map(\.id) == ["connections.v1"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2"])
+        #expect(center.unseenPages.map(\.id) == ["connections.v2"])
     }
 
     @Test func remoteEntryChannelsCanAlsoNarrowTeamBuilds() async {
@@ -133,8 +144,8 @@ import Testing
         // operator can retract an entry from a single lane remotely.
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v1"],
-          "entryChannels": { "connections.v1": ["prod"] },
+          "visibleEntryIds": ["connections.v2"],
+          "entryChannels": { "connections.v2": ["prod"] },
           "announcements": []
         }
         """#

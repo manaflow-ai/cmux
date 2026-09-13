@@ -169,6 +169,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWhatsNewPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.whatsNewPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -242,6 +250,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var hiddenComputersPreview: some View {
         #if os(iOS) && DEBUG
         HiddenComputersPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var whatsNewPreview: some View {
+        #if os(iOS) && DEBUG
+        MobileWhatsNewPreviewView()
         #else
         EmptyView()
         #endif
@@ -499,6 +515,8 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
+        } else if shouldShowWhatsNewPreview {
+            whatsNewPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {

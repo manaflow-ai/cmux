@@ -83114,6 +83114,105 @@
         }
       }
     },
+    "mobile.whatsNew.pairing.pageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing begins on your Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.screenshotLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.stableLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux %@ or later"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.nightlyVersionFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux NIGHTLY %@ or later"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noStableMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No stable minimum listed"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.noNightlyMinimum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No separate minimum"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.connectionChoicesTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection choices"
+          }
+        }
+      }
+    },
     "mobile.settings.whatsNew": {
       "extractionState": "manual",
       "localizations": {

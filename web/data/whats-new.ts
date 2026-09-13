@@ -80,10 +80,9 @@ export interface WhatsNewList {
 }
 
 export const whatsNewList: WhatsNewList = {
-  // Binary catalog ids the app may show. The pairing entry is separate from
-  // connections.v1 so users who already acknowledged the previous page see
-  // the new Mac-side opt-in requirement once. With no `entryChannels`
-  // override, both entries keep their compiled-in audience, team lanes only.
-  visibleEntryIds: ["pairing-opt-in.v1", "connections.v1"],
+  // One bespoke page now carries the Mac-side opt-in, the screenshot, the
+  // compatibility floors, and the connection notes. The earlier standalone
+  // pairing page is intentionally absent and can never be shown again.
+  visibleEntryIds: ["connections.v2"],
   announcements: [],
 };

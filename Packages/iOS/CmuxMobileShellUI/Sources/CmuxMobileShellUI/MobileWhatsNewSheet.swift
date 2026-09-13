@@ -31,7 +31,12 @@ struct MobileWhatsNewSheet: View {
     private var usesFullHeight: Bool {
         if dynamicTypeSize.isAccessibilitySize { return true }
         if pages.count > 1 { return true }
-        if case .web = pages.first?.body { return true }
+        switch pages.first?.body {
+        case .pairingSetup, .web:
+            return true
+        default:
+            break
+        }
         return false
     }
 
@@ -47,8 +52,10 @@ struct MobileWhatsNewSheet: View {
                     }
                     .tabViewStyle(.page(indexDisplayMode: .always))
                     .indexViewStyle(.page(backgroundDisplayMode: .always))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     continueButton
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let page = pages.first {
                 switch page.body {
                 case .features where !dynamicTypeSize.isAccessibilitySize:
@@ -64,14 +71,12 @@ struct MobileWhatsNewSheet: View {
                         .scrollBounceBehavior(.basedOnSize)
                     }
                 default:
-                    VStack(spacing: 0) {
-                        fullHeightPage(page)
-                        continueButton
-                    }
+                    fullHeightPageWithContinue(page)
                 }
             }
         }
         .background(PlatformPalette.systemBackground)
+        .modifier(MobileWhatsNewFullHeightContent(enabled: usesFullHeight))
         .accessibilityIdentifier("MobileWhatsNewSheet")
         .modifier(MobileWhatsNewPresentationSizing(
             contentHeight: contentHeight,
@@ -101,6 +106,11 @@ struct MobileWhatsNewSheet: View {
         switch page.body {
         case .features:
             MobileWhatsNewFittingPage(page: page)
+        case .pairingSetup:
+            ScrollView {
+                MobileWhatsNewContent(page: page, layout: .compact)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         case .web(let url):
             MobileWhatsNewWebView(
                 url: url,
@@ -108,6 +118,15 @@ struct MobileWhatsNewSheet: View {
                 preloadedLoad: webLoads[page.listID]
             )
         }
+    }
+
+    private func fullHeightPageWithContinue(_ page: MobileWhatsNewPage) -> some View {
+        VStack(spacing: 0) {
+            fullHeightPage(page)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            continueButton
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var continueButton: some View {
@@ -141,6 +160,20 @@ struct MobileWhatsNewSheet: View {
     }
 }
 
+private struct MobileWhatsNewFullHeightContent: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            content
+        }
+    }
+}
+
 /// Fits the sheet to its measured content height for the common single-page
 /// standard-type case; full height only where a fixed viewport is required.
 private struct MobileWhatsNewPresentationSizing: ViewModifier {
@@ -151,7 +184,10 @@ private struct MobileWhatsNewPresentationSizing: ViewModifier {
     func body(content: Content) -> some View {
         if usesFullHeight {
             content
+                .presentationSizing(.page)
                 .presentationDetents([.large])
+                .presentationContentInteraction(.scrolls)
+                .presentationDragIndicator(.visible)
         } else {
             content
                 .presentationSizing(.fitted)
