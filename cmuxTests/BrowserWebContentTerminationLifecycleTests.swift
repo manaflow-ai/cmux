@@ -61,6 +61,13 @@ struct BrowserWebContentTerminationLifecycleTests {
         )
         defer { panel.close() }
 
+        let expectedURL = URL(string: "https://example.com/recovery")!
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: ["https://example.com/back"],
+            forwardHistoryURLStrings: ["https://example.com/forward"],
+            currentURLString: expectedURL.absoluteString
+        )
+        let expectedHistory = panel.sessionNavigationHistorySnapshot()
         panel.noteWebViewVisibility(false, reason: "test.hidden")
         guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
             Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
@@ -72,6 +79,13 @@ struct BrowserWebContentTerminationLifecycleTests {
         #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: Date(timeIntervalSince1970: 10_000)))
         #expect(!panel.hasRecoverableWebContentTermination)
         #expect(!panel.shouldRenderWebView)
+
+        panel.noteWebViewVisibility(true, reason: "test.reveal")
+
+        #expect(panel.currentURL == expectedURL)
+        let restoredHistory = panel.sessionNavigationHistorySnapshot()
+        #expect(restoredHistory.backHistoryURLStrings == expectedHistory.backHistoryURLStrings)
+        #expect(restoredHistory.forwardHistoryURLStrings == expectedHistory.forwardHistoryURLStrings)
     }
 
     @Test
