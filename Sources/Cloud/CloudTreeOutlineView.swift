@@ -79,7 +79,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
-        private var contentSignature: [String] = []
+        private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -246,17 +246,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
             #endif
             guard nextStructure != structureSignature || nextContent != contentSignature else { return }
+            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
             contentSignature = nextContent
             if nextStructure == structureSignature, !self.nodes.isEmpty {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
-                guard let outlineView, outlineView.numberOfRows > 0 else { return }
+                guard let outlineView else { return }
+                let changedRows = update.rowIndexes(in: outlineView)
+                guard !changedRows.isEmpty else { return }
                 withProgrammaticUpdate {
-                    outlineView.reloadData(
-                        forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
-                        columnIndexes: IndexSet(integer: 0)
-                    )
+                    outlineView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
                 }
                 return
             }
