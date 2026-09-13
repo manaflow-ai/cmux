@@ -449,7 +449,7 @@ extension RemoteTmuxControlConnection {
     /// so writer backpressure cannot expose a partially delivered paste.
     @discardableResult
     func sendKeys(paneId: Int, data: Data) -> Bool {
-        guard let commands = RemoteTmuxSendKeysBatchBuilder.commands(
+        guard let commands = sendKeysBatchBuilder.commands(
             paneID: paneId,
             data: data
         ) else { return false }

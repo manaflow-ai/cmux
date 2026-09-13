@@ -142,6 +142,10 @@ final class RemoteTmuxControlConnection {
     /// produces a fresh attach block).
     private var attachBlockDrained = false
     private let createIfMissing: Bool
+    /// The injected `send-keys -H` framing policy. Shared with the pane input
+    /// forwarder so admission, command framing, and the stdin writer budget all
+    /// read one configuration.
+    let sendKeysBatchBuilder: RemoteTmuxSendKeysBatchBuilder
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
@@ -266,9 +270,10 @@ final class RemoteTmuxControlConnection {
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
     /// Cap queued stdin bytes while the dedicated writer is backpressured.
-    /// The package-owned framing policy sizes this for one complete maximum
-    /// logical input after `send-keys -H` encoding and command framing.
-    static let maxPendingStdinBytes = RemoteTmuxSendKeysBatchBuilder.writerPendingByteLimit
+    /// Derived per connection from the injected framing policy, which sizes it
+    /// for one complete maximum logical input after `send-keys -H` encoding and
+    /// command framing.
+    var maxPendingStdinBytes: Int { sendKeysBatchBuilder.writerPendingByteLimit }
     /// Cap pending stdout between SSH's pipe callback and the main-actor parser.
     /// Initial attach can legitimately burst one `capture-pane -S 5000` block per
     /// mirrored pane, so the chunk cap absorbs pipe delivery jitter while the byte
@@ -333,12 +338,14 @@ final class RemoteTmuxControlConnection {
         host: RemoteTmuxHost,
         sessionName: String,
         createIfMissing: Bool = false,
-        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
+        pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes,
+        sendKeysBatchBuilder: RemoteTmuxSendKeysBatchBuilder = RemoteTmuxSendKeysBatchBuilder()
     ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
         self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
+        self.sendKeysBatchBuilder = sendKeysBatchBuilder
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.
@@ -435,7 +442,7 @@ final class RemoteTmuxControlConnection {
         let stdinWriter = RemoteTmuxControlPipeWriter(
             handle: inPipe.fileHandleForWriting,
             label: "com.cmux.remote-tmux.stdin.\(UUID().uuidString)",
-            maxPendingBytes: Self.maxPendingStdinBytes,
+            maxPendingBytes: maxPendingStdinBytes,
             onFailure: { [weak self] in
                 self?.handleStdinWriteFailure()
             }

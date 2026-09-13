@@ -3,20 +3,17 @@ import Foundation
 import Testing
 
 @Suite struct RemoteTmuxSendKeysBatchBuilderTests {
+    private let builder = RemoteTmuxSendKeysBatchBuilder()
+
     @Test func emptyInputProducesNoCommands() throws {
-        let commands = try #require(
-            RemoteTmuxSendKeysBatchBuilder.commands(paneID: 42, data: Data())
-        )
+        let commands = try #require(builder.commands(paneID: 42, data: Data()))
 
         #expect(commands.isEmpty)
     }
 
     @Test func encodesLowercaseSpaceSeparatedHexBytes() throws {
         let commands = try #require(
-            RemoteTmuxSendKeysBatchBuilder.commands(
-                paneID: 42,
-                data: Data([0x00, 0x0F, 0x10, 0xFF])
-            )
+            builder.commands(paneID: 42, data: Data([0x00, 0x0F, 0x10, 0xFF]))
         )
 
         #expect(commands == ["send-keys -t %42 -H 00 0f 10 ff"])
@@ -28,9 +25,7 @@ import Testing
         let payload = backing[payloadStart..<backing.endIndex]
         #expect(payload.startIndex == payloadStart)
 
-        let commands = try #require(
-            RemoteTmuxSendKeysBatchBuilder.commands(paneID: 7, data: payload)
-        )
+        let commands = try #require(builder.commands(paneID: 7, data: payload))
 
         #expect(commands.count > 1)
         #expect(commands.allSatisfy { $0.utf8.count < 30_000 })
@@ -40,29 +35,44 @@ import Testing
     @Test func maximumInputFitsTheProductionWriterBudgetIncludingTerminators() throws {
         let maximumInput = Data(
             repeating: 0xFF,
-            count: RemoteTmuxSendKeysBatchBuilder.maximumInputBytes
+            count: RemoteTmuxSendKeysBatchBuilder.defaultMaximumInputBytes
         )
-        let commands = try #require(
-            RemoteTmuxSendKeysBatchBuilder.commands(paneID: 7, data: maximumInput)
-        )
+        let commands = try #require(builder.commands(paneID: 7, data: maximumInput))
         let encodedByteCount = commands.reduce(into: 0) { total, command in
             total += command.utf8.count + 1
         }
 
         #expect(!commands.isEmpty)
-        #expect(encodedByteCount <= RemoteTmuxSendKeysBatchBuilder.writerPendingByteLimit)
+        #expect(encodedByteCount <= builder.writerPendingByteLimit)
         #expect(try decodedBytes(from: commands, paneID: 7) == maximumInput)
     }
 
     @Test func rejectsOneByteAboveMaximumInput() {
         let oversizedInput = Data(
             repeating: 0xFF,
-            count: RemoteTmuxSendKeysBatchBuilder.maximumInputBytes + 1
+            count: RemoteTmuxSendKeysBatchBuilder.defaultMaximumInputBytes + 1
         )
 
-        #expect(
-            RemoteTmuxSendKeysBatchBuilder.commands(paneID: 7, data: oversizedInput) == nil
+        #expect(builder.commands(paneID: 7, data: oversizedInput) == nil)
+    }
+
+    @Test func injectedPolicyGovernsFramingAndAdmission() throws {
+        let injected = RemoteTmuxSendKeysBatchBuilder(
+            maximumInputBytes: 6,
+            maximumBytesPerCommand: 2
         )
+        let payload = Data([0x41, 0x42, 0x43, 0x44, 0x45, 0x46])
+
+        let commands = try #require(injected.commands(paneID: 3, data: payload))
+
+        #expect(commands == [
+            "send-keys -t %3 -H 41 42",
+            "send-keys -t %3 -H 43 44",
+            "send-keys -t %3 -H 45 46",
+        ])
+        #expect(try decodedBytes(from: commands, paneID: 3) == payload)
+        #expect(injected.writerPendingByteLimit == 24)
+        #expect(injected.commands(paneID: 3, data: payload + Data([0x47])) == nil)
     }
 }
 

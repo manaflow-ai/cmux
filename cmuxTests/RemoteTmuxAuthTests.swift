@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 import Testing
 
@@ -287,13 +288,14 @@ import Testing
     }
 
     @Test @MainActor func sendKeysAcceptsRawAdmissionLimitWithProductionWriterBudget() async throws {
-        let rawAdmissionLimit = RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes
+        let builder = RemoteTmuxSendKeysBatchBuilder()
+        let rawAdmissionLimit = builder.maximumInputBytes
         let data = Data((0 ..< rawAdmissionLimit).map { UInt8($0 % 251) })
 
         let emission = try await captureSendKeysWire(
             paneId: 7,
             data: data,
-            maxPendingBytes: RemoteTmuxControlConnection.maxPendingStdinBytes
+            maxPendingBytes: builder.writerPendingByteLimit
         )
 
         #expect(emission.accepted)

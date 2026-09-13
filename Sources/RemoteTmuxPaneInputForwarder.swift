@@ -26,7 +26,9 @@ final class RemoteTmuxPaneInputForwarder: Sendable {
     /// Matches the control connection's bounded stdin budget. The byte
     /// reservation happens before the MainActor hop, where that later budget
     /// cannot protect a stalled consumer.
-    static let defaultMaximumPendingBytes = RemoteTmuxSendKeysBatchBuilder.maximumInputBytes
+    ///
+    /// The default reads the same injected framing policy the connection uses;
+    /// `maximumPendingBytes` stays overridable for tests that need a tiny budget.
 
     // Ghostty's synchronous callback needs a non-blocking byte/epoch reservation before the actor hop.
     private let state: OSAllocatedUnfairLock<State>
@@ -37,12 +39,13 @@ final class RemoteTmuxPaneInputForwarder: Sendable {
 
     @MainActor
     init(
-        maximumPendingBytes: Int = RemoteTmuxPaneInputForwarder.defaultMaximumPendingBytes,
+        sendKeysBatchBuilder: RemoteTmuxSendKeysBatchBuilder = RemoteTmuxSendKeysBatchBuilder(),
+        maximumPendingBytes: Int? = nil,
         isActive: Bool = true,
         onInput: @escaping @MainActor @Sendable (TerminalManualInput, Int) -> Void,
         onOverflow: @escaping @MainActor @Sendable () -> Void
     ) {
-        let maximumPendingBytes = max(1, maximumPendingBytes)
+        let maximumPendingBytes = max(1, maximumPendingBytes ?? sendKeysBatchBuilder.maximumInputBytes)
         let state = OSAllocatedUnfairLock(initialState: State(isActive: isActive))
         let (stream, continuation) = AsyncStream.makeStream(
             of: QueuedInput.self,

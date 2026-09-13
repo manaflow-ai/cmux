@@ -191,6 +191,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         self.defaultPanelIds = Array(workspace.panels.keys)
         workspace.remoteTmuxSessionMirror = self
         self.paneInputForwarder = RemoteTmuxPaneInputForwarder(
+            sendKeysBatchBuilder: connection.sendKeysBatchBuilder,
             isActive: connection.connectionState == .connected,
             onInput: { [weak self] input, paneID in
                 self?.sendManualInput(input, toPane: paneID)

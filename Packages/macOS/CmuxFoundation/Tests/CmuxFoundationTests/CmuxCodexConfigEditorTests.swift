@@ -144,6 +144,24 @@ struct CmuxCodexConfigEditorTests {
         #expect(uninstalled == original)
     }
 
+    @Test("A quoted [\"features\"] header is recognized instead of duplicated")
+    func quotedFeaturesHeaderRoundTripsWithoutDuplicateTable() {
+        let original = #"""
+        model = "gpt-5"
+        ["features"]
+        hooks = false
+        """# + "\n"
+
+        let installed = editor.installingHooks(in: original, trustEntries: [])
+
+        #expect(Self.occurrences(of: #"["features"]"#, in: installed.content) == 1)
+        #expect(Self.occurrences(of: #"[features]"#, in: installed.content) == 0)
+        #expect(installed.content.split(separator: "\n").contains("hooks = true"))
+
+        let uninstalled = editor.uninstallingHooks(from: installed.content)
+        #expect(uninstalled == original)
+    }
+
     @Test("Stale trust cleanup preserves escaped quoted user table headers")
     func staleTrustCleanupStopsAtEscapedQuotedUserTableHeader() {
         let original = #"""
