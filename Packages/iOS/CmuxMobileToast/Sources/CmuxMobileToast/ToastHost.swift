@@ -20,16 +20,8 @@ public extension View {
         haptics: MobileHapticFeedback = MobileHapticFeedback()
     ) -> some View {
         #if os(iOS)
-        if #available(iOS 26.0, *) {
-            background(ToastWindowMounter(center: center, haptics: haptics))
-                .environment(center)
-        } else {
-            // iOS 18 does not reliably host a second alert-level window while
-            // SwiftUI is building the root scene. Keep the same toast content
-            // in the app window on older systems.
-            overlay(ToastOverlayRoot(center: center, haptics: haptics))
-                .environment(center)
-        }
+        background(ToastWindowMounter(center: center, haptics: haptics))
+            .environment(center)
         #else
         overlay(ToastOverlayRoot(center: center, haptics: haptics))
             .environment(center)
