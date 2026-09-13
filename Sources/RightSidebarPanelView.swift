@@ -329,7 +329,11 @@ struct RightSidebarPanelView: View {
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(
+            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
+            trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
+            height: titlebarHeight
+        )
         .contextMenu { tabCustomizationMenu }
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
@@ -512,7 +516,8 @@ struct RightSidebarPanelView: View {
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
                 MachinesPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    tabManager: tabManager
                 )
             case .customSidebar:
                 customSidebarPanel

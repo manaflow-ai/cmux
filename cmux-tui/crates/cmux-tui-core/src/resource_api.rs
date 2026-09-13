@@ -719,6 +719,9 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
                 }
+                if let Some(subtitle) = notification.subtitle {
+                    snapshot["subtitle"] = json!(subtitle);
+                }
                 snapshot
             })
             .collect::<Vec<_>>();

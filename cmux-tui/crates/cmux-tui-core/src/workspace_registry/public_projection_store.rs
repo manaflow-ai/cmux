@@ -27,6 +27,7 @@ const NOTIFICATION_LEDGER_CAPACITY: usize = 256;
 pub struct RegistryNotificationProjection {
     pub id: NotificationPublicId,
     pub title: String,
+    pub subtitle: Option<String>,
     pub body: String,
     pub level: String,
     pub terminal_id: Option<TerminalPublicId>,
@@ -84,6 +85,8 @@ struct StoredNotification {
     id: NotificationPublicId,
     session_id: SessionPublicId,
     title: String,
+    #[serde(default)]
+    subtitle: Option<String>,
     body: String,
     level: StoredNotificationLevel,
     terminal_id: Option<TerminalPublicId>,
@@ -257,6 +260,9 @@ impl WorkspaceRegistry {
              WHERE operation = 'notification.create'
                AND state = 'committed'
                AND json_extract(outcome_json, '$.kind') = 'success'
+               AND json_extract(outcome_json, '$.value.id') NOT IN (
+                 SELECT notification_id FROM resource_notification_clears
+               )
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
@@ -319,6 +325,7 @@ impl WorkspaceRegistry {
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,
+                subtitle: stored.subtitle,
                 body: stored.body,
                 level: stored.level.as_str().to_string(),
                 terminal_id: stored

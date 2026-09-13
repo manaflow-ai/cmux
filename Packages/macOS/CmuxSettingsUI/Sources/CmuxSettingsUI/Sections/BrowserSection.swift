@@ -54,6 +54,10 @@ public struct BrowserSection: View {
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
     @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
+    /// The effective allowlist policy, re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
+    /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
+    @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -112,6 +116,7 @@ public struct BrowserSection: View {
                 let policy = BrowserURLAllowlistPolicy()
                 let wasManaged = browserURLAllowlistManagedByPolicy
                 browserURLAllowlistManagedByPolicy = policy.isManaged
+                urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
                     urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
@@ -530,9 +535,16 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available. Under a managed policy, localhost and local files stay available unless your organization turns them off."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
+            if browserURLAllowlistManagedByPolicy {
+                Text(managedURLAllowlistNote)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
+            }
             TextEditor(text: $urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
@@ -603,6 +615,34 @@ public struct BrowserSection: View {
     ) -> String {
         guard policy.isManaged else { return model.current }
         return policy.patterns.map(\.rawValue).joined(separator: "\n")
+    }
+
+    /// What a managed list permits beyond its rules, in the admin's own terms:
+    /// localhost and local files are on by default and each can be turned off
+    /// by a profile.
+    private var managedURLAllowlistNote: String {
+        switch (urlAllowlistPolicy.allowsLocalhost, urlAllowlistPolicy.allowsLocalFiles) {
+        case (true, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOn",
+                defaultValue: "Your organization manages this list. localhost (any port) and local files stay available in addition to the rules above."
+            )
+        case (false, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localhostOff",
+                defaultValue: "Your organization manages this list and blocks localhost. Local files stay available."
+            )
+        case (true, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localFilesOff",
+                defaultValue: "Your organization manages this list and blocks local files. localhost (any port) stays available."
+            )
+        case (false, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOff",
+                defaultValue: "Your organization manages this list and blocks localhost and local files."
+            )
+        }
     }
 
     private var urlAllowlistHint: some View {
