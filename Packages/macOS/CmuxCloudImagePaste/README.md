@@ -6,5 +6,5 @@ injects the leased cmux-tui control sender; the package never opens a network
 socket or accepts a caller-selected remote path.
 
 The coordinator accepts only PNG, JPEG, GIF, and WebP signatures and bounds
-payloads to 20 MiB. Tests can inject `CloudImagePasteCoordinator.DeadlineSleep`
-to advance or fail a deadline without using the filesystem or a live daemon.
+payloads to 20 MiB. Its upload deadline is a cancellable one-shot signal, so a
+cancelled or disconnected transfer does not leave an async sleeper behind.

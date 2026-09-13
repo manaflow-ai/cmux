@@ -10,8 +10,6 @@ public final class CloudImagePasteCoordinator {
     public static let chunkBytes = 48 * 1024
     /// Sends an authenticated control command and returns its request ID.
     public typealias Send = @MainActor ([String: Any]) throws -> UInt64
-    /// Provides the bounded cancellation-aware request deadline.
-    public typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
 
     private struct Endpoint {
         let generation = UUID()
@@ -34,24 +32,15 @@ public final class CloudImagePasteCoordinator {
     private var committing = false
     private var preparing = false
     private let deadline: Duration
-    private let deadlineSleep: DeadlineSleep
+    private var deadlineTimer: CloudImagePasteDeadline?
     /// The number of image bytes acknowledged by the daemon for the active upload.
     public private(set) var transferredBytes = 0
 
     /// Creates a coordinator with an injected, cancellation-aware deadline.
     ///
-    /// - Parameters:
-    ///   - deadline: Maximum time allowed for one upload transaction.
-    ///   - deadlineSleep: Deadline implementation. The default uses
-    ///     ``ContinuousClock`` and is replaceable by tests.
-    public init(
-        deadline: Duration = .seconds(120),
-        deadlineSleep: @escaping DeadlineSleep = { duration in
-            try await ContinuousClock().sleep(for: duration)
-        }
-    ) {
+    /// - Parameter deadline: Maximum time allowed for one upload transaction.
+    public init(deadline: Duration = .seconds(120)) {
         self.deadline = deadline
-        self.deadlineSleep = deadlineSleep
     }
 
     /// Binds the coordinator to the current authenticated terminal attachment.
@@ -126,13 +115,13 @@ public final class CloudImagePasteCoordinator {
         activeToken = token
         committing = false
         transferredBytes = 0
-        let deadlineSleep = self.deadlineSleep
-        let timeout = Task { [weak self, deadlineSleep, deadline] in
-            do { try await deadlineSleep(deadline) } catch { return }
+        let deadlineTimer = CloudImagePasteDeadline(duration: deadline) { [weak self] in
             self?.cancel(token: token, error: CloudImagePasteError.timedOut)
         }
+        self.deadlineTimer = deadlineTimer
         defer {
-            timeout.cancel()
+            deadlineTimer.cancel()
+            self.deadlineTimer = nil
             activeToken = nil
             committing = false
         }
