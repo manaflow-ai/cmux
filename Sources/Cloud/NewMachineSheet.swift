@@ -105,7 +105,7 @@ struct NewMachineSheet: View {
         ScrollView(.vertical) {
             Text(text)
                 .font(.system(size: 11, design: .monospaced))
-                .copyOnlyTextSelection(for: text)
+                .textSelection(.disabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
         }
@@ -119,6 +119,7 @@ struct NewMachineSheet: View {
                 .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
         )
         .accessibilityIdentifier("NewMachineSheet.error")
+        .cloudErrorCopyMenu(text)
     }
 
     private var buttons: some View {

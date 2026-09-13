@@ -86,6 +86,8 @@ import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestM
 import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  CMUX_TUI_HOOK_PROVIDERS,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
@@ -463,6 +465,32 @@ try {
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
+  );
+
+  // The install above also wrote the work user's Claude Code and Codex hooks
+  // (cmux-tui agent hook install), so a Stop, permission request, or question
+  // in either agent reaches the daemon journal and the owner's Mac as a
+  // notification with no per-machine setup. Prove the four artifacts and that
+  // the daemon user's own status verb agrees; then prove the two writers of
+  // ~/.codex/config.toml compose: hooks first (bake), then the provider block
+  // agent-config.sh adds at the first login that sees a boot env, with the
+  // trust state intact and the result still one TOML document.
+  await step(
+    "agent-hooks",
+    [
+      cmuxTuiHooksReadyCommand(),
+      `${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json`,
+      `node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); const rows = r.providers || []; const by = Object.fromEntries(rows.map((p) => [p.provider, p])); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { if (!by[id] || by[id].state !== "installed") { console.error(id, by[id]); process.exit(1); } }'`,
+      `test "$(stat -c %U ${WORK_HOME}/.claude/settings.json ${WORK_HOME}/.codex/hooks.json ${WORK_HOME}/.codex/config.toml | sort -u)" = ${WORK_USER}`,
+      `! grep -q '^model_provider = ' ${WORK_HOME}/.codex/config.toml`,
+      `rm -rf /tmp/hook-merge-check && mkdir -p /tmp/hook-merge-check/.codex && cp ${WORK_HOME}/.codex/config.toml /tmp/hook-merge-check/.codex/config.toml`,
+      `env HOME=/tmp/hook-merge-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true'`,
+      `head -c 200 /tmp/hook-merge-check/.codex/config.toml | grep -q '^model_provider = "cmux"'`,
+      `grep -q '^\\[hooks' /tmp/hook-merge-check/.codex/config.toml && grep -q '^\\[model_providers.cmux\\]' /tmp/hook-merge-check/.codex/config.toml`,
+      `python3 -c 'import tomllib,sys; d = tomllib.load(open("/tmp/hook-merge-check/.codex/config.toml","rb")); assert d["model_provider"] == "cmux" and "hooks" in d and d["history"]["persistence"] == "save-all", d'`,
+      `rm -rf /tmp/hook-merge-check /tmp/hook-status.json`,
+      "echo agent-hooks-ok",
+    ].join(" && "),
   );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the

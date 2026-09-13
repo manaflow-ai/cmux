@@ -10,6 +10,7 @@ import {
   coderouterVaultLeases,
 } from "../../db/schema";
 import type { EncryptedCredential } from "./encryption";
+import { ownerFromProviderKey, providerIdentityKey } from "./codexIdentity";
 import {
   credentialExpiresAt,
   credentialLabel,
@@ -221,6 +222,7 @@ export async function listAccounts(
   ]);
   return rows.map((row) => ({
     ...row,
+    ...(row.provider === "codex" ? providerIdentitySummary(row.providerAccountId) : {}),
     credentialExpiresAt: row.credentialExpiresAt?.toISOString() ?? null,
     cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
     activeSessions: sessionCounts.get(row.id) ?? 0,
@@ -323,7 +325,7 @@ export async function insertAccountWithCredential(input: {
         id: input.encrypted.accountId,
         teamId: input.encrypted.teamId,
         provider: input.credential.provider,
-        providerAccountId: input.credential.accountId,
+        providerAccountId: providerIdentityKey(input.credential),
         label,
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
@@ -438,7 +440,7 @@ export async function upsertAccountMetadata(input: {
   readonly credential: CodeRouterCredential;
   readonly vaultRevision: number;
 }): Promise<void> {
-  const providerAccountId = input.credential.accountId;
+  const providerAccountId = providerIdentityKey(input.credential);
   const label = credentialLabel(input.credential);
   await cloudDb()
     .insert(coderouterAccounts)
@@ -489,6 +491,39 @@ export async function findAccountByProviderIdentity(
     ))
     .limit(1);
   return row ?? null;
+}
+
+function providerIdentitySummary(key: string) {
+  const owner = ownerFromProviderKey(key);
+  return owner ? { providerAccountId: owner.workspaceId, providerUserId: owner.userId } : {};
+}
+
+/** Changes metadata only. Credential revisions and session foreign keys stay intact. */
+export async function bindCodexOwnerIdentity(input: {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly expectedKey: string;
+  readonly expectedRevision: number;
+  readonly credential: CodeRouterCredential;
+}): Promise<boolean> {
+  if (input.credential.provider !== "codex") throw new Error("Codex owner required");
+  const [row] = await cloudDb().update(coderouterAccounts).set({
+    providerAccountId: providerIdentityKey(input.credential),
+    label: credentialLabel(input.credential),
+    updatedAt: new Date(),
+  }).where(and(
+    eq(coderouterAccounts.id, input.accountId),
+    eq(coderouterAccounts.teamId, input.teamId),
+    eq(coderouterAccounts.provider, "codex"),
+    eq(coderouterAccounts.providerAccountId, input.expectedKey),
+    eq(coderouterAccounts.vaultRevision, input.expectedRevision),
+  )).returning({ id: coderouterAccounts.id });
+  return row !== undefined;
+}
+
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+  await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
 }
 
 export type RoutedAccount = {

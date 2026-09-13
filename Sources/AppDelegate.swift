@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
@@ -834,6 +835,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
+    var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
+    var newMachineSheetPresenter: (any NewMachineSheetPresenting)?
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
@@ -1149,6 +1153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
+    var cloudOperations: CloudOperationRecorder?
+    var cloudDiagnosticsWindowController: NSWindowController?
     /// The in-flight sign-out teardown of that tunnel, so a second sign-out
     /// replaces rather than stacks it.
     var cloudTunnelTeardownTask: Task<Void, Never>?
@@ -2427,6 +2433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
@@ -2508,6 +2515,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
+        cloudWorkspaceCoordinator: CloudWorkspaceCoordinator,
+        cloudWorkspaceOperationController: CloudWorkspaceOperationController,
+        newMachineSheetPresenter: any NewMachineSheetPresenting,
         automationEngine: AutomationEngine,
         computerUseRuntimeService: ComputerUseRuntimeService
     ) {
@@ -2527,18 +2537,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
+        self.cloudWorkspaceCoordinator = cloudWorkspaceCoordinator
+        self.cloudWorkspaceOperationController = cloudWorkspaceOperationController
+        self.newMachineSheetPresenter = newMachineSheetPresenter
         self.computerUseRuntimeService = computerUseRuntimeService
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
         }
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
-        VMClient.bootstrap(auth: auth.coordinator)
+        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
+        let cloudUploader = CloudTelemetryUploader(
+            auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
+        )
+        let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
+            coordinator?.authenticatedSessionIdentity
+        })
+        self.cloudOperations = cloudOperations
+        VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
         TerminalController.shared.cloudTunnel = cloudTunnel
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)
-        MachineUsageClient.bootstrap(auth: auth.coordinator)
+        MachineUsageClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -9274,6 +9295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // entrypoint; remove only Cloud VM records while preserving local tab
         // history for the next account/session.
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
+        cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
         NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
         _ = saveSessionSnapshotUsingCachedProcessDetectedIndexes(
@@ -9404,7 +9426,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context: context,
             preferredWindow: window,
             onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onCloudVMCompletion: onCloudVMCompletion,
+            destination: CloudWorkspaceGroupDestination(
+                tabManager: context.tabManager,
+                groupId: workspaceGroupTarget?.groupId,
+                placement: workspaceGroupTarget?.placement ?? groupPlacement,
+                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId ?? anchorId,
+                initialWorkspaceId: initialWorkspaceId
+            )
         )
     }
 
@@ -15176,6 +15205,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newCloudWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newCloudWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return performNewCloudWorkspaceOnDefaultMachineAction(
+                preferredWindow: mainWindowForShortcutEvent(event),
+                debugSource: "shortcut.cmdY"
+            )
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newCloudMachine) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newCloudMachine \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return performNewCloudWorkspaceAction(event: event, debugSource: "shortcut.cmdShiftY")
+        }
+
         // New Window: Cmd+Shift+N
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
@@ -17589,7 +17635,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             context: context,
             preferredWindow: resolvedWindow(for: context),
             onExecuted: onExecuted,
-            onCloudVMCompletion: onCloudVMCompletion
+            onCloudVMCompletion: onCloudVMCompletion,
+            destination: CloudWorkspaceGroupDestination(
+                tabManager: tabManager,
+                groupId: groupId,
+                placement: groupPlacement,
+                referenceWorkspaceId: anchorId,
+                initialWorkspaceId: nil
+            )
         )
         // executeConfiguredCmuxAction returns false when the action couldn't
         // start at all (unresolved action ref, missing target terminal, etc.).
@@ -17612,7 +17665,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context: MainWindowContext,
         preferredWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil,
-        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
+        destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         switch action.action {
         case .builtIn(let builtIn):
@@ -17628,6 +17682,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.cloudvm",
                     onCompletion: onCloudVMCompletion
+                )
+                if didStart { onExecuted?() }
+                return didStart
+            case .newCloudWorkspace:
+                let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                    debugSource: "configured.cmux.newCloudWorkspace",
+                    destination: destination
+                )
+                if didStart { onExecuted?() }
+                return didStart
+            case .newCloudMachine:
+                let didStart = performNewCloudWorkspaceAction(
+                    tabManager: context.tabManager,
+                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                    debugSource: "configured.cmux.newCloudMachine",
+                    destination: destination
                 )
                 if didStart { onExecuted?() }
                 return didStart
