@@ -76,13 +76,16 @@ final class CloudTuiManualMirrorSession {
     let clock: any Clock<Duration>
     /// What the pane shows about this attachment; written only by `transition`.
     let attachmentStatus: CloudTerminalAttachmentStatus
+    let presentationReadiness = CloudTerminalReadiness()
     private let watchdog: CloudTuiManualMirrorWatchdog
     private let log = CloudTerminalAttachmentLog()
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         guard let state = CloudManualMirrorPresentation(
-            phase: phase, replayReceived: diagnosticReplayReceived
+            phase: phase,
+            replayReceived: diagnosticReplayReceived,
+            firstFramePresented: presentationReadiness.phase == .ready
         ).connectionState else { return nil }
         var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
@@ -153,10 +156,6 @@ final class CloudTuiManualMirrorSession {
         self.surface = surface
         surface.hostedView.cloudTerminalOverlay.session = self
         manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
-        // A color sidecar that arrived before any surface existed reaches this
-        // one now. The stored sidecar is the remote truth, and the next
-        // identical sidecar would produce an empty delta and leave the pane on
-        // the local theme.
         let pendingColors = appliedRemoteColors.oscBytes
         if !pendingColors.isEmpty {
             surface.processRemoteOutput(pendingColors)
@@ -173,6 +172,12 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
+        presentationReadiness.begin(surface: surface, condition: { [weak self] in
+            guard let self else { return false }
+            return self.phase == .attached && self.diagnosticReplayReceived
+        }, onReady: { [weak self] in
+            self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        })
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -241,10 +246,6 @@ final class CloudTuiManualMirrorSession {
         fenceAttachment(error: CloudDiagnosticFailure.notFound, reason: reason)
     }
 
-    /// Drops the current transport and every per-connection fact. Leases,
-    /// capabilities, pending requests and acknowledged grids belong to one
-    /// connection generation and never survive it; a later replay starts from
-    /// a reset screen.
     private func tearDownConnection() {
         watchdog.cancel()
         if hasReceivedRemoteReplay {
@@ -267,11 +268,9 @@ final class CloudTuiManualMirrorSession {
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
         diagnosticReplayReceived = false
+        presentationReadiness.rearm()
     }
 
-    /// Samples the grid after Ghostty has created its runtime surface. Runtime
-    /// creation can happen on a hidden bootstrap window; those dimensions are
-    /// intentionally ignored until the real pane window is attached.
     func runtimeReady() {
         runtimeSampleTask?.cancel()
         runtimeSampleTask = Task { @MainActor [weak self] in
@@ -417,12 +416,10 @@ final class CloudTuiManualMirrorSession {
         runtimeSampleTask?.cancel()
         runtimeSampleTask = nil
         inputRouter.invalidate()
+        presentationReadiness.end()
         if let connection,
            wasAttached,
            let remoteLease {
-            // Queue the targeted detach before the transport close. If a
-            // legacy peer does not understand the command, close remains the
-            // cleanup fence and releases the client attachment anyway.
             connection.send(
                 commandBuilder.detachAttachedView(
                     surfaceID: remoteSurfaceID,
@@ -481,6 +478,7 @@ final class CloudTuiManualMirrorSession {
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
+            presentationReadiness.check()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -497,6 +495,7 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
+            presentationReadiness.check()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()

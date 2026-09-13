@@ -202,12 +202,13 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: try destination(.tab),
+                        into: capturedDestination,
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)
@@ -217,12 +218,13 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
+                    guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let (projection, _) = try await catalog.project(
                             resource.id,
-                            into: try destination(.tab),
+                            into: capturedDestination,
                             focus: true,
                             reuseExisting: true,
                             remoteView: Self.uniqueRemoteView(resource)

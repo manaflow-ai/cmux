@@ -267,6 +267,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info: info,
                 pendingWrites: pendingMutationMetadata()
             )
+            if !manualMirrorSessions.isEmpty { scheduleAttachmentRetry() }
             return false
         }
         // Publish the display before the terminal link is ready: a slow or hanging
@@ -351,6 +352,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            if !manualMirrorSessions.isEmpty { scheduleAttachmentRetry() }
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -699,14 +701,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
             if let state {
                 if let receipt = pending.receipt {
-                    guard let cursor = state.cursor,
-                          cursor.generation == receipt.generation else {
-                        completed.append(resourceID)
+                    guard let cursor = state.cursor else {
+                        mergePendingCreation(pending, into: &merged)
                         continue
                     }
-                    if cursor.revision >= receipt.revision {
-                        // At or beyond the commit, the accepted graph is the
-                        // source of truth, including an intentional close.
+                    if cursor.generation != receipt.generation
+                        || cursor.revision >= receipt.revision {
+                        // The accepted graph is authoritative at or beyond the
+                        // receipt. Before that fence, keep the exact optimistic
+                        // path so a delayed snapshot cannot erase a live create.
                         completed.append(resourceID)
                         continue
                     }
@@ -833,6 +836,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     private func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
         pendingRemoteCreations[resourceID]
+    }
+
+    func pendingCreationReceipt(forTerminalID terminalID: String) -> CloudVMCursor? {
+        pendingRemoteCreations.values.first { $0.resource.id.key == terminalID }?.receipt
+    }
+
+    func hasPendingCreation(forTerminalID terminalID: String) -> Bool {
+        pendingRemoteCreations.values.contains { $0.resource.id.key == terminalID }
     }
 
     private func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {
@@ -1045,6 +1056,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case .terminal:
             let manual = try await materializeManualMirrorTerminal(
                 resource,
+                remoteView: remoteView,
                 at: destination,
                 focus: focus
             )
@@ -1078,28 +1090,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// screen after the process exits (a sender that reads the process's last lines as
     /// its result needs that); nil is the daemon default, `close`.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?) async throws -> SurfaceResource {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        // Resolve the active workspace inside the daemon mutation. A stale Mac
-        // catalog must never bootstrap a second workspace during concurrent creates.
-        let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
-        let argv = CloudTuiCommandLine.commandStartingIn(
+        try await createTerminalWithRecovery(
+            command: command,
             cwd: cwd,
-            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
+            name: name,
+            remoteWorkspaceID: remoteWorkspaceID,
+            onExit: onExit
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
-            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
-        }
-        guard let resolvedWorkspaceID = created.workspaceID ?? (workspaceID == "current" ? nil : workspaceID) else {
-            throw ProviderError.noWorkspaceOnMachine(machineID)
-        }
-        return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
-    private func recordCreatedTerminal(
+    func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
         workspaceID: String,
         name: String?,

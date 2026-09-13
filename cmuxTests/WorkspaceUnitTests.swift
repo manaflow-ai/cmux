@@ -5211,7 +5211,6 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         let loadingPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let loadingSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(loadingPanelId))
         let stableSurfaceId = try XCTUnwrap(workspace.panels[loadingPanelId]).stableSurfaceId
-
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
         let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
             workspaceId: workspace.id,
@@ -5225,6 +5224,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertEqual(terminal?.stableSurfaceId, stableSurfaceId)
         XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
         XCTAssertEqual(terminal?.surface.initialCommand, command)
+        XCTAssertTrue(workspace.bonsplitController.tab(loadingSurfaceId)?.isLoading == true)
     }
 
     func testCloudVMLoadingFailureSummarizesRetrySpam() {

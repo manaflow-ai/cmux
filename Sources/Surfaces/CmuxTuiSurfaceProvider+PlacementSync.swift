@@ -87,7 +87,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
             var command = arguments(connected.socketPath, destination.target, destination.revision, key)
             if let terminalID {
                 guard let current = await CmuxTuiSnapshotParser.terminalPlacement(from: snapshot, terminalID: terminalID) else {
-                    throw ProviderError.terminalNotCreated(terminalID)
+                    throw ProviderError.stateUnavailable(machineID)
                 }
                 if let placement = current.placement {
                     if let retained = intent.retainedPlacement(placement, requestedWorkspaceID: remoteWorkspaceID) { return retained }
@@ -102,7 +102,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                 let response = try await link.run(arguments: command)
                 guard let placement = await CmuxTuiSnapshotParser.placedTab(
                     from: response, at: destination.target, tabID: existingTabID, terminalID: terminalID
-                ) else { throw ProviderError.terminalNotCreated(terminalID ?? tabID ?? remoteWorkspaceID) }
+                ) else { throw ProviderError.stateUnavailable(machineID) }
                 return placement
             } catch {
                 guard !retried, destination.revision != nil, Self.isRevisionConflict(error) else { throw error }
