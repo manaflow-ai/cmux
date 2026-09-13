@@ -3,6 +3,9 @@ import Foundation
 enum PaneChromeSettings {
     static let paneBorderColorKey = "paneBorderColor"
     static let activePaneBorderColorKey = "activePaneBorderColor"
+    static let paneMinimumHeightKey = "paneMinimumHeight"
+    static let minimumPaneMinimumHeight = 20.0
+    static let maximumPaneMinimumHeight = 600.0
     static let defaultColorHex = ""
     static let activeBorderLineWidth = 2.0
     static let didChangeNotification = Notification.Name("cmux.paneChromeSettingsDidChange")
@@ -17,6 +20,19 @@ enum PaneChromeSettings {
 
     static func resolvedPaneBorderHex(configuredHex: String?, fallback: String) -> String {
         normalizedColorHex(configuredHex) ?? fallback
+    }
+
+    /// The configured minimum workspace pane height in points, or `nil` when
+    /// unset (Bonsplit's default applies).
+    static func paneMinimumHeight(defaults: UserDefaults = .standard) -> CGFloat? {
+        guard let value = defaults.object(forKey: Self.paneMinimumHeightKey) as? Double else {
+            return nil
+        }
+        return CGFloat(sanitizedPaneMinimumHeight(value))
+    }
+
+    static func sanitizedPaneMinimumHeight(_ value: Double) -> Double {
+        min(max(value, minimumPaneMinimumHeight), maximumPaneMinimumHeight)
     }
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {

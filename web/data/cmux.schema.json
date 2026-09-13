@@ -30,6 +30,14 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "paneMinimumHeight": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 600,
+      "default": 100,
+      "descriptionKey": "schemaDescriptions.paneMinimumHeight",
+      "description": "Minimum height, in points, for cmux workspace panes when creating or resizing splits (default 100). Lower values allow shorter panes, such as thin status or label strips; out-of-range values are clamped to 20–600."
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",

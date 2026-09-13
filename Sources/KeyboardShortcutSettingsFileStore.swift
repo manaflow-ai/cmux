@@ -437,6 +437,17 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
+
+        let heightKey = PaneChromeSettings.paneMinimumHeightKey
+        if root.keys.contains(heightKey) {
+            if let value = jsonDouble(root[heightKey]) {
+                snapshot.managedUserDefaults[heightKey] = .double(
+                    PaneChromeSettings.sanitizedPaneMinimumHeight(value)
+                )
+            } else {
+                logInvalid(heightKey, sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseAppSection(
@@ -1640,7 +1651,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.paneMinimumHeightKey {
                     paneChromeDidChange = true
                 }
 

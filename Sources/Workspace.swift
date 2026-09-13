@@ -3832,7 +3832,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 backgroundOpacity: backgroundOpacity
             )
         )
-        return BonsplitConfiguration.Appearance(
+        var appearance = BonsplitConfiguration.Appearance(
             tabBarHeight: WindowChromeMetrics.bonsplitTabBarHeight,
             tabTitleFontSize: tabTitleFontSize,
             dividerHitExpansion: PortalSplitDividerRegion.dividerHitExpansion,
@@ -3842,6 +3842,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             chromeColors: chromeColors,
             usesSharedBackdrop: sharesWindowBackdrop
         )
+        if let paneMinimumHeight = PaneChromeSettings.paneMinimumHeight() {
+            appearance.minimumPaneHeight = paneMinimumHeight
+        }
+        return appearance
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
@@ -3861,6 +3865,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         )
         let nextTabTitleFontSize = config.surfaceTabBarFontSize
+        let nextMinimumPaneHeight = PaneChromeSettings.paneMinimumHeight()
+            ?? BonsplitConfiguration.Appearance.default.minimumPaneHeight
         let currentAppearance = bonsplitController.configuration.appearance
         let currentTabTitleFontSize = currentAppearance.tabTitleFontSize
         let colorsChanged = !Self.bonsplitChromeColorsEqual(
@@ -3869,7 +3875,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let sharedBackdropChanged = currentAppearance.usesSharedBackdrop != sharesWindowBackdrop
         let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
+        let minimumPaneHeightChanged =
+            abs(currentAppearance.minimumPaneHeight - nextMinimumPaneHeight) > 0.0001
         let isNoOp = !colorsChanged && !sharedBackdropChanged && !fontSizeChanged
+            && !minimumPaneHeightChanged
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
@@ -3895,6 +3904,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if fontSizeChanged {
             bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+        if minimumPaneHeightChanged {
+            bonsplitController.configuration.appearance.minimumPaneHeight = nextMinimumPaneHeight
         }
 
         if GhosttyApp.shared.backgroundLogEnabled {
