@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { guestPromptInstallCommand, vmPromptIdentity } from "../services/vms/guestPrompt";
@@ -33,6 +33,35 @@ function bash(directory: string, command: string) {
 }
 
 describe("Cloud Bash prompt", () => {
+  test("attaches the line editor after user Bash settings have loaded", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const library = path.join(directory, "blesh");
+    mkdirSync(library);
+    // The editor captures PS1 when it attaches. Its prompt-time mode defers
+    // that capture until the rest of the user's startup file has run.
+    writeFileSync(path.join(library, "ble.sh"), `
+      BLE_VERSION=fixture
+      bleopt() { :; }
+      ble-face() { :; }
+      ble-bind() { :; }
+      ble-attach() { printf '%s' "$PS1" > "$HOME/captured-prompt"; }
+      [[ \${1-} == --noattach ]] || PROMPT_COMMAND+=(ble-attach)
+    `);
+    const rcPath = path.join(directory, "bashrc");
+    writeFileSync(rcPath, readFileSync(rcPath, "utf8").replaceAll("/usr/local/share/blesh", library));
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `
+      . '${rcPath}'
+      PS1='custom> '
+      for command in "\${PROMPT_COMMAND[@]}"; do eval "$command"; done
+    `], {
+      encoding: "utf8",
+      env: { NODE_ENV: "test", PATH: process.env.PATH!, HOME: directory, USER: "cmux", TERM: "dumb" },
+    });
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(directory, "captured-prompt"), "utf8")).toBe("custom> ");
+  });
+
   test("uses the generated slug, then a shell-safe renamed label", () => {
     const row = { id: "vm-one", slug: "brave-blue-otter", displayName: null, updatedAt: new Date(100) };
     expect(vmPromptIdentity(row)).toEqual({ machineId: "vm-one", name: "brave-blue-otter", revision: 100 });
