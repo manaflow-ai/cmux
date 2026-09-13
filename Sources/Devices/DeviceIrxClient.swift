@@ -230,9 +230,22 @@ actor DeviceIrxClient {
         journal: IrxJournal,
         recordBinding: @escaping @Sendable (CmxIrohBrokerBinding) async -> Bool
     ) async throws -> IrxClientSession {
+        func fail(_ stage: String, _ error: any Error) -> DeviceLinkError {
+            journal.record("device-client", "dial-failed", [
+                "stage": stage,
+                "error": String(describing: error),
+                "endpoint": String(endpoint.prefix(12)),
+            ])
+            return .notConnected
+        }
         let context = try await provider()
-        guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-        let discovery = try await context.broker.discover(maximumAge: 30)
+        guard await context.isCurrent() else { throw fail("context", DeviceLinkError.notConnected) }
+        let discovery: CmxIrohDiscoveryResponse
+        do {
+            discovery = try await context.broker.discover(maximumAge: 30)
+        } catch {
+            throw fail("broker-discover", error)
+        }
         let target: CmxIrohBrokerBinding
         do {
             target = try IrxMacPeerAuthorization(
@@ -240,7 +253,7 @@ actor DeviceIrxClient {
             ).resolve(bindings: discovery.bindings, lease: context.deviceList.current, localDeviceID: context.localBinding.deviceID)
         } catch let failure as IrxMacPeerAuthorization.Failure {
             switch failure {
-            case .unavailable, .staleDirectory: throw DeviceLinkError.notConnected
+            case .unavailable, .staleDirectory: throw fail("authorization", failure)
             case .revoked: throw DeviceLinkError.identityUnproven
             case .identityMismatch: throw DeviceLinkError.identityMismatch
             }
@@ -253,16 +266,31 @@ actor DeviceIrxClient {
         let direct = context.allowsDirectPaths ? Array(target.pathHints.filter {
             $0.kind == .directAddress && $0.privacyScope == .publicInternet && $0.isUsable(at: now)
         }.prefix(16).map(\.value)) : []
-        guard relay != nil || !direct.isEmpty else { throw DeviceLinkError.notConnected }
-        let credentials = try await context.relayCredentials.usableCredentials()
+        guard relay != nil || !direct.isEmpty else { throw fail("no-route", DeviceLinkError.notConnected) }
+        let credentials: [IrxRelayCredential]
+        do {
+            credentials = try await context.relayCredentials.usableCredentials()
+        } catch {
+            throw fail("relay-credentials", error)
+        }
         guard await context.isCurrent(), context.deviceList.current?.isFresh(now: .now) == true,
               context.deviceList.current?.entries[endpoint]?.revoked == false else {
-            throw DeviceLinkError.notConnected
+            throw fail("lease", DeviceLinkError.notConnected)
         }
-        let address = try context.supervisor.dialAddress(
-            peerEndpointIDHex: endpoint, relayURL: relay, directAddresses: direct
-        )
-        let connection = try await context.supervisor.dial(address: address, credentials: credentials)
+        let address: EndpointAddr
+        do {
+            address = try context.supervisor.dialAddress(
+                peerEndpointIDHex: endpoint, relayURL: relay, directAddresses: direct
+            )
+        } catch {
+            throw fail("address", error)
+        }
+        let connection: IrxConnection
+        do {
+            connection = try await context.supervisor.dial(address: address, credentials: credentials)
+        } catch {
+            throw fail("transport", error)
+        }
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
             let (admit, control) = try await IrxAdmission.performClient(connection: connection, journal: journal)
@@ -271,11 +299,16 @@ actor DeviceIrxClient {
             _ = try IrxMacPeerAuthorization(
                 deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint
             ).resolve(bindings: [target], lease: context.deviceList.current, localDeviceID: context.localBinding.deviceID)
-            guard await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.notConnected }
+            guard await context.isCurrent(), await recordBinding(target) else { throw fail("binding", DeviceLinkError.notConnected) }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
             if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
             return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: Date())
         } catch {
+            journal.record("device-client", "dial-failed", [
+                "stage": "admission",
+                "error": String(describing: error),
+                "endpoint": String(endpoint.prefix(12)),
+            ])
             await connection.close(code: .userRequested, origin: .local)
             throw error
         }
