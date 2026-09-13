@@ -9659,7 +9659,6 @@ final class GhosttySurfaceScrollView: NSView {
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)
     }
-
     private var lastFlashStyle: FlashStyle = .navigation
     private var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
     private var workspaceAttentionNSColor = NSColor.systemBlue
