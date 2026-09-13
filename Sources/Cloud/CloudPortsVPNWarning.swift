@@ -25,7 +25,7 @@ extension CloudPortsVPNWarning {
         "\(setupTitle)\n\(explanation)"
     }
 
-    /// Localized explanation shown in the Ports empty state and detail popover.
+    /// Localized explanation shown in the Ports empty state and hover help.
     var explanation: String {
         String(
             localized: "cloud.ports.vpnOff.explanation",
