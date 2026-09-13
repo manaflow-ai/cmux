@@ -423,7 +423,11 @@ final class PortScanner: @unchecked Sendable {
         let finalizedAgentPIDs = await finalizedAgentPIDTask
         let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
-        // 3. Join: PID→TTY + PID→ports → TTY→ports
+        // 3. Join: PID→TTY + PID→ports → TTY→ports. Agent-root-owned ports
+        // (validated by identity, not raw PID) are excluded so a foreground
+        // agent's own listeners never badge its panel; its child processes
+        // still contribute ports normally.
+        let agentRootPIDs = finalizedAgentPIDs.rootPIDs
         var portsByTTY: [String: Set<Int>] = [:]
         var panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]] = [:]
         let panelKeysByTTY = panelSnapshot.reduce(into: [String: [PanelKey]]()) { result, entry in
@@ -437,7 +441,7 @@ final class PortScanner: @unchecked Sendable {
             }
         }
         for (pid, ports) in pidToPorts {
-            guard let tty = validPIDToTTY[pid] else { continue }
+            guard !agentRootPIDs.contains(pid), let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
             guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
             for key in panelKeysByTTY[tty] ?? [] {
@@ -457,7 +461,7 @@ final class PortScanner: @unchecked Sendable {
             }
         }
         for (pid, ports) in pidToPorts {
-            guard let ownership = agentOwnershipByPID[pid] else { continue }
+            guard !agentRootPIDs.contains(pid), let ownership = agentOwnershipByPID[pid] else { continue }
             for workspaceId in ownership {
                 agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
                 guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
@@ -754,6 +758,7 @@ final class PortScanner: @unchecked Sendable {
                 workspaceIds: request.workspaceIds
             )
             let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
+            let agentRootPIDs = finalizedAgentPIDs.rootPIDs
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
             var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
@@ -764,7 +769,7 @@ final class PortScanner: @unchecked Sendable {
                 }
             }
             for (pid, ports) in pidToPorts {
-                guard let ownership = agentOwnershipByPID[pid] else { continue }
+                guard !agentRootPIDs.contains(pid), let ownership = agentOwnershipByPID[pid] else { continue }
                 for targetWorkspaceId in ownership {
                     agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
                     guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
