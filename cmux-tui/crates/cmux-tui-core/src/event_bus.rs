@@ -348,7 +348,9 @@ impl MuxEventMailboxState {
             .coalesced
             .iter()
             .filter_map(|(sequence, (_, event))| match event {
-                MuxEvent::PresenceChanged(entry) if entry.surface == Some(surface) => Some(*sequence),
+                MuxEvent::PresenceChanged(entry) if entry.surface == Some(surface) => {
+                    Some(*sequence)
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
