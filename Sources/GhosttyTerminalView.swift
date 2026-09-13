@@ -8693,6 +8693,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         appendReconnectRemotePaneMenuItem(to: menu)
+        appendFocusInCloudSidebarMenuItem(to: menu)
         if terminalSurface != nil {
             menu.addItem(.separator())
             let identifiersItem = menu.addItem(

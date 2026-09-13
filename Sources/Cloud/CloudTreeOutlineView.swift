@@ -19,6 +19,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    var revealRequest: CloudSidebarNavigationState.Request? = nil
+    var onRevealComplete: @MainActor (UUID) -> Void = { _ in }
     var organizationStore: CloudSidebarOrganizationStore? = nil
     var organizationState = CloudSidebarOrganizationState()
     /// The visual preset the rows render in (the debug gallery pins one per
@@ -58,6 +60,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.onRevealComplete = onRevealComplete
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -66,6 +69,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs
         ))
+        context.coordinator.reveal(revealRequest)
     }
     // MARK: - Coordinator
     @MainActor
@@ -81,6 +85,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
+        private var lastRevealRequestID: UUID?
+        private var pendingRevealRequest: CloudSidebarNavigationState.Request?
+        var onRevealComplete: @MainActor (UUID) -> Void = { _ in }
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -281,6 +288,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             isDragging = dragging
             onDragStateChange(dragging)
             guard !dragging else { return }
+            defer { revealPendingRequest() }
             let shouldReload = deferredReload
             deferredReload = false
             guard shouldReload || deferredNodes != nil else { return }
@@ -311,6 +319,34 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 row += 1
             }
         }
+        /// Expand and select only; revealing must never open a remote terminal.
+        func reveal(_ request: CloudSidebarNavigationState.Request?) {
+            pendingRevealRequest = request
+            revealPendingRequest()
+        }
+
+        func revealPendingRequest() {
+            guard let request = pendingRevealRequest, request.id != lastRevealRequestID,
+                  !isDragging, let outlineView, let window = outlineView.window,
+                  let path = request.target.path(in: nodes), let node = path.last else { return }
+            withProgrammaticUpdate {
+                for ancestor in path.dropLast() {
+                    expansionStore.setExpanded(true, node: ancestor)
+                    outlineView.expandItem(ancestor)
+                }
+                let row = outlineView.row(forItem: node)
+                guard row >= 0 else { return }
+                selectedNodeID = node.id
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                outlineView.scrollRowToVisible(row)
+                lastRevealRequestID = request.id
+            }
+            guard lastRevealRequestID == request.id else { return }
+            window.makeFirstResponder(outlineView)
+            pendingRevealRequest = nil
+            onRevealComplete(request.id)
+        }
+
         private func restoreSelection(in outlineView: NSOutlineView) {
             guard let selectedNodeID else { return }
             for row in 0..<outlineView.numberOfRows {
@@ -1088,6 +1124,14 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        coordinator.revealPendingRequest()
+    }
+
+    /// Width is a pure function of the current bounds, recomputed on every layout
+    /// pass. Rows are correct on first display, on sidebar show, and on any
+    /// programmatic resize — not only after a live divider drag.
     override func layout() {
         super.layout()
         let viewportWidth = scrollView.contentView.bounds.width

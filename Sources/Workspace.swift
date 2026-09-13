@@ -4225,6 +4225,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             self?.bonsplitTabMoveDestinations(for: tabId) ?? []
         }
         configureForkAgentConversationContextMenuAvailability()
+        configureCloudSidebarContextMenu()
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
         }
