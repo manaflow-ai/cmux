@@ -1,6 +1,12 @@
 import Foundation
 
 extension CloudWorkspaceRenameService {
+    enum BindingReconciliation: Equatable {
+        case keep
+        case clear
+        case rebind(machine: SurfaceMachineID, remoteWorkspaceID: String)
+    }
+
     /// Decides whether one persisted binding is still valid against a complete,
     /// current daemon graph. Missing or partial transport state never clears a
     /// binding: only a cursor-bearing graph with an explicit workspace collection

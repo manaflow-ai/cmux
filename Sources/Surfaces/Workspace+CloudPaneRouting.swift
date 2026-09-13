@@ -176,12 +176,6 @@ struct CloudWorkspaceRenameEnvironment {
 /// remote ordering and accepted cloud snapshots; this service only resolves local
 /// owners, applies titles, and submits intents through that catalog.
 final class CloudWorkspaceRenameService {
-    enum BindingReconciliation: Equatable {
-        case keep
-        case clear
-        case rebind(machine: SurfaceMachineID, remoteWorkspaceID: String)
-    }
-
     let environment: CloudWorkspaceRenameEnvironment
 
     init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
