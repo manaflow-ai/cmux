@@ -264,7 +264,7 @@ struct CloudTreeTerminalRow: Equatable {
         if let name = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
         }
-        return resource.title
+        return resource.machine.isLocal ? resource.title : (remoteView == nil ? resource.cloudPoolDisplayTitle : resource.cloudProcessDisplayTitle)
     }
 
     /// True when no daemon tab currently contains this terminal.

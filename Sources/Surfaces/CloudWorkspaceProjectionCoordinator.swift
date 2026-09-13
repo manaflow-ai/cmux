@@ -6,16 +6,16 @@ import Foundation
 @MainActor
 final class CloudWorkspaceProjectionCoordinator {
     var environment: CloudWorkspaceProjectionEnvironment
-    private struct Entry {
-        let id: UUID
-        let task: Task<Void, Never>
-    }
-    private var tasks: [SurfaceMachineID: Entry] = [:]
+    private var tasks: [SurfaceMachineID: CloudWorkspaceProjectionTask] = [:]
     private var requested: Set<SurfaceMachineID> = []
     private var localMutations: [SurfaceMachineID: Set<UUID>] = [:]
     private(set) var failures: [UUID: String] = [:]
 
-    init(environment: CloudWorkspaceProjectionEnvironment = .init()) {
+    init() {
+        self.environment = CloudWorkspaceProjectionEnvironment()
+    }
+
+    init(environment: CloudWorkspaceProjectionEnvironment) {
         self.environment = environment
     }
 
@@ -51,7 +51,7 @@ final class CloudWorkspaceProjectionCoordinator {
                 await self.reconcile(state: state, catalog: catalog)
             }
         }
-        tasks[machine] = Entry(id: id, task: task)
+        tasks[machine] = CloudWorkspaceProjectionTask(id: id, task: task)
     }
 
     /// A bound mirror may not recreate a view that the accepted graph removed.

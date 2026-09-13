@@ -31,8 +31,8 @@ extension CloudWorkspaceRenameService {
             guard let resource = catalog.resources[projection.resource], resource.kind == .terminal,
                   let workspace = environment.workspace(projection.workspaceID),
                   workspace.panels[projection.panelID] != nil else { continue }
-            if workspace.panelTitles[projection.panelID] != resource.title {
-                _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.title)
+            if workspace.panelTitles[projection.panelID] != resource.cloudProcessDisplayTitle {
+                _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.cloudProcessDisplayTitle)
             }
             guard let tabID = remoteTabID(for: projection, resource: resource),
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }

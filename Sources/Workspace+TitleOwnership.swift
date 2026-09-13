@@ -118,8 +118,8 @@ extension Workspace {
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        let remote = cloudProjectedResource(forPanel: panelId)
-        let trimmed = (remote?.title ?? title).trimmingCharacters(in: .whitespacesAndNewlines)
+        let remote = cloudProjectedResource(forPanel: panelId).flatMap { $0.kind == .terminal ? $0 : nil }
+        let trimmed = (remote?.cloudProcessDisplayTitle ?? title).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
         guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
             return false

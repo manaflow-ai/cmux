@@ -167,6 +167,46 @@ struct CloudSidebarConsistencyTests {
         #expect(provider.tabRenames == ["User terminal"])
     }
 
+    @Test("The terminal inventory reflects a common explicit name without conflating different aliases")
+    func inventoryNameParity() throws {
+        let graph = try state(tabs: ["a"])
+        var resource = try #require(CmuxTuiSnapshotParser.resources(from: graph).first { $0.id.key == "term_a" })
+        let row = CloudTreeTerminalRow(resource: resource, isOpen: false)
+        #expect(row.displayTitle == "Explicit a")
+        var other = try #require(resource.remoteViews?.first)
+        other.tabID = "other_view"
+        other.name = "Another explicit name"
+        resource.remoteViews?.append(other)
+        #expect(CloudTreeTerminalRow(resource: resource, isOpen: false).displayTitle == "Process a r1")
+        #expect(CloudTreeTerminalRow(resource: resource, isOpen: false, remoteView: other).displayTitle == "Another explicit name")
+        resource.title = ""
+        resource.remoteViews = []
+        #expect(CloudTreeTerminalRow(resource: resource, isOpen: false).displayTitle == resource.cloudProcessDisplayTitle)
+    }
+
+    @Test("Several remote screens use one ordering in the tree and native layout")
+    func multipleScreensUseTheSameProjection() throws {
+        let catalog = SurfaceCatalog()
+        var document = try #require(state().snapshotObject())
+        document["screens"] = [
+            ["id": "screen_main", "workspace_id": "ws_main", "index": 0, "focused": false,
+             "layout": ["kind": "leaf", "pane_id": "pane_main", "tab_ids": ["tab_a"]]],
+            ["id": "screen_other", "workspace_id": "ws_main", "index": 1, "focused": true,
+             "layout": ["kind": "leaf", "pane_id": "pane_other", "tab_ids": ["tab_b"]]]
+        ]
+        document["panes"] = [["id": "pane_main", "screen_id": "screen_main"], ["id": "pane_other", "screen_id": "screen_other"]]
+        var tabs = try #require(document["tabs"] as? [[String: Any]])
+        tabs[1]["pane_id"] = "pane_other"
+        document["tabs"] = tabs
+        let graph = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
+        install(graph, in: catalog)
+        let row = try #require(workspaceRows(catalog).first)
+        let layout = try #require(catalog.cloudWorkspaceLayout(machine: machine, workspaceID: "ws_main"))
+        #expect(row.dragGroup?.placements == layout.placements)
+        #expect(layout.placements.compactMap(\.remoteTabID) == ["tab_a", "tab_b"])
+        guard case .split(.right, _, _, _) = layout else { Issue.record("Each screen retains a pane"); return }
+    }
+
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])
     func nativeNameParity(named: Bool) throws {
         let manager = TabManager()
