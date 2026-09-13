@@ -383,7 +383,6 @@ struct CloudTreeNodeActions {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? hostName : name
     }
-
     /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
     /// preferred name its own sidebar row shows), never the raw provider VM
     /// id. Shared by every caller that needs a machine's name in

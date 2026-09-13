@@ -123,7 +123,6 @@ final class CloudTuiManualMirrorSession {
             commandBuilder: commandBuilder
         )
     }
-
     /// Reports whether a lease-capable server omitted its token.
     nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false

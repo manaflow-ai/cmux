@@ -25,7 +25,6 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -35,14 +34,12 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
     static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
-
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
-
 #if DEBUG
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
@@ -56,7 +53,6 @@ private final class SocketCommandMainHopAccumulator {
     var hopCount: Int = 0
 }
 #endif
-
 private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
     let windowId: UUID?
@@ -4323,7 +4319,6 @@ class TerminalController {
             )
         }
     }
-
     /// Backend error metadata passthrough so the CLI can make compatibility
     /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
@@ -4343,7 +4338,6 @@ class TerminalController {
         }
         return payload
     }
-
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
         switch error {
         case .notSignedIn:
@@ -5810,23 +5804,19 @@ class TerminalController {
                 }
                 return chain
             }
-
             let windows = app.scriptableMainWindows()
             let windowIndexById = Dictionary(
                 uniqueKeysWithValues: windows.enumerated().map { ($0.element.windowId, $0.offset) }
             )
-
             @MainActor
             func resolvedWindowMetadata(for window: NSWindow?) -> (windowId: UUID?, windowIndex: Int?) {
                 guard let window else { return (nil, nil) }
-
                 if let match = windows.enumerated().first(where: { _, state in
                     guard let stateWindow = state.window else { return false }
                     return stateWindow === window || stateWindow.windowNumber == window.windowNumber
                 }) {
                     return (match.element.windowId, match.offset)
                 }
-
                 guard let raw = window.identifier?.rawValue else { return (nil, nil) }
                 let prefix = "cmux.main."
                 guard raw.hasPrefix(prefix),
