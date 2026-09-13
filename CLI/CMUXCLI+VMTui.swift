@@ -965,6 +965,7 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "resize": return vmResizeUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage
@@ -1540,8 +1541,7 @@ extension CMUXCLI {
                     placements.append((workspace, view))
                 }
             } else if let workspace = resource["remote_workspace"] as? [String: Any] {
-                // Only pre-multi-view payloads fall back to this field. An
-                // explicit empty `remote_views` is authoritative.
+                // An explicit empty `remote_views` overrides this legacy field.
                 placements.append((workspace, nil))
             }
             for placement in placements {
@@ -1761,7 +1761,8 @@ extension CMUXCLI {
         }
         let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
         var cell = "\(glyph) \(displayKey)"
-        if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
+        let title = RemoteTerminalTitle(processTitle: terminal["title"] as? String ?? "", viewNames: (terminal["remote_views"] as? [[String: Any]])?.map { $0["name"] as? String } ?? []).poolTitle
+        if !title.isEmpty { cell += "  \(title)" }
         if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
             let source = (agent["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }

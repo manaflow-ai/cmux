@@ -231,6 +231,11 @@ pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub cursor: Option<Rgb>,
+    /// Application-authored special colors, separate from shared embedder
+    /// defaults so byte viewers can retain their own configured themes.
+    pub fg_override: Option<Rgb>,
+    pub bg_override: Option<Rgb>,
+    pub cursor_override: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
@@ -247,6 +252,9 @@ impl Default for TerminalColors {
             fg: None,
             bg: None,
             cursor: None,
+            fg_override: None,
+            bg_override: None,
+            cursor_override: None,
             selection_bg: None,
             selection_fg: None,
             cursor_style: None,
@@ -265,6 +273,9 @@ impl TerminalColors {
             fg,
             bg,
             cursor,
+            fg_override: overrides.foreground,
+            bg_override: overrides.background,
+            cursor_override: overrides.cursor,
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
             palette: overrides.palette,
@@ -8150,7 +8161,12 @@ mod tests {
         assert_eq!(attach.colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
         assert_eq!(attach.colors.fg, Some(Rgb { r: 0xee, g: 0xee, b: 0xee }));
         assert!(
-            attach.colors.palette.iter().enumerate().all(|(index, entry)| index == 1 || entry.is_none()),
+            attach
+                .colors
+                .palette
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| index == 1 || entry.is_none()),
             "unauthored palette entries must stay unset so the renderer keeps its theme"
         );
 

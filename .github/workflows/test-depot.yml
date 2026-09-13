@@ -166,6 +166,7 @@ jobs:
               return $?
             fi
             IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
+            local failed=0
             for suite in "${suites[@]}"; do
               if [[ ! "$suite" =~ ^[A-Za-z0-9_]+$ ]]; then
                 echo "Invalid unit suite identifier" >&2
@@ -174,7 +175,6 @@ jobs:
               local suite_output suite_status=0
               suite_output=$(run_unit_suite "-only-testing:cmuxTests/$suite") || suite_status=$?
               printf '%s\n' "$suite_output"
-              if [ "$suite_status" -ne 0 ]; then return "$suite_status"; fi
               # A pipeline here makes `set -o pipefail` treat grep's normal
               # early exit as a printf SIGPIPE when the xcodebuild log is
               # large. Feed grep with a here-string so a passing suite cannot
@@ -183,7 +183,11 @@ jobs:
                 echo "No tests executed for $suite" >&2
                 return 1
               fi
+              # Collect every assertion failure in one hosted build. A suite
+              # that never ran (build/launch failure) still stops above.
+              if [ "$suite_status" -ne 0 ]; then failed=1; fi
             done
+            return "$failed"
           }
 
           set +e

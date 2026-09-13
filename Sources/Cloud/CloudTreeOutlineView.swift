@@ -464,13 +464,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
-                } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(row.resource.id, .tab, true)
-                }
+                openTerminalRow(node, row: row)
             case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
@@ -806,6 +800,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     })
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
+            }
+            if machine.freeAccess != .expired, machine.capabilities.sizing {
+                items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
             }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
