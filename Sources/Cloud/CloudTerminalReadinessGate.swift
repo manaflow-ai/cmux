@@ -28,5 +28,3 @@ struct CloudTerminalReadinessGate: Equatable, Sendable {
         return true
     }
 }
-
-

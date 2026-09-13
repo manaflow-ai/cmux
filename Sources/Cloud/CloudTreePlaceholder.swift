@@ -20,4 +20,3 @@ struct CloudTreePlaceholder: Equatable {
         self.isEmptyPorts = isEmptyPorts
     }
 }
-
