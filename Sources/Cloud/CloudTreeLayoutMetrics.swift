@@ -22,9 +22,9 @@ struct CloudTreeLayoutMetrics: Equatable, Sendable {
         max(0, viewportWidth)
     }
 
-    /// Keeps an empty outline scrollable while preserving a taller row document.
-    func documentHeight(viewportHeight: CGFloat, existingHeight: CGFloat) -> CGFloat {
-        max(0, viewportHeight, existingHeight)
+    /// Keeps an empty outline usable while preserving a taller row document.
+    func documentHeight(viewportHeight: CGFloat, contentHeight: CGFloat) -> CGFloat {
+        max(0, viewportHeight, contentHeight)
     }
 
     /// Width left for a title after stable trailing controls and both insets.

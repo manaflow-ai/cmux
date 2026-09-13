@@ -1131,15 +1131,16 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Width is a pure function of the current bounds, recomputed on every layout
-    /// pass. Rows are correct on first display, on sidebar show, and on any
-    /// programmatic resize — not only after a live divider drag.
+    /// Recomputes document geometry whenever the container lays out.
     override func layout() {
         super.layout()
         let viewportWidth = scrollView.contentView.bounds.width
         let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
+        let contentHeight = outlineView.numberOfRows > 0
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + scrollView.contentInsets.bottom
+            : 0
         let documentHeight = layoutMetrics.documentHeight(
-            viewportHeight: scrollView.contentView.bounds.height, existingHeight: outlineView.frame.height)
+            viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
         if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
             outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
         }

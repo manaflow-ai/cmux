@@ -46,6 +46,16 @@ struct CloudTreeWorkspaceTitleLayoutTests {
             tabDragTransferRegistry: { nil }
         )
         let container = CloudTreeContainerView(coordinator: coordinator)
+        let machine = SurfaceMachineID.cloud("layout-test")
+        coordinator.apply(nodes: (0..<20).map { index in
+            CloudTreeNode(
+                id: "layout-placeholder-\(index)",
+                kind: .placeholder(
+                    machine: machine,
+                    CloudTreePlaceholder(text: "row \(index)", style: .dimmed)
+                )
+            )
+        })
 
         for width in [180, 420] {
             container.frame = NSRect(x: 0, y: 0, width: width, height: 300)
@@ -57,6 +67,7 @@ struct CloudTreeWorkspaceTitleLayoutTests {
             }
             #expect(abs(outline.frame.width - scroll.contentView.bounds.width) <= 0.5)
             #expect(outline.frame.height >= scroll.contentView.bounds.height - 0.5)
+            #expect(outline.frame.height > scroll.contentView.bounds.height)
         }
     }
 }
