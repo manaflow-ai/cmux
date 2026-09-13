@@ -2358,6 +2358,8 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    #[cfg(unix)]
+    pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -2754,6 +2756,8 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            #[cfg(unix)]
+            image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -10012,6 +10016,8 @@ impl Mux {
             }
         }
         if let Some(terminal_id) = runtime.terminal_public_id() {
+            #[cfg(unix)]
+            self.image_pastes.close_terminal(terminal_id.as_str());
             self.purge_terminal_side_tables(terminal_id);
         }
     }
@@ -14511,6 +14517,10 @@ impl Mux {
         drop(state);
         drop(registry);
         if !replayed {
+            #[cfg(unix)]
+            if let Some(terminal_id) = &public_terminal_id {
+                self.image_pastes.close_terminal(terminal_id.as_str());
+            }
             if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.

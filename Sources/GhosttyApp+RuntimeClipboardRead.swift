@@ -175,6 +175,28 @@ extension GhosttyApp {
             case .insertText(let text):
                 completeClipboardRequest(with: text)
             case .fileURLs(let fileURLs):
+                let target = requestTerminalSurface
+                    .resolvedImageTransferTarget()
+                let plan = TerminalImageTransferPlanner.plan(
+                    fileURLs: fileURLs,
+                    target: target
+                )
+                if case .pasteCloudImages = plan {
+                    guard inputAdmission.reservesInput else {
+                        preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
+                        completeClipboardRequest(with: "")
+                        return
+                    }
+                    // The daemon pastes on the authenticated lease. Complete the
+                    // Ghostty request empty so no Mac path enters manual I/O.
+                    requestTerminalSurface.pasteCloudImages(
+                        fileURLs, operation: operation,
+                        onCancel: { completeClipboardRequest(with: "") },
+                        onCompletion: { completeClipboardRequest(with: "") }
+                    )
+                    return
+                }
+
                 let indicatorView = requestTerminalSurface.hostedView
                 indicatorView.beginImageTransferIndicator(
                     for: operation,
@@ -185,13 +207,6 @@ extension GhosttyApp {
                 overflowCleanup = {
                     indicatorView.endImageTransferIndicator(for: operation)
                 }
-
-                let target = requestTerminalSurface
-                    .resolvedImageTransferTarget()
-                let plan = TerminalImageTransferPlanner.plan(
-                    fileURLs: fileURLs,
-                    target: target
-                )
 
                 let handledByCustomUpload = Self.handleCustomPasteUploadIfMatched(
                     plan: plan,

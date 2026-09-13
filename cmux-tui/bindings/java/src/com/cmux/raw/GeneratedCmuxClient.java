@@ -313,6 +313,11 @@ public abstract class GeneratedCmuxClient {
         return PaneNeighborResult.fromWire(result);
     }
 
+    public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
+        Object result = execute(Commands.PASTE_IMAGE, request.toWire());
+        return PasteImageResult.fromWire(result);
+    }
+
     public final PingResult ping() throws CmuxException {
         Object result = execute(Commands.PING, Map.of());
         return PingResult.fromWire(result);

@@ -519188,6 +519188,655 @@
         }
       }
     },
+    "cloud.imagePaste.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An image transfer is already in progress. Wait for it to finish or cancel it before pasting again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Bildübertragung läuft bereits. Warte, bis sie abgeschlossen ist, oder brich sie ab, bevor du erneut einfügst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un transfert d’image est déjà en cours. Attendez sa fin ou annulez-le avant de coller à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري نقل صورة بالفعل. انتظر اكتمال النقل أو ألغِه قبل اللصق مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya hay una transferencia de imagen en curso. Espera a que termine o cancélala antes de volver a pegar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片傳輸正在進行中。請等待傳輸完成或取消傳輸後，再次貼上。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片传输正在进行中。请等待传输完成或取消传输后，再次粘贴。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지를 전송하고 있습니다. 전송이 끝날 때까지 기다리거나 취소한 후 다시 붙여넣으세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を転送中です。完了するまで待つか、転送をキャンセルしてから再度貼り付けてください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud terminal link is unavailable. Reconnect the terminal, then paste the image again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zum Cloud-Terminal ist nicht verfügbar. Verbinde das Terminal erneut und füge das Bild noch einmal ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion au terminal Cloud est indisponible. Reconnectez le terminal, puis collez à nouveau l’image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال طرفية Cloud غير متاح. أعد توصيل الطرفية، ثم الصق الصورة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con la terminal Cloud no está disponible. Vuelve a conectarla y pega la imagen de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 終端機連線無法使用。請重新連線，再次貼上圖片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 终端连接不可用。请重新连接终端，然后再次粘贴图片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 터미널 연결을 사용할 수 없습니다. 터미널을 다시 연결한 후 이미지를 다시 붙여넣으세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ターミナルに接続できません。ターミナルを再接続して、画像をもう一度貼り付けてください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Cloud daemon cannot receive clipboard images. Update cmux-tui on the machine and reconnect the terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Cloud-Daemon kann keine Bilder aus der Zwischenablage empfangen. Aktualisiere cmux-tui auf dem Rechner und verbinde das Terminal erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce démon Cloud ne peut pas recevoir d’images du presse-papiers. Mettez à jour cmux-tui sur la machine et reconnectez le terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تستطيع خدمة Cloud هذه استقبال صور الحافظة. حدّث cmux-tui على الجهاز وأعد توصيل الطرفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este servicio de Cloud no puede recibir imágenes del portapapeles. Actualiza cmux-tui en la máquina y vuelve a conectar la terminal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 背景服務無法接收剪貼簿圖片。請更新機器上的 cmux-tui，並重新連線終端機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Cloud 后台服务无法接收剪贴板图片。请更新机器上的 cmux-tui，并重新连接终端。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 데몬은 클립보드 이미지를 받을 수 없습니다. 머신의 cmux-tui를 업데이트하고 터미널을 다시 연결하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud デーモンはクリップボード画像を受信できません。マシンの cmux-tui を更新して、ターミナルを再接続してください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.sizeLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The image exceeds the 20 MiB limit. Resize it and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Bild überschreitet die Grenze von 20 MiB. Verkleinere es und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’image dépasse la limite de 20 Mio. Réduisez sa taille et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتجاوز الصورة الحد الأقصى البالغ 20 MiB. قلّل حجمها وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La imagen supera el límite de 20 MiB. Reduce su tamaño e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片超過 20 MiB 上限。請縮小圖片後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片超过 20 MiB 上限。请缩小图片后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지가 20 MiB 제한을 초과합니다. 크기를 줄인 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像が 20 MiB の上限を超えています。サイズを小さくして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.unsupportedType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud image paste accepts PNG, JPEG, GIF, and WebP files. Copy a supported image and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud unterstützt beim Einfügen von Bildern PNG, JPEG, GIF und WebP. Kopiere ein unterstütztes Bild und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le collage d’images Cloud accepte les fichiers PNG, JPEG, GIF et WebP. Copiez une image prise en charge et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدعم لصق الصور في Cloud ملفات PNG وJPEG وGIF وWebP. انسخ صورة مدعومة وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud permite pegar imágenes PNG, JPEG, GIF y WebP. Copia una imagen compatible e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 圖片貼上支援 PNG、JPEG、GIF 和 WebP 檔案。請複製支援的圖片後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 图片粘贴支持 PNG、JPEG、GIF 和 WebP 文件。请复制支持的图片后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 이미지 붙여넣기는 PNG, JPEG, GIF, WebP 파일을 지원합니다. 지원되는 이미지를 복사한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud への画像貼り付けは PNG、JPEG、GIF、WebP に対応しています。対応する画像をコピーして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud temporary image storage is full. Wait ten minutes for previous images to expire, then try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der temporäre Cloud-Bildspeicher ist voll. Warte zehn Minuten, bis vorherige Bilder ablaufen, und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le stockage temporaire d’images Cloud est plein. Attendez dix minutes que les images précédentes expirent, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة تخزين الصور المؤقتة في Cloud ممتلئة. انتظر عشر دقائق حتى تنتهي صلاحية الصور السابقة، ثم حاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El almacenamiento temporal de imágenes de Cloud está lleno. Espera diez minutos a que caduquen las imágenes anteriores e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 暫存圖片空間已滿。請等待十分鐘，讓先前的圖片到期後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 临时图片存储空间已满。请等待十分钟，让之前的图片过期后再重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 임시 이미지 저장 공간이 가득 찼습니다. 이전 이미지가 만료되도록 10분 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud の画像用一時ストレージがいっぱいです。以前の画像の有効期限が切れるまで 10 分待ってから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.storage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The image could not be stored. Check the machine’s available disk space and copy the image again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Bild konnte nicht gespeichert werden. Prüfe den verfügbaren Speicherplatz auf dem Rechner und kopiere das Bild erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’image n’a pas pu être stockée. Vérifiez l’espace disque disponible sur la machine et copiez à nouveau l’image."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تخزين الصورة. تحقّق من مساحة القرص المتاحة على الجهاز وانسخ الصورة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar la imagen. Comprueba el espacio libre en disco de la máquina y vuelve a copiar la imagen."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存圖片。請檢查機器的可用磁碟空間，並重新複製圖片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法存储图片。请检查机器的可用磁盘空间，并重新复制图片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지를 저장할 수 없습니다. 머신의 디스크 여유 공간을 확인하고 이미지를 다시 복사하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を保存できませんでした。マシンのディスク空き容量を確認して、画像をもう一度コピーしてください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The image transfer timed out. Reconnect the Cloud terminal and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung bei der Bildübertragung. Verbinde das Cloud-Terminal erneut und versuche es noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert de l’image a expiré. Reconnectez le terminal Cloud et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة نقل الصورة. أعد توصيل طرفية Cloud وحاول مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La transferencia de la imagen agotó el tiempo de espera. Vuelve a conectar la terminal Cloud e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片傳輸逾時。請重新連線 Cloud 終端機後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片传输超时。请重新连接 Cloud 终端后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 전송 시간이 초과되었습니다. Cloud 터미널을 다시 연결한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像転送がタイムアウトしました。Cloud ターミナルを再接続して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.deliveryUncertain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The link closed before image paste was confirmed. Check the agent for an attachment before pasting again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung wurde getrennt, bevor das Einfügen bestätigt wurde. Prüfe vor einem erneuten Einfügen, ob der Agent den Anhang erhalten hat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion s’est fermée avant la confirmation du collage. Vérifiez si l’agent a reçu une pièce jointe avant de coller à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُغلق الاتصال قبل تأكيد لصق الصورة. تحقّق من وجود مرفق لدى الوكيل قبل اللصق مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión se cerró antes de confirmar el pegado. Comprueba si el agente recibió un adjunto antes de volver a pegar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認圖片貼上之前連線已中斷。請先確認代理是否已收到附件，再決定是否重新貼上。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认图片粘贴之前连接已关闭。请先检查代理是否已收到附件，再决定是否重新粘贴。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지 붙여넣기가 확인되기 전에 연결이 종료되었습니다. 다시 붙여넣기 전에 에이전트에 첨부 파일이 있는지 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像の貼り付けを確認する前に接続が切断されました。再度貼り付ける前に、エージェントが添付画像を受信しているか確認してください。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.useTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste this image directly into the Cloud terminal. Image attachments in the command buffer are not supported yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge dieses Bild direkt in das Cloud-Terminal ein. Bildanhänge im Befehlspuffer werden noch nicht unterstützt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez cette image directement dans le terminal Cloud. Les images jointes dans le tampon de commandes ne sont pas encore prises en charge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الصق هذه الصورة مباشرة في طرفية Cloud. مرفقات الصور في مخزن الأوامر غير مدعومة بعد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega esta imagen directamente en la terminal Cloud. Aún no se admiten imágenes adjuntas en el búfer de comandos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請將此圖片直接貼到 Cloud 終端機。指令緩衝區目前尚不支援圖片附件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请将此图片直接粘贴到 Cloud 终端。命令缓冲区目前尚不支持图片附件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 이미지를 Cloud 터미널에 직접 붙여넣으세요. 명령 버퍼의 이미지 첨부는 아직 지원되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画像を Cloud ターミナルに直接貼り付けてください。コマンドバッファでの画像添付にはまだ対応していません。"
+          }
+        }
+      }
+    },
+    "cloud.imagePaste.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image could not be pasted"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild konnte nicht eingefügt werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de coller l’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر لصق الصورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo pegar la imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法貼上圖片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法粘贴图片"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미지를 붙여넣을 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を貼り付けられませんでした"
+          }
+        }
+      }
+    },
     "cloud.fileDelivery.noResult": {
       "extractionState": "manual",
       "localizations": {

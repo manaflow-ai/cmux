@@ -9181,7 +9181,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return .insertText(segments.joined())
         case .uploadFiles(let fileURLs, _):
             return .uploadFiles(fileURLs)
-        case .reject:
+        case .reject, .pasteCloudImages:
             return .reject
         }
     }
@@ -9241,14 +9241,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    private func executeImageTransferPlan(
+    func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation? = nil,
         onCancel: @escaping () -> Void = {},
         onTextCompletion: @escaping () -> Void = {}
     ) -> Bool {
         guard plan != .reject else { return false }
-
+        if case .pasteCloudImages(let urls) = plan {
+            MainActor.assumeIsolated {
+                guard let terminalSurface else {
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
+                    return
+                }
+                let operation = operation ?? TerminalImageTransferOperation()
+                let lease = CloudImagePasteInputLease(view: self, operation: operation)
+                terminalSurface.pasteCloudImages(urls, operation: operation, onCancel: {
+                    lease.finish()
+                    onCancel()
+                }) {
+                    lease.finish()
+                    onTextCompletion()
+                }
+            }
+            return true
+        }
         let operation = operation ?? {
             if case .uploadFiles = plan {
                 return TerminalImageTransferOperation()
@@ -9336,9 +9353,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    private func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
+    func resolvedImageTransferTarget(mode: TerminalImageTransferMode) -> TerminalImageTransferTarget {
         MainActor.assumeIsolated {
-            terminalSurface?.resolvedImageTransferTarget() ?? .local
+            terminalSurface?.resolvedImageTransferTarget(mode: mode) ?? .local
         }
     }
 
@@ -9369,60 +9386,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    @discardableResult
-    private func executePreparedImageTransfer(
-        _ preparedContent: TerminalImageTransferPreparedContent,
-        mode: TerminalImageTransferMode = .drop,
-        onCancel: @escaping () -> Void
-    ) -> Bool {
-        switch preparedContent {
-        case .reject:
-            return false
-        case .insertText(let text):
-            return terminalSurface?.sendText(text) ?? false
-        case .fileURLs(let fileURLs):
-            let plan = TerminalImageTransferPlanner.plan(
-                fileURLs: fileURLs,
-                target: resolvedImageTransferTarget(),
-                mode: mode
-            )
-            guard plan != .reject else {
-                preparedContent.cleanupTransferredTemporaryFiles(
-                    using: GhosttyApp.terminalPasteboard
-                )
-                return false
-            }
-            let onTextCompletion: () -> Void
-            switch plan {
-            case .insertText:
-                onTextCompletion = {
-                    preparedContent.cleanupTransferredTemporaryFiles(
-                        using: GhosttyApp.terminalPasteboard
-                    )
-                }
-            case .insertTextSegments(let segments, _):
-                var remainingSegments = segments.count
-                onTextCompletion = {
-                    remainingSegments = max(0, remainingSegments - 1)
-                    guard remainingSegments == 0 else { return }
-                    preparedContent.cleanupTransferredTemporaryFiles(
-                        using: GhosttyApp.terminalPasteboard
-                    )
-                }
-            case .uploadFiles:
-                // Upload callbacks own cleanup until the remote transfer has
-                // finished (or failed), so do not consume ownership here.
-                onTextCompletion = {}
-            case .reject:
-                onTextCompletion = {}
-            }
-            return executeImageTransferPlan(
-                plan,
-                onCancel: onCancel,
-                onTextCompletion: onTextCompletion
-            )
-        }
-    }
 
 #if DEBUG
     fileprivate enum DebugDropPayloadKind {

@@ -63,6 +63,18 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         }
     }
 
+    /// Orders a control request with the manual input that preceded the paste.
+    func sendControl(
+        _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
+    ) -> UInt64 {
+        let command = command.merging(["id": requestID]) { _, value in value }
+        guard let line = commandBuilder.line(command) else { return requestID }
+        // Image commit shares the input lane. Queue it behind prior manual input,
+        // and retain this exact connection rather than replaying it after reconnect.
+        queue.async { connection.send(line: line) }
+        return requestID
+    }
+
     /// Enqueues one manual input event.
     func send(_ input: TerminalManualInput) {
         // Keep base64/JSON work off Ghostty's synchronous I/O callback. The
