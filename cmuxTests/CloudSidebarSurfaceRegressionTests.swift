@@ -148,7 +148,7 @@ struct CloudSidebarSurfaceRegressionTests {
 
     @Test("Visibility preserves workspace metadata and nonterminal content")
     @MainActor
-    func hiddenWorkspacesKeepPersistentState() throws {
+    func nonterminalWorkspacesKeepVisiblePersistentState() throws {
         let catalog = SurfaceCatalog()
         var document = try #require(visibilityState().snapshotObject())
         document["terminals"] = [] as [[String: Any]]
@@ -160,7 +160,7 @@ struct CloudSidebarSurfaceRegressionTests {
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
         publishVisibility(state, to: catalog, incremental: false)
         let before = catalog.snapshot
-        #expect(workspaceRows(catalog.snapshot).isEmpty)
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         #expect(catalog.snapshot == before && catalog.cloudStates[machine] == state, "visibility never deletes persistent state")
         #expect(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main").placements.count == 1)
         #expect(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_side").placements.count == 1)
