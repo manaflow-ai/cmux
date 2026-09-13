@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - State (visibility toggle)
 
 final class FileExplorerState: ObservableObject {
-    let cloudSidebarNavigation = CloudSidebarNavigationState()
+    @MainActor private(set) lazy var cloudSidebarNavigation = CloudSidebarNavigationState()
 
     private static let modeKey = "rightSidebar.mode"
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
