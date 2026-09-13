@@ -316,7 +316,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // controlResolveOnMain hop (known-ref refresh + routing resolution +
         // snapshot witness + ref minting in payload order) and build/encode
         // the JSON reply on the worker. None are focus-intent.
-        "surface.list", "browser.download.list",
+        "surface.list",
         "surface.current",
         "workspace.list",
         "workspace.current",
@@ -379,7 +379,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.list",
         "pane.surfaces",
         "system.identify",
-        "system.tree",
+        "system.tree", "browser.download.list",
         // The v2 send lane (tranche E): one narrow, non-blocking hop each
         // (resolve target + inject input + forceRefresh), so an inline
         // main-thread run is exactly the legacy main-lane dispatch.
