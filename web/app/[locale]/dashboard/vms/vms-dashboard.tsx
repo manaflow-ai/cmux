@@ -15,7 +15,8 @@ const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
   `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.${DEFAULT_WORKERS_SUBDOMAIN}.workers.dev`;
 
 type Props = { readonly userId: string; readonly userEmail: string };
-type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly slug: string | null; readonly status: string };
+type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly slug?: string | null; readonly status: string };
+type VmListBody = { readonly vms?: unknown; readonly limits?: { readonly maxActiveVms?: unknown } };
 
 export function VmsDashboard({ userId, userEmail }: Props) {
   const t = useTranslations("dashboard.iroh");
@@ -25,8 +26,8 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly DashboardWorkspace[]>([]);
   const [vms, setVms] = useState<readonly DashboardVm[]>([]);
+  const [maxActiveVms, setMaxActiveVms] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busyDevice, setBusyDevice] = useState<string | null>(null);
   const redirectingToSignInRef = useRef(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
   useEffect(() => {
@@ -53,10 +54,11 @@ export function VmsDashboard({ userId, userEmail }: Props) {
     setWorkspaces([]);
     setVms([]);
     void fetch(`/api/vm?teamId=${encodeURIComponent(teamId)}`, { credentials: "include", headers: { accept: "application/json" } })
-      .then(async response => response.ok ? await response.json() as { vms?: unknown } : null)
+      .then(async response => response.ok ? await response.json() as VmListBody : null)
       .then(body => {
         if (!body || !Array.isArray(body.vms)) return;
-        setVms(body.vms.filter((value): value is DashboardVm => !!value && typeof value === "object" && typeof (value as DashboardVm).id === "string" && typeof (value as DashboardVm).status === "string" && ((value as DashboardVm).slug === null || typeof (value as DashboardVm).slug === "string")));
+        setVms(body.vms.filter(isDashboardVm));
+        setMaxActiveVms(typeof body.limits?.maxActiveVms === "number" ? body.limits.maxActiveVms : null);
       })
       .catch(() => undefined);
     setError(null);
@@ -68,43 +70,33 @@ export function VmsDashboard({ userId, userEmail }: Props) {
     };
   }, [stack, teamId, userId]);
 
-  const devices = useMemo(() => directory?.devices ?? [], [directory]);
-  const vmById = useMemo(() => new Map(vms.map(vm => [vm.id, vm])), [vms]);
+  const workspaceByVmId = useMemo(() => new Map(workspaces.map(value => [value.vmId, value])), [workspaces]);
+  const knownVmIds = useMemo(() => new Set(vms.map(vm => vm.id)), [vms]);
+  const vmRows = useMemo(() => [
+    ...vms,
+    ...workspaces.filter(value => !knownVmIds.has(value.vmId)).map(value => ({ id: value.vmId, displayName: null, slug: null, status: "connected" } satisfies DashboardVm)),
+  ], [vms, knownVmIds, workspaces]);
   return (
     <div className="space-y-4" data-testid="iroh-dashboard">
       {teamScope.status === "loading" ? <p className="text-muted">{t("loading")}</p> : null}
       {teamScope.status === "unavailable" ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{t("unavailable")}</p> : null}
       {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
       {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
-      {directory && devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
-      <section data-testid="connected-workspaces">
-        <h2 className="font-medium">{t("vmsTitle")}</h2>
-        <p className="mt-1 text-xs text-muted">{t("vmsDescription")}</p>
-        {vms.length === 0 ? <p className="mt-3 text-muted">{t("vmsEmpty")}</p> : (
-          <div className="mt-3 space-y-1">
-            {vms.map(vm => <div key={vm.id} className="flex items-center gap-2 py-1" data-vm-catalog-id={vm.id}>
+      <section data-testid="connected-workspaces" className="space-y-1">
+        <div className="flex items-center justify-between text-sm text-muted">
+          <span>{t("machineCount", { count: vmRows.length, max: maxActiveVms ?? "—" })}</span>
+        </div>
+        {vmRows.length === 0 ? <p className="py-3 text-muted">{t("vmsEmpty")}</p> : vmRows.map(vm => {
+          const workspaceVm = workspaceByVmId.get(vm.id);
+          return <article key={vm.id} className="border-b border-border py-4 last:border-b-0" data-vm-id={vm.id} data-vm-catalog-id={vm.id}>
+            <div className="flex items-center gap-2">
               <CloudIcon />
-              <div className="font-medium">{vm.slug || vm.displayName || t("unnamedVm")}</div>
-              <div className="text-xs text-muted">{vm.status}</div>
-            </div>)}
-          </div>
-        )}
-        <h2 className="mt-5 font-medium">{t("workspacesTitle")}</h2>
-        <p className="mt-1 text-xs text-muted">{t("workspacesDescription")}</p>
-        {workspaces.length === 0 ? <p className="mt-3 text-muted">{t("workspacesEmpty")}</p> : (
-          <div className="mt-3 space-y-3">
-            {workspaces.map(workspaceVm => {
-              const vm = vmById.get(workspaceVm.vmId);
-              return (
-              <article key={workspaceVm.vmId} className="border-b border-border py-4 last:border-b-0" data-vm-id={workspaceVm.vmId}>
-                <div className="flex items-center gap-2">
-                  <CloudIcon />
-                  <h3 className="font-medium">{vm?.slug || vm?.displayName || t("vmLabel", { id: `…${workspaceVm.vmId.slice(-8)}` })}</h3>
-                  <span className="text-xs text-muted">{vm?.status ?? t("connected")}</span>
-                </div>
-                <div className="mt-3 space-y-3 pl-5">
-                  <TreeGroupLabel label={t("workspacesGroup")} />
-                  {workspaceVm.snapshot.workspaces.map(workspace => {
+              <h3 className="font-medium">{vm.slug || vm.displayName || t("vmLabel", { id: `…${vm.id.slice(-8)}` })}</h3>
+              <span className="text-xs text-muted">{vm.status}</span>
+            </div>
+            <div className="mt-3 space-y-3 pl-5">
+              <TreeGroupLabel label={t("workspacesGroup")} />
+              {workspaceVm?.snapshot.workspaces.map(workspace => {
                     const terminals = workspaceVm.snapshot.terminals.filter(terminal => terminal.workspaceId === workspace.id);
                     return (
                       <div key={workspace.id} className="pl-2">
@@ -120,44 +112,18 @@ export function VmsDashboard({ userId, userEmail }: Props) {
                       </div>
                     );
                   })}
-                  <TreeGroupLabel label={t("portsGroup")} />
-                  <div className="pl-2 text-xs text-muted">{t("portsEmpty")}</div>
-                  <TreeGroupLabel label={t("displaysGroup")} />
-                  <div className="flex items-center gap-2 pl-2 text-xs text-muted"><DisplayIcon /><span>{t("desktop")}</span><span>noVNC</span></div>
-                  <TreeGroupLabel label={t("terminalsGroup")} />
-                  {workspaceVm.snapshot.terminals.length === 0 ? <div className="pl-2 text-xs text-muted">{t("terminalsEmpty")}</div> : workspaceVm.snapshot.terminals.map(terminal => <div key={`${terminal.id}-pool`} className="flex items-center gap-2 pl-2 text-xs text-muted"><TerminalIcon /><span>{terminal.title}</span></div>)}
-                </div>
-                <div className="mt-3 text-right text-xs text-muted">{t("revisionLabel", { revision: workspaceVm.revision })}</div>
-              </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      {directory ? devices.map(device => {
-        const manageable = directory.managedDeviceIds.includes(device.deviceRecordId) && directory.canManageTeam;
-        return (
-          <section key={device.deviceRecordId} className="border-t border-border pt-3" data-device-id={device.deviceRecordId}>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="font-medium">{device.descriptor.metadata.displayName}</h2>
-                <p className="mt-1 text-xs text-muted">{device.descriptor.metadata.platform} · {device.descriptor.metadata.appVersion}</p>
-              </div>
-              {manageable ? <button className="border border-border px-2 py-1" disabled={busyDevice === device.deviceRecordId} onClick={async () => {
-                setBusyDevice(device.deviceRecordId); setError(null);
-                try { await controllerRef.current?.revoke(device.deviceRecordId); }
-                catch (cause) { setError(cause instanceof Error ? cause.message : t("mutationError")); }
-                finally { setBusyDevice(null); }
-              }}>{t("revoke")}</button> : null}
+              {!workspaceVm ? <div className="pl-2 text-xs text-muted">{t("workspacesEmpty")}</div> : null}
+              <TreeGroupLabel label={t("portsGroup")} />
+              <div className="pl-2 text-xs text-muted">{t("portsEmpty")}</div>
+              <TreeGroupLabel label={t("displaysGroup")} />
+              <div className="flex items-center gap-2 pl-2 text-xs text-muted"><DisplayIcon /><span>{t("desktop")}</span><span>noVNC</span></div>
+              <TreeGroupLabel label={t("terminalsGroup")} />
+              {workspaceVm?.snapshot.terminals.length ? workspaceVm.snapshot.terminals.map(terminal => <div key={`${terminal.id}-pool`} className="flex items-center gap-2 pl-2 text-xs text-muted"><TerminalIcon /><span>{terminal.title}</span></div>) : <div className="pl-2 text-xs text-muted">{t("terminalsEmpty")}</div>}
             </div>
-            <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-              <Fact label={t("deviceId")} value={`…${device.descriptor.identity.deviceId.slice(-8)}`} />
-              <Fact label={t("revision")} value={String(device.revision)} />
-              <Fact label={t("status")} value={device.revoked ? t("revoked") : t("active")} />
-            </dl>
-          </section>
-        );
-      }) : null}
+            {workspaceVm ? <div className="mt-3 text-right text-xs text-muted">{t("revisionLabel", { revision: workspaceVm.revision })}</div> : null}
+          </article>;
+        })}
+      </section>
       <span className="sr-only">{userEmail}</span>
     </div>
   );
@@ -165,6 +131,13 @@ export function VmsDashboard({ userId, userEmail }: Props) {
 
 function TreeGroupLabel({ label }: { readonly label: string }) {
   return <div className="text-xs font-medium text-muted">{label}</div>;
+}
+
+function isDashboardVm(value: unknown): value is DashboardVm {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as DashboardVm;
+  return typeof candidate.id === "string" && typeof candidate.status === "string" &&
+    (candidate.slug === undefined || candidate.slug === null || typeof candidate.slug === "string");
 }
 
 function CloudIcon() {
