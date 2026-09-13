@@ -175,4 +175,16 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("A legacy Cloud projection resolves its workspace identity before renaming")
+    func cloudLegacyWorkspaceNameAdmission() async throws {
+        try await withCloudNameFixture { fixture in
+            fixture.workspace.cloudVMBinding = nil
+            #expect(fixture.manager.setCustomTitle(tabId: fixture.workspace.id, title: "machine: User's exact name"))
+            #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
+            try fixture.expectParity("terminal", workspaceName: "Same workspace")
+            try await fixture.settle()
+            try fixture.expectParity("terminal", workspaceName: "machine: User's exact name")
+        }
+    }
+
 }

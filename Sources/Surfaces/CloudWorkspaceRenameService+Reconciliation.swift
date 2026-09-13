@@ -73,8 +73,9 @@ extension CloudWorkspaceRenameService {
                       let id = currentBinding.remoteWorkspaceID,
                       let remote = state.lookupIndex.workspace(id: id) else { continue }
                 if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { continue }
-                // Both views consume accepted daemon values. Local intent waits
-                // for its receipt; it never masks a newer authoritative name.
+                // Submission returns before local title setters run. Pending names
+                // are request metadata, not accepted UI values; both projections
+                // keep rendering this graph until the daemon acknowledges a write.
                 guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
                 let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
                 _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,

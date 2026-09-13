@@ -10811,7 +10811,10 @@
             }
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "source auto requires expected_generation and expected_name_revision."
+        ]
       },
       "result": {
         "kind": "apply",

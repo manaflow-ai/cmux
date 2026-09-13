@@ -140,38 +140,6 @@ final class SurfaceCatalog {
         requestCloudWorkspaceProjection(localWorkspaceID)
     }
 
-    /// Propagates a local workspace title through the catalog's ordered remote lane.
-    func propagateCloudWorkspaceRename(
-        workspace: Workspace,
-        localTitle: String?,
-        previousCustomTitle: String?
-    ) {
-        cloudWorkspaceRenameService.propagate(
-            workspace: workspace,
-            localTitle: localTitle,
-            previousCustomTitle: previousCustomTitle,
-            catalog: self
-        )
-    }
-
-    /// Propagates a local pane title through the exact remote tab placement.
-    func propagateCloudTerminalRename(
-        workspace: Workspace,
-        panelID: UUID,
-        resource: SurfaceResource,
-        name: String,
-        previousCustomTitle: String?
-    ) {
-        cloudWorkspaceRenameService.propagateTerminalRename(
-            workspace: workspace,
-            panelID: panelID,
-            resource: resource,
-            name: name,
-            previousCustomTitle: previousCustomTitle,
-            catalog: self
-        )
-    }
-
     /// Persists the machine and remote workspace identity behind a local workspace.
     func bindCloudWorkspace(
         localWorkspaceID: UUID,

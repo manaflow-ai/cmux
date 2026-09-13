@@ -34,7 +34,6 @@ extension TabManager {
            let submitted = SurfaceCatalog.shared.submitCloudWorkspaceRename(
                workspace: tabs[index], title: title, source: source
            ) { return submitted }
-        let previousCustomTitle = tabs[index].customTitle
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let applied = tabs[index].setCustomTitle(title, source: source)
@@ -60,15 +59,6 @@ extension TabManager {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
                 workspaceId: tabId,
                 title: title
-            )
-        }
-        // A local workspace standing for a cloud machine's cmux-tui workspace writes a
-        // USER rename through to that daemon (persisted there, broadcast to every
-        // client). Auto titles never propagate. Workspace names stay non-empty,
-        // so clearing remains a local title operation only.
-        if applied, propagateToCloud, source == .user {
-            SurfaceCatalog.shared.propagateCloudWorkspaceRename(
-                workspace: tabs[index], localTitle: title, previousCustomTitle: previousCustomTitle
             )
         }
         return applied

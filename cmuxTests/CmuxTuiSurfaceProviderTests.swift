@@ -423,38 +423,8 @@ import Testing
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
-        // Legacy projection fallback drops the generated prefix; a bound workspace keeps
-        // an intentional prefix as part of the user's exact title.
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
-    }
-
-    @Test func cloudRenameRecognizesOnlyTheActualGeneratedWorkspaceTitle() {
-        #expect(
-            CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api"
-            )
-        )
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "other"
-            )
-        )
-        // A user-entered title with the same prefix is still exact when it does
-        // not match the name that generated the previous title.
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api work"
-            )
-        )
+        // Exact user payload preservation, including legacy bindings, is covered
+        // through the real submission path in cloudLegacyWorkspaceNameAdmission.
     }
 
     @Test func cloudTerminalRenameRejectsMismatchedLegacyWorkspaceFallback() throws {

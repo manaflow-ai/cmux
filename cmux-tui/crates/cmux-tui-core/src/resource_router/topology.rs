@@ -1796,6 +1796,21 @@ mod tests {
     }
 
     #[test]
+    fn cloud_rename_authority_rejects_unversioned_callback() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "unversioned-name");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let before = public_session_snapshot(&mux).unwrap();
+        let error = dispatch(&mux, parsed(ResourceOperation::TabRename,
+            selectors(None, None, None, Some(tab)), json!({"name":"auto", "source":"auto"}),
+            Some("unversioned-auto"))).unwrap_err();
+        assert_eq!(error.code, "validation.invalid");
+        let after = public_session_snapshot(&mux).unwrap();
+        assert_eq!(after["tabs"], before["tabs"]);
+        assert_eq!(after["cursor"], before["cursor"]);
+    }
+
+    #[test]
     fn cloud_rename_authority_user_name_rejects_automatic_callback() {
         let mux = mux();
         let created = terminal_workspace(&mux, "rename-authority-user");

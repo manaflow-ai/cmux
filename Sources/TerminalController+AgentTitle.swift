@@ -117,8 +117,9 @@ extension TerminalController {
                 result["workspace_user_owned"] = v2OrNull(userOwned)
                 if let panelId = v2UUID(params, "panel_id") {
                     v2MainSync {
-                        if case .ok(let values) = self.cloudNameProbe(workspaceId: workspaceId, panelId: panelId, manager: tabManager) {
-                            result.merge(values) { _, new in new }
+                        if case .ok(let values) = self.cloudNameProbe(workspaceId: workspaceId, panelId: panelId, manager: tabManager),
+                           let cloudValues = values as? [String: Any] {
+                            result.merge(cloudValues) { _, new in new }
                         }
                     }
                 }

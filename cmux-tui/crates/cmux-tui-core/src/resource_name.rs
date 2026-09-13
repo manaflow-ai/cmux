@@ -38,10 +38,11 @@ impl TabNameUpdate {
             .and_then(Value::as_str)
             .map(str::parse)
             .transpose()?;
-        anyhow::ensure!(
-            source != NameSource::Auto || (generation.is_some() && name_revision.is_some()),
-            "automatic names require a generation and name revision"
-        );
+        if source == NameSource::Auto && (generation.is_none() || name_revision.is_none()) {
+            return Err(ResourceError::validation_invalid(
+                Some("source"), "automatic names require a generation and name revision",
+            ).into());
+        }
         Ok(Self { source, generation, name_revision })
     }
 
@@ -60,10 +61,10 @@ impl TabNameUpdate {
             )
             .into());
         }
-        if let Some(expected) = self.name_revision {
-            if expected != tab.name_revision {
-                return Err(ResourceError::revision_conflict(expected, tab.name_revision).into());
-            }
+        if let Some(expected) = self.name_revision
+            && expected != tab.name_revision
+        {
+            return Err(ResourceError::revision_conflict(expected, tab.name_revision).into());
         }
         if self.source == NameSource::Auto {
             anyhow::ensure!(

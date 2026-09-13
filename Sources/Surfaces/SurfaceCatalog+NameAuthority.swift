@@ -46,13 +46,26 @@ extension SurfaceCatalog {
     func submitCloudWorkspaceRename(
         workspace: Workspace, title: String?, source: Workspace.CustomTitleSource
     ) -> Bool? {
-        guard let binding = workspace.cloudVMBinding, let remoteID = binding.remoteWorkspaceID else { return nil }
+        guard let target = cloudWorkspaceRenameService.remoteTarget(binding: workspace.cloudVMBinding, projectedResources: [])
+            ?? cloudWorkspaceRenameService.inferredRemoteWorkspaceTarget(
+                projections: projections.filter { $0.workspaceID == workspace.id }, resources: [], resourcesByID: resources
+            ) else { return nil }
+        // Upgrade legacy projections before admitting the name. No display text
+        // participates in either identity resolution or the remote payload.
+        if workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
+            let previous = workspace.cloudVMBinding
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+                vmID: target.machine.rawValue,
+                isBase: previous?.vmID == target.machine.rawValue ? (previous?.isBase ?? false) : false,
+                remoteWorkspaceID: target.remoteWorkspaceID
+            )
+        }
         // Daemon workspaces have an explicit nonempty name. An agent callback
         // targets its terminal tab, never a local alias of this workspace.
         guard source == .user else { return false }
         let name = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !name.isEmpty else { return false }
-        let write = enqueueRemoteWorkspaceRename(on: .cloud(binding.vmID), id: remoteID, name: name)
+        let write = enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         observeCloudNameWrite(write, workspace: workspace, automatic: false)
         return true
     }
