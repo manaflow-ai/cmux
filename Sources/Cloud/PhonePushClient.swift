@@ -89,6 +89,7 @@ final class PhonePushClient {
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
+    let identityPrewarm = PhonePushIdentityPrewarm()
     private var activeIdentity: AuthenticatedSessionIdentity?
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
@@ -128,13 +129,14 @@ final class PhonePushClient {
             configuration: PhonePushConfiguration(defaults: defaults)
         )
     }
-    /// Starts auth-scoped phone push observation after warming host identity.
+    /// Starts auth-scoped phone push observation and off-main identity warming.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        _ = MobileHostIdentity.deviceID()
+        identityPrewarm.reset()
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
         activeIdentity = nil
+        startIdentityPrewarmIfNeeded()
         authLifecycleTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
             await self.bootstrapQueueAndObserve(auth: auth)
@@ -341,13 +343,17 @@ final class PhonePushClient {
         }
         return .queued
     }
-
     func forwardDismissed(ids: [String], badgeCount: Int) {
         guard PhonePushConfiguration.forwardingEnabled(in: defaults),
               !ids.isEmpty,
               let identity = auth?.authenticatedSessionIdentity,
               let targetBundleIdentifier = MobileIOSPairingTargetStore()
                   .pushTargetNamespace?.bundleIdentifier else { return }
+        guard let macDeviceID = identityPrewarm.deviceIDIfReady() else {
+            identityPrewarm.appendDismissals(ids: ids, badgeCount: badgeCount)
+            startIdentityPrewarmIfNeeded()
+            return
+        }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
@@ -367,7 +373,7 @@ final class PhonePushClient {
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
-                macDeviceId: MobileHostIdentity.deviceID(),
+                macDeviceId: macDeviceID,
                 macInstanceTag: MobileHostIdentity.instanceTag(),
                 notificationId: nil,
                 notificationIds: Array(ids[start..<end]),
@@ -401,14 +407,12 @@ final class PhonePushClient {
             }
         }
     }
-
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
         cancelInMemoryQueue()
         pendingPersistenceSnapshot = []
         schedulePersistence([])
     }
-
     private func bootstrapQueueAndObserve(auth: AuthCoordinator) async {
         // This call waits for launch bootstrap. A transient token failure does
         // not erase credential-free queue ownership; the published identity
@@ -427,7 +431,6 @@ final class PhonePushClient {
             await handleAuthTransition(identity, auth: auth)
         }
     }
-
     private func restoreQueueIfAllowed(
         identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
@@ -481,7 +484,6 @@ final class PhonePushClient {
         activeIdentity = identity
         deliveryQueue.start()
     }
-
     private func handleAuthTransition(
         _ identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
@@ -494,7 +496,6 @@ final class PhonePushClient {
         guard self.auth === auth else { return }
         deliveryQueue.start()
     }
-
     private func schedulePersistence(
         _ snapshot: [PhonePushRequestEnvelope]
     ) {
@@ -504,7 +505,6 @@ final class PhonePushClient {
             await self?.drainPersistence()
         }
     }
-
     private func cancelInMemoryQueue() {
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
