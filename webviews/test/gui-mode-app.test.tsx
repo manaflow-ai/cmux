@@ -6,12 +6,13 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { filterGuiModeProviders, GuiModeApp } from "../src/gui-mode/GuiModeApp";
 import { cancelGuiModeSubmit, submitGuiModePrompt, type GuiModeContext } from "../src/gui-mode/bridge";
-import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "../src/gui-mode/providerCatalog";
+import { guiModeFallbackProviderIds, guiModeFallbackProviders } from "./fixtures/guiModeProviders";
 import { createWebviewsRouter } from "../src/router";
 
 const expectedProviderIds = guiModeFallbackProviderIds;
 const testGuiModeCopy = {
   cancel: "Cancel",
+  cancellationUnconfirmed: "Could not confirm cancellation. Try Cancel again before submitting another task.",
   errorMessage: "Could not create the GUI workspace.",
   homeTitle: "GUI Mode",
   noProvidersFound: "No agents found",
@@ -43,53 +44,43 @@ test("GUI mode fallback catalog has complete provider snapshots", () => {
   }
 });
 
-test("GUI mode renders the composer while native context is pending", async () => {
+test("GUI mode waits for native context before exposing an interactive composer", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "file:///tmp/gui-mode.html",
   });
   const restoreGlobals = installDomGlobals(dom);
   (dom.window as any).webkit = {
-    messageHandlers: {
-      agentSession: {
-        postMessage: () => new Promise(() => {}),
-      },
-    },
+    messageHandlers: { agentSession: { postMessage: () => new Promise(() => {}) } },
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
-
   try {
-    flushSync(() => {
-      root.render(<GuiModeApp />);
-    });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    flushSync(() => root.render(<GuiModeApp />));
+    expect(dom.window.document.querySelector("[aria-busy=true]")).toBeTruthy();
+    expect(dom.window.document.querySelector("progress")).toBeTruthy();
+    expect(dom.window.document.querySelector(".gui-mode-editor")).toBeNull();
+    expect(dom.window.document.querySelector(".gui-mode-submit")).toBeNull();
+  } finally {
+    flushSync(() => root.unmount());
+    restoreGlobals();
+    dom.window.close();
+  }
+});
 
-    expect(dom.window.document.querySelector(".gui-mode-home")).toBeTruthy();
-    const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
-    expect(rootElement.dataset.guiModePage).toBe("home");
-    expect(rootElement.dataset.guiModeProvider).toBe("codex");
-    expect(rootElement.dataset.guiModePromptLength).toBe("0");
-    expect(dom.window.document.querySelector(".gui-mode-chat-thread")).toBeTruthy();
-    expect(dom.window.document.querySelector(".gui-mode-assistant-message")?.textContent)
-      .toContain("What should cmux build?");
-    expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
-    expect(dom.window.document.querySelector(".gui-mode-submit")?.textContent).toBe("Submit");
-    const providerOptions = Array.from(
-      dom.window.document.querySelectorAll<HTMLOptionElement>(".gui-mode-agent-select option"),
-    );
-    expect(providerOptions.map((element) => element.textContent)).toContain("Qoder");
-    expect(providerOptions).toHaveLength(expectedProviderIds.length);
-    expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
-      .toEqual(["/task-worktree-pr --provider codex"]);
-
-    const providerSelect = dom.window.document.querySelector(".gui-mode-agent-select") as HTMLSelectElement;
-    flushSync(() => {
-      providerSelect.value = "qoder";
-      providerSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    });
-    expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-command-code")).map((element) => element.textContent))
-      .toEqual(["/task-worktree-pr --provider qoder"]);
-    expect((dom.window.document.querySelector(".gui-mode-agent-select-shell") as HTMLElement)
-      .style.getPropertyValue("--gui-provider-accent")).toBe("#c084fc");
+test("native bootstrap renders the restored provider and localized task without a home flash", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const restoreGlobals = installDomGlobals(dom);
+  const context = taskContextForProvider(guiModeFallbackProviders.at(-1)!);
+  context.copy = { ...context.copy, taskTitle: "保存したタスク" };
+  dom.window.cmuxGuiModeBootstrap = { context, loadingMessage: "読み込み中", errorMessage: "読み込めませんでした" };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    expect(dom.window.document.querySelector(".gui-mode-title")?.textContent).toBe("保存したタスク");
+    expect(dom.window.document.querySelector("[data-gui-mode-provider=qoder]")).toBeTruthy();
+    expect(dom.window.document.querySelector(".gui-mode-home")).toBeNull();
+    expect(dom.window.document.querySelector(".gui-mode-submit")).toBeNull();
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -244,6 +235,52 @@ test("GUI mode agent selector submits every provider from the rendered chat comp
     }
   }
 }, 15000);
+
+test("timed-out submit and cancel show recovery and unlock only after cancellation is confirmed", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const restoreGlobals = installDomGlobals(dom);
+  const context = { ...taskContextForProvider(guiModeFallbackProviders[0]!), page: "home", prompt: "" };
+  const requests: string[] = [];
+  let cancellationAttempts = 0;
+  const nativeSetTimeout = dom.window.setTimeout.bind(dom.window);
+  dom.window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+    nativeSetTimeout(handler, timeout === 30000 || timeout === 3000 ? 0 : timeout, ...args)) as typeof dom.window.setTimeout;
+  (dom.window as any).webkit = { messageHandlers: { agentSession: {
+    postMessage: (message: { method: string }) => {
+      requests.push(message.method);
+      if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
+      if (message.method === "guiMode.cancel" && ++cancellationAttempts > 1) {
+        return Promise.resolve({ ok: true, value: { cancelled: true } });
+      }
+      return new Promise(() => {});
+    },
+  } } };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor") !== null);
+    pasteIntoPromptEditor(dom, "Build it");
+    const submit = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-submit")!;
+    await waitFor(() => !submit.disabled);
+    flushSync(() => submit.click());
+    await waitFor(() => dom.window.document.querySelector("[role=alert]")?.textContent === testGuiModeCopy.cancellationUnconfirmed);
+    expect(submit.disabled).toBe(true);
+    expect(requests.filter((method) => method === "guiMode.submit")).toHaveLength(1);
+    const cancel = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-cancel")!;
+    expect(cancel.disabled).toBe(false);
+    flushSync(() => cancel.click());
+    await waitFor(() => !submit.disabled);
+    expect(cancellationAttempts).toBe(2);
+    expect(dom.window.document.querySelector("[role=alert]")?.textContent).toBe("");
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+});
 
 test("GUI mode task page renders every provider from native context", async () => {
   for (const provider of guiModeFallbackProviders) {
