@@ -721,7 +721,7 @@
 		12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */; };
 		124760000000000000000005 /* CloudImagePasteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000005 /* CloudImagePasteError.swift */; };
 		124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000028 /* CloudImagePasteInputLease.swift */; };
-		124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124760000000000000000002 /* CloudImagePasteRoutingTests.swift */; };
+		124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */; };
 		12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001F /* CloudImagePasteTestPeer.swift */; };
 		7A0CE1000000000000000718 /* CloudLoopbackPortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */; };
 		7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */; };
@@ -4457,7 +4457,7 @@
 		12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteCoordinatorTests.swift; sourceTree = "<group>"; };
 		124770000000000000000005 /* CloudImagePasteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteError.swift"; sourceTree = SOURCE_ROOT; };
 		124770000000000000000028 /* CloudImagePasteInputLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteInputLease.swift"; sourceTree = SOURCE_ROOT; };
-		124760000000000000000002 /* CloudImagePasteRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteRoutingTests.swift; sourceTree = "<group>"; };
+		31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteRoutingTests.swift; sourceTree = "<group>"; };
 		12477000000000000000001F /* CloudImagePasteTestPeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteTestPeer.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForward.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForwardTests.swift; sourceTree = "<group>"; };
@@ -10397,7 +10397,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 				12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */,
 				12477000000000000000001F /* CloudImagePasteTestPeer.swift */,
-				124760000000000000000002 /* CloudImagePasteRoutingTests.swift */,
+				31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */,
 				B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */,
 				B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */,
 				B88350000000000000000004 /* PasteboardThreadSignalingDataProvider.swift */,

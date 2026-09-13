@@ -194,7 +194,12 @@ impl ImagePasteFile {
         }
         // fstatat initialized current on success.
         let current = unsafe { current.assume_init() };
-        if current.st_dev == owned.dev()
+        // Darwin's dev_t is signed 32-bit; MetadataExt exposes it as u64.
+        #[cfg(target_vendor = "apple")]
+        let current_device = current.st_dev as u64;
+        #[cfg(not(target_vendor = "apple"))]
+        let current_device = current.st_dev;
+        if current_device == owned.dev()
             && current.st_ino == owned.ino()
             && current.st_mode & libc::S_IFMT == libc::S_IFREG
         {

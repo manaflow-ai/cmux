@@ -192,18 +192,16 @@ mod tests {
     #[test]
     fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
         assert_eq!(
-            super::classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
-            cmux_remote_protocol::Lane::Interactive
+            classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
+            Lane::Interactive
         );
         assert_eq!(
-            super::classify_client_line(
-                br#"{"id":9,"cmd":"paste-image","op":"chunk","data":"eA=="}"#
-            ),
-            cmux_remote_protocol::Lane::Bulk
+            classify_client_line(br#"{"id":9,"cmd":"paste-image","op":"chunk","data":"eA=="}"#),
+            Lane::Bulk
         );
         assert_eq!(
-            super::classify_client_line(br#"{"id":10,"cmd":"send","surface":1,"bytes":"eA=="}"#),
-            cmux_remote_protocol::Lane::Interactive
+            classify_client_line(br#"{"id":10,"cmd":"send","surface":1,"bytes":"eA=="}"#),
+            Lane::Interactive
         );
     }
     use std::alloc::{GlobalAlloc, Layout, System};

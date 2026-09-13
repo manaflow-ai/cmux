@@ -252,21 +252,17 @@ fn cloud_image_paste_leased_daemon_path_reaches_bracketed_paste() {
 fn cloud_image_paste_keep_on_exit_cleans_image_without_closing_the_view() {
     let mux = Mux::new_for_test("image-paste-keep-exit", crate::SurfaceOptions::default());
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-    let created = mux
-        .create_terminal_in_workspace_with_mutation(
-            workspace.workspace,
-            None,
-            None,
-            None,
-            Some((80, 24)),
-            None,
-            None,
-            None,
-            &WorkspaceMutation::local("image-paste-keep-exit"),
-            Some(crate::workspace_registry::TerminalOnExit::Keep),
+    const TERMINAL: &str = "00000000000040008000000000012476";
+    const INCARNATION: &str = "10000000000040008000000000012476";
+    let surface_id = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            TERMINAL,
+            INCARNATION,
+            &workspace.key,
+            crate::workspace_registry::TerminalOnExit::Keep,
         )
         .unwrap();
-    let surface = mux.surface(created.placement.unwrap().surface).unwrap();
+    let surface = mux.surface(surface_id).unwrap();
     let terminal = surface.terminal_public_id().unwrap();
     let (client, writer) = image_paste_client(&mux);
     let (lease, _) = image_paste_view_lease(&mux, client, surface.id, &writer);
@@ -297,7 +293,6 @@ fn cloud_image_paste_keep_on_exit_cleans_image_without_closing_the_view() {
     let resolved = mux.resolve_terminal(terminal.as_str()).unwrap().unwrap();
     assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Exited);
     assert_eq!(resolved.surface, Some(surface.id));
-    mux.close_terminal(&created.terminal_id, created.terminal_incarnation.as_deref().unwrap())
-        .unwrap();
+    mux.close_terminal(TERMINAL, INCARNATION).unwrap();
     disconnect_client(&mux, client, false);
 }
