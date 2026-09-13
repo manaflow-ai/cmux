@@ -2,18 +2,17 @@ import AppKit
 import Bonsplit
 
 extension Workspace {
-    func cloudSidebarRevealTarget(forPanel panelID: UUID? = nil) -> CloudSidebarRevealTarget? {
-        if let panelID, panels[panelID] == nil { return nil }
+    func cloudSidebarRevealTarget(forPanel panelID: UUID) -> CloudSidebarRevealTarget? {
+        guard panels[panelID] != nil,
+              let projection = SurfaceCatalog.shared.projection(forPanel: panelID) else { return nil }
         return CloudSidebarRevealTarget(
-            projection: panelID.flatMap { SurfaceCatalog.shared.projection(forPanel: $0) },
-            binding: cloudVMBinding,
-            managedCloudVMID: remoteConfiguration?.managedCloudVMID
+            projection: projection
         )
     }
 
     /// All entrypoints use the clicked workspace's window and catalog identity.
     @discardableResult
-    func focusInCloudSidebar(panelID: UUID? = nil) -> Bool {
+    func focusInCloudSidebar(panelID: UUID) -> Bool {
         guard let target = cloudSidebarRevealTarget(forPanel: panelID),
               let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: id),
@@ -29,7 +28,7 @@ extension Workspace {
         )
     }
 
-    func focusInCloudSidebarMenuItem(panelID: UUID? = nil) -> NSMenuItem? {
+    func focusInCloudSidebarMenuItem(panelID: UUID) -> NSMenuItem? {
         guard CloudMachinesFeature.isEnabled,
               cloudSidebarRevealTarget(forPanel: panelID) != nil else { return nil }
         let item = CloudTreeMenuItem(

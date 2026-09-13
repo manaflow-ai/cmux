@@ -70,7 +70,6 @@ extension ContentView {
     static let commandPaletteCloudPortsCommandId = "palette.cloud.ports"
     static let commandPaletteCloudToolsCommandId = "palette.cloud.tools"
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
-    static let commandPaletteCloudRevealCommandId = "palette.cloud.focusInSidebar"
     static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
     static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
@@ -83,17 +82,6 @@ extension ContentView {
         }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
-            CommandPaletteCommandContribution(
-                commandId: commandPaletteCloudRevealCommandId,
-                title: constant(String(localized: "contextMenu.focusInCloudSidebar", defaultValue: "Focus in Cloud Sidebar")),
-                subtitle: subtitle,
-                keywords: ["cloud", "focus", "reveal", "sidebar"],
-                when: { _ in
-                    guard let manager = AppDelegate.shared?.tabManager,
-                          let workspace = manager.tabs.first(where: { $0.id == manager.selectedTabId }) else { return false }
-                    return workspace.cloudSidebarRevealTarget(forPanel: workspace.focusedPanelId) != nil
-                }
-            ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudNewMachineCommandId,
                 title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
@@ -152,10 +140,6 @@ extension ContentView {
     }
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
-        registry.register(commandId: Self.commandPaletteCloudRevealCommandId) {
-            guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else { return }
-            _ = workspace.focusInCloudSidebar(panelID: workspace.focusedPanelId)
-        }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
