@@ -199,10 +199,16 @@ impl PresenceHub {
 
     fn snapshot_at(&self, now: Instant) -> Vec<PresenceEntry> {
         let mut slots = self.slots.lock().unwrap();
-        slots.retain(|_, slot| {
-            let pinned = slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
-            pinned || now.duration_since(slot.last_change) < PRESENCE_POINTER_TTL
-        });
+        for slot in slots.values_mut() {
+            if now.duration_since(slot.last_change) >= PRESENCE_POINTER_TTL {
+                let pinned = slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
+                slot.entry.pointer = None;
+                if !pinned {
+                    slot.entry.surface = None;
+                    slot.entry.highlight = None;
+                }
+            }
+        }
         slots
             .values()
             .filter(|slot| slot.entry.surface.is_some())
@@ -300,6 +306,8 @@ mod tests {
         let later = start + PRESENCE_POINTER_TTL + Duration::from_secs(1);
         let live = hub.snapshot_at(later);
         assert_eq!(live.iter().map(|e| e.client).collect::<Vec<_>>(), vec![2]);
+        let refreshed = hub.update_at(1, update(3, 1, 1), later).unwrap();
+        assert_eq!(refreshed.generation, 2);
     }
 
     #[test]

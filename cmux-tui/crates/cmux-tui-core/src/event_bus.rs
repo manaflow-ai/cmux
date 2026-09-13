@@ -344,6 +344,19 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::Title(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        let sequences = self
+            .coalesced
+            .iter()
+            .filter_map(|(sequence, (_, event))| match event {
+                MuxEvent::PresenceChanged(entry) if entry.surface == Some(surface) => Some(*sequence),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for sequence in sequences {
+            if let Some((key, _)) = self.coalesced.remove(&sequence) {
+                self.coalesced_sequences.remove(&key);
+            }
+        }
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
@@ -558,6 +571,26 @@ mod tests {
         broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_presence() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+        broadcaster.emit(MuxEvent::PresenceChanged(crate::PresenceEntry {
+            client: 7,
+            name: Some("ada".into()),
+            kind: Some("mac".into()),
+            color: 0,
+            surface: Some(4),
+            pointer: Some(crate::PresenceAnchor::Cell { row: 1, col: 2, scroll_offset: 0 }),
+            highlight: None,
+            updated_at_ms: 1,
+            generation: 1,
+        }));
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }
