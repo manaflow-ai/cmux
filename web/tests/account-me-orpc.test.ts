@@ -6,6 +6,12 @@ import { call } from "@orpc/server";
 import { accountMeProcedure } from "../orpc/server/account/me";
 import { cloudDevicesProcedure } from "../orpc/server/cloud/devices";
 import { testflightStatusProcedure } from "../orpc/server/testflight/status";
+import { billingStatusProcedure } from "../orpc/server/billing/dashboard";
+import {
+  vaultOverviewProcedure,
+  vaultSessionDetailProcedure,
+  vaultSessionListProcedure,
+} from "../orpc/server/vault/dashboard";
 import { generateOpenAPIDocument } from "../orpc/server/openapi";
 
 // The two checked-in specs the Swift client and /api/openapi.json ship must
@@ -70,6 +76,13 @@ describe("account.me", () => {
     await expect(
       call(testflightStatusProcedure, undefined, { context: context(null) }),
     ).rejects.toThrow();
+  });
+
+  test("rejects unauthenticated Billing and Vault reads at the procedure boundary", async () => {
+    await expect(call(billingStatusProcedure, undefined, { context: context(null) })).rejects.toThrow();
+    await expect(call(vaultOverviewProcedure, undefined, { context: context(null) })).rejects.toThrow();
+    await expect(call(vaultSessionListProcedure, {}, { context: context(null) })).rejects.toThrow();
+    await expect(call(vaultSessionDetailProcedure, { id: "not-a-uuid" }, { context: context(null) })).rejects.toThrow();
   });
 
   test("OpenAPI document advertises account.me at GET /account/me on /api/v1", async () => {
