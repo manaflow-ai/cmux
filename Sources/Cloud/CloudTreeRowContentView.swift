@@ -81,6 +81,8 @@ struct CloudTreeRowContentView: View {
             CloudTreeDeviceRowContent(row: row, style: style)
         case .devicesSection(let section):
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"), count: section.count)
+        case .devicesEmpty:
+            EmptyView() // Hosted by its interactive cell instead of the display-only row.
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
         case .displaysPool(_, let count):

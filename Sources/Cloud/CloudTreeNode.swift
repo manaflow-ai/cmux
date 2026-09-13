@@ -61,6 +61,8 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
+        /// Empty My Devices state with independent discovery actions.
+        case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
@@ -102,6 +104,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
+        case .devicesEmpty: return "devicesEmpty"
         }
     }
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
@@ -136,7 +139,7 @@ final class CloudTreeNode: NSObject {
         case .device(let row): return row.machine
         // The section is a header over several machines; the id keeps it
         // addressable (expansion, debug logs) without naming any one of them.
-        case .devicesSection: return .cloud("devices-section")
+        case .devicesSection, .devicesEmpty: return .cloud("devices-section")
         }
     }
 
@@ -171,6 +174,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.name
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
+        case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
         }
     }
 
@@ -224,7 +228,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .device, .devicesSection:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .device, .devicesSection, .devicesEmpty:
             return nil
         }
     }

@@ -311,10 +311,11 @@ struct DevicesCloudTreeBuilderTests {
         #expect(state.incomingAccessEnabled)
         #expect(state.count == 0)
         #expect(section.children.count == 1)
-        guard case .placeholder = section.children[0].kind else {
+        guard case .devicesEmpty(let emptyState) = section.children[0].kind else {
             Issue.record("Disabled discovery must not keep a connectable device row")
             return
         }
+        #expect(emptyState == state)
     }
 
     @Test("An empty My Devices section remains visible beneath the cloud fleet")

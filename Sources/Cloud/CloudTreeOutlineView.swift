@@ -276,6 +276,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 guard let outlineView, outlineView.numberOfRows > 0 else { return }
                 withProgrammaticUpdate {
+                    let emptyRows = IndexSet((0..<outlineView.numberOfRows).filter {
+                        guard let node = outlineView.item(atRow: $0) as? CloudTreeNode else { return false }
+                        if case .devicesEmpty = node.kind { return true }
+                        return false
+                    })
+                    outlineView.noteHeightOfRows(withIndexesChanged: emptyRows)
                     outlineView.reloadData(
                         forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
                         columnIndexes: IndexSet(integer: 0)
@@ -372,6 +378,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
+            if case .devicesEmpty(let section) = node.kind {
+                let cell = (outlineView.makeView(withIdentifier: CloudTreeDevicesEmptyCell.identifier, owner: nil) as? CloudTreeDevicesEmptyCell)
+                    ?? CloudTreeDevicesEmptyCell(frame: .zero)
+                cell.configure(section: section, actions: nodeActions)
+                return cell
+            }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
             cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
@@ -385,6 +397,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             switch node.kind {
+            case .devicesEmpty(let section):
+                return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section))
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
                 // Same rule as usageLine (nil for empty totals), without formatting text per row.
@@ -404,7 +418,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            true
+            if let node = item as? CloudTreeNode, case .devicesEmpty = node.kind { return false }
+            return true
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -460,6 +475,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
+            case .devicesEmpty:
+                break
             case .machine(let machine, _):
                 if machine.freeAccess == .expired {
                     machineActions.promptUpgrade()
@@ -758,7 +775,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return machineMenuItems(machine)
             case .device(let row):
                 return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
-            case .devicesSection(let section):
+            case .devicesSection(let section), .devicesEmpty(let section):
                 return deviceDiscoveryMenuItems(section: section)
             }
         }

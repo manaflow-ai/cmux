@@ -44,12 +44,7 @@ extension CloudTreeNodeBuilder {
             kind: .devicesSection(header),
             children: rows.isEmpty ? [CloudTreeNode(
                 id: "devices-section/empty",
-                kind: .placeholder(machine: .cloud("devices-section"), CloudTreePlaceholder(
-                    text: section.discoveryEnabled
-                        ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
-                        : String(localized: "devices.discovery.disabled", defaultValue: "Discovery is off. Turn it on to see your other Macs."),
-                    style: .dimmed
-                ))
+                kind: .devicesEmpty(header)
             )] : rows
         )]
     }
