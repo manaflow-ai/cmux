@@ -38,7 +38,10 @@ final class CloudPresenceLink {
     private var reconnectAttempt = 0
     private var stopping = false
     private var lastPublish: TimeInterval = 0
-    private var lastPublished: (surface: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?)?
+    /// The local UI's desired state survives a transport reconnect.
+    private var desiredPresence: (surface: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?)?
+    /// State most recently sent on the current connection.
+    private var lastSentPresence: (surface: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?)?
     private let onEntry: @MainActor (CloudPresenceEntry) -> Void
     private let onPhaseChange: @MainActor (CloudPresenceLink) -> Void
 
@@ -61,6 +64,8 @@ final class CloudPresenceLink {
         guard !stopping else { return }
         phase = .connecting
         selfClientID = nil
+        lastSentPresence = nil
+        lastPublish = 0
         connectTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let connection = CloudTuiManualIOConnection(
@@ -100,9 +105,11 @@ final class CloudPresenceLink {
         eventTask?.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
-        if phase == .ready, let connection {
+        desiredPresence = nil
+        if phase == .ready, let connection, lastSentPresence != nil {
             connection.send(commandBuilder.presenceClear(requestID: takeRequestID()))
         }
+        lastSentPresence = nil
         connection?.close()
         connection = nil
         transition(to: .disconnected)
@@ -111,32 +118,33 @@ final class CloudPresenceLink {
     /// Publishes a pointer and highlight, or a pointer-less state when the
     /// mouse left the pane. Identical repeats are dropped.
     func publish(surfaceID: UInt64, pointer: CloudPresenceAnchor?, highlight: CloudPresenceHighlight?) {
+        desiredPresence = (surfaceID, pointer, highlight)
         guard phase == .ready, serverSupportsPresence, let connection else { return }
-        if let last = lastPublished,
-           last.surface == surfaceID, last.pointer == pointer, last.highlight == highlight {
-            return
-        }
         let now = Date().timeIntervalSinceReferenceDate
         // Pointer moves are throttled; a highlight edge or a pointer clear is
         // always sent so the last state on the wire is the settled one.
-        let settled = pointer == nil || highlight != lastPublished?.highlight || surfaceID != lastPublished?.surface
+        let settled = pointer == nil || highlight != lastSentPresence?.highlight || surfaceID != lastSentPresence?.surface
+        if let last = lastSentPresence,
+           last.surface == surfaceID, last.pointer == pointer, last.highlight == highlight,
+           !settled {
+            return
+        }
         if !settled, now - lastPublish < Self.minimumPublishInterval { return }
-        lastPublish = now
-        lastPublished = (surfaceID, pointer, highlight)
-        connection.send(
-            commandBuilder.presenceUpdate(
-                surfaceID: surfaceID,
-                pointer: pointer,
-                highlight: highlight,
-                requestID: takeRequestID()
-            )
+        sendPresence(
+            surfaceID: surfaceID,
+            pointer: pointer,
+            highlight: highlight,
+            on: connection,
+            force: settled,
+            now: now
         )
     }
 
     func clear() {
+        desiredPresence = nil
         guard phase == .ready, serverSupportsPresence, let connection else { return }
-        guard lastPublished != nil else { return }
-        lastPublished = nil
+        guard lastSentPresence != nil else { return }
+        lastSentPresence = nil
         connection.send(commandBuilder.presenceClear(requestID: takeRequestID()))
     }
 
@@ -183,6 +191,16 @@ final class CloudPresenceLink {
             selfClientID = clientID
             connection.send(commandBuilder.subscribePresence(requestID: takeRequestID()))
             transition(to: .ready)
+            if let desired = desiredPresence {
+                sendPresence(
+                    surfaceID: desired.surface,
+                    pointer: desired.pointer,
+                    highlight: desired.highlight,
+                    on: connection,
+                    force: true,
+                    now: Date().timeIntervalSinceReferenceDate
+                )
+            }
         case .snapshot, .output, .resized, .colorsChanged, .detached:
             return
         case .overflow:
@@ -193,6 +211,29 @@ final class CloudPresenceLink {
     private func takeRequestID() -> UInt64 {
         defer { nextRequestID &+= 1 }
         return nextRequestID
+    }
+
+    private func sendPresence(
+        surfaceID: UInt64,
+        pointer: CloudPresenceAnchor?,
+        highlight: CloudPresenceHighlight?,
+        on connection: CloudTuiManualIOConnection,
+        force: Bool,
+        now: TimeInterval
+    ) {
+        if !force, now - lastPublish < Self.minimumPublishInterval {
+            return
+        }
+        lastPublish = now
+        lastSentPresence = (surfaceID, pointer, highlight)
+        connection.send(
+            commandBuilder.presenceUpdate(
+                surfaceID: surfaceID,
+                pointer: pointer,
+                highlight: highlight,
+                requestID: takeRequestID()
+            )
+        )
     }
 
     private func transition(to phase: Phase) {

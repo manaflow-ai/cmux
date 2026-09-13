@@ -1431,6 +1431,7 @@ impl Command {
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
             | Self::AttachSurface { surface, .. }
+            | Self::PresenceUpdate { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
@@ -1462,6 +1463,7 @@ impl Command {
                 | Self::BrowserForward { .. }
                 | Self::BrowserReload { .. }
                 | Self::BrowserActivate { .. }
+                | Self::PresenceUpdate { .. }
                 | Self::ScrollSurface { .. }
         )
     }

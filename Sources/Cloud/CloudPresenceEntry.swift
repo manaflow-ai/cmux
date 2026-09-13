@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Where one teammate points inside a cmux-tui surface. Mirrors the daemon's
@@ -25,7 +26,14 @@ enum CloudPresenceAnchor: Equatable, Sendable {
         case "cell":
             guard let row = CloudPresenceEntry.int(object["row"]),
                   let col = CloudPresenceEntry.int(object["col"]) else { return nil }
-            let offset = (object["scroll_offset"] as? NSNumber)?.uint64Value ?? 0
+            let offset: UInt64
+            if object["scroll_offset"] == nil {
+                offset = 0
+            } else {
+                guard let parsed = CloudPresenceEntry.uint64(object["scroll_offset"]),
+                      parsed <= UInt64(Int64.max) else { return nil }
+                offset = parsed
+            }
             self = .cell(row: row, col: col, scrollOffset: offset)
         case "point":
             guard let x = (object["x"] as? NSNumber)?.doubleValue,
@@ -39,10 +47,20 @@ enum CloudPresenceAnchor: Equatable, Sendable {
     /// The row a viewer whose viewport sits `viewerScrollOffset` rows above
     /// the live bottom must draw this cell on. Nil when the row is off screen.
     func viewerRow(viewerScrollOffset: UInt64, rows: Int) -> Int? {
-        guard case let .cell(row, _, publisherOffset) = self else { return nil }
-        let shifted = Int64(row) + Int64(viewerScrollOffset) - Int64(publisherOffset)
+        guard let shifted = shiftedRow(viewerScrollOffset: viewerScrollOffset) else { return nil }
         guard shifted >= 0, shifted < Int64(rows) else { return nil }
         return Int(shifted)
+    }
+
+    fileprivate func shiftedRow(viewerScrollOffset: UInt64) -> Int64? {
+        guard case let .cell(row, _, publisherOffset) = self,
+              let row = Int64(exactly: row),
+              let viewerOffset = Int64(exactly: viewerScrollOffset),
+              let publisherOffset = Int64(exactly: publisherOffset) else { return nil }
+        let (withViewer, addOverflow) = row.addingReportingOverflow(viewerOffset)
+        let (shifted, subtractOverflow) = withViewer.subtractingReportingOverflow(publisherOffset)
+        guard !addOverflow, !subtractOverflow else { return nil }
+        return shifted
     }
 }
 
@@ -115,5 +133,19 @@ struct CloudPresenceEntry: Equatable, Sendable {
         let signed = number.int64Value
         guard signed >= 0, signed <= Int64(Int32.max) else { return nil }
         return Int(signed)
+    }
+
+    static func uint64(_ value: Any?) -> UInt64? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        switch String(cString: number.objCType) {
+        case "c", "s", "i", "l", "q":
+            let signed = number.int64Value
+            return signed >= 0 ? UInt64(signed) : nil
+        case "C", "S", "I", "L", "Q":
+            return number.uint64Value
+        default:
+            return nil
+        }
     }
 }
