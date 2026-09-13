@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxPanes
 import Foundation
 
 /// Cloud pane terminal creation owns the temporary tab shown while a split is materialized.
