@@ -75,7 +75,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let attachmentClock: any Clock<Duration>
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
-    private var tabByTerminal: [String: String] = [:]
+    private(set) var tabByTerminal: [String: String] = [:]
     /// Coalesces concurrent first opens of a zero-view terminal. `terminal.project` is a
     /// mutation, so two local panes racing on the same pool row must share one remote view.
     // Internal so the manual-mirror extension can share the provider-owned task map.
@@ -1517,14 +1517,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Compatibility fallback for callers that only have a terminal identity. A terminal with
-    /// several views has no safe implicit placement. Returning nil keeps the projection
-    /// placement-neutral until a caller supplies an exact tab id.
-    static func defaultRemoteView(for resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard resource.kind != .display, let views = resource.remoteViews, views.count == 1 else { return nil }
-        return views[0]
-    }
-
     private func attachCommand(terminalID: String) async throws -> String {
         let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
@@ -1938,6 +1930,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
+    func discardPendingRemoteCreation(_ id: SurfaceResourceID) {
+        pendingRemoteCreations.removeValue(forKey: id)
+    }
+
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
 
     func scheduleRefresh() {

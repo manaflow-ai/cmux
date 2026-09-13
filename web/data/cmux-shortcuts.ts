@@ -368,6 +368,10 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "decreaseWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "-"]], description: { en: "Decrease font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズを小さくする" } },
       { id: "resetWorkspaceTerminalFontSize", combos: [["⌃", "⌘", "0"]], description: { en: "Reset font size for every terminal in the selected workspace", ja: "選択中のワークスペース内の全ターミナルのフォントサイズをリセットする" } },
       { id: "equalizeSplits", combos: [["⌃", "⌘", "⇧", "="]], description: { en: "Equalize split sizes", ja: "分割サイズを均等にする" } },
+      { id: "resize-pane-left", combos: [["⌃", "⇧", "H"]], description: { en: "Resize pane left", ja: "ペインを左にリサイズ" } },
+      { id: "resize-pane-right", combos: [["⌃", "⇧", "L"]], description: { en: "Resize pane right", ja: "ペインを右にリサイズ" } },
+      { id: "resize-pane-up", combos: [["⌃", "⇧", "K"]], description: { en: "Resize pane up", ja: "ペインを上にリサイズ" } },
+      { id: "resize-pane-down", combos: [["⌃", "⇧", "J"]], description: { en: "Resize pane down", ja: "ペインを下にリサイズ" } },
     ],
   },
   {

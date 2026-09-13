@@ -2160,7 +2160,8 @@
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
           "forkConversationDefaultDestination": "タブのコンテキストメニューにある主要な「会話をフォーク」操作のデフォルトのフォーク先です。サブメニューには引き続きすべてのフォーク先が表示されます。",
-          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
+          "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。",
+          "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
           "adaptiveDefaultTheme": "true（既定）の場合、Ghostty 設定にディレクティブが一つもないときに限り、cmux の管理するライト／ダークパレットを適用します。false の場合、未設定の Ghostty では固定された組み込みパレットを使用します。Ghostty のディレクティブが一つでもあれば管理パレットは適用せず、theme = light:X,dark:Y は引き続き外観に追従します。",
@@ -2437,7 +2438,8 @@
         "wn-reload": "設定を再読み込み",
         "wn-quit": "終了"
       },
-      "metaTitle": "キーボードショートカット"
+      "metaTitle": "キーボードショートカット",
+      "paneResizeDescription": "Ctrl+Shift+H/J/K/L（左/下/上/右）でフォーカス中のペインをリサイズします。キーを押し続けると連続してリサイズできます。設定 → キーボードショートカットでキー割り当てとペインのリサイズ幅を変更できます。移動幅は cmux.json の app.paneResizeStepPixels でも設定でき、範囲は 1～200、既定値は 20 です。"
     },
     "api": {
       "title": "CLIリファレンス",

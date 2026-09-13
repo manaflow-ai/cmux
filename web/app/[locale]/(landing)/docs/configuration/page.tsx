@@ -67,6 +67,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
   //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
+  //   "paneResizeStepPixels": 20,
   //   "confirmQuit": "always",
   //   "openSupportedFilesInCmux": true,
   //   "workspaceInheritWorkingDirectory": true,
