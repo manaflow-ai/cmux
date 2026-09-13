@@ -33,8 +33,6 @@ struct MachinesPanelView: View {
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
-    @AppStorage(RightSidebarBetaFeatureSettings.devicesEnabledKey)
-    private var devicesBetaEnabled = RightSidebarBetaFeatureSettings.defaultDevicesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
@@ -68,7 +66,6 @@ struct MachinesPanelView: View {
     }
 
     private var includesDevices: Bool {
-        _ = devicesBetaEnabled
         return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
     }
 
@@ -78,7 +75,7 @@ struct MachinesPanelView: View {
     }
 
     private var treeSource: CloudTreeMachineSource {
-        includesDevices ? .cloudWithDevicesSection : .cloud
+        .cloudWithDevicesSection
     }
 
     private var treeSnapshot: SurfaceCatalogSnapshot {
@@ -106,7 +103,6 @@ struct MachinesPanelView: View {
             }
         }
         .onAppear { syncPolling(for: authState) }
-        .onChange(of: devicesBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
@@ -133,7 +129,12 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var authenticatedContent: some View {
-        controlBar
+        if includesCloud {
+            controlBar
+            cloudStatus
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+        }
         if includesCloud && tunnelStatus.status?.state != .up {
             Button {
                 AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
@@ -193,111 +194,76 @@ struct MachinesPanelView: View {
         }
     }
 
+    private var cloudStatus: some View {
+        Group {
+            if let operation = viewModel.activeOperation {
+                HStack(spacing: 5) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text(operation)
+                        .cmuxFont(size: 11)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            } else if viewModel.lastErrorDescription != nil, includesCloud && !includesDevices && !viewModel.machines.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                        .cmuxFont(size: 11)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundColor(.orange.opacity(0.9))
+                .help(viewModel.lastErrorDescription ?? "")
+                .cloudErrorCopyMenu(viewModel.lastErrorDescription)
+            } else if let treeError = viewModel.treeErrorDescription {
+                // The message itself, not a generic label: a failed tree verb (New
+                // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
+                // with the only explanation hidden behind a hover tooltip.
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(treeError)
+                        .cmuxFont(size: 11)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+                .foregroundColor(.orange.opacity(0.9))
+                .help(treeError)
+                .cloudErrorCopyMenu(treeError)
+            } else if includesCloud, let plan = viewModel.plan {
+                MachinePlanMeter(plan: plan)
+            }
+        }
+    }
+
     private var controlBar: some View {
         HStack(spacing: 6) {
-            Group {
-                if let operation = viewModel.activeOperation {
-                    HStack(spacing: 5) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text(operation)
-                            .cmuxFont(size: 11)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                } else if viewModel.lastErrorDescription != nil, includesCloud && !includesDevices && !viewModel.machines.isEmpty {
-                    HStack(spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
-                            .cmuxFont(size: 11)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundColor(.orange.opacity(0.9))
-                    .help(viewModel.lastErrorDescription ?? "")
-                    .cloudErrorCopyMenu(viewModel.lastErrorDescription)
-                } else if let treeError = viewModel.treeErrorDescription {
-                    // The message itself, not a generic label: a failed tree verb (New
-                    // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
-                    // with the only explanation hidden behind a hover tooltip.
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(treeError)
-                            .cmuxFont(size: 11)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundColor(.orange.opacity(0.9))
-                    .help(treeError)
-                    .cloudErrorCopyMenu(treeError)
-                } else if includesDevices, let status = devicesModel.statusText,
-                          devicesModel.statusIsWarning || !includesCloud {
-                    Text(status)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(devicesModel.statusIsWarning ? .orange : .secondary)
-                        .lineLimit(2)
-                        .help(status)
-                } else if includesCloud, let plan = viewModel.plan {
-                    MachinePlanMeter(plan: plan)
-                }
-            }
-            // Bar leading is 8pt; +4 puts the leading text at 12pt — the same
-            // column as the mode-bar pill glyphs (4pt bar + 8pt pill inset)
-            // and the Files header icon.
-            .padding(.leading, 4)
+            Text(String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+                .cmuxFont(size: 12, weight: .semibold)
+                .padding(.leading, 4)
             Spacer(minLength: 4)
-            Menu {
-                if devicesBetaEnabled, let preferences = devicesModel.preferences {
-                    DevicesSidebarControls(
-                        discoveryEnabled: preferences.discoveryEnabled,
-                        incomingAccessEnabled: preferences.incomingAccessEnabled,
-                        discoveryManaged: discoveryManaged,
-                        incomingAccessManaged: incomingAccessManaged,
-                        setDiscovery: { enabled in Task { await preferences.setDiscoveryEnabled(enabled) } },
-                        setIncomingAccess: { enabled in Task { await preferences.setIncomingAccessEnabled(enabled) } },
-                        openSettings: { SettingsWindowPresenter.show(navigationTarget: .computers) }
-                    )
-                } else {
-                    Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
-                        SettingsWindowPresenter.show(navigationTarget: .computers)
-                    }
-                }
-            } label: {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 22, height: 20)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 22, height: 20)
-            .foregroundStyle(.secondary)
-            .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
-            .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
-            .accessibilityIdentifier("DevicesOptionsMenu")
-            if includesCloud { cloudAgentMenu }
+            cloudAgentMenu
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
                 accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
-                isBusy: viewModel.isLoading || devicesModel.isRefreshing
+                isBusy: viewModel.isLoading
             ) {
-                refreshMachines()
+                viewModel.refresh(tree: true)
             }
-            if includesCloud {
-                MachinesChromeIconButton(
-                    symbolName: "plus",
-                    accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                    isBusy: false
-                ) {
-                    requestNewMachine()
-                }
+            MachinesChromeIconButton(
+                symbolName: "plus",
+                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
+                isBusy: false
+            ) {
+                requestNewMachine()
             }
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+        .accessibilityIdentifier("CloudMachinesSectionHeader")
     }
 
     @ViewBuilder
@@ -308,19 +274,7 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if !includesCloud && !includesDevices {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "devices.discovery.disabled", defaultValue: "Discovery is off. Turn it on to see your other Macs."))
-                    .font(.callout)
-                Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
-                    SettingsWindowPresenter.show(navigationTarget: .computers)
-                }
-                .buttonStyle(.link)
-            }
-            .foregroundStyle(.secondary)
-            .padding(12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.lastErrorDescription != nil {
+        if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.lastErrorDescription != nil {
             VStack(spacing: 0) {
                 cloudMachinesUnavailableNotice
                 machinesList
@@ -626,6 +580,12 @@ struct MachinesPanelView: View {
             guard let instance = machine.deviceInstance else { return }
             Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
         }
+        nodeActions.setDeviceDiscovery = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setDiscoveryEnabled(enabled) }
+        }
+        nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
+        }
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -637,6 +597,12 @@ struct MachinesPanelView: View {
             expansionStore: expansionStore,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             source: treeSource,
+            devicesSection: CloudTreeDevicesSection(
+                discoveryEnabled: includesDevices,
+                incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? true,
+                discoveryManaged: discoveryManaged,
+                incomingAccessManaged: incomingAccessManaged
+            ),
             reveal: devicesModel.revealRequest,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )

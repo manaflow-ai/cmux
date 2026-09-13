@@ -15,8 +15,9 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
+    private var alwaysShowsButtons = false
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = alwaysShowsButtons || hovered ? 1 : 0 }
     }
 
     override init(frame frameRect: NSRect) {
@@ -67,11 +68,16 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
+        if case .devicesSection = node.kind {
+            alwaysShowsButtons = true
+        } else {
+            alwaysShowsButtons = false
+        }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered ? 1 : 0
+            buttons.alphaValue = alwaysShowsButtons || hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
             // Two-line machine cards pin the buttons to the name line; every
             // other row centers them vertically.

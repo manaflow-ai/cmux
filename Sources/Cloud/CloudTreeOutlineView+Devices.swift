@@ -21,6 +21,21 @@ struct CloudTreeRevealRequest: Equatable {
 }
 
 extension CloudTreeOutlineView.Coordinator {
+    func deviceDiscoveryMenuItems(section: CloudTreeDevicesSection) -> [NSMenuItem] {
+        let actions = nodeActions
+        let incoming = item(String(localized: "devices.incoming.toggle", defaultValue: "Make this Mac discoverable")) {
+            actions.setDeviceIncomingAccess(!section.incomingAccessEnabled)
+        }
+        incoming.state = section.incomingAccessEnabled && !section.incomingAccessManaged ? .on : .off
+        incoming.isEnabled = !section.incomingAccessManaged
+        let discovery = item(String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs")) {
+            actions.setDeviceDiscovery(!section.discoveryEnabled)
+        }
+        discovery.state = section.discoveryEnabled && !section.discoveryManaged ? .on : .off
+        discovery.isEnabled = !section.discoveryManaged
+        return [incoming, discovery]
+    }
+
     /// The context menu of another Mac's row. The verbs are the machine verbs
     /// devices share with cloud machines (New Terminal, New Workspace, Refresh)
     /// plus Copy Device ID; there is deliberately no Checkpoint, Fork, Delete,

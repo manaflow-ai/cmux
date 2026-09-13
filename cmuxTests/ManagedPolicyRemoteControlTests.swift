@@ -46,7 +46,7 @@ struct ManagedPolicyRemoteControlTests {
         let suite = "cmux.incoming-access.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(true, forKey: SettingCatalog().betaFeatures.devices.userDefaultsKey)
+        defaults.set(true, forKey: SettingCatalog().devices.discoveryEnabled.userDefaultsKey)
         defaults.set(false, forKey: SettingCatalog().devices.incomingAccessEnabled.userDefaultsKey)
         let allowed = MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
         #expect(!allowed)

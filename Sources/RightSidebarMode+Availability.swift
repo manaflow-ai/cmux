@@ -30,7 +30,7 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
-            devicesEnabled: DevicesFeature.isEnabled(defaults: defaults)
+            devicesEnabled: true
         )
     }
 
@@ -55,7 +55,7 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
-            devicesEnabled: DevicesFeature.isEnabled(defaults: defaults)
+            devicesEnabled: true
         )
     }
 

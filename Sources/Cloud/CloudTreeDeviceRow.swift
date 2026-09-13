@@ -75,6 +75,7 @@ struct CloudTreeDeviceRow: Equatable {
         case .connected, .notApplicable:
             return String(localized: "cloudTree.device.status.online", defaultValue: "Online")
         case .connecting:
+            if let linkError { return linkError }
             return String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting\u{2026}")
         case .error:
             return linkError ?? String(localized: "cloudTree.device.status.linkFailed", defaultValue: "Link failed")

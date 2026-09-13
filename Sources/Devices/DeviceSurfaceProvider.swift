@@ -102,7 +102,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         case .connected:
             return (.connected, nil)
         case .connecting, .waiting:
-            return (.connecting, nil)
+            return (.connecting, lastFailure)
         case .blocked(let reason):
             return (.error, reason)
         case .idle:

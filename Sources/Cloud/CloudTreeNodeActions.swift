@@ -56,6 +56,8 @@ struct CloudTreeNodeActions {
     /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
+    var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
 
     @MainActor

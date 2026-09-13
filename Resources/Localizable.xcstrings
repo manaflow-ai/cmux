@@ -522838,55 +522838,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn on My Devices and discovery to find your other Macs."
+            "value": "Turn on Discover other Macs to see your devices."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのMacを探すには、マイデバイスと検出をオンにしてください。"
+            "value": "デバイスを表示するには「ほかの Mac を検出」をオンにしてください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aktiviere „Meine Geräte“ und die Gerätesuche, um deine anderen Macs zu finden."
+            "value": "Aktiviere „Andere Macs suchen“, um deine Geräte anzuzeigen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activez « Mes appareils » et la détection pour trouver vos autres Mac."
+            "value": "Activez « Détecter les autres Mac » pour afficher vos appareils."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فعّل «أجهزتي» والاكتشاف للعثور على أجهزة Mac الأخرى."
+            "value": "فعّل «اكتشاف أجهزة Mac الأخرى» لعرض أجهزتك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Activa «Mis dispositivos» y la detección para encontrar tus otros Mac."
+            "value": "Activa «Detectar otros Mac» para ver tus dispositivos."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟「我的裝置」和探索功能，以尋找其他 Mac。"
+            "value": "開啟「探索其他 Mac」以查看你的裝置。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开启“我的设备”和发现功能，以查找其他 Mac。"
+            "value": "开启“发现其他 Mac”以查看你的设备。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac을 찾으려면 ‘내 기기’와 기기 검색을 켜세요."
+            "value": "기기를 보려면 ‘다른 Mac 검색’을 켜세요."
           }
         }
       }
@@ -525729,55 +525729,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow access to this Mac"
+            "value": "Make this Mac discoverable"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac へのアクセスを許可"
+            "value": "この Mac を検出可能にする"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zugriff auf diesen Mac erlauben"
+            "value": "Diesen Mac auffindbar machen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Autoriser l’accès à ce Mac"
+            "value": "Rendre ce Mac détectable"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السماح بالوصول إلى هذا الـ Mac"
+            "value": "السماح باكتشاف هذا الـ Mac"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permitir el acceso a este Mac"
+            "value": "Hacer que este Mac sea detectable"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "允許存取此 Mac"
+            "value": "讓其他裝置探索此 Mac"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许访问此 Mac"
+            "value": "让其他设备发现此 Mac"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에 접근 허용"
+            "value": "이 Mac을 검색할 수 있도록 허용"
           }
         }
       }
@@ -526899,6 +526899,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "내 기기"
+          }
+        }
+      }
+    },
+    "cloudTree.group.cloudMachines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端机器"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة سحابية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas en la nube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端機器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 머신"
           }
         }
       }

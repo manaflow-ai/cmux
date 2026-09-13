@@ -60,7 +60,7 @@ final class CloudTreeNode: NSObject {
         /// Another Mac on the account (one tagged app instance), with its presence.
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
-        case devicesSection(count: Int)
+        case devicesSection(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
@@ -567,13 +567,14 @@ enum CloudTreeNodeBuilder {
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
-        source: CloudTreeMachineSource = .cloud
+        source: CloudTreeMachineSource = .cloud,
+        devicesSection: CloudTreeDevicesSection = .init()
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         var nodes: [CloudTreeNode] = []
         guard source.includesCloudMachines else {
             // The Devices tab: other Macs only, no fleet, no This Mac.
-            return deviceNodes(snapshot: snapshot, projectionIndex: projectionIndex, grouped: false)
+            return deviceNodes(snapshot: snapshot, projectionIndex: projectionIndex, grouped: false, section: devicesSection)
         }
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
@@ -636,7 +637,8 @@ enum CloudTreeNodeBuilder {
             nodes.append(contentsOf: deviceNodes(
                 snapshot: snapshot,
                 projectionIndex: projectionIndex,
-                grouped: source.groupsDevicesUnderSection
+                grouped: source.groupsDevicesUnderSection,
+                section: devicesSection
             ))
         }
         return nodes

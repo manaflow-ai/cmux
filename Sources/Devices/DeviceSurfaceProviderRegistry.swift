@@ -7,8 +7,8 @@ import Observation
 /// the catalog's device machines in step with the ``DeviceDirectory``:
 /// registers a provider when a device appears, updates it on every presence,
 /// route, or pairing change, and unregisters it when the directory drops it.
-/// Runs only while the Devices feature is on and the account is signed in;
-/// signing out or turning the beta off tears everything down.
+/// Runs only while discovery is on and the account is signed in;
+/// signing out or turning discovery off tears everything down.
 @MainActor
 final class DeviceSurfaceProviderRegistry {
     let preferences: DevicesPreferencesModel?
@@ -73,7 +73,7 @@ final class DeviceSurfaceProviderRegistry {
     }
 
     /// Composition root entry: inject auth, the catalog, and the pairing store
-    /// once, then follow the beta toggle, managed policy, sign-in state, and
+    /// once, then follow the discovery preference, managed policy, sign-in state, and
     /// pairing changes from here on.
     func configure(auth: AuthCoordinator, catalog: SurfaceCatalog, authorization: any DeviceLinkAuthorizationSource) {
         self.auth = auth

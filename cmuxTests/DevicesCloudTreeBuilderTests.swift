@@ -291,6 +291,32 @@ struct DevicesCloudTreeBuilderTests {
         #expect(placeholder.style == .dimmed)
     }
 
+    @Test("Turning discovery off leaves the section and its independent incoming preference available")
+    func disabledDiscoveryRetainsSection() throws {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [],
+            includeLocalMachine: false, source: .cloudWithDevicesSection,
+            devicesSection: CloudTreeDevicesSection(discoveryEnabled: false, incomingAccessEnabled: true)
+        )
+        let section = try #require(nodes.first)
+        guard case .devicesSection(let state) = section.kind else {
+            Issue.record("Expected My Devices controls even with discovery off")
+            return
+        }
+        #expect(!state.discoveryEnabled)
+        #expect(state.incomingAccessEnabled)
+        #expect(state.count == 0)
+        #expect(section.children.count == 1)
+        guard case .placeholder = section.children[0].kind else {
+            Issue.record("Disabled discovery must not keep a connectable device row")
+            return
+        }
+    }
+
     @Test("An empty My Devices section remains visible beneath the cloud fleet")
     func emptyDevicesSectionRemainsVisible() throws {
         let nodes = CloudTreeNodeBuilder.nodes(
@@ -302,7 +328,7 @@ struct DevicesCloudTreeBuilderTests {
             Issue.record("Expected the My Devices section")
             return
         }
-        #expect(count == 0)
+        #expect(count.count == 0)
         #expect(!section.children.isEmpty)
         #expect(!CloudTreeNodeBuilder.isEmpty(
             machines: [], snapshot: .empty, includeLocalMachine: false,
@@ -330,7 +356,7 @@ struct DevicesCloudTreeBuilderTests {
             Issue.record("expected the Devices section last, got \(nodes[1].kind)")
             return
         }
-        #expect(count == 1)
+        #expect(count.count == 1)
         #expect(nodes[1].id == CloudTreeNodeBuilder.devicesSectionNodeID)
         let sectionChild = try #require(nodes[1].children.first)
         guard case .device(let row) = sectionChild.kind else {
@@ -349,7 +375,7 @@ struct DevicesCloudTreeBuilderTests {
             Issue.record("expected the empty My Devices section after the fleet")
             return
         }
-        #expect(emptyCount == 0)
+        #expect(emptyCount.count == 0)
         #expect(emptySection.children.count == 1)
         let cloudOnly = CloudTreeNodeBuilder.nodes(
             machines: [fleetRow("brave-otter")], snapshot: fleetOnly, localWorkspaces: [], includeLocalMachine: false,

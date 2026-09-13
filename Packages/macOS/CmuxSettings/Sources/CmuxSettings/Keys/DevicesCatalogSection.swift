@@ -2,7 +2,7 @@ import Foundation
 
 /// Independent discovery, incoming-access, and sidebar visibility preferences.
 public struct DevicesCatalogSection: SettingCatalogSection {
-    /// Discovers the account's other Macs while the My Devices beta is enabled.
+    /// Discovers the account's other Macs independently of incoming access.
     public let discoveryEnabled = DefaultsKey<Bool>(
         id: "devices.discovery.enabled",
         defaultValue: true,
@@ -10,7 +10,6 @@ public struct DevicesCatalogSection: SettingCatalogSection {
     )
 
     /// Allows this Mac to advertise and accept remote sessions from the account's devices.
-    /// The existing mobile and beta opt-ins still decide whether a host is needed.
     public let incomingAccessEnabled = DefaultsKey<Bool>(
         id: "devices.incomingAccess.enabled",
         defaultValue: true,

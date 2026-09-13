@@ -767,7 +767,7 @@ final class MobileHostService {
         isListeningEnabled(
             defaults: defaults,
             buildFlavor: buildFlavor,
-            devicesPublishing: DevicesFeature.isEnabled(defaults: defaults)
+            devicesPublishing: MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
         )
     }
 

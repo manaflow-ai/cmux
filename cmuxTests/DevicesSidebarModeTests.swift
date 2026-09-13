@@ -9,8 +9,7 @@ import Testing
 #endif
 
 /// My Devices shares Cloud in every entry point: the mode enum,
-/// its CLI spelling, the Beta gate (with the managed remote-control ban on
-/// top), and the mobile host listener that publishes this Mac while it is on.
+/// its CLI spelling, the independent preferences, managed policy, and host listener.
 @Suite("Devices: sidebar mode, gate, and host listener")
 struct DevicesSidebarModeTests {
     private func makeDefaults() -> UserDefaults {
@@ -87,50 +86,30 @@ struct DevicesSidebarModeTests {
         #expect(registry.takePendingReveal(windowID: first) == instance)
     }
 
-    @Test("The Beta setting is off by default, and a managed remote-control ban wins over it")
+    @Test("Managed discovery policy overrides the discovery preference")
     func featureGate() {
         let defaults = makeDefaults()
-        // Cloud Machines defaults on in Debug builds; pin it off so this proves
-        // that the Devices beta alone brings the shared Cloud tab back.
-        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(DevicesFeature.isEnabled(defaults: defaults) == false)
-        #expect(DevicesFeature.localOptIn(defaults: defaults) == false)
-        #expect(RightSidebarBetaFeatureSettings.isDevicesEnabled(defaults: defaults) == false)
-        #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
-
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
-        #expect(DevicesFeature.localOptIn(defaults: defaults))
-        #expect(DevicesFeature.isEnabled(defaults: defaults))
-        #expect(RightSidebarBetaFeatureSettings.isDevicesEnabled(defaults: defaults))
-        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
-        #expect(RightSidebarMode.machines.isAvailable(defaults: defaults))
-
+        defaults.set(true, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
         let banned = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key -> Any? in
             key == ManagedDevicePolicyKey.disableRemoteControl.rawValue ? (true as Any) : nil
         }
-        #expect(DevicesFeature.isEnabled(defaults: defaults, policy: banned) == false)
+        #expect(!DevicesFeature.isEnabled(defaults: defaults, policy: banned))
         let permissive = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, _ in nil }
         #expect(DevicesFeature.isEnabled(defaults: defaults, policy: permissive))
-        #expect(BetaFeaturesCatalogSection().devices.userDefaultsKey == RightSidebarBetaFeatureSettings.devicesEnabledKey)
-        #expect(BetaFeaturesCatalogSection().devices.defaultValue == false)
     }
 
-    @Test("The mobile host listens while Devices is on, even with iOS pairing off, unless policy bans it")
+    @Test("Discoverability controls the host independently of outgoing discovery")
     func hostListenerGate() {
         let defaults = makeDefaults()
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable) == false)
+        let keys = DevicesCatalogSection()
+        defaults.set(false, forKey: keys.discoveryEnabled.userDefaultsKey)
+        defaults.set(true, forKey: keys.incomingAccessEnabled.userDefaultsKey)
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
         #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
         defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev) == false)
-
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.devicesEnabledKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable), "publishing this Mac to the account needs the listener")
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
-        #expect(
-            MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable, devicesPublishing: false) == false,
-            "a managed ban falls back to the pairing overrides"
-        )
-        defaults.removeObject(forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev, devicesPublishing: false))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        defaults.set(false, forKey: keys.incomingAccessEnabled.userDefaultsKey)
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
     }
 }

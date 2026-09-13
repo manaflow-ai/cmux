@@ -27,6 +27,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Which catalog machines become top-level rows: the Cloud tab lists the
     /// fleet, the Devices tab lists the account's other Macs.
     var source: CloudTreeMachineSource = .cloud
+    var devicesSection: CloudTreeDevicesSection = .init()
     /// Expand and select one row (Settings › Computers "Open"); applied once per token.
     var reveal: CloudTreeRevealRequest? = nil
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
@@ -74,7 +75,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
-            source: source
+            source: source,
+            devicesSection: devicesSection
         ))
         context.coordinator.reveal(reveal)
     }
@@ -756,13 +758,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return machineMenuItems(machine)
             case .device(let row):
                 return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
-            case .devicesSection:
-                return [
-                    item(String(localized: "devices.manage", defaultValue: "Manage My Devices")) {
-                        SettingsWindowPresenter.show(navigationTarget: .computers)
-                    },
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .devicesSection(let section):
+                return deviceDiscoveryMenuItems(section: section)
             }
         }
 

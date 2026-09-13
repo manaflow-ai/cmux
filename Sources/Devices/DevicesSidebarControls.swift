@@ -10,7 +10,6 @@ struct DevicesSidebarControls: View {
     let incomingAccessManaged: Bool
     let setDiscovery: (Bool) -> Void
     let setIncomingAccess: (Bool) -> Void
-    let openSettings: () -> Void
 
     var body: some View {
         Group {
@@ -23,8 +22,6 @@ struct DevicesSidebarControls: View {
                 setDiscovery: setDiscovery,
                 setIncomingAccess: setIncomingAccess
             )
-            Divider()
-            Button(String(localized: "devices.settings", defaultValue: "Computers Settings…"), action: openSettings)
         }
     }
 }

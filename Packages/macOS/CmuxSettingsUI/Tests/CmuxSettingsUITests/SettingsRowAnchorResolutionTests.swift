@@ -84,7 +84,6 @@ struct SettingsRowAnchorResolutionTests {
         "canvas.snappingEnabled",
         "cloud.beta.machines.enabled",
         "customSidebars.renderer",
-        "devices.beta.enabled",
         "fileEditor.currentLineHighlight",
         "fileEditor.indentGuides",
         "fileEditor.lineNumbers",

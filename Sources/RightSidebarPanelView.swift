@@ -154,8 +154,6 @@ struct RightSidebarPanelView: View {
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.devicesEnabledKey)
-    private var devicesBetaEnabled = RightSidebarBetaFeatureSettings.defaultDevicesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -176,7 +174,7 @@ struct RightSidebarPanelView: View {
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
             machinesEnabled: CloudMachinesFeature.isEnabled,
-            devicesEnabled: DevicesFeature.isEnabled
+            devicesEnabled: true
         )
     }
 
@@ -271,7 +269,6 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: devicesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()

@@ -1,16 +1,8 @@
 import CmuxSettings
 import Foundation
 
-/// Whether the Devices surfaces are available: the Beta Features opt-in, minus
-/// a managed-device remote-control ban. Every entry point (Cloud sidebar’s My Devices
-/// section, the Cloud shortcut, `cmux right-sidebar set devices`, the settings
-/// row, this Mac publishing itself to the account's other Macs) funnels through
-/// this gate, mirroring ``CloudMachinesFeature`` for the Cloud tab.
-///
-/// This is a local Beta setting, not a remote PostHog flag: it is the same
-/// control plane the Cloud tab uses (`cloud.beta.machines.enabled`), and the
-/// feature is a per-Mac opt-in to being visible and controllable from the
-/// account's other Macs, which a remote rollout must never flip on silently.
+/// Shared policy for discovering the account's other Macs. Incoming discovery
+/// is controlled independently by `MobileRemoteControlPolicy`.
 enum DevicesFeature {
     @MainActor
     static var isEnabled: Bool {
@@ -31,15 +23,13 @@ enum DevicesFeature {
     }
 
     nonisolated static func localOptIn(defaults: UserDefaults) -> Bool {
-        let key = BetaFeaturesCatalogSection().devices
+        let key = DevicesCatalogSection().discoveryEnabled
         guard defaults.object(forKey: key.userDefaultsKey) != nil else { return key.defaultValue }
         return defaults.bool(forKey: key.userDefaultsKey)
     }
 
     nonisolated static func isDiscoveryEnabled(defaults: UserDefaults = .standard) -> Bool {
-        let key = DevicesCatalogSection().discoveryEnabled
-        let discovery = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
-        return isEnabled(defaults: defaults) && discovery
+        isEnabled(defaults: defaults)
     }
 
     nonisolated static func isDiscoveryManaged(
@@ -51,17 +41,5 @@ enum DevicesFeature {
 
     nonisolated static func isDiscoveryDisabledByPolicy(defaults: UserDefaults = .standard) -> Bool {
         isDiscoveryManaged(defaults: defaults)
-    }
-}
-
-extension RightSidebarBetaFeatureSettings {
-    /// Same key as ``BetaFeaturesCatalogSection/devices``; the right-sidebar
-    /// mode bar observes it through `@AppStorage`.
-    static let devicesEnabledKey = "devices.beta.enabled"
-    static let defaultDevicesEnabled = false
-
-    nonisolated static func isDevicesEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: devicesEnabledKey) != nil else { return defaultDevicesEnabled }
-        return defaults.bool(forKey: devicesEnabledKey)
     }
 }

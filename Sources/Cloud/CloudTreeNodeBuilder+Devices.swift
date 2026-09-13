@@ -25,9 +25,10 @@ extension CloudTreeNodeBuilder {
     static func deviceNodes(
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex,
-        grouped: Bool
+        grouped: Bool,
+        section: CloudTreeDevicesSection = .init()
     ) -> [CloudTreeNode] {
-        let infos = orderedDeviceInfos(snapshot.machines)
+        let infos = section.discoveryEnabled ? orderedDeviceInfos(snapshot.machines) : []
         let resourcesByMachine = Dictionary(grouping: snapshot.resources, by: \.machine)
         let rows = infos.map { info in
             deviceNode(
@@ -36,13 +37,17 @@ extension CloudTreeNodeBuilder {
             )
         }
         guard grouped else { return rows }
+        var header = section
+        header.count = rows.count
         return [CloudTreeNode(
             id: devicesSectionNodeID,
-            kind: .devicesSection(count: rows.count),
+            kind: .devicesSection(header),
             children: rows.isEmpty ? [CloudTreeNode(
                 id: "devices-section/empty",
                 kind: .placeholder(machine: .cloud("devices-section"), CloudTreePlaceholder(
-                    text: String(localized: "devices.empty.title", defaultValue: "No other Macs yet"),
+                    text: section.discoveryEnabled
+                        ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                        : String(localized: "devices.discovery.disabled", defaultValue: "Discovery is off. Turn it on to see your other Macs."),
                     style: .dimmed
                 ))
             )] : rows
