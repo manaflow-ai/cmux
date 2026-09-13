@@ -13328,6 +13328,10 @@ pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+#[cfg(all(test, unix))]
+#[path = "server/image_paste_tests.rs"]
+mod image_paste_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
