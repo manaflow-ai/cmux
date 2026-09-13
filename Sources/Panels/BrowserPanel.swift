@@ -2301,7 +2301,7 @@ final class BrowserPanel: Panel, ObservableObject {
         evaluator: BrowserFindWebViewEvaluator(panel: self)
     )
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
-    private struct PortalHostLock {
+    struct PortalHostLock {
         let hostId: ObjectIdentifier
         let paneId: UUID
     }
