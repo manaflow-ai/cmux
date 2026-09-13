@@ -680,6 +680,7 @@
 		846600000000000000000003 /* CLIWorkspaceGroupSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 846600000000000000000004 /* CLIWorkspaceGroupSafetyTests.swift */; };
 		799100000000000000000001 /* CLIWorkspaceStableIDMockServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */; };
 		799100000000000000000003 /* CLIWorkspaceStableIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 799100000000000000000004 /* CLIWorkspaceStableIDTests.swift */; };
+		575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 575000020000000000000001 /* CLIWriteDescriptor.swift */; };
 		C51A73000000000000000101 /* ClosedItemHistory+PanelTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000102 /* ClosedItemHistory+PanelTitle.swift */; };
 		C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D51700000000000000001 /* ClosedItemHistory.swift */; };
 		8772A0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8772B0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift */; };
@@ -4440,6 +4441,7 @@
 		846600000000000000000004 /* CLIWorkspaceGroupSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceGroupSafetyTests.swift; sourceTree = "<group>"; };
 		799100000000000000000002 /* CLIWorkspaceStableIDMockServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDMockServer.swift; sourceTree = "<group>"; };
 		799100000000000000000004 /* CLIWorkspaceStableIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWorkspaceStableIDTests.swift; sourceTree = "<group>"; };
+		575000020000000000000001 /* CLIWriteDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIWriteDescriptor.swift; sourceTree = "<group>"; };
 		C51A73000000000000000102 /* ClosedItemHistory+PanelTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClosedItemHistory+PanelTitle.swift"; sourceTree = "<group>"; };
 		C10D51700000000000000001 /* ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistory.swift; sourceTree = "<group>"; };
 		8772B0010000000000000001 /* ClosedItemHistoryCapacityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClosedItemHistoryCapacityPolicy.swift; sourceTree = "<group>"; };
@@ -10128,6 +10130,7 @@
 					B9000065A1B2C3D4E5F60719 /* CMUXCLI+Events.swift */,
 				A106490D0000000000000001 /* CMUXCLI+Automation.swift */,
 				B9000055A1B2C3D4E5F60719 /* CMUXCLI+Process.swift */,
+				575000020000000000000001 /* CLIWriteDescriptor.swift */,
 				A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */,
 				A10240070000000000000001 /* CodexTeamsAppServerSupervisor.swift */,
 				A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */,
@@ -14114,6 +14117,7 @@
 				C11218000000000000000052 /* CLIError.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
+					575000010000000000000001 /* CLIWriteDescriptor.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
 				C0DE1A060000000000000001 /* cmux_layout.swift in Sources */,
 				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
