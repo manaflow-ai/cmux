@@ -71,11 +71,10 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   }, [stack, teamId, userId]);
 
   const workspaceByVmId = useMemo(() => new Map(workspaces.map(value => [value.vmId, value])), [workspaces]);
-  const knownVmIds = useMemo(() => new Set(vms.map(vm => vm.id)), [vms]);
-  const vmRows = useMemo(() => [
-    ...vms,
-    ...workspaces.filter(value => !knownVmIds.has(value.vmId)).map(value => ({ id: value.vmId, displayName: null, slug: null, status: "connected" } satisfies DashboardVm)),
-  ], [vms, knownVmIds, workspaces]);
+  // The VM catalog is authoritative. Workspace snapshots can outlive a VM
+  // row during cleanup, but native Cloud rendering does not show those stale
+  // rows as machines.
+  const vmRows = vms;
   return (
     <div className="space-y-4" data-testid="iroh-dashboard">
       {teamScope.status === "loading" ? <p className="text-muted">{t("loading")}</p> : null}
