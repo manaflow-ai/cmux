@@ -197,21 +197,17 @@ for (const unauthenticatedUser of [
       "x-cmux-dashboard-return-path": "/dashboard/coderouter?team=team-1",
     });
 
-    // The guard sits behind Suspense, so the redirect is thrown while the
-    // stream settles rather than before the shell renders.
-    await renderSettled(await layout());
+    await expect(layout()).rejects.toThrow("redirect:");
 
     expect(redirectedTo).toBe("/sign-in?after=/en/dashboard/coderouter?team=team-1");
   });
 }
 
-test("shows the sign-in control without calling Stack when no session cookie exists", async () => {
+test("redirects before rendering the shell when no session cookie exists", async () => {
   refreshToken = null;
 
-  const html = await renderSettled(await layout());
-
-  expect(html).toContain('data-user="no"');
-  expect(verifyBrowserSessionRequest).not.toHaveBeenCalled();
+  await expect(layout()).rejects.toThrow("redirect:");
+  expect(redirectedTo).toBe("/sign-in?after=/en/dashboard");
 });
 
 test("keeps the shell and page content when Stack is unavailable", async () => {
