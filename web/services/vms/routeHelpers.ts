@@ -58,6 +58,7 @@ import {
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
+  vmGoLimitCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
@@ -711,6 +712,22 @@ export function goLimitResponse(kind: "saved" | "active" | "hours"): Response {
   });
 }
 
+async function localizedGoLimitResponse(
+  kind: "saved" | "active" | "hours",
+  locale: Locale,
+): Promise<Response> {
+  const copy = await vmGoLimitCopy(kind, locale);
+  return vmErrorResponse({
+    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    phase: "billing",
+    retryable: false,
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  });
+}
+
 export const vmWorkflowErrorResponders = {
   VmMemoryPlanError: async (error, context) => {
     if (error.memoryMb === null) {
@@ -873,9 +890,9 @@ export const vmWorkflowErrorResponders = {
       phase: "create",
       retryable: true,
     }),
-  VmDatabaseError: (error) => {
+  VmDatabaseError: (error, context) => {
     const limit = goCapacityConstraint(error.cause);
-    if (limit && limit !== "period") return goLimitResponse(limit);
+    if (limit && limit !== "period") return localizedGoLimitResponse(limit, context.locale);
     return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
@@ -912,14 +929,17 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
-  VmUsageLimitExceededError: () => goLimitResponse("hours"),
-  VmSavedLimitExceededError: () => goLimitResponse("saved"),
-  VmGoShapeError: () => vmErrorResponse({
-    error: "vm_resources_require_pro", status: 402, phase: "billing",
-    message: "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-    action: "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade.",
-    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
-  }),
+  VmUsageLimitExceededError: (_error, context) => localizedGoLimitResponse("hours", context.locale),
+  VmSavedLimitExceededError: (_error, context) => localizedGoLimitResponse("saved", context.locale),
+  VmGoShapeError: async (_error, context) => {
+    const copy = await vmGoLimitCopy("shape", context.locale);
+    return vmErrorResponse({
+      error: "vm_resources_require_pro", status: 402, phase: "billing",
+      message: copy.message,
+      action: copy.action,
+      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+    });
+  },
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,

@@ -36,7 +36,17 @@
       "message": "현재 이 머신 크기를 사용할 수 없습니다. {max} GiB 이하를 선택하세요.",
       "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
+      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
+      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
+      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+    }},
   "billingRecovery": {
     "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
   },
