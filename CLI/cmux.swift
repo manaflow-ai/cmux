@@ -41455,11 +41455,13 @@ struct CMUXTermMain {
         }
     }
 
-    /// The facade owns an invocation only when the first non-global argument names a
-    /// declared command. Delegated commands retain legacy help text until their
-    /// runners move into the facade; native completion commands keep facade help.
-    /// Bare paths, undeclared commands, and the legacy escape hatch all stay on the
-    /// hand-rolled parser.
+    /// ArgumentParser runs an invocation only when the first non-global argument
+    /// names a command the facade implements itself (completion and the tree
+    /// dump). Every other command, declared or not, stays on the hand-rolled
+    /// parser: its declaration exists for completion and typo suggestions, and
+    /// its `run()` would re-parse the raw argv anyway, so parsing it here first
+    /// could only reject shapes the legacy runner accepts. A command family
+    /// joins `facadeNativeCommandNames` when its runner moves into the facade.
     private static func shouldUseFacade() -> Bool {
         if ProcessInfo.processInfo.environment["CMUX_CLI_LEGACY_PARSER"] == "1" {
             return false
@@ -41476,15 +41478,7 @@ struct CMUXTermMain {
         guard let command = firstNonGlobalArgument(CommandLine.arguments.dropFirst()) else {
             return false
         }
-        guard CmuxCommand.declaredCommandNames.contains(command) else {
-            return false
-        }
-        let allArguments = Array(CommandLine.arguments.dropFirst())
-        let preSeparatorArguments = allArguments.firstIndex(of: "--").map { Array(allArguments[..<$0]) } ?? allArguments
-        if preSeparatorArguments.contains(where: { $0 == "--help" || $0 == "-h" }) {
-            return CmuxCommand.facadeNativeCommandNames.contains(command)
-        }
-        return true
+        return CmuxCommand.facadeNativeCommandNames.contains(command)
     }
 
     private static func firstNonGlobalArgument(_ arguments: ArraySlice<String>) -> String? {

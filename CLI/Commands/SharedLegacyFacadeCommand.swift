@@ -5,6 +5,10 @@ import Foundation
 /// Shared by every command family so the delegation path and completion-kind
 /// helpers exist in exactly one place.
 ///
+/// The router does not hand these commands to ArgumentParser at all (see
+/// `CMUXTermMain.shouldUseFacade`): their declarations drive completion and typo
+/// suggestions, and `run()` is reached only once a family is routed here.
+///
 /// Conforming commands declare every option as `String?` even when the legacy
 /// parser reads it as a number. `ArgumentParser` validates and converts declared
 /// types before `run()` delegates, so a numeric declaration would reject values
