@@ -817,8 +817,9 @@ fn managed_download_directory() -> Option<PathBuf> {
 }
 
 pub(crate) fn guest_downloads_enabled() -> bool {
-    std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1")
-        || (cfg!(target_os = "linux") && PathBuf::from("/etc/cmux/tool-versions").is_file())
+    // The baked devbox marker is provisioned by the image builder and is not
+    // inherited from a caller, so it cannot relabel an arbitrary provider.
+    cfg!(target_os = "linux") && PathBuf::from("/etc/cmux/tool-versions").is_file()
 }
 
 #[derive(Default)]
