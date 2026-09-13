@@ -56,8 +56,9 @@ impl ImagePasteRequest {
                 mux.image_pastes.append(&owner, &upload_id, offset, &data)?;
             }
             ("commit", None, None, None, None) => {
-                mux.image_pastes
-                    .commit(&owner, &upload_id, |path| surface.write_paste(path.as_bytes()))?;
+                mux.image_pastes.commit(&owner, &upload_id, |path| {
+                    surface.write_paste_bounded(path.as_bytes())
+                })?;
             }
             ("cancel", None, None, None, None) => mux.image_pastes.cancel(&owner, &upload_id)?,
             _ => anyhow::bail!("image-invalid-request"),

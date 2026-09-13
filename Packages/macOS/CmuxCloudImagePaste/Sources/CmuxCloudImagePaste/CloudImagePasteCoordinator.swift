@@ -31,6 +31,7 @@ public final class CloudImagePasteCoordinator {
     private var activeToken: UUID?
     private var committing = false
     private var preparing = false
+    private var terminalError: (token: UUID, error: any Error)?
     private let deadline: Duration
     private var deadlineTimer: CloudImagePasteDeadline?
     /// The number of image bytes acknowledged by the daemon for the active upload.
@@ -115,6 +116,7 @@ public final class CloudImagePasteCoordinator {
         activeToken = token
         committing = false
         transferredBytes = 0
+        terminalError = nil
         let deadlineTimer = CloudImagePasteDeadline(duration: deadline) { [weak self] in
             self?.cancel(token: token, error: CloudImagePasteError.timedOut)
         }
@@ -122,6 +124,7 @@ public final class CloudImagePasteCoordinator {
         defer {
             deadlineTimer.cancel()
             self.deadlineTimer = nil
+            terminalError = nil
             activeToken = nil
             committing = false
         }
@@ -153,6 +156,9 @@ public final class CloudImagePasteCoordinator {
     private func request(_ endpoint: Endpoint, uploadID: String, token: UUID, fields: [String: Any]) async throws {
         try Task.checkCancellation()
         guard self.endpoint?.generation == endpoint.generation, activeToken == token else { throw CloudImagePasteError.unavailable }
+        if let terminalError, terminalError.token == token {
+            throw terminalError.error
+        }
         try await withCheckedThrowingContinuation { continuation in
             do {
                 let requestID = try endpoint.send(command(endpoint, uploadID: uploadID, fields: fields))
@@ -175,8 +181,10 @@ public final class CloudImagePasteCoordinator {
     }
 
     private func cancel(token: UUID, error: any Error) {
-        guard activeToken == token, pending?.token == token else { return }
-        failPending(committing ? CloudImagePasteError.deliveryUncertain : error)
+        guard activeToken == token else { return }
+        let terminalError = committing ? CloudImagePasteError.deliveryUncertain : error
+        self.terminalError = (token, terminalError)
+        failPending(terminalError)
     }
 
     private func failPending(_ error: any Error) {
