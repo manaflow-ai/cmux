@@ -15,7 +15,7 @@ const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
   `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.${DEFAULT_WORKERS_SUBDOMAIN}.workers.dev`;
 
 type Props = { readonly userId: string; readonly userEmail: string };
-type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly status: string };
+type DashboardVm = { readonly id: string; readonly displayName: string | null; readonly slug: string | null; readonly status: string };
 
 export function VmsDashboard({ userId, userEmail }: Props) {
   const t = useTranslations("dashboard.iroh");
@@ -56,7 +56,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       .then(async response => response.ok ? await response.json() as { vms?: unknown } : null)
       .then(body => {
         if (!body || !Array.isArray(body.vms)) return;
-        setVms(body.vms.filter((value): value is DashboardVm => !!value && typeof value === "object" && typeof (value as DashboardVm).id === "string" && typeof (value as DashboardVm).status === "string"));
+        setVms(body.vms.filter((value): value is DashboardVm => !!value && typeof value === "object" && typeof (value as DashboardVm).id === "string" && typeof (value as DashboardVm).status === "string" && ((value as DashboardVm).slug === null || typeof (value as DashboardVm).slug === "string")));
       })
       .catch(() => undefined);
     setError(null);
@@ -77,14 +77,15 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
       {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
       {directory && devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
-      <section className="border border-border p-3" data-testid="connected-workspaces">
+      <section data-testid="connected-workspaces">
         <h2 className="font-medium">{t("vmsTitle")}</h2>
         <p className="mt-1 text-xs text-muted">{t("vmsDescription")}</p>
         {vms.length === 0 ? <p className="mt-3 text-muted">{t("vmsEmpty")}</p> : (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {vms.map(vm => <div key={vm.id} className="border border-border p-2" data-vm-catalog-id={vm.id}>
-              <div className="font-medium">{vm.displayName || t("unnamedVm")}</div>
-              <div className="mt-1 text-xs text-muted">{vm.status} · …{vm.id.slice(-8)}</div>
+          <div className="mt-3 space-y-1">
+            {vms.map(vm => <div key={vm.id} className="flex items-center gap-2 py-1" data-vm-catalog-id={vm.id}>
+              <CloudIcon />
+              <div className="font-medium">{vm.slug || vm.displayName || t("unnamedVm")}</div>
+              <div className="text-xs text-muted">{vm.status}</div>
             </div>)}
           </div>
         )}
@@ -95,26 +96,26 @@ export function VmsDashboard({ userId, userEmail }: Props) {
             {workspaces.map(workspaceVm => {
               const vm = vmById.get(workspaceVm.vmId);
               return (
-              <article key={workspaceVm.vmId} className="border border-border p-3" data-vm-id={workspaceVm.vmId}>
+              <article key={workspaceVm.vmId} className="border-b border-border py-4 last:border-b-0" data-vm-id={workspaceVm.vmId}>
                 <div className="flex items-center gap-2">
-                  <span aria-hidden="true" className="text-muted">☁</span>
-                  <h3 className="font-medium">{vm?.displayName || t("vmLabel", { id: `…${workspaceVm.vmId.slice(-8)}` })}</h3>
+                  <CloudIcon />
+                  <h3 className="font-medium">{vm?.slug || vm?.displayName || t("vmLabel", { id: `…${workspaceVm.vmId.slice(-8)}` })}</h3>
                   <span className="text-xs text-muted">{vm?.status ?? t("connected")}</span>
                 </div>
-                <div className="mt-3 space-y-3 border-l border-border pl-3">
+                <div className="mt-3 space-y-3 pl-5">
                   <TreeGroupLabel label={t("workspacesGroup")} />
                   {workspaceVm.snapshot.workspaces.map(workspace => {
                     const terminals = workspaceVm.snapshot.terminals.filter(terminal => terminal.workspaceId === workspace.id);
                     return (
                       <div key={workspace.id} className="pl-2">
                         <div className="flex items-center gap-2">
-                          <span aria-hidden="true" className="text-muted">⌄</span>
-                          <span aria-hidden="true">📁</span>
+                          <ChevronIcon />
+                          <FolderIcon />
                           <span className={workspace.focused ? "font-medium" : ""}>{workspace.name}</span>
                           <span className="text-xs text-muted">{t("terminalCount", { count: terminals.length })}</span>
                         </div>
                         <ul className="ml-7 mt-1 space-y-1 text-xs text-muted">
-                          {terminals.map(terminal => <li key={terminal.id} className="flex items-center gap-2"><span aria-hidden="true">▣</span><span>{terminal.title}</span><span className="truncate">{terminal.cwd ?? "~"}</span></li>)}
+                          {terminals.map(terminal => <li key={terminal.id} className="flex items-center gap-2"><TerminalIcon /><span>{terminal.title}</span><span className="truncate">{terminal.cwd ?? "~"}</span></li>)}
                         </ul>
                       </div>
                     );
@@ -122,9 +123,9 @@ export function VmsDashboard({ userId, userEmail }: Props) {
                   <TreeGroupLabel label={t("portsGroup")} />
                   <div className="pl-2 text-xs text-muted">{t("portsEmpty")}</div>
                   <TreeGroupLabel label={t("displaysGroup")} />
-                  <div className="flex items-center gap-2 pl-2 text-xs text-muted"><span aria-hidden="true">▣</span><span>{t("desktop")}</span><span>noVNC</span></div>
+                  <div className="flex items-center gap-2 pl-2 text-xs text-muted"><DisplayIcon /><span>{t("desktop")}</span><span>noVNC</span></div>
                   <TreeGroupLabel label={t("terminalsGroup")} />
-                  {workspaceVm.snapshot.terminals.length === 0 ? <div className="pl-2 text-xs text-muted">{t("terminalsEmpty")}</div> : workspaceVm.snapshot.terminals.map(terminal => <div key={`${terminal.id}-pool`} className="flex items-center gap-2 pl-2 text-xs text-muted"><span aria-hidden="true">▣</span><span>{terminal.title}</span></div>)}
+                  {workspaceVm.snapshot.terminals.length === 0 ? <div className="pl-2 text-xs text-muted">{t("terminalsEmpty")}</div> : workspaceVm.snapshot.terminals.map(terminal => <div key={`${terminal.id}-pool`} className="flex items-center gap-2 pl-2 text-xs text-muted"><TerminalIcon /><span>{terminal.title}</span></div>)}
                 </div>
                 <div className="mt-3 text-right text-xs text-muted">{t("revisionLabel", { revision: workspaceVm.revision })}</div>
               </article>
@@ -136,7 +137,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       {directory ? devices.map(device => {
         const manageable = directory.managedDeviceIds.includes(device.deviceRecordId) && directory.canManageTeam;
         return (
-          <section key={device.deviceRecordId} className="border border-border p-3" data-device-id={device.deviceRecordId}>
+          <section key={device.deviceRecordId} className="border-t border-border pt-3" data-device-id={device.deviceRecordId}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="font-medium">{device.descriptor.metadata.displayName}</h2>
@@ -164,6 +165,26 @@ export function VmsDashboard({ userId, userEmail }: Props) {
 
 function TreeGroupLabel({ label }: { readonly label: string }) {
   return <div className="text-xs font-medium text-muted">{label}</div>;
+}
+
+function CloudIcon() {
+  return <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 12.5h7a2.5 2.5 0 0 0 .3-4.98A4 4 0 0 0 4.2 6.2 3.2 3.2 0 0 0 4.5 12.5Z" /></svg>;
+}
+
+function ChevronIcon() {
+  return <svg aria-hidden="true" className="size-3 shrink-0 text-muted" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><path d="m3 4.5 3 3 3-3" /></svg>;
+}
+
+function FolderIcon() {
+  return <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round"><path d="M1.75 4.5h4l1.25 1.5h7.25v6.75a1.5 1.5 0 0 1-1.5 1.5h-10a1.5 1.5 0 0 1-1.5-1.5V4.5Z" /></svg>;
+}
+
+function TerminalIcon() {
+  return <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><rect x="1.75" y="2.25" width="12.5" height="11.5" rx="1.5" /><path d="m4 6 2 2-2 2M7.5 10h2.5" /></svg>;
+}
+
+function DisplayIcon() {
+  return <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><rect x="1.75" y="2.5" width="12.5" height="8" rx="1.25" /><path d="M5.5 13.5h5M8 10.5v3" /></svg>;
 }
 
 function Fact({ label, value }: { readonly label: string; readonly value: string }) {
