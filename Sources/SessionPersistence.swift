@@ -371,6 +371,10 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    /// The workspace-set `windows` entry this window was built from, so a
+    /// relaunch still knows which declared window it is. Absent in sessions
+    /// saved before it was persisted.
+    var windowSetName: String? = nil
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

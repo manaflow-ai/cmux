@@ -3783,3 +3783,40 @@ final class WorkspaceTmuxOwnershipTests: XCTestCase {
         XCTAssertEqual(lanes.map(\.session), ["orchard"])
     }
 }
+
+@MainActor
+final class WorkspaceSetWindowDeclarationTests: XCTestCase {
+    func testResolvesWindowWorkspacesToTheirSectionEntries() throws {
+        let yaml = """
+        sections:
+        - name: Work
+          workspaces:
+          - name: Repo
+            directory: /tmp/repo
+        - name: Personal
+          workspaces:
+          - name: Personal - Fitness
+            directory: /tmp/fitness
+          - name: Personal - Mindset
+            directory: /tmp/mindset
+        windows:
+        - name: Personal
+          workspaces:
+          - personal - fitness
+          - Personal - Mindset
+          - Personal
+        """
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workspace-set-\(UUID().uuidString).yaml")
+        try yaml.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let declarations = try XCTUnwrap(WorkspaceSetImporter.resolvedWindowDeclarations(at: url.path))
+        XCTAssertEqual(declarations.count, 1)
+        let personal = declarations[0]
+        XCTAssertEqual(personal.name, "Personal")
+        XCTAssertEqual(personal.entries.map(\.entry.name), ["Personal - Fitness", "Personal - Mindset"])
+        XCTAssertEqual(personal.entries.map(\.sectionName), ["Personal", "Personal"])
+        XCTAssertEqual(personal.unmatched, ["Personal"])
+    }
+}

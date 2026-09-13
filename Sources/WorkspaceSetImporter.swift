@@ -222,6 +222,113 @@ enum WorkspaceSetImporter {
         return file.windows
     }
 
+    /// A `windows` entry's workspace, resolved to its `sections` declaration.
+    struct ResolvedWindowEntry {
+        let entry: WorkspaceSetEntry
+        let sectionName: String
+    }
+
+    /// A `windows` entry with its workspace names resolved against `sections`.
+    /// `unmatched` holds listed names that no section declares.
+    struct ResolvedWindowDeclaration {
+        let name: String
+        let entries: [ResolvedWindowEntry]
+        let unmatched: [String]
+    }
+
+    /// Parse the workspace-set file and resolve each `windows` declaration to
+    /// the section entries it names, so a window can recreate a workspace that
+    /// exists in no window instead of only moving ones that happen to be open.
+    static func resolvedWindowDeclarations(at path: String? = nil) -> [ResolvedWindowDeclaration]? {
+        guard let file = try? parseFile(at: path ?? defaultPath),
+              let windows = file.windows else { return nil }
+        var byName: [String: ResolvedWindowEntry] = [:]
+        for section in file.sections {
+            for entry in section.workspaces {
+                let key = entry.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !key.isEmpty, byName[key] == nil {
+                    byName[key] = ResolvedWindowEntry(entry: entry, sectionName: section.name)
+                }
+            }
+        }
+        return windows.map { window in
+            var entries: [ResolvedWindowEntry] = []
+            var unmatched: [String] = []
+            for rawName in window.workspaces {
+                let key = rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                guard !key.isEmpty else { continue }
+                if let resolved = byName[key] {
+                    entries.append(resolved)
+                } else {
+                    unmatched.append(rawName)
+                }
+            }
+            return ResolvedWindowDeclaration(name: window.name, entries: entries, unmatched: unmatched)
+        }
+    }
+
+    /// True when `workspace` is the live counterpart of `entry`: same name, or
+    /// failing that the same directory.
+    static func workspace(_ workspace: Workspace, matchesByName entry: WorkspaceSetEntry) -> Bool {
+        let needle = entry.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return false }
+        if let custom = workspace.customTitle?.lowercased(), custom == needle { return true }
+        return workspace.title.lowercased() == needle
+    }
+
+    static func workspace(_ workspace: Workspace, matchesByDirectory entry: WorkspaceSetEntry) -> Bool {
+        normalizedDirectoryKey(workspace.currentDirectory) == normalizedDirectoryKey(entry.directory)
+    }
+
+    /// Create one declared workspace, in bootstrap state, inside `tabManager`
+    /// and file it under `sectionName`. Returns nil when the entry's directory
+    /// is missing on this Mac.
+    @discardableResult
+    static func createBootstrapWorkspace(
+        for entry: WorkspaceSetEntry,
+        sectionName: String?,
+        in tabManager: TabManager
+    ) -> Workspace? {
+        let expandedDir = (entry.directory as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expandedDir) else { return nil }
+        let ws = tabManager.addWorkspace(
+            title: entry.name,
+            workingDirectory: expandedDir,
+            select: false,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false
+        )
+        applyEntryMetadata(entry, to: ws, in: tabManager)
+        fileWorkspace(ws, underSection: sectionName, in: tabManager)
+        return ws
+    }
+
+    /// Put `workspace` under the section named `sectionName`, creating the
+    /// section in this window when it has none by that name.
+    static func fileWorkspace(_ workspace: Workspace, underSection sectionName: String?, in tabManager: TabManager) {
+        let name = (sectionName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let section = tabManager.sections.first(where: {
+            $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == name.lowercased()
+        }) ?? tabManager.createSection(name: name, triggerRename: false)
+        if tabManager.sectionForWorkspace(workspace.id)?.id != section.id {
+            tabManager.moveWorkspaceToSection(tabId: workspace.id, sectionId: section.id)
+        }
+    }
+
+    private static func applyEntryMetadata(_ entry: WorkspaceSetEntry, to ws: Workspace, in tabManager: TabManager) {
+        tabManager.setCustomTitle(tabId: ws.id, title: entry.name)
+        if let description = entry.description {
+            tabManager.setCustomDescription(tabId: ws.id, description: description)
+        }
+        if let color = entry.color {
+            tabManager.setTabColor(tabId: ws.id, color: color)
+        }
+        if entry.pinned == true {
+            tabManager.setPinned(ws, pinned: true)
+        }
+    }
+
     /// Load and merge a workspace-set.json into the given TabManager.
     /// `agent` re-points every agent pane this import touches — the panels it
     /// fills into already-open workspaces, and the workspaces it creates — and is
@@ -575,16 +682,7 @@ enum WorkspaceSetImporter {
                     autoWelcomeIfNeeded: false
                 )
 
-                tabManager.setCustomTitle(tabId: ws.id, title: entry.name)
-                if let description = entry.description {
-                    tabManager.setCustomDescription(tabId: ws.id, description: description)
-                }
-                if let color = entry.color {
-                    tabManager.setTabColor(tabId: ws.id, color: color)
-                }
-                if entry.pinned == true {
-                    tabManager.setPinned(ws, pinned: true)
-                }
+                applyEntryMetadata(entry, to: ws, in: tabManager)
 
                 if let section = targetSection {
                     tabManager.moveWorkspaceToSection(tabId: ws.id, sectionId: section.id)
