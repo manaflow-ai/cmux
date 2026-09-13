@@ -325,4 +325,3 @@ struct SettingsSearchEntry: Identifiable {
         self.normalizedSearchWordSet = Set(normalizedSearchWords)
     }
 }
-
