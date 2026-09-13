@@ -125,6 +125,7 @@ import Testing
         let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
         #expect(failure.machine == machine)
         #expect(!failure.errorText.isEmpty)
+        #expect(!failure.errorText.contains("connection refused"))
 
         workspace.dismissCloudPaneCreationFailure(id: failure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
