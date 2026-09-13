@@ -45,7 +45,12 @@ extension Workspace {
                                     tabs: [SurfaceResourcePlacement: TabID]) -> Bool {
         switch (layout, live) {
         case (.leaf(let placements), .pane(let pane)):
-            return placements.compactMap { tabs[$0]?.id.uuidString } == pane.tabs.map(\.id)
+            // `TabID.id` is an implementation detail of Bonsplit on newer
+            // builds. Compare the public identifiers through their textual
+            // representation so this projection remains source-compatible
+            // across the pinned Bonsplit revisions.
+            return placements.compactMap { tabs[$0].map(String.init(describing:)) }
+                == pane.tabs.map { String(describing: $0.id) }
         case (.split(let direction, _, let first, let second), .split(let split)):
             let orientation = direction == .right || direction == .left ? "horizontal" : "vertical"
             return split.orientation == orientation && cloudLayoutMatches(first, live: split.first, tabs: tabs)
