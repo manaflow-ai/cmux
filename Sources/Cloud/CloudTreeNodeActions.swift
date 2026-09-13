@@ -454,7 +454,6 @@ struct CloudTreeNodeActions {
         if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         return (workspace, terminal, opened)
     }
-
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
     /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
     /// then close the workspace. Re-syncs and re-enumerates AT operation time — the
