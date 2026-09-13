@@ -238,12 +238,23 @@ extension TerminalSurface {
                 surfaceCallbackContext {
             callbackContext = existingContext
         } else {
+            let callbackTarget = TerminalSurfaceCallbackTarget(surface: self)
             callbackContext =
                 Unmanaged.passRetained(
                     GhosttySurfaceCallbackContext(
                         surfaceHost: surfaceView,
                         surfaceController: self,
-                        terminalLifecycleID: terminalLifecycleId
+                        terminalLifecycleID: terminalLifecycleId,
+                        rendererFramePresented: { _, token in
+                            MainActor.assumeIsolated {
+                                callbackTarget.surface?.rendererFrameDidPresent(token: token)
+                            }
+                        },
+                        rendererFrameFailed: { _, token, status in
+                            MainActor.assumeIsolated {
+                                callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
+                            }
+                        }
                     )
                 )
             surfaceCallbackContext = callbackContext
@@ -252,6 +263,16 @@ extension TerminalSurface {
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
         guard configureNativeCallbacks else { return }
+        _ = ghostty_surface_set_render_presented_callback(
+            runtimeSurface,
+            terminalRendererPresentedCallback,
+            callbackContext.toOpaque()
+        )
+        _ = ghostty_surface_set_render_failed_callback(
+            runtimeSurface,
+            terminalRendererFailedCallback,
+            callbackContext.toOpaque()
+        )
         _ = callbackContext.takeUnretainedValue()
             .bindRuntimeClipboardSurface(
                 runtimeSurface,

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -217,10 +218,18 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
-        let recoveryToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        guard let runtimeSurface = surface.surface else {
+            Issue.record("runtime surface missing")
+            return
+        }
+        #expect(cmux_test_ghostty_renderer_fail(
+            runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
+        #expect(cmux_test_ghostty_renderer_fail(
+            runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
         #expect(surface.renderHealth == .notRendering)
     }
 
@@ -233,6 +242,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -433,8 +443,17 @@ private func rendererReleaseWasOccluded() -> Bool
     }
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else { return }
-        surface.rendererFrameDidPresent(token: token)
+        guard let runtimeSurface = surface.surface else { return }
+        let pendingToken = surface.rendererPresentationState.inFlightToken
+        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
+        if let pendingToken,
+           surface.rendererPresentationState.inFlightToken == pendingToken {
+            // Some tests replace the callback context to exercise renderer
+            // mailbox recovery. The C stub still clears its pending token,
+            // while that custom context intentionally does not acknowledge
+            // presentation, so complete the state transition here.
+            surface.rendererFrameDidPresent(token: pendingToken)
+        }
     }
 
     private func installRendererCallbackContext(

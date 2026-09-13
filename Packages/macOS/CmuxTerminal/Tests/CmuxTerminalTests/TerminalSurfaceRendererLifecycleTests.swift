@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -30,9 +31,19 @@ import Testing
             Issue.record("expected an in-flight presentation probe")
             return
         }
-        surface.rendererFrameDidFail(
-            token: token,
-            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
-        )
+        guard let runtimeSurface = surface.surface else {
+            Issue.record("expected a live runtime surface")
+            return
+        }
+        #expect(cmux_test_ghostty_renderer_fail(
+            runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
+        if surface.rendererPresentationState.inFlightToken == token {
+            surface.rendererFrameDidFail(
+                token: token,
+                status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
+            )
+        }
     }
 }

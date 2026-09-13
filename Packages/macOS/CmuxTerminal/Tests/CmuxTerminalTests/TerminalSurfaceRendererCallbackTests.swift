@@ -14,18 +14,6 @@ import Testing
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
-
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         #expect(surface.renderHealth == .awaitingFrame)
@@ -38,17 +26,6 @@ import Testing
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         #expect(cmux_test_ghostty_renderer_fail(
@@ -67,17 +44,6 @@ import Testing
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.markShellExited()
         surface.setRendererWindowVisible(false)
@@ -100,29 +66,5 @@ import Testing
             Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
         ))
         #expect(surface.renderHealth == .shellExited)
-    }
-
-    private func installCallbackContext(
-        on surface: TerminalSurface
-    ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        let callbackTarget = TerminalSurfaceCallbackTarget(surface: surface)
-        let context = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
-            surfaceHost: surface.surfaceView,
-            surfaceController: surface,
-            terminalLifecycleID: surface.terminalLifecycleId,
-            rendererFramePresented: { _, token in
-                MainActor.assumeIsolated {
-                    callbackTarget.surface?.rendererFrameDidPresent(token: token)
-                }
-            },
-            rendererFrameFailed: { _, token, status in
-                MainActor.assumeIsolated {
-                    callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
-                }
-            }
-        ))
-        surface.surfaceCallbackContext?.release()
-        surface.surfaceCallbackContext = context
-        return context
     }
 }
