@@ -117,11 +117,12 @@ struct WorkspaceGroupCycleShortcutTests {
             manager.setSidebarSelectedWorkspaceIds([])
             #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
             let responder = window.firstResponder
-            let shortcut = useCustomBinding
-                ? StoredShortcut(key: "g", command: true, shift: true, option: true, control: true)
-                : KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut
+            var shortcut = KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut
+            if useCustomBinding {
+                shortcut = .init(key: "g", command: true, shift: true, option: true, control: true)
+            }
             KeyboardShortcutSettings.setShortcut(shortcut, for: .groupSelectedWorkspaces)
-            let event = try #require(groupingKeyEvent(window: window, shortcut: shortcut))
+            let event = try #require(groupingKeyEvent(window: window, modifiers: shortcut.modifierFlags))
 
             #expect(appDelegate.debugHandleCustomShortcut(event: event))
 
@@ -230,12 +231,12 @@ struct WorkspaceGroupCycleShortcutTests {
 
     private func groupingKeyEvent(
         window: NSWindow,
-        shortcut: StoredShortcut = KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut
+        modifiers: NSEvent.ModifierFlags = [.command, .shift]
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: shortcut.modifierFlags,
+            modifierFlags: modifiers,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,
