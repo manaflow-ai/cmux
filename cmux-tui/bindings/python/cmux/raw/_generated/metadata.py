@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543'
+IR_SHA256 = '3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313'
 
 
 @dataclass(frozen=True)
@@ -825,6 +825,39 @@ COMMANDS = {
         {
         },
     ),
+    'presence-clear': CommandMetadata(
+        'presence-clear',
+        'control',
+        12,
+        'presence-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'presence-list': CommandMetadata(
+        'presence-list',
+        'control',
+        12,
+        'presence-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
+    'presence-update': CommandMetadata(
+        'presence-update',
+        'control',
+        12,
+        'presence-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'highlight': CommandFieldMetadata(None, None),
+            'pointer': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'process-info': CommandMetadata(
         'process-info',
         'control',
@@ -1320,6 +1353,7 @@ COMMANDS = {
         ('frontend',),
         'subscribe',
         {
+            'presence_only': CommandFieldMetadata(12, 'presence-v1'),
             'surface': CommandFieldMetadata(9, 'surface-subscribe-filter'),
             'tree_events': CommandFieldMetadata(7, None),
         },
@@ -1434,6 +1468,7 @@ EVENTS = {
     'pairing-resolved': EventMetadata('pairing-resolved', 7, None, ('subscribe',), 'emitted'),
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'presence-changed': EventMetadata('presence-changed', 12, 'presence-v1', ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),
     'resized': EventMetadata('resized', 6, None, ('attach-byte',), 'emitted'),
