@@ -131,7 +131,7 @@ import Testing
         #expect(!failure.errorText.isEmpty)
         #expect(!failure.errorText.contains("connection refused"))
 
-        workspace.dismissCloudPaneCreationFailure(id: failure.id)
+        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
@@ -161,6 +161,7 @@ import Testing
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
 
+        /// Creates a provider fixture with optional deterministic creation failure.
         init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
             self.machine = machine
             self.workingDirectory = workingDirectory
@@ -172,12 +173,15 @@ import Testing
             )
         }
 
+        /// Satisfies the provider refresh contract without touching the network.
         func refresh() async {}
 
+        /// Returns the fixture's configured foreground directory.
         func currentWorkingDirectory(of _: SurfaceResource) async -> String? {
             workingDirectory
         }
 
+        /// Signals and throws the configured failure, or returns a fixture resource.
         func createTerminal(command _: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
             if let creationError {
                 creationAttemptSignal.signal()
@@ -225,10 +229,12 @@ import Testing
             }
         }
 
+        /// Returns a projection fixture for unrelated provider protocol calls.
         func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
             SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
 
+        /// Records no state when the test projection ends.
         func projectionDidEnd(_: SurfaceProjection) {}
     }
 

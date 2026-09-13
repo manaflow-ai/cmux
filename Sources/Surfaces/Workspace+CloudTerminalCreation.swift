@@ -9,6 +9,7 @@ import Foundation
 /// (`workspace <ws> run`) and projected back into this workspace at the requested spot,
 /// so the sidebar, the socket, and the shortcut agree on what exists.
 /// Installs the temporary panel used while a Cloud terminal split is materialized.
+@MainActor
 extension Workspace {
     /// The cloud resource behind a panel, when the panel projects one.
     func cloudProjectedResource(forPanel panelID: UUID) -> SurfaceResource? {
@@ -211,11 +212,6 @@ extension Workspace {
         cloudPaneCreationFailureStore.present(machine: machine, error: error)
     }
 
-    /// Dismisses the current failure when `id` still identifies the visible card.
-    @MainActor
-    func dismissCloudPaneCreationFailure(id: UUID) {
-        cloudPaneCreationFailureStore.dismiss(id: id)
-    }
 }
 
 

@@ -3078,7 +3078,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         set { cloudBindingState.binding = newValue }
     }
     /// The workspace-owned state for the latest failed cloud terminal creation request.
-    let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
+    @MainActor let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
