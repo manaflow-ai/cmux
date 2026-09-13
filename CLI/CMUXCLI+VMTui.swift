@@ -795,7 +795,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
-        )
+        ) + "\n\n" + cloudSidebarUsage
     }
 
     static var surfaceUsage: String {
@@ -1369,7 +1369,7 @@ extension CMUXCLI {
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--sidebar") { try runCloudSidebarCommand(rest: rest, client: client, jsonOutput: jsonOutput); return }
         if rest.contains("--help") || rest.contains("-h") {
-            print(Self.vmTreeUsage + "\n\n" + Self.cloudSidebarUsage)
+            print(Self.vmTreeUsage)
             return
         }
         let refresh = hasFlag(rest, name: "--refresh")

@@ -2,7 +2,7 @@ import Foundation
 
 extension CMUXCLI {
     static var cloudSidebarUsage: String {
-        String(localized: "cli.vm.sidebar.usage", defaultValue: """
+        CMUXDiffViewerLocalization.string("cli.vm.sidebar.usage", defaultValue: """
         cmux vm tree --sidebar [list|pin|unpin|up|down|before|after] [node-id] [target-id]
         Organize this Mac's Cloud sidebar. Use list to find row IDs; before/after require a target in the same group and pin section. Sessions and pane layouts are unchanged.
         """)
