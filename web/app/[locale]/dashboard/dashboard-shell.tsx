@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Link, usePathname } from "@/i18n/navigation";
+import { Link as TanStackLink } from "@tanstack/react-router";
 
 type DashboardNavGroup = {
   label: string;
@@ -17,15 +18,22 @@ export function DashboardShell({
   children,
   vaultEnabled,
   account,
+  routerEnabled = false,
+  currentPathname,
 }: {
   children: React.ReactNode;
   vaultEnabled: boolean;
   /** The identity row, streamed by the layout once the session resolves. */
   account?: React.ReactNode;
+  /** Enables the mounted TanStack Router navigation layer. */
+  routerEnabled?: boolean;
+  /** The pathname reported by TanStack Router when the layer is mounted. */
+  currentPathname?: string;
 }) {
   const t = useTranslations("dashboard.nav");
   const common = useTranslations("common");
-  const pathname = usePathname();
+  const nextPathname = usePathname();
+  const pathname = normalizeDashboardPath(currentPathname ?? nextPathname);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const groups: DashboardNavGroup[] = [];
   if (vaultEnabled) {
@@ -96,19 +104,21 @@ export function DashboardShell({
   return (
     <div
       data-testid="dashboard-shell"
+      data-dashboard-router={routerEnabled ? "tanstack" : undefined}
       className="min-h-screen bg-background text-sm text-foreground sm:grid sm:grid-cols-[13rem_minmax(0,1fr)]"
     >
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-background sm:flex">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-3">
-          <Link
-            href="/dashboard"
+          <DashboardBrandLink
+            routerEnabled={routerEnabled}
             className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground"
           >
             {t("brand")}
-          </Link>
+          </DashboardBrandLink>
         </div>
         <DashboardNav
           groups={groups}
+          routerEnabled={routerEnabled}
           className="flex-1 overflow-y-auto px-2 py-3 pb-28"
         />
       </aside>
@@ -116,12 +126,12 @@ export function DashboardShell({
       <div className="min-w-0">
         <header className="sticky top-0 z-30 border-b border-border bg-background sm:fixed sm:inset-x-auto sm:bottom-0 sm:left-0 sm:top-auto sm:w-[13rem] sm:border-b-0 sm:border-r sm:border-t">
           <div className="flex min-h-11 items-center justify-between px-3 py-1.5 sm:px-2">
-            <Link
-              href="/dashboard"
+            <DashboardBrandLink
+              routerEnabled={routerEnabled}
               className="font-medium focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground sm:hidden"
             >
               {t("brand")}
-            </Link>
+            </DashboardBrandLink>
             <div className="flex min-w-0 items-center gap-1 sm:w-full">
               <button
                 type="button"
@@ -139,6 +149,7 @@ export function DashboardShell({
           <DashboardNav
             id="dashboard-mobile-nav"
             groups={groups}
+            routerEnabled={routerEnabled}
             hidden={!mobileNavOpen}
             onNavigate={() => setMobileNavOpen(false)}
             className="max-h-[calc(100vh-6rem)] overflow-y-auto border-t border-border px-2 py-3 sm:hidden"
@@ -150,24 +161,53 @@ export function DashboardShell({
   );
 }
 
+function normalizeDashboardPath(pathname: string) {
+  const dashboardIndex = pathname.indexOf("/dashboard");
+  if (dashboardIndex >= 0) return pathname.slice(dashboardIndex);
+  if (pathname === "/") return "/dashboard";
+  return `/dashboard${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
+}
+
+function DashboardBrandLink({
+  routerEnabled,
+  className,
+  children,
+}: {
+  routerEnabled: boolean;
+  className: string;
+  children: React.ReactNode;
+}) {
+  if (routerEnabled) {
+    return <TanStackLink to="/" className={className}>{children}</TanStackLink>;
+  }
+  return <Link href="/dashboard" className={className}>{children}</Link>;
+}
+
 function DashboardNav({
   groups,
   className,
   hidden,
   id,
   onNavigate,
+  routerEnabled,
 }: {
   groups: DashboardNavGroup[];
   className?: string;
   hidden?: boolean;
   id?: string;
   onNavigate?: () => void;
+  routerEnabled: boolean;
 }) {
   return (
     <nav id={id} className={className} hidden={hidden}>
       <div className="space-y-4">
         {groups.map((group) => (
-          <DashboardNavGroupView key={group.label} group={group} onNavigate={onNavigate} />
+          <DashboardNavGroupView
+            key={group.label}
+            group={group}
+            onNavigate={onNavigate}
+            routerEnabled={routerEnabled}
+          />
         ))}
       </div>
     </nav>
@@ -177,9 +217,11 @@ function DashboardNav({
 export function DashboardNavGroupView({
   group,
   onNavigate,
+  routerEnabled = false,
 }: {
   group: DashboardNavGroup;
   onNavigate?: () => void;
+  routerEnabled?: boolean;
 }) {
   return (
     <div>
@@ -187,21 +229,38 @@ export function DashboardNavGroupView({
         {group.label}
       </p>
       <div className="mt-1 space-y-0.5">
-        {group.items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            aria-current={item.active ? "page" : undefined}
-            className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-              item.active
-                ? "border-foreground bg-code-bg text-foreground"
-                : "border-transparent text-muted hover:border-border hover:text-foreground"
-            }`}
-          >
-            {item.label}
-          </Link>
-        ))}
+        {group.items.map((item) =>
+          routerEnabled ? (
+            <TanStackLink
+              key={item.href}
+              to={item.href.replace(/^\/dashboard/, "") || "/"}
+              activeOptions={{ exact: item.href === "/dashboard" }}
+              onClick={onNavigate}
+              activeProps={{ "aria-current": "page" }}
+              className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+                item.active
+                  ? "border-foreground bg-code-bg text-foreground"
+                  : "border-transparent text-muted hover:border-border hover:text-foreground"
+              }`}
+            >
+              {item.label}
+            </TanStackLink>
+          ) : (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={onNavigate}
+              aria-current={item.active ? "page" : undefined}
+              className={`block border-l px-2 py-1.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
+                item.active
+                  ? "border-foreground bg-code-bg text-foreground"
+                  : "border-transparent text-muted hover:border-border hover:text-foreground"
+              }`}
+            >
+              {item.label}
+            </Link>
+          )
+        )}
       </div>
     </div>
   );

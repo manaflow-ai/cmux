@@ -64,6 +64,153 @@
           }
         }
       }
+    },
+    "/dashboard/cloud/devices": {
+      "get": {
+        "operationId": "dashboard.cloud.devices",
+        "summary": "List the authenticated user's Cloud Macs",
+        "tags": [
+          "Dashboard"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "deviceId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "reportedName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "displayName": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "modelIdentifier": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "osVersion": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "architecture": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxVersion": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxBuild": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "cmuxChannel": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "number"
+                      },
+                      "lastControlPlaneAt": {
+                        "type": "number"
+                      },
+                      "tunnelPurposes": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "terminal",
+                            "browser"
+                          ],
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "deviceId",
+                      "name",
+                      "reportedName",
+                      "displayName",
+                      "modelIdentifier",
+                      "osVersion",
+                      "architecture",
+                      "cmuxVersion",
+                      "cmuxBuild",
+                      "cmuxChannel",
+                      "createdAt",
+                      "lastControlPlaneAt",
+                      "tunnelPurposes"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
