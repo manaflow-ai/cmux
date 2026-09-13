@@ -92,9 +92,16 @@ struct GuiModeModelCatalog {
         var parts: [String]
         switch provider {
         case .codex:
-            parts = ["codex"]
-            if permissionMode == "full-access" {
-                parts.append("--yolo")
+            switch permissionMode {
+            case "full-access":
+                parts = ["codex", "--dangerously-bypass-approvals-and-sandbox"]
+            case "auto-review":
+                parts = ["codex", "--full-auto"]
+            case "custom":
+                // Custom deliberately leaves provider policy to Codex config.toml.
+                parts = ["codex"]
+            default:
+                parts = ["codex", "-a", "on-request", "-s", "workspace-write"]
             }
             if model.id != "default" {
                 parts.append(contentsOf: ["--model", shellQuoted(model.id)])

@@ -49,7 +49,12 @@ final class GuiModeWorkspaceCoordinator {
             guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             guard let guiPanel = installGuiPanel(
                 in: workspace,
-                state: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID)
+                state: .taskWorktreePR(
+                    prompt: trimmedPrompt,
+                    providerID: providerID,
+                    modelID: modelID,
+                    reasoningEffort: reasoningEffort
+                )
             ),
             let pane = workspace.paneId(forPanelId: guiPanel.id) else {
                 throw AgentSessionBridgeError.invalidRequest
