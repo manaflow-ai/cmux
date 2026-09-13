@@ -44,20 +44,16 @@ final class CloudWorkspaceRenameService {
     /// when all identity-bearing panes prove the same cloud identity and no local pane
     /// is present. A mixed local/cloud workspace is intentionally left unbound: there
     /// is no honest remote owner for its title, and guessing would rename the wrong VM.
+    /// The caller supplies one resource index, shared across batch reconciliation.
     func inferredRemoteWorkspaceTarget(
         projections: [SurfaceProjection],
-        resources: [SurfaceResource],
-        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
+        resourcesByID: [SurfaceResourceID: SurfaceResource]
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         guard !projections.isEmpty else { return nil }
-        let resourceIndex = resourcesByID ?? Dictionary(
-            resources.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         var targets = Set<CloudWorkspaceRemoteIdentity>()
         for projection in projections {
             guard !projection.resource.machine.isLocal,
-                  let resource = resourceIndex[projection.resource] else { return nil }
+                  let resource = resourcesByID[projection.resource] else { return nil }
             let remoteID: String?
             if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !explicit.isEmpty {
@@ -100,7 +96,7 @@ final class CloudWorkspaceRenameService {
         let projections = snapshot.projections.filter { $0.workspaceID == localWorkspaceID }
         guard let target = inferredRemoteWorkspaceTarget(
             projections: projections,
-            resources: snapshot.resources
+            resourcesByID: catalog.resources
         ) else { return }
         if let binding = workspace.cloudVMBinding,
            binding.vmID != target.machine.cloudMachineID {
@@ -197,7 +193,7 @@ final class CloudWorkspaceRenameService {
             target = bindingTarget
         } else if let inferred = inferredRemoteWorkspaceTarget(
             projections: projected,
-            resources: snapshot.resources
+            resourcesByID: catalog.resources
         ) {
             target = inferred
         } else if projected.isEmpty {
