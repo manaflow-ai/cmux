@@ -377,7 +377,8 @@
       "desktop": "Desktop",
       "terminalsGroup": "Terminals",
       "terminalsEmpty": "No terminals",
-      "terminalCount": "{count, plural, one {# terminal} other {# terminals}}"
+      "terminalCount": "{count, plural, one {# terminal} other {# terminals}}",
+      "machineCount": "{count} of {max} machines"
     }
   },
   "community": {
