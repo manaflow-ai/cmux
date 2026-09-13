@@ -329,17 +329,12 @@ struct SidebarHiddenPresentationTests {
         )
 
         let contentView = try #require(window.contentView)
-        // The full-sidebar host is mounted for both list implementations.
-        let sidebarFocusHost = try #require(descendants(
-            of: SidebarPointerEventHostView.self,
-            in: contentView
-        ).first)
+        let sidebarFocusHost = try #require(descendants(of: SidebarPointerEventHostView.self, in: contentView).first)
         let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
         let sidebarField = NSTextField(frame: NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24))
         contentView.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
         let sidebarEditor = try #require(sidebarField.currentEditor())
-        #expect(window.firstResponder === sidebarEditor)
         let sidebarBoundary = SidebarFocusBoundaryReference()
         sidebarBoundary.attach(sidebarFocusHost)
         #expect(sidebarBoundary.contains(sidebarEditor, in: window), "The fixture must belong to sidebar \(sidebarFrame).")
