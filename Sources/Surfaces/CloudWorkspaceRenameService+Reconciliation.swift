@@ -19,7 +19,8 @@ extension CloudWorkspaceRenameService {
         state: CloudVMState,
         observation: CloudVMStateObservation,
         projections: [SurfaceProjection],
-        resources: [SurfaceResource]
+        resources: [SurfaceResource],
+        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
     ) -> BindingReconciliation {
         guard let binding,
               binding.vmID == machine.cloudMachineID,
@@ -29,7 +30,11 @@ extension CloudWorkspaceRenameService {
               state.cursor != nil,
               state.document.containsCollection("workspaces") else { return .keep }
         guard !state.workspaceIDs.contains(remoteID) else { return .keep }
-        guard let target = inferredRemoteWorkspaceTarget(projections: projections, resources: resources),
+        guard let target = inferredRemoteWorkspaceTarget(
+            projections: projections,
+            resources: resources,
+            resourcesByID: resourcesByID
+        ),
               target.machine == machine,
               state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
         return .rebind(machine: target.machine, remoteWorkspaceID: target.remoteWorkspaceID)
@@ -64,6 +69,10 @@ extension CloudWorkspaceRenameService {
         let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
             $0[$1.id] = $1
         }
+        let projectionsByWorkspace = Dictionary(
+            grouping: snapshot.projections.filter { $0.resource.machine == machine },
+            by: \.workspaceID
+        )
         let localWorkspaces = environment.workspaces()
         let localWorkspacesByID = Dictionary(
             localWorkspaces.map { ($0.id, $0) },
@@ -74,14 +83,15 @@ extension CloudWorkspaceRenameService {
                   binding.vmID == machine.cloudMachineID,
                   var remoteID = binding.remoteWorkspaceID,
                   !remoteID.isEmpty else { continue }
-            let projections = snapshot.projections.filter { $0.workspaceID == workspace.id }
+            let projections = projectionsByWorkspace[workspace.id] ?? []
             switch bindingReconciliation(
                 binding: binding,
                 machine: machine,
                 state: state,
                 observation: observation,
                 projections: projections,
-                resources: snapshot.resources
+                resources: snapshot.resources,
+                resourcesByID: resourcesByID
             ) {
             case .keep:
                 break
