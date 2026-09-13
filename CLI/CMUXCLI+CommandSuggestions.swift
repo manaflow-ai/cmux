@@ -52,6 +52,7 @@ extension CMUXCLI {
 
     static let topLevelCommandNames: Set<String> = [
         "__codex-teams-watch",
+        "__herdr-compat",
         "__internal_flags",
         "__sidebar_footer_icon_balance",
         "__tmux-compat",
