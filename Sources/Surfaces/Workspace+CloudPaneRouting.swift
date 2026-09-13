@@ -206,26 +206,7 @@ final class CloudWorkspaceRenameService {
             target = nil
         }
         guard let target else { return }
-        let remoteWorkspaceName = snapshot.resources(on: target.machine)
-            .flatMap(\.remoteWorkspaces)
-            .first(where: { $0.id == target.remoteWorkspaceID })?.name
-        let stripGeneratedPrefix = workspace.cloudVMBinding?.remoteWorkspaceID == nil
-            && remoteWorkspaceName.map {
-                isGeneratedPrefixedTitle(
-                    previousCustomTitle,
-                    machine: target.machine,
-                    remoteWorkspaceName: $0
-                )
-            } == true
-        guard let name = remoteName(
-            fromLocalTitle: localTitle,
-            machine: target.machine,
-            // Strip the legacy prefix only when the previous title proves
-            // that this workspace was generated from the same remote name.
-            // A user can intentionally type "machine: name" and that
-            // exact text must reach the daemon unchanged.
-            stripGeneratedPrefix: stripGeneratedPrefix
-        ),
+        guard let name = remoteName(fromLocalTitle: localTitle, machine: target.machine, stripGeneratedPrefix: false),
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)

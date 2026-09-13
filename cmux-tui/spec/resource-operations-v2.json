@@ -1900,6 +1900,23 @@
             }
           },
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+        },
+        "name_source": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "user",
+              "auto"
+            ]
+          }
+        },
+        "name_revision": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
         }
       },
       "extra": false
@@ -10767,6 +10784,31 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "auto"
+              ]
+            },
+            "default": "user"
+          },
+          "expected_generation": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_name_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
           }
         },
         "extra": false

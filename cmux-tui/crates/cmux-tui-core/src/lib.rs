@@ -22,6 +22,7 @@ mod mux;
 mod pairing;
 pub mod provider_management;
 pub mod resource;
+pub mod resource_name;
 mod resource_api;
 mod resource_mutation;
 mod resource_router;

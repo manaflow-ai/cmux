@@ -101,6 +101,8 @@ impl Mux {
                 tabs.insert(
                     final_index,
                     RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: tab_id.clone(),
                         pane_id: pane_id.clone(),
                         position: final_index,
@@ -871,6 +873,8 @@ impl Mux {
                             }
                         };
                         let tab = RegistryTab {
+                            name_source: before_tab.map(|tab| tab.name_source).unwrap_or_default(),
+                            name_revision: before_tab.map(|tab| tab.name_revision).unwrap_or_default(),
                             public_id: identity.tab_id.clone(),
                             pane_id: pane.public_id.clone(),
                             position,
@@ -894,6 +898,8 @@ impl Mux {
                                 "pane_id":tab.pane_id,
                                 "index":tab.position,
                                 "name":tab.name,
+                                "name_source":tab.name_source,
+                                "name_revision":tab.name_revision.to_string(),
                                 "focused":pane.active_tab == position,
                                 "content_kind":content_kind,
                                 "content_id":tab.content_id.as_str(),
@@ -1428,6 +1434,8 @@ fn public_tab_value(tab: &RegistryTab, focused: bool) -> Value {
         "pane_id": tab.pane_id,
         "index": tab.position,
         "name": tab.name,
+        "name_source": tab.name_source,
+        "name_revision": tab.name_revision.to_string(),
         "focused": focused,
         "content_kind": content_kind,
         "content_id": tab.content_id.as_str(),

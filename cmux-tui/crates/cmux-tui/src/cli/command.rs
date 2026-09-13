@@ -2235,6 +2235,11 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("name".into(), Value::String(flags.required("name")?));
+    if operation == ResourceOperation::TabRename {
+        insert_optional_string(&mut params, flags, "source", "source");
+        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
+        insert_optional_string(&mut params, flags, "expected-name-revision", "expected_name_revision");
+    }
     request(operation, selectors, flags, params)
 }
 
@@ -4470,7 +4475,8 @@ mod tests {
                 ],
                 "tab.create_browser",
             ),
-            (vec!["tab", TAB, "rename", "--name", "logs"], "tab.rename"),
+            (vec!["tab", TAB, "rename", "--name", "logs", "--source", "auto",
+                "--expected-generation", "daemon", "--expected-name-revision", "0"], "tab.rename"),
             (
                 vec![
                     "tab",

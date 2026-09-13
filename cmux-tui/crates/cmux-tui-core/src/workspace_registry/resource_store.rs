@@ -287,6 +287,18 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
+    migrate_tab_name_authority(transaction)
+}
+
+/// Additive migration: pre-authority labels remain user-owned.
+pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
+    let columns = connection.prepare("PRAGMA table_info(resource_tabs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "name_source") {
+        connection.execute_batch("ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';
+            ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;")?;
+    }
     Ok(())
 }
 
@@ -1424,7 +1436,7 @@ impl WorkspaceRegistry {
         let tabs = {
             let mut statement = self.connection.prepare(
                 "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
-                        t.content_id, t.name, b.url, rt.terminal_id
+                        t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
                  FROM resource_tabs t
                  LEFT JOIN resource_browsers b ON b.public_id = t.content_id
                  LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
@@ -1442,6 +1454,8 @@ impl WorkspaceRegistry {
                         row.get::<_, Option<String>>(5)?,
                         row.get::<_, Option<String>>(6)?,
                         row.get::<_, Option<String>>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, i64>(9)?,
                     ))
                 })?
                 .map(|row| {
@@ -1454,6 +1468,8 @@ impl WorkspaceRegistry {
                         name,
                         browser_url,
                         terminal_id,
+                        name_source,
+                        name_revision,
                     ) = row?;
                     let content_id = match kind.as_str() {
                         "terminal" => {
@@ -1469,6 +1485,8 @@ impl WorkspaceRegistry {
                             .context("stored tab position is negative")?,
                         content_id,
                         name,
+                        name_source: serde_json::from_value(json!(name_source))?,
+                        name_revision: u64::try_from(name_revision).context("negative name revision")?,
                         browser_url,
                         terminal_id,
                     })
@@ -1953,6 +1971,10 @@ pub struct RegistryTab {
     pub position: usize,
     pub content_id: ContentPublicId,
     pub name: Option<String>,
+    #[serde(default)]
+    pub name_source: crate::resource_name::NameSource,
+    #[serde(default)]
+    pub name_revision: u64,
     pub browser_url: Option<String>,
     pub terminal_id: Option<String>,
 }
@@ -3282,12 +3304,14 @@ fn upsert_resource_tab(
     transaction.execute(
         "INSERT INTO resource_tabs(
            public_id, pane_id, position, content_kind, content_id, name,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, NULL)
+           created_revision, updated_revision, deleted_revision, name_source, name_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, NULL, ?8, ?9)
          ON CONFLICT(public_id) DO UPDATE SET
            pane_id=excluded.pane_id,
            position=excluded.position,
            name=excluded.name,
+           name_source=excluded.name_source,
+           name_revision=excluded.name_revision,
            updated_revision=excluded.updated_revision",
         params![
             tab.public_id.as_str(),
@@ -3297,6 +3321,8 @@ fn upsert_resource_tab(
             content_id,
             tab.name,
             revision,
+            serde_json::to_value(tab.name_source)?.as_str().context("invalid name source")?,
+            i64::try_from(tab.name_revision).context("name revision exceeds SQLite range")?,
         ],
     )?;
     Ok(())

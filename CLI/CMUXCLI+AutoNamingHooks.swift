@@ -16,7 +16,7 @@ extension CMUXCLI {
         let env = ProcessInfo.processInfo.environment
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("claude-hook.auto-name.disabled")
             return
@@ -96,6 +96,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             previousTitle: outcome.lastTitle,
+            cloudNameContext: probe["cloud_name_context"],
             client: client,
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
@@ -178,7 +179,7 @@ extension CMUXCLI {
         }
         guard let probe = try? client.sendV2(
             method: "workspace.set_auto_title",
-            params: ["probe": true, "workspace_id": workspaceId]
+            params: ["probe": true, "workspace_id": workspaceId, "panel_id": surfaceId]
         ), probe["enabled"] as? Bool == true else {
             telemetry.breadcrumb("codex-hook.auto-name.disabled")
             return

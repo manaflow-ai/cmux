@@ -426,44 +426,12 @@ import Testing
     }
 
     @Test func codexNativeTitleSyncRenamesCloudPlacementByStableTabID() async throws {
-        try await withAutoNamingSettingAsync(false) {
-            try await withManagerAsync { _, workspace in
-                let panelId = try #require(workspace.focusedPanelId)
-                let machine = SurfaceMachineID.cloud("codex-title-\(UUID().uuidString)")
-                let remoteWorkspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "Cloud workspace", index: 0, focused: true)
-                let resource = SurfaceResource(
-                    id: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal-1"),
-                    title: "terminal", detail: "/workspace", lifecycle: .running, agent: nil,
-                    remoteWorkspace: remoteWorkspace,
-                    remoteViews: [SurfaceRemoteView(tabID: "tab-stable", workspace: remoteWorkspace)],
-                    port: nil, url: nil
-                )
-                let catalog = SurfaceCatalog.shared
-                let provider = CloudPlacementTestProvider(machine: machine)
-                catalog.register(provider)
-                catalog.upsert(resource)
-                catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelId,
-                                                remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "tab-stable"))
-                defer {
-                    catalog.endProjections(panelID: panelId, reason: .replaced)
-                    catalog.unregister(machine: machine)
-                }
-
-                let title = "Calculate 2+2"
-                let envelope = try await callAsync(method: "surface.sync_codex_native_title", params: [
-                    "workspace_id": workspace.id.uuidString,
-                    "panel_id": panelId.uuidString,
-                    "title": title
-                ])
-                let result = try #require(envelope["result"] as? [String: Any])
-                #expect(result["applied"] as? Bool == true)
-                #expect(workspace.panelCustomTitles[panelId] == title)
-                #expect(workspace.panelCustomTitleSources[panelId] == .auto)
-
-                try await catalog.cloudRenameCoordinator.waitForPendingRenames(on: machine)
-                #expect(provider.renamedTabs.map(\.id) == ["tab-stable"])
-                #expect(provider.renamedTabs.map(\.name) == [title])
-            }
+        try await withCloudNameFixture { fixture in
+            let probe = try await fixture.call("surface.sync_codex_native_title", extra: ["probe": true])
+            let context = try #require(CloudAgentNameContext(wire: probe["cloud_name_context"]))
+            try await fixture.agentName("Calculate 2+2", context: context)
+            try fixture.expectParity("Calculate 2+2")
+            #expect(fixture.provider.writes.map(\.0) == ["tab_a"])
         }
     }
 

@@ -30,6 +30,10 @@ extension TabManager {
         propagateToCloud: Bool = true
     ) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
+        if propagateToCloud, source != .remote,
+           let submitted = SurfaceCatalog.shared.submitCloudWorkspaceRename(
+               workspace: tabs[index], title: title, source: source
+           ) { return submitted }
         let previousCustomTitle = tabs[index].customTitle
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tabs[index])
             .trimmingCharacters(in: .whitespacesAndNewlines)

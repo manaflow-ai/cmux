@@ -872,7 +872,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    private func recordPendingRemoteRename(
+    func recordPendingRemoteRename(
         tabID: String,
         name: String,
         receipt: CloudVMCursor
@@ -1421,7 +1421,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return receipt
     }
 
-    private func validatedReceipt(
+    func validatedReceipt(
         _ receipt: CloudVMCursor?,
         against expected: CloudVMCursor
     ) throws -> CloudVMCursor {

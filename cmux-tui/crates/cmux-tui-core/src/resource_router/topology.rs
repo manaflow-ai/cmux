@@ -1801,20 +1801,36 @@ mod tests {
         let created = terminal_workspace(&mux, "rename-authority-user");
         let tab = created["value"]["tab_id"].as_str().unwrap();
         let user_name = "API – 東京 🚀 / terminal: 1";
-        let user = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), json!({"name":user_name}),
-            Some("rename-authority-user-name"))).unwrap();
+        let user = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":user_name}),
+                Some("rename-authority-user-name"),
+            ),
+        )
+        .unwrap();
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let automatic = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), json!({
-                "name":"Calculate 2+2", "source":"auto",
-                "expected_generation":snapshot["cursor"]["generation"],
-                "expected_name_revision":user["revision"],
-            }), Some("rename-authority-late-auto")));
+        let automatic = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({
+                    "name":"Calculate 2+2", "source":"auto",
+                    "expected_generation":snapshot["cursor"]["generation"],
+                    "expected_name_revision":user["revision"],
+                }),
+                Some("rename-authority-late-auto"),
+            ),
+        );
         assert!(automatic.is_err(), "an automatic callback cannot replace an explicit name");
         let latest = public_session_snapshot(&mux).unwrap();
-        assert_eq!(latest["tabs"].as_array().unwrap().iter()
-            .find(|value| value["id"] == tab).unwrap()["name"], user_name);
+        assert_eq!(
+            latest["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()["name"],
+            user_name
+        );
     }
 
     #[test]
@@ -1822,27 +1838,51 @@ mod tests {
         let mux = mux();
         let created = terminal_workspace(&mux, "rename-authority-auto");
         let tab = created["value"]["tab_id"].as_str().unwrap();
-        let cleared = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), json!({"name":null}),
-            Some("rename-authority-clear"))).unwrap();
+        let cleared = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":null}),
+                Some("rename-authority-clear"),
+            ),
+        )
+        .unwrap();
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let fields = |name| json!({
-            "name":name, "source":"auto",
-            "expected_generation":snapshot["cursor"]["generation"],
-            "expected_name_revision":cleared["revision"],
-        });
-        let first = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), fields("Calculate 2+2"),
-            Some("rename-authority-new-auto"))).unwrap();
+        let fields = |name| {
+            json!({
+                "name":name, "source":"auto",
+                "expected_generation":snapshot["cursor"]["generation"],
+                "expected_name_revision":cleared["revision"],
+            })
+        };
+        let first = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                fields("Calculate 2+2"),
+                Some("rename-authority-new-auto"),
+            ),
+        )
+        .unwrap();
         assert_eq!(first["value"]["name"], "Calculate 2+2");
         assert_eq!(first["value"]["name_source"], "auto");
-        let delayed = dispatch(&mux, parsed(ResourceOperation::TabRename,
-            selectors(None, None, None, Some(tab)), fields("Old conversation"),
-            Some("rename-authority-old-auto")));
+        let delayed = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                fields("Old conversation"),
+                Some("rename-authority-old-auto"),
+            ),
+        );
         assert!(delayed.is_err(), "one captured name revision accepts at most one rename");
         let latest = public_session_snapshot(&mux).unwrap();
-        assert_eq!(latest["tabs"].as_array().unwrap().iter()
-            .find(|value| value["id"] == tab).unwrap()["name"], "Calculate 2+2");
+        assert_eq!(
+            latest["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()["name"],
+            "Calculate 2+2"
+        );
     }
 
     #[test]

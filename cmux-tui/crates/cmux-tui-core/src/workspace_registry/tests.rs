@@ -1579,6 +1579,8 @@ fn terminal_topology_patch() -> ResourcePatch {
                 terminal: terminal(TERMINAL_ONE, "one"),
             },
             ResourceChange::UpsertTab(RegistryTab {
+                name_source: Default::default(),
+                name_revision: 0,
                 public_id: tab.clone(),
                 pane_id: pane.clone(),
                 position: 0,
@@ -1664,6 +1666,8 @@ fn commit_browser_topology(
                     }),
                     ResourceChange::UpsertBrowser(browser.clone()),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -2674,6 +2678,36 @@ fn resource_order_is_exact_and_positions_are_contiguous() {
 }
 
 #[test]
+fn cloud_rename_authority_persists_across_registry_restart() {
+    let root = temp_root("rename-authority-restart");
+    let chosen = "API – 東京 🚀 / logs & tests";
+    let before = {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "create");
+        let mut tab = registry.resource_topology_snapshot().unwrap().tabs[0].clone();
+        tab.name = Some(chosen.into());
+        tab.name_source = crate::resource_name::NameSource::Auto;
+        tab.name_revision = 2;
+        registry.commit_resource_patch(
+            &WorkspaceMutation::new("name", "test").unwrap(), "tab.rename",
+            &json!({"name":chosen}), None, Some(1),
+            &ResourcePatch { changes: vec![ResourceChange::UpsertTab(tab)] },
+            &json!({}), &json!([]),
+        ).unwrap();
+        registry.resource_topology_snapshot().unwrap()
+    };
+    let restored = WorkspaceRegistry::open(&root, "session").unwrap();
+    let after = restored.resource_topology_snapshot().unwrap();
+    assert_eq!(after.tabs, before.tabs);
+    assert_eq!(after.tabs[0].name.as_deref(), Some(chosen));
+    assert_eq!(after.tabs[0].name_source, crate::resource_name::NameSource::Auto);
+    assert_eq!(after.tabs[0].name_revision, 2);
+    assert_ne!(after.generation, before.generation);
+    drop(restored);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn resource_ids_survive_registry_restart() {
     let root = temp_root("resource-restart");
     let before = {
@@ -2815,6 +2849,8 @@ fn commit_browser_topology_unchecked(
                     }),
                     ResourceChange::UpsertBrowser(browser.clone()),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -2914,6 +2950,8 @@ fn split_and_browser_identities_follow_targeted_parent_lifecycle() {
                         24,
                     )),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: second_pane.clone(),
                         position: 0,
@@ -4506,6 +4544,8 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
                         creation_ordinal: 1,
                     }),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: pane_id(1),
                         position: 1,
@@ -5003,6 +5043,8 @@ fn terminal_journal_subject_expands_to_every_live_view_path() {
                         creation_ordinal: 1,
                     }),
                     ResourceChange::UpsertTab(RegistryTab {
+                        name_source: Default::default(),
+                        name_revision: 0,
                         public_id: second_tab.clone(),
                         pane_id: pane_id(1),
                         position: 1,

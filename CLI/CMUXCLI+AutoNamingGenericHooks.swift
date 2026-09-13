@@ -211,6 +211,9 @@ extension CMUXCLI {
         telemetry: CLISocketSentryTelemetry,
         rawResponse: (AutoNamingEngine, ClaudeHookSessionStore.AutoNamingBeginOutcome) -> String?
     ) {
+        let probe = try? client.sendV2(method: "workspace.set_auto_title", params: [
+            "probe": true, "workspace_id": workspaceId, "panel_id": surfaceId
+        ])
         let engine = AutoNamingEngine()
         guard let outcome = try? sessionStore.beginAutoNaming(
             sessionId: sessionId,
@@ -244,6 +247,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             previousTitle: outcome.lastTitle,
+            cloudNameContext: probe?["cloud_name_context"],
             client: client,
             telemetryKey: telemetryKey,
             telemetry: telemetry
@@ -260,6 +264,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         previousTitle: String?,
+        cloudNameContext: Any? = nil,
         client: SocketClient,
         telemetryKey: String,
         telemetry: CLISocketSentryTelemetry
@@ -268,12 +273,14 @@ extension CMUXCLI {
             "workspace_id": workspaceId,
             "panel_id": surfaceId,
             "panel_only_if_multiple": true,
-            "title": title
+            "title": title,
+            "cloud_name_context": cloudNameContext ?? NSNull()
         ]) else {
             telemetry.breadcrumb("\(telemetryKey).socket-failed")
             return nil
         }
-        if payload["workspace_applied"] as? Bool == true {
+        if payload["workspace_applied"] as? Bool == true
+            || (cloudNameContext is [String: Any] && payload["panel_applied"] as? Bool == true) {
             telemetry.breadcrumb("\(telemetryKey).applied")
             return title
         }
