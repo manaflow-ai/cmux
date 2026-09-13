@@ -86,6 +86,9 @@ struct SubrouterClaudeRestoreRoutingTests {
         #expect(invocation.environment["ANTHROPIC_BASE_URL"] == baseURL, "\(label)")
         #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == capturedConfigDir, "\(label)")
         #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == "1", "\(label)")
+        // Record evidence never becomes a child environment for a plain replay.
+        #expect(invocation.environment[markerKey] == nil, "\(label)")
+        #expect(invocation.environment[launchBoundMarkerKey] == nil, "\(label)")
     }
 
     @Test(

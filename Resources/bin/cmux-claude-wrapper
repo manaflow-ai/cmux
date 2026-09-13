@@ -1383,10 +1383,62 @@ fi
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
 export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+
+# Subrouter (`sr claude proxy`) launches Claude with a private, per-launch
+# --settings file under $TMPDIR/subrouter-claude-settings-<rand>/ (the proxy
+# token, account routing headers and base URL live only there; a guardian
+# deletes it when sr exits) and exports SUBROUTER_CLAUDE_RESUME_COMMAND so a
+# host can resume through the same launcher once that file is gone. The marker
+# leaks to every descendant of the launched Claude, so it is bound to THIS
+# launch only while the argv still carries that existing private file. The
+# settings merge below drops user --settings before the argv is captured for
+# restore, so this is the only point where that proof exists.
+claude_launch_has_subrouter_private_settings() {
+    local argument value expects_value=0
+    for argument in "$@"; do
+        [[ "$argument" == "--" ]] && break
+        value=""
+        if (( expects_value )); then
+            value="$argument"
+            expects_value=0
+        else
+            case "$argument" in
+                --settings)
+                    expects_value=1
+                    continue
+                    ;;
+                --settings=*)
+                    value="${argument#--settings=}"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        fi
+        case "$value" in
+            */subrouter-claude-settings-*/settings.json)
+                [[ -f "$value" ]] && return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+bind_subrouter_claude_resume_marker() {
+    unset CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND
+    case "${SUBROUTER_CLAUDE_RESUME_COMMAND:-}" in
+        "sr claude proxy --resume"|"subrouter claude proxy --resume") ;;
+        *) return 0 ;;
+    esac
+    claude_launch_has_subrouter_private_settings "$@" || return 0
+    export CMUX_AGENT_LAUNCH_SUBROUTER_CLAUDE_RESUME_COMMAND="$SUBROUTER_CLAUDE_RESUME_COMMAND"
+}
+
 if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
     export CMUX_AGENT_LAUNCH_KIND="claude"
     export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
     export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    bind_subrouter_claude_resume_marker "$@"
 fi
 install_cmux_node_options
 
