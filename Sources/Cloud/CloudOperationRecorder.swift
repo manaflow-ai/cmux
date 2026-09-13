@@ -115,7 +115,7 @@ final class CloudOperationRecorder {
         trim()
     }
 
-    nonisolated func perform<T>(
+    func perform<T>(
         _ operation: CloudOperationKind, foreground: Bool = true, file: StaticString = #fileID, line: UInt = #line,
         isolation: isolated (any Actor)? = #isolation,
         _ work: () async throws -> T

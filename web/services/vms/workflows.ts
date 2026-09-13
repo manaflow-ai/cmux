@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { applyVmResourceUsage } from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -60,6 +61,7 @@ import {
   VmNotFoundError,
   VmResizeInvalidError,
   VmResizePlanLimitError,
+  VmResizeInProgressError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -99,6 +101,7 @@ import {
   type VmResizeReservation,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 
 export {
   homeVolumeNameForUser,
@@ -323,8 +326,7 @@ export function getVm(input: {
   });
 }
 
-/** Sets or clears the user-facing label on a machine the caller owns. The
- * provider VM id stays the machine's address; this is display-only. */
+/** Sets or clears the label and refreshes the guest prompt. Routing ids stay stable. */
 export function renameVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -336,7 +338,22 @@ export function renameVm(input: {
     const repo = yield* VmRepository;
     const vm = yield* requireUserVm(input);
     yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
-    return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
+    // Read the committed row so a concurrent rename and attach carry the
+    // database's revision, not the request's start time.
+    const updated = yield* requireUserVm(input);
+    if (updated.status === "running") {
+      const providers = yield* VmProviderGateway;
+      yield* providers.exec(updated.provider, input.providerVmId, guestPromptInstallCommand(vmPromptIdentity(updated)), {
+        timeoutMs: 10_000,
+        providerMetadata: updated.providerMetadata,
+      }).pipe(
+        Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt update exited ${result.exitCode}`))),
+        // A saved rename must remain available when a guest is unreachable.
+        // The next attach repairs it; paused machines are never woken here.
+        Effect.catchAll((error) => Effect.logWarning("Cloud prompt update deferred until attach", { vmId: updated.id, error })),
+      );
+    }
+    return vmEntryFromRow(updated);
   });
 }
 
@@ -614,6 +631,7 @@ export function createVm(input: {
       providers.create(input.provider, {
         image: input.image,
         displayName: create.vm.slug ?? undefined,
+        promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
@@ -894,6 +912,7 @@ function finishBaseCreate(
       providers.create(input.provider, {
         image: input.image,
         displayName: create.vm.slug ?? undefined,
+        promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId },
@@ -1860,6 +1879,17 @@ function deferLegacyResourceCandidate(
 
 type ResourceReservationWriter = NonNullable<VmRepositoryShape["setResourceReservation"]>;
 type ResizeUnconfirmedWriter = NonNullable<VmRepositoryShape["markVmResizeUnconfirmed"]>;
+
+/** A provider resize is successful only if its resource claim is still current. */
+function confirmResizedResourceReservation(
+  write: ResourceReservationWriter,
+  input: Parameters<ResourceReservationWriter>[0],
+  providerVmId: string,
+): Effect.Effect<void, VmDatabaseError | VmResizeInProgressError> {
+  return write(input).pipe(Effect.flatMap((confirmed) => confirmed
+    ? Effect.void
+    : Effect.fail(new VmResizeInProgressError({ vmId: providerVmId }))));
+}
 
 function reservationFromLegacyProviderStats(
   stats: VMStats,
@@ -2842,6 +2872,7 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
+      Effect.map((stats) => applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, Date.now())),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
@@ -2921,7 +2952,7 @@ export function resizeVm(input: {
       const existingReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
       const currentDiskMb = vmProviderResourceSize("diskMb", current.diskTotalMb) ?? existingReservation.diskMb;
       if (repo.setResourceReservation) {
-        yield* repo.setResourceReservation({
+        yield* confirmResizedResourceReservation(repo.setResourceReservation, {
           id: vm.id,
           reservation: reservationFromLegacyProviderStats(
             updated,
@@ -2932,7 +2963,7 @@ export function resizeVm(input: {
           ...(hasVmResourceReservationMetadata(vm.providerMetadata)
             ? { expectedReservation: existingReservation }
             : {}),
-        });
+        }, input.providerVmId);
       }
       yield* repo.recordUsageEvent({
         userId: input.userId,
@@ -3068,11 +3099,11 @@ export function resizeVm(input: {
         : hasVmResourceReservationMetadata(vm.providerMetadata)
           ? existingReservation
           : undefined;
-      yield* repo.setResourceReservation({
+      yield* confirmResizedResourceReservation(repo.setResourceReservation, {
         id: vm.id,
         reservation: confirmedReservation,
         ...(expectedReservation === undefined ? {} : { expectedReservation }),
-      }).pipe(Effect.asVoid);
+      }, input.providerVmId);
     }
     yield* repo.recordUsageEvent({
       userId: input.userId,
@@ -3250,6 +3281,7 @@ export function openVmCmuxRemote(input: {
       input.providerVmId,
       "attach",
       providers.openCmuxRemote(vm.provider, input.providerVmId, {
+        promptIdentity: vmPromptIdentity(vm),
         deviceFingerprint: input.deviceFingerprint,
         clientCapabilities: input.clientCapabilities,
         providerMetadata: vm.providerMetadata,

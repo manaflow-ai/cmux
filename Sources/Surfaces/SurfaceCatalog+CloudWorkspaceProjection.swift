@@ -1,14 +1,15 @@
 import Foundation
 
 extension SurfaceCatalog {
-    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState, observation: CloudVMStateObservation? = nil) {
         guard cloudStates[machine] == state else { return }
         cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
         cloudWorkspaceProjectionCoordinator.request(machine: machine, catalog: self)
         cloudWorkspaceRenameService.reconcileRemoteState(
             machine: machine,
             state: state,
-            catalog: self
+            catalog: self,
+            observation: observation ?? cloudStateObservations[machine] ?? .current
         )
     }
 
@@ -44,7 +45,7 @@ extension SurfaceCatalog {
     func reconcileCloudProjection(_ projection: SurfaceProjection) {
         guard let state = cloudStates[projection.resource.machine],
               cloudStateObservations[state.machine]?.freshness == .current else { return }
-        cloudWorkspaceRenameService.reconcileRemoteState(machine: state.machine, state: state, catalog: self)
+        cloudWorkspaceRenameService.reconcileRemoteState(machine: state.machine, state: state, catalog: self, observation: cloudStateObservations[state.machine] ?? .current)
     }
     func beginProjectionMutation(for resources: [SurfaceResourceID]) -> [SurfaceMachineID: UUID] {
         Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map {

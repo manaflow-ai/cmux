@@ -3494,9 +3494,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
-            // Older GhosttyKit headers do not expose the fork's OSC8 enum.
-            // Any non-unknown URL action is still a terminal-originated link.
-            let isTerminalLink = openUrl.kind != GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
+            let isTerminalLink = openUrl.kind == GHOSTTY_ACTION_OPEN_URL_KIND_UNKNOWN
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
                 data: Data(bytes: cstr, count: Int(openUrl.len)),

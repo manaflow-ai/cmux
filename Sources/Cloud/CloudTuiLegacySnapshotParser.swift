@@ -35,7 +35,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
             return .exited
         }
         if object["surface"] is NSNull { return .noPlacement }
-        guard let surface = number(from: object["surface"]) else { return .malformed }
+        guard let surface = number(from: object["surface"]), surface > 0 else { return .malformed }
         return .surface(surface)
     }
 

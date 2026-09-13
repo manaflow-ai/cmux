@@ -982,17 +982,17 @@ extension MobileShellComposite {
     /// device) using that instance's advertised routes.
     ///
     /// This is the device tree's tap-to-open for a tag that is not the currently
-    /// connected one: it routes through the same destructive ``connectManualHost``
-    /// path the multi-Mac switcher uses, then persists the device as the active
-    /// paired Mac on success (so a later relaunch reconnects to it) and refreshes
-    /// the paired-Mac list. A no-op when the instance advertises no reachable
-    /// route. Failure surfaces through ``connectionError`` like any other connect.
+    /// connected one: it routes through the same ``connectManualHost`` path as
+    /// the multi-Mac switcher. The current client remains live while the target
+    /// authenticates and enters the bounded warm pool after a successful
+    /// handoff. The device becomes the active paired Mac after success, then the
+    /// paired-Mac list refreshes. A no-op when the instance advertises no
+    /// reachable route. Failure surfaces through ``connectionError`` like any
+    /// other connect.
     ///
-    /// Like ``switchToMac(macDeviceID:)``, the connect is destructive (it replaces
-    /// the live client), so tapping a stale/offline tag while connected would drop
-    /// a healthy session. To avoid stranding the user, on a failed connect the
-    /// previously-active Mac is reconnected, so a bad target leaves the user where
-    /// they were rather than disconnected.
+    /// If a full pool or an incomplete terminal handoff retires the previous
+    /// session before the target fails, the previously-active Mac is
+    /// reconnected, so a bad target leaves the user where they were.
     /// - Parameters:
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
