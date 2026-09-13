@@ -860,10 +860,7 @@
 		826E2F85AF36405A9A358B50 /* CloudWorkspaceDestinationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */; };
 		5D999EE2FD784319A73C3945 /* CloudWorkspaceGroupDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 097212CF5CB04F3B8D671C46 /* CloudWorkspaceGroupDestination.swift */; };
 		0B2534A7872AF46D59819D49 /* CloudWorkspaceLayoutTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */; };
-		0B2534A7872AF46D59819D49 /* CloudWorkspaceLayoutTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */; };
 		341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */; };
-		341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */; };
-		4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */; };
 		4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */; };
 		15E5F36E592C4D2894AF93CF /* CloudWorkspaceOperationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */; };
 		D12439030000000000000001 /* CloudWorkspaceRenameService+Reconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439030000000000000002 /* CloudWorkspaceRenameService+Reconciliation.swift */; };
@@ -4507,10 +4504,7 @@
 		0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceDestinationTests.swift; sourceTree = "<group>"; };
 		097212CF5CB04F3B8D671C46 /* CloudWorkspaceGroupDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceGroupDestination.swift"; sourceTree = "<group>"; };
 		183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslator.swift; sourceTree = "<group>"; };
-		183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslator.swift; sourceTree = "<group>"; };
 		FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslatorTests.swift; sourceTree = "<group>"; };
-		FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslatorTests.swift; sourceTree = "<group>"; };
-		F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceMembershipTests.swift; sourceTree = "<group>"; };
 		F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceMembershipTests.swift; sourceTree = "<group>"; };
 		7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController.swift"; sourceTree = "<group>"; };
 		D12439030000000000000002 /* CloudWorkspaceRenameService+Reconciliation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Reconciliation.swift"; sourceTree = "<group>"; };
