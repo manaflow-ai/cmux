@@ -465,6 +465,38 @@ fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
 }
 
 fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    localize_operation_error_with_catalog(plan, error, crate::localization::catalog());
+}
+
+fn localize_operation_error_with_catalog(
+    plan: &RequestPlan,
+    error: &mut Value,
+    catalog: &crate::localization::Catalog,
+) {
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::TerminalInputWrite
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputKeys
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputMouse
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputFocus
+        )
+    ) && error["code"] == "operation.failed"
+    {
+        let message = match error["details"]["reason"].as_str() {
+            Some("terminal_input_too_large") => Some(catalog.terminal_input.too_large),
+            Some("terminal_input_unavailable") => Some(catalog.terminal_input.unavailable),
+            Some("terminal_input_confirmation_unsupported") => {
+                Some(catalog.terminal_input.confirmation_unsupported)
+            }
+            Some("terminal_input_delivery_failed") => Some(catalog.terminal_input.delivery_failed),
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.into());
+        }
+    }
+
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
@@ -474,12 +506,8 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     );
     if is_lifecycle_operation && error["code"] == "operation.failed" {
         let message = match error["details"]["reason"].as_str() {
-            Some("lifecycle_not_ready") => {
-                Some(crate::localization::catalog().local_server.starting)
-            }
-            Some("owner_stopped") => {
-                Some(crate::localization::catalog().local_server.reload_owner_stopped)
-            }
+            Some("lifecycle_not_ready") => Some(catalog.local_server.starting),
+            Some("owner_stopped") => Some(catalog.local_server.reload_owner_stopped),
             _ => None,
         };
         if let Some(message) = message {
@@ -911,6 +939,49 @@ mod tests {
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
+        for operation in [
+            ResourceOperation::TerminalInputWrite,
+            ResourceOperation::TerminalInputKeys,
+            ResourceOperation::TerminalInputMouse,
+            ResourceOperation::TerminalInputFocus,
+        ] {
+            for locale in ["en", "ja"] {
+                let catalog = crate::localization::catalog_for_locale(locale);
+                let plan = RequestPlan {
+                    operation: WireOperation::Typed(operation),
+                    params: json!({}),
+                    idempotency_key: Some("input-error".into()),
+                    stream: false,
+                };
+                for (reason, expected) in [
+                    ("terminal_input_too_large", catalog.terminal_input.too_large),
+                    ("terminal_input_unavailable", catalog.terminal_input.unavailable),
+                    (
+                        "terminal_input_confirmation_unsupported",
+                        catalog.terminal_input.confirmation_unsupported,
+                    ),
+                    ("terminal_input_delivery_failed", catalog.terminal_input.delivery_failed),
+                ] {
+                    let wire = json!({"code":"operation.failed", "message":reason,
+                        "details":{"reason":reason}, "retryable":false});
+                    let mut human = wire.clone();
+                    localize_operation_error_with_catalog(&plan, &mut human, catalog);
+                    assert_eq!(human["message"], expected);
+                    assert_ne!(human["message"], reason);
+                    assert_eq!(human["details"], wire["details"]);
+                    assert_eq!(wire["message"], reason);
+                    assert_eq!(human["retryable"], false);
+                }
+            }
+        }
+        assert_ne!(
+            crate::localization::catalog_for_locale("en").terminal_input,
+            crate::localization::catalog_for_locale("ja").terminal_input
+        );
     }
 
     #[test]

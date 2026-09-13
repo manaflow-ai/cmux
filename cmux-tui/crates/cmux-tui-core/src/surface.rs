@@ -67,6 +67,17 @@ pub enum GuardedMouseEncode {
     Contended,
 }
 
+/// Delivery classification for receipted terminal input.
+///
+/// `Known` means the implementation proved no bytes were submitted to the
+/// authoritative PTY owner. `Indeterminate` means bytes may have crossed a
+/// local writer or terminal-host socket before the failure became visible.
+#[derive(Debug)]
+pub(crate) enum ConfirmedInputFailure {
+    Known(std::io::Error),
+    Indeterminate(std::io::Error),
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -377,6 +388,20 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
+}
+
+#[cfg(unix)]
+fn is_targeted_host_response(kind: MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::Capability
+            | MessageKind::CellPixelSizeAck
+            | MessageKind::KittyGraphicsLimitsAck
+            | MessageKind::ClearHistoryAck
+            | MessageKind::TerminateAck
+            | MessageKind::DetachAck
+            | MessageKind::InputAck
+    )
 }
 
 #[cfg(unix)]
@@ -3064,15 +3089,9 @@ impl Surface {
                             Ok(Some(frame)) => frame,
                             Ok(None) | Err(_) => break,
                         };
-                        if matches!(
-                            frame.kind,
-                            MessageKind::Capability
-                                | MessageKind::CellPixelSizeAck
-                                | MessageKind::KittyGraphicsLimitsAck
-                                | MessageKind::ClearHistoryAck
-                                | MessageKind::TerminateAck
-                                | MessageKind::DetachAck
-                        ) && frame.request_id != 0
+                        // Targeted responses must be consumed before live staging:
+                        // HostedFrameStager intentionally rejects every nonzero request id.
+                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -4441,6 +4460,39 @@ impl Surface {
             // instead of failing every keystroke on the final screen.
             #[cfg(unix)]
             PtyRuntime::ExitedHosted => Ok(()),
+        }
+    }
+
+    /// Write receipted input bytes and wait for authoritative PTY-owner delivery.
+    ///
+    /// Hosted input registers and writes its targeted request while holding the
+    /// short runtime lock, then releases that lock before waiting for `InputAck`.
+    /// Other receipted writes can therefore enter the host channel while an
+    /// earlier caller is waiting. Interactive input continues to use `write_bytes`.
+    pub(crate) fn write_bytes_confirmed(&self, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            )));
+        };
+        let mut runtime = pty.runtime.lock().unwrap();
+        match &mut *runtime {
+            PtyRuntime::Local { writer, .. } => writer
+                .write_all(bytes)
+                .and_then(|()| writer.flush())
+                .map_err(ConfirmedInputFailure::Indeterminate),
+            #[cfg(unix)]
+            PtyRuntime::Hosted(host) => {
+                let receipt = host.begin_input_confirmed(bytes)?;
+                drop(runtime);
+                receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
+            }
+            #[cfg(unix)]
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
         }
     }
 
@@ -7380,6 +7432,27 @@ mod tests {
             .expect("macOS surface PTY spawn failed");
     }
 
+    struct PartialWouldBlockWriter {
+        accepted_prefix: bool,
+    }
+
+    impl Write for PartialWouldBlockWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.accepted_prefix && !bytes.is_empty() {
+                self.accepted_prefix = true;
+                return Ok(1);
+            }
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "synthetic partial local PTY write",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -7424,6 +7497,43 @@ mod tests {
             panic!("test surface unexpectedly uses a terminal host");
         };
         *writer = replacement;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipted_input_rejects_an_exited_host_before_effect() {
+        let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        {
+            let mut runtime = pty.runtime.lock().unwrap();
+            *runtime = PtyRuntime::ExitedHosted;
+        }
+
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
+    }
+
+    #[test]
+    fn receipted_input_local_partial_would_block_is_indeterminate() {
+        let mux = Mux::new_for_test("receipted-input-local-partial", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        replace_local_writer(
+            &surface,
+            Box::new(PartialWouldBlockWriter { accepted_prefix: false }),
+        );
+
+        let error = surface.write_bytes_confirmed(b"ab").unwrap_err();
+        let ConfirmedInputFailure::Indeterminate(error) = error else {
+            panic!("partial local PTY write was incorrectly classified as known-not-delivered");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     }
 
     #[test]
@@ -8219,6 +8329,78 @@ mod tests {
             Err(RecvTimeoutError::Disconnected)
         ));
         assert!(attachment.lifecycle.is_canceled());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
+        let mux = Mux::new_for_test("hosted-input-ack-pipeline", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let read_input = |host: &mut std::os::unix::net::UnixStream| {
+            let frame = crate::terminal_host_protocol::read_frame(
+                host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe submitted input while the earlier ACK is withheld")
+            .expect("hosted connection remains open while awaiting input ACKs");
+            assert_eq!(frame.kind, MessageKind::Input);
+            frame
+        };
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-a"));
+            let first_request = read_input(&mut host);
+            assert_eq!(first_request.payload, b"pipeline-a");
+            assert_ne!(first_request.request_id, 0);
+
+            let second = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-b"));
+            let second_request = read_input(&mut host);
+            assert_eq!(second_request.payload, b"pipeline-b");
+            assert_ne!(second_request.request_id, 0);
+            assert_ne!(first_request.request_id, second_request.request_id);
+
+            let interactive = scope.spawn(|| surface.write_bytes(b"pipeline-interactive"));
+            let interactive_request = read_input(&mut host);
+            assert_eq!(interactive_request.payload, b"pipeline-interactive");
+            assert_eq!(interactive_request.request_id, 0);
+            interactive.join().unwrap().unwrap();
+            assert!(!first.is_finished());
+            assert!(!second.is_finished());
+
+            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            second_ack.request_id = second_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &second_ack).unwrap();
+            second.join().unwrap().unwrap();
+            assert!(!first.is_finished(), "B's ACK must leave A pending");
+
+            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            first_ack.request_id = first_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[cfg(unix)]
