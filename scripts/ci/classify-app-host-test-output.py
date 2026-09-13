@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import io
 import re
 import sys
 from pathlib import Path
@@ -28,44 +29,52 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"Fatal error:|Idle timed out|Post-test timed out)",
     re.IGNORECASE,
 )
+_ASSERTION_RE = re.compile(
+    r"(?:✘ Test .* recorded an issue|Expectation failed|"
+    r"XCTAssert.*failed|Test run with .* failed|"
+    r"Executed \d+ tests?,\s+with [1-9]\d* failures?)",
+    re.IGNORECASE,
+)
 
 
 def _clean_line(line: str) -> str:
     return " ".join(_ANSI_RE.sub("", line).split())[:500]
 
 
-def _first_matching_line(output: str, pattern: re.Pattern[str]) -> str | None:
-    for line in output.splitlines():
-        cleaned = _clean_line(line)
-        if pattern.search(cleaned):
-            # Compiler command lines contain many literal `error` flags. Keep
-            # diagnostics, not those command invocations, as the causal line.
-            if pattern is _COMPILE_ERROR_RE and "command line" in cleaned.lower():
-                continue
-            return cleaned
-    return None
-
-
 def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
     """Return a non-gating diagnosis for hosted test output."""
-    xctest_summaries = list(SUMMARY_RE.finditer(output))
-    swift_summaries = list(SWIFT_SUMMARY_RE.finditer(output))
-    xctest_executed = sum(int(match.group("tests")) for match in xctest_summaries)
-    swift_executed = sum(int(match.group("tests")) for match in swift_summaries)
+    xctest_executed = 0
+    swift_executed = 0
+    xctest_summary_count = 0
+    swift_summary_count = 0
+    xctest_unexpected = 0
+    swift_failed = False
+    compile_line: str | None = None
+    app_host_line: str | None = None
+    assertion_line: str | None = None
+    last_line: str | None = None
+    for raw_line in io.StringIO(output):
+        last_line = raw_line.rstrip("\r\n")
+        xctest_match = SUMMARY_RE.search(raw_line)
+        if xctest_match:
+            xctest_summary_count += 1
+            xctest_executed += int(xctest_match.group("tests"))
+            xctest_unexpected += int(xctest_match.group("unexpected"))
+        swift_match = SWIFT_SUMMARY_RE.search(raw_line)
+        if swift_match:
+            swift_summary_count += 1
+            swift_executed += int(swift_match.group("tests"))
+            swift_failed = swift_failed or swift_match.group("result") == "failed"
+        if compile_line is None and _COMPILE_ERROR_RE.search(raw_line):
+            cleaned = _clean_line(raw_line)
+            if "command line" not in cleaned.lower():
+                compile_line = cleaned
+        if app_host_line is None and _APP_HOST_FAILURE_RE.search(raw_line):
+            app_host_line = _clean_line(raw_line)
+        if assertion_line is None and _ASSERTION_RE.search(raw_line):
+            assertion_line = _clean_line(raw_line)
+
     executed = xctest_executed + swift_executed
-    xctest_unexpected = sum(int(match.group("unexpected")) for match in xctest_summaries)
-    swift_failed = any(match.group("result") == "failed" for match in swift_summaries)
-    compile_line = _first_matching_line(output, _COMPILE_ERROR_RE)
-    app_host_line = _first_matching_line(output, _APP_HOST_FAILURE_RE)
-    assertion_line = _first_matching_line(
-        output,
-        re.compile(
-            r"(?:✘ Test .* recorded an issue|Expectation failed|"
-            r"XCTAssert.*failed|Test run with .* failed|"
-            r"Executed \d+ tests?,\s+with [1-9]\d* failures?)",
-            re.IGNORECASE,
-        ),
-    )
 
     failed = xctest_unexpected > 0 or swift_failed or assertion_line is not None
     nonzero = exit_code is not None and exit_code != 0
@@ -78,11 +87,13 @@ def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
             first_causal_line = app_host_line
         else:
             category = "pre-test incomplete run"
-            lines = output.splitlines()
-            first_causal_line = _clean_line(lines[-1]) if lines else None
+            first_causal_line = _clean_line(last_line) if last_line else None
+    elif app_host_line:
+        category = "post-test app-host failure"
+        first_causal_line = app_host_line
     elif failed:
         category = "test assertion failure"
-        first_causal_line = assertion_line or app_host_line
+        first_causal_line = assertion_line
     elif nonzero:
         category = "post-test app-host failure"
         first_causal_line = app_host_line
@@ -93,7 +104,7 @@ def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
     return {
         "category": category,
         "executed_tests": executed,
-        "summary_count": len(xctest_summaries) + len(swift_summaries),
+        "summary_count": xctest_summary_count + swift_summary_count,
         "first_causal_line": first_causal_line,
     }
 

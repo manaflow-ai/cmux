@@ -159,8 +159,7 @@ jobs:
             local output_path="$1"
             shift
             local result_dir
-            result_dir="$(dirname "$output_path")"
-            mkdir -p "$result_dir"
+            result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
