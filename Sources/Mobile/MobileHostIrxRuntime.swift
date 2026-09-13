@@ -4,7 +4,6 @@ import CmuxIrohTransport
 import CmuxIrxTransport
 import CmuxSettings
 import Foundation
-import IrohLib
 import OSLog
 
 /// macOS composition root for the irx transport (the from-scratch iroh
@@ -92,18 +91,6 @@ final class MobileHostIrxRuntime {
     ) {
         self.managedDevicePolicy = managedDevicePolicy
         self.publishesPublicHostStatus = publishesPublicHostStatus
-        #if DEBUG
-        // The native library installs one process-wide subscriber. Only the
-        // application's singleton may enable it; test runtimes remain isolated.
-        if publishesPublicHostStatus {
-            switch ProcessInfo.processInfo.environment["CMUX_IRX_LOG_LEVEL"] {
-            case "debug": IrohLib.setLogLevel(level: .debug)
-            case "info": IrohLib.setLogLevel(level: .info)
-            case "warn": IrohLib.setLogLevel(level: .warn)
-            default: break
-            }
-        }
-        #endif
     }
 
     var isNetworkingAllowed: Bool {
