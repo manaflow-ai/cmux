@@ -100,26 +100,29 @@ extension CmuxTuiSurfaceProvider {
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
         while true {
             try Task.checkCancellation()
-            let resolution = await resolver.resolve(terminalID: terminalID)
+            var resolution = await resolver.resolve(terminalID: terminalID)
             attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
-            switch resolution {
-            case let .resolved(surfaceID):
-                return (surfaceID, nil)
-            case .exited:
-                // The remote shell already ended. Opening a pane for it would
-                // show a frozen screen that never reconnects.
-                throw ProviderError.terminalExited(terminalID)
-            case .noPlacement:
-                let placement = try await ensureRemoteTerminalView(
+            var placement: SurfaceRemotePlacement?
+            if resolution == .noPlacement {
+                let projected = try await ensureRemoteTerminalView(
                     terminalID: terminalID,
                     socketPath: socketPath,
                     link: link,
                     preferredWorkspaceID: preferredWorkspaceID
                 )
-                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: placement)
-                if case let .resolved(surfaceID) = await resolver.resolve(terminalID: terminalID) {
-                    return (surfaceID, placement)
-                }
+                placement = projected
+                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                resolution = await resolver.resolve(terminalID: terminalID)
+                attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            }
+            // Initial and post-projection answers share the same lifecycle/error handling.
+            switch resolution {
+            case let .resolved(surfaceID):
+                return (surfaceID, placement)
+            case .exited:
+                // The remote shell already ended, including during projection.
+                throw ProviderError.terminalExited(terminalID)
+            case .noPlacement:
                 lastReason = "the projected view did not resolve"
                 lastFailure = .notReady
             case let .retryable(reason, failure):
