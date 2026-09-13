@@ -15,6 +15,13 @@ struct CloudTunnelBannerTests {
     private static let extensionID = "com.cmuxterm.app.tests.tunnel"
     private let networkExtension = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: CloudTunnelBannerTests.extensionID)
 
+    @Test("VPN-off guidance distinguishes cmux forwarding from other-app access")
+    func vpnOffGuidanceExplainsOptionalSystemVPN() throws {
+        let warning = try #require(CloudPortsVPNWarning.projection(tunnelState: .off))
+        #expect(!warning.setupTitle.isEmpty && !warning.explanation.isEmpty)
+        #expect(warning.help.components(separatedBy: "\n") == [warning.setupTitle, warning.explanation])
+    }
+
     @Test("off, and builds without the extension, show no banner")
     func hiddenWhenNothingToSay() {
         #expect(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .off, isPinned: false)) == nil)
