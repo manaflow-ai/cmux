@@ -74,9 +74,9 @@ struct CloudTreeMachineMenuTests {
         let diskRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
         let diskMenu = try #require(diskRoot.submenu)
         #expect(diskMenu.items.map(\.title) == [
-            Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"),
-            Self.title("machines.menu.resizeToGiB", "Increase to 128 GiB"),
-            Self.title("machines.menu.resizeToGiB", "Increase to 256 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64),
+            Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 128),
+            Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 256),
         ])
         #expect(resizeMenu.items.map(\.title) == [
             Self.title("machines.menu.increaseDisk", "Increase Disk"),
@@ -87,21 +87,21 @@ struct CloudTreeMachineMenuTests {
         // The verbs that stay are still wired, not merely titled.
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
-        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"), in: diskMenu)
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64), in: diskMenu)
         #expect(recorder.resizes.count == 1)
         let diskResize = try #require(recorder.resizes.first)
         #expect(diskResize.0 == Self.machineID)
         #expect(diskResize.1 == 64)
         let cpuRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") })
         let cpuMenu = try #require(cpuRoot.submenu)
-        try Self.choose(Self.title("machines.menu.resizeToVCPUs", "Increase to 8 vCPUs"), in: cpuMenu)
+        try Self.choose(Self.title("machines.menu.resizeToVCPUs", "Increase to %d vCPUs", 8), in: cpuMenu)
         #expect(recorder.cpuResizes.count == 1)
         let cpuResize = try #require(recorder.cpuResizes.first)
         #expect(cpuResize.0 == Self.machineID)
         #expect(cpuResize.1 == 8)
         let memoryRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") })
         let memoryMenu = try #require(memoryRoot.submenu)
-        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 16 GiB"), in: memoryMenu)
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 16), in: memoryMenu)
         #expect(recorder.memoryResizes.count == 1)
         let memoryResize = try #require(recorder.memoryResizes.first)
         #expect(memoryResize.0 == Self.machineID)
@@ -115,8 +115,9 @@ struct CloudTreeMachineMenuTests {
 
     /// The same catalog lookup the outline uses for its items, so the
     /// expectation holds in every locale.
-    private static func title(_ key: StaticString, _ defaultValue: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: defaultValue)
+    private static func title(_ key: StaticString, _ defaultValue: String.LocalizationValue, _ arguments: CVarArg...) -> String {
+        let format = String(localized: key, defaultValue: defaultValue)
+        return arguments.isEmpty ? format : String(format: format, arguments: arguments)
     }
 
     /// Fires the item the way AppKit does when the person picks it.
