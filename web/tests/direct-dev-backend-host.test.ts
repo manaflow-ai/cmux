@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { directDevBackendHost } from "../app/lib/direct-dev-backend-origin";
-import { requestOrigin } from "../app/lib/request-origin";
+import { requestOrigin, responseWithInternalRewrite } from "../app/lib/request-origin";
 import middleware from "../proxy";
 
 function withDirectOrigin(run: () => void) {
@@ -25,6 +25,17 @@ function request(origin: string): NextRequest {
 }
 
 describe("direct dev backend host forwarding", () => {
+  test("preserves double-slash paths without treating them as a new host", () => {
+    withDirectOrigin(() => {
+      const response = responseWithInternalRewrite(
+        NextResponse.rewrite("https://cmux-dev-backend-1.tail137216.ts.net:3916//another.example/page?x=1"),
+        new NextRequest("http://0.0.0.0:3916/"),
+      );
+      expect(response.headers.get("x-middleware-rewrite"))
+        .toBe("http://0.0.0.0:3916//another.example/page?x=1");
+    });
+  });
+
   test("keeps page rewrites inside the server instead of sending them through middleware again", () => {
     withDirectOrigin(() => {
       for (const pathname of ["/", "/billing/success?session_id=test"]) {
