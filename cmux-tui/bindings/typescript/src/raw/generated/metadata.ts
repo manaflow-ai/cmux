@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
+/* cmux-tui mux protocol 12, IR 567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86" as const;
+export const SDK_IR_SHA256 = "567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10065,8 +10065,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "terminal_id": {
           "constraints": [
             {
-              "format": "UUIDv4 hex without dashes",
-              "pattern": "^[0-9a-f]{32}$"
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
             }
           ],
           "nullable": false,

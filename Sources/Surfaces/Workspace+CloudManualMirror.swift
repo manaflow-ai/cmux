@@ -29,7 +29,8 @@ extension Workspace {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
-        onFocus: @escaping @MainActor @Sendable () -> Void
+        onFocus: @escaping @MainActor @Sendable () -> Void,
+        attachment: CloudTerminalAttachmentStatus? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let workspace = Self.workspace(for: destination.workspaceID),
               !workspace.isRetiredFromOwningTabManager else {
@@ -49,7 +50,8 @@ extension Workspace {
                     keyNameResolver: keyNameResolver,
                     onResize: onResize,
                     onRuntimeReady: onRuntimeReady,
-                    onFocus: onFocus
+                    onFocus: onFocus,
+                    attachment: attachment
                 )
             case .split:
                 return try workspace.splitCloudManualMirrorPane(
@@ -60,7 +62,8 @@ extension Workspace {
                     keyNameResolver: keyNameResolver,
                     onResize: onResize,
                     onRuntimeReady: onRuntimeReady,
-                    onFocus: onFocus
+                    onFocus: onFocus,
+                    attachment: attachment
                 )
             }
         case .tab(_, let paneID, _):
@@ -74,7 +77,8 @@ extension Workspace {
                 keyNameResolver: keyNameResolver,
                 onResize: onResize,
                 onRuntimeReady: onRuntimeReady,
-                onFocus: onFocus
+                onFocus: onFocus,
+                attachment: attachment
             )
         case .split(_, let paneID, let direction):
             guard let pane = Self.pane(paneID, in: workspace) else {
@@ -88,7 +92,8 @@ extension Workspace {
                 keyNameResolver: keyNameResolver,
                 onResize: onResize,
                 onRuntimeReady: onRuntimeReady,
-                onFocus: onFocus
+                onFocus: onFocus,
+                attachment: attachment
             )
         }
     }
@@ -100,7 +105,8 @@ extension Workspace {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
-        onFocus: @escaping @MainActor @Sendable () -> Void
+        onFocus: @escaping @MainActor @Sendable () -> Void,
+        attachment: CloudTerminalAttachmentStatus? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: onInput,
@@ -117,6 +123,7 @@ extension Workspace {
         panel.surface.onRuntimeReady = onRuntimeReady
         panel.surface.onManualWindowAttached = onRuntimeReady
         panel.onTerminalFocus = onFocus
+        panel.cloudAttachment = attachment
         panels[panel.id] = panel
         panelTitles[panel.id] = panel.displayTitle
         guard let tab = bonsplitController.createTab(
@@ -150,7 +157,8 @@ extension Workspace {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
-        onFocus: @escaping @MainActor @Sendable () -> Void
+        onFocus: @escaping @MainActor @Sendable () -> Void,
+        attachment: CloudTerminalAttachmentStatus? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
@@ -165,6 +173,7 @@ extension Workspace {
         panel.surface.onRuntimeReady = onRuntimeReady
         panel.surface.onManualWindowAttached = onRuntimeReady
         panel.onTerminalFocus = onFocus
+        panel.cloudAttachment = attachment
         panels[panel.id] = panel
         panelTitles[panel.id] = panel.displayTitle
         let tab = Bonsplit.Tab(

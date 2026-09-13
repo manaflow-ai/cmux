@@ -2861,6 +2861,13 @@ impl WorkspaceRegistry {
         &self.machine_id
     }
 
+    /// The current terminal registry revision alone. Lookups that only need to
+    /// stamp their answer read this instead of materializing every terminal
+    /// row while holding the registry lock.
+    pub fn terminal_revision(&self) -> anyhow::Result<u64> {
+        current_terminal_revision(&self.connection)
+    }
+
     /// Returns the canonical, non-tombstoned terminal placement projection.
     /// Runtime surface ids and renderer process ids are intentionally absent.
     pub fn terminal_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {

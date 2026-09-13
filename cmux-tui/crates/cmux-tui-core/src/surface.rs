@@ -8150,7 +8150,12 @@ mod tests {
         assert_eq!(attach.colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
         assert_eq!(attach.colors.fg, Some(Rgb { r: 0xee, g: 0xee, b: 0xee }));
         assert!(
-            attach.colors.palette.iter().enumerate().all(|(index, entry)| index == 1 || entry.is_none()),
+            attach
+                .colors
+                .palette
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| index == 1 || entry.is_none()),
             "unauthored palette entries must stay unset so the renderer keeps its theme"
         );
 
