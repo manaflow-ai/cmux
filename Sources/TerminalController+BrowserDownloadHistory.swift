@@ -21,7 +21,14 @@ extension TerminalController {
     ) -> V2CallResult {
         let limit: Int
         if let rawLimit = params["limit"] {
-            if let value = rawLimit as? Int {
+            if rawLimit is Bool
+                || (rawLimit as? NSNumber).map({ CFGetTypeID($0) == CFBooleanGetTypeID() }) == true {
+                return .err(
+                    code: "invalid_params",
+                    message: "limit must be an integer between 1 and \(Self.v2BrowserDownloadListMaxLimit)",
+                    data: ["limit": rawLimit]
+                )
+            } else if let value = rawLimit as? Int {
                 limit = value
             } else if let value = rawLimit as? NSNumber,
                       value.doubleValue.isFinite,

@@ -291,15 +291,9 @@ def main() -> int:
             if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
                 raise AssertionError(f"--path wait was not preserved: {state.calls[-1]!r}")
 
-            calls_before_invalid = len(state.calls)
-            assert_cli_fails(
-                cli,
-                socket_path,
-                ["browser", SURFACE_ID, "download", "not-a-command"],
-                "Unknown browser download subcommand",
-            )
-            if len(state.calls) != calls_before_invalid:
-                raise AssertionError("unknown download verb reached the socket")
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"legacy positional path was not preserved: {state.calls[-1]!r}")
             for invalid_args, expected in [
                 (["list", "--limit", "0"], "--limit must be an integer between 1 and 25"),
                 (["list", "--limit"], "--limit requires an integer between 1 and 25"),

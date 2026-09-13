@@ -37,10 +37,6 @@ extension CMUXCLI {
             let waitArgs: [String]
             if subArgs.first?.lowercased() == "wait" {
                 waitArgs = Array(subArgs.dropFirst())
-            } else if let first = subArgs.first,
-                      !first.hasPrefix("-"),
-                      !browserDownloadLooksLikePath(first) {
-                throw CLIError(message: "Unknown browser download subcommand '\(first)'; use 'list' or 'wait'")
             } else {
                 waitArgs = subArgs
             }
@@ -185,13 +181,6 @@ extension CMUXCLI {
             throw CLIError(message: "browser download wait accepts one destination path")
         }
         return (path ?? positional.first, timeoutMs)
-    }
-
-    private func browserDownloadLooksLikePath(_ value: String) -> Bool {
-        value.contains("/")
-            || value.hasPrefix("~")
-            || value.hasPrefix(".")
-            || !URL(fileURLWithPath: value).pathExtension.isEmpty
     }
 
     private func browserDownloadListText(_ payload: [String: Any]) -> String {

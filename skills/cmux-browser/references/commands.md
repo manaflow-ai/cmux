@@ -141,9 +141,10 @@ consuming `download wait` events. JSON records include `download_id`,
 and `path_exists` when a path is present. The list is capped at 25 records;
 `--limit` may request a smaller positive count. Text output marks unavailable
 values explicitly.
-For an extensionless destination, use `download wait <path>` or
-`download --path <path>` so a misspelled subcommand is rejected before any
-socket request.
+The legacy positional form treats a bare token as a destination path, so use
+the explicit `download wait <path>` or `download --path <path>` spelling when
+you want to make that intent unambiguous. `download list` is the only listing
+subcommand.
 
 `cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
 `--path`, another cookie filter, or `--all`). URL scope follows cookie
