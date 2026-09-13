@@ -1746,7 +1746,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let clientID = CloudTuiClientPaths().notificationClientID()
         let sync = CloudNotificationSync(
             machineID: machineID,
-            clientID: clientID,
+            clientID: clientID, store: CloudNotificationSyncHub.shared.persistenceStore,
             resolveTarget: { [weak self] row in self?.notificationDeliveryTarget(for: row) },
             deliver: { [weak self] row, target in self?.deliverNotification(row, to: target) ?? false },
             send: { [weak self] batch in

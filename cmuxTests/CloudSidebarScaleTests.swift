@@ -14,7 +14,7 @@ import os
 @Suite("Cloud sidebar scale", .serialized)
 struct CloudSidebarScaleTests {
     @Test(arguments: [20, 50, 100])
-    func notificationReplayDoesNotWritePreferences(workspaceCount: Int) throws {
+    func notificationReplayDoesNotWritePreferences(workspaceCount: Int) async throws {
         let suite = "CloudSidebarScaleTests.\(UUID().uuidString)"
         let defaults = try #require(RecordingDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -26,19 +26,21 @@ struct CloudSidebarScaleTests {
         defer { sync.retire() }
         // Each workspace emits a catalog delta that does not change notifications.
         for _ in 0..<workspaceCount { sync.apply(rows: []) }
+        await store.flush()
         let writes = defaults.writes
         print("CLOUD_SIDEBAR_SCALE workspaces=\(workspaceCount) replay_writes=\(writes.total) main_thread_writes=\(writes.main)")
         #expect(writes.total == 0, "Unchanged notification state must not write preferences.")
     }
 
     @Test
-    func notificationTransitionDoesNotWriteOnMainThread() throws {
+    func notificationTransitionDoesNotWriteOnMainThread() async throws {
         let suite = "CloudSidebarScaleTests.\(UUID().uuidString)"
         let defaults = try #require(RecordingDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudNotificationSyncStore(defaults: defaults)
         let sync = CloudNotificationSync(
             machineID: "scale", clientID: "mac-scale",
-            store: CloudNotificationSyncStore(defaults: defaults),
+            store: store,
             resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
             deliver: { _, _ in true }, send: { _ in }
         )
@@ -48,6 +50,8 @@ struct CloudSidebarScaleTests {
             createdAtMs: 1, terminalID: "terminal-1", readBy: []
         )])
         #expect(sync.state.delivered == ["notification-1"])
+        await store.flush()
+        #expect(defaults.writes.total == 1)
         #expect(defaults.writes.main == 0, "Encoding and preference writes cannot run on the UI actor.")
     }
 
@@ -130,7 +134,7 @@ struct CloudSidebarScaleTests {
 
     // Foundation invokes this synchronous override from either executor. The lock
     // protects only the test's recorder, never production persistence or UI state.
-    private final class RecordingDefaults: UserDefaults, @unchecked Sendable {
+    private final class RecordingDefaults: UserDefaults {
         private let recorded = OSAllocatedUnfairLock(initialState: (total: 0, main: 0))
         var writes: (total: Int, main: Int) { recorded.withLock { $0 } }
         override func set(_ value: Any?, forKey defaultName: String) {
