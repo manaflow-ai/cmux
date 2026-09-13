@@ -8,6 +8,7 @@ import {
   resolveCodeRouterRequestContext,
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
+import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -131,6 +132,9 @@ export function makeCoderouterAccountsPostHandler(
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
+    if (error instanceof CodexSignatureError) {
+      return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
     reportCoderouterFailure("rds", error, { operation: "add_account" });
     return Response.json(
       {

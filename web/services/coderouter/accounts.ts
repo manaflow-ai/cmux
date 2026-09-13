@@ -6,8 +6,11 @@ import {
   listAccounts,
   replaceAccountCredential,
   withVaultLease,
+  bindCodexOwnerIdentity,
+  encryptedCredentialForAccount,
+  updateAccountLabel,
 } from "./repository";
-import { encryptCredential } from "./encryption";
+import { decryptCredential, encryptCredential, type CredentialKeyService } from "./encryption";
 import {
   CODEROUTER_API_KEY_PROVIDERS,
   type CodeRouterApiKeyProvider,
@@ -15,17 +18,28 @@ import {
 } from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
+import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
+import { verifyCodexCredential, verifyStoredCodexCredential } from "./codexSignature";
 
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
+  keys?: CredentialKeyService,
+  verify: typeof verifyCodexCredential = verifyCodexCredential,
+  verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
+  if (credential.provider === "codex") {
+    await verify(credential);
+    credential = withCodexOwner(credential);
+    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys, verifyStored);
+  }
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
-    credential.accountId,
+    providerIdentityKey(credential),
   );
   if (existing?.state === "active" || existing?.state === "refreshing") {
+    await updateAccountLabel(teamId, existing.id, credential);
     return { accountId: existing.id, alreadyExists: true };
   }
 
@@ -37,6 +51,7 @@ export async function addAccount(
     provider: credential.provider,
     credentialRevision: expectedRevision + 1,
     credential,
+    keys,
   });
   if (!existing) {
     const inserted = await insertAccountWithCredential({
@@ -47,7 +62,7 @@ export async function addAccount(
       const raced = await findAccountByProviderIdentity(
         teamId,
         credential.provider,
-        credential.accountId,
+        providerIdentityKey(credential),
       );
       if (raced) return { accountId: raced.id, alreadyExists: true };
       throw new Error("coderouter account insert lost a uniqueness race");
@@ -60,6 +75,24 @@ export async function addAccount(
     });
   }
   return { accountId, alreadyExists: false };
+}
+
+/** Legacy workspace-only rows are adopted from their own encrypted credentials. */
+export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService, verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential): Promise<void> {
+  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId);
+  if (!legacy) return;
+  const encrypted = await encryptedCredentialForAccount(teamId, legacy.id);
+  if (!encrypted) throw new Error("legacy Codex credential is unavailable");
+  const credential = await decryptCredential(encrypted, keys);
+  if (credential.provider !== "codex" || credential.accountId !== workspaceId) throw new Error("legacy Codex identity does not match its record");
+  await verify(credential);
+  const migrated = await bindCodexOwnerIdentity({
+    teamId, accountId: legacy.id, expectedKey: workspaceId,
+    expectedRevision: encrypted.credentialRevision, credential: withCodexOwner(credential),
+  });
+  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId)) {
+    throw new Error("legacy Codex credential changed during identity upgrade; retry");
+  }
 }
 
 export { listAccounts };
@@ -127,8 +160,9 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
   }
   if (provider === "codex") {
     const idToken = boundedString(value.idToken, 32_768);
-    return idToken
-      ? {
+    if (!idToken) return null;
+    try {
+      return withCodexOwner({
         provider,
         accessToken,
         refreshToken,
@@ -136,8 +170,9 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
         accountId,
         email,
         expiresAt,
-      }
-      : null;
+        ...(value.userId !== undefined ? { userId: boundedString(value.userId, 512) ?? "" } : {}),
+      });
+    } catch { return null; }
   }
   if (provider === "opencode-go") {
     const orgId = optionalBoundedString(value.orgId, 512);

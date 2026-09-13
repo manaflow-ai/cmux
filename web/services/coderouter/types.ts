@@ -35,6 +35,8 @@ export type CodexCredential = {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly idToken: string;
+  /** Derived from provider claims. Optional only for encrypted legacy records. */
+  readonly userId?: string;
   readonly accountId: string;
   readonly email: string;
   readonly expiresAt: number;
@@ -118,6 +120,7 @@ export type CodeRouterAccountSummary = {
   readonly id: string;
   readonly provider: CodeRouterProvider;
   readonly providerAccountId: string;
+  readonly providerUserId?: string;
   readonly label: string;
   readonly state: "active" | "refreshing" | "expired" | "broken";
   readonly credentialExpiresAt: string | null;
