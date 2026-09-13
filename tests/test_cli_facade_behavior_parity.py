@@ -68,6 +68,20 @@ CASES: list[tuple[list[str], str]] = [
     # two, so a numeric declaration would turn a working command into an error.
     (["resize-pane", "--amount", "abc"], "resize-pane --amount must reach the legacy fallback of 1"),
     (["wait-for", "--timeout", "abc"], "wait-for --timeout must reach the legacy fallback of 30"),
+    # Declarations exist for completion, so any shape ArgumentParser rejects on
+    # its own (a trailing option with no value, a value on a flag) must still
+    # reach the legacy runner and fail, or not, exactly as it does there.
+    # Pinning one case per declaration would never end; these sample the
+    # class across families.
+    (["vm", "snapshot", "vm1", "--name"], "trailing value option with no value must reach the legacy runner"),
+    (["vm", "fork", "vm1", "--window"], "trailing value option with no value must reach the legacy runner"),
+    (["vm", "new", "--size"], "trailing value option with no value must reach the legacy runner"),
+    (["vm", "resize", "vm1", "--cpu"], "trailing value option with no value must reach the legacy runner"),
+    (["remotes", "add", "r", "--tag"], "trailing value option with no value must reach the legacy runner"),
+    (["notify", "--title"], "trailing value option with no value must reach the legacy runner"),
+    (["dismiss-notification", "--id"], "trailing value option with no value must reach the legacy runner"),
+    (["vm", "tree", "vm1", "--refresh=1"], "a value on a declared flag must reach the legacy runner"),
+    (["vm", "workspace", "open", "vm1", "ws1", "--here=yes"], "a value on a declared flag must reach the legacy runner"),
 ]
 
 # Value-taking global options accept both `--name value` and `--name=value`.
