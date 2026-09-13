@@ -117,7 +117,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let previousOrder = model.tabs.map(\.id)
 
         if !model.workspaceGroups.isEmpty {
-            model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: selectedTabs.map(\.id))
+            model.moveWorkspaceGroupMembersToGroupEnd(workspaceIds: selectedTabs.map(\.id))
             let topLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
             let selectedTopLevelIds = model.topLevelWorkspaceIds(for: selectedTabs)
             let selectedTopLevelIdSet = Set(selectedTopLevelIds)
