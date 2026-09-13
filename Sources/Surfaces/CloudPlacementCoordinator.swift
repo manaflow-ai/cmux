@@ -53,14 +53,14 @@ final class CloudPlacementCoordinator {
         preferredRemoteWorkspaceID: String? = nil
     ) -> String? {
         let candidates = Set(resource.remoteWorkspaces.map(\.id))
+        if let preferred = preferredRemoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !preferred.isEmpty {
+            guard candidates.contains(preferred) || workspaceExists(resource.machine, preferred) == true else { return nil }
+            return preferred
+        }
         if let bound = boundRemoteWorkspaceID(forLocalWorkspace: localWorkspaceID, on: resource.machine),
            candidates.contains(bound) || workspaceExists(resource.machine, bound) == true {
             return bound
-        }
-        if let preferred = preferredRemoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !preferred.isEmpty,
-           candidates.contains(preferred) {
-            return preferred
         }
         guard candidates.count == 1 else { return nil }
         return candidates.first

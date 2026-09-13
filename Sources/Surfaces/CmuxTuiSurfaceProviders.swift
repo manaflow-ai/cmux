@@ -600,14 +600,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
         }
         info.remoteWorkspaces = remoteWorkspaces(for: state)
+        let acceptedObservation = observationWithPendingWrites(observation)
         catalog.replaceCloudState(
             state,
             resources: resources,
             info: info,
-            observation: observationWithPendingWrites(observation)
+            observation: acceptedObservation
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
     }
@@ -645,15 +646,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         info.remoteWorkspaces = remoteWorkspaces(for: state)
         let previousIDs = Set(catalog.snapshot.resources(on: machine).map(\.id))
+        let acceptedObservation = observationWithPendingWrites()
         let changed = catalog.applyCloudStateResourcePatch(
             state,
             resources: resources,
             affectedResourceIDs: affected,
             info: info,
-            observation: observationWithPendingWrites()
+            observation: acceptedObservation
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: acceptedObservation)
         }
         // A newly restored terminal may need its attach pane materialized. Existing rows do not
         // need a full projection scan for every title event.

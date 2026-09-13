@@ -78,6 +78,28 @@ struct CloudWorkspaceBindingRegressionTests {
         #expect(coordinator.creationWorkspaceID(in: bound, near: resource, preferredRemoteWorkspaceID: "ws_other") == "ws_other")
     }
 
+    @Test func aSelectedLivePlacementOverridesAnotherLiveWorkspaceBinding() {
+        let bound = UUID()
+        let coordinator = CloudPlacementCoordinator(binding: { id in
+            id == bound
+                ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api")
+                : nil
+        }, workspaceExists: { _, remoteID in ["ws_api", "ws_other"].contains(remoteID) })
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 1, focused: false)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
+            title: "term_1", detail: "/root", lifecycle: .running, agent: nil,
+            remoteWorkspace: Self.workspace,
+            remoteViews: [
+                SurfaceRemoteView(tabID: "tab_1", workspace: Self.workspace),
+                SurfaceRemoteView(tabID: "tab_2", workspace: other),
+            ],
+            port: nil, url: nil
+        )
+
+        #expect(coordinator.creationWorkspaceID(in: bound, near: resource, preferredRemoteWorkspaceID: "ws_other") == "ws_other")
+    }
+
     @Test func authoritativeDeletionRebindsOneSurvivingProjectedWorkspace() throws {
         let service = CloudWorkspaceRenameService()
         let state = try Self.state(workspaces: [["id": "ws_api", "name": "api"]])

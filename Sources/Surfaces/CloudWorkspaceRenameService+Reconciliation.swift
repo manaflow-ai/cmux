@@ -47,7 +47,7 @@ extension CloudWorkspaceRenameService {
         machine: SurfaceMachineID,
         state: CloudVMState,
         catalog: SurfaceCatalog,
-        observation: CloudVMStateObservation = .current
+        observation: CloudVMStateObservation
     ) {
         guard case .cloud = machine else { return }
         let snapshot = catalog.snapshot
