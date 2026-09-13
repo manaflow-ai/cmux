@@ -964,6 +964,7 @@ extension TerminalController {
     /// instead of silently falling through to the selected workspace (used by `vm.port_open`).
     nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = false) -> UUID? {
         if strictExplicit {
+            var explicitWorkspaceID: UUID?
             if v2HasNonNullParam(params, "workspace_id") {
                 guard let explicit = v2UUID(params, "workspace_id") else { return nil }
                 let exists = v2MainSync {
@@ -973,23 +974,34 @@ extension TerminalController {
                         == true
                 }
                 guard exists else { return nil }
-                return explicit
+                explicitWorkspaceID = explicit
             }
             if v2HasNonNullParam(params, "pane_id") {
                 guard let paneID = v2UUID(params, "pane_id"),
                       let located = v2MainSync({ self.v2LocatePane(paneID) }) else {
                     return nil
                 }
-                return located.workspace.id
+                if let explicitWorkspaceID, explicitWorkspaceID != located.workspace.id {
+                    return nil
+                }
+                explicitWorkspaceID = located.workspace.id
             }
             if v2HasNonNullParam(params, "surface_id") {
                 guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
                 let owner = v2MainSync { () -> UUID? in
-                    guard let tabManager = self.tabManager else { return nil }
-                    return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                    if let owner = self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })?.id {
+                        return owner
+                    }
+                    return AppDelegate.shared?.tabManagerFor(tabId: surfaceID)?.tabs
+                        .first(where: { $0.panels[surfaceID] != nil })?.id
                 }
-                return owner
+                guard let owner else { return nil }
+                if let explicitWorkspaceID, explicitWorkspaceID != owner {
+                    return nil
+                }
+                explicitWorkspaceID = owner
             }
+            if let explicitWorkspaceID { return explicitWorkspaceID }
         }
         if let explicit = v2UUID(params, "workspace_id") {
             return explicit
