@@ -485,7 +485,13 @@ enum RightSidebarBetaFeatureSettings {
 
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
+    #if DEBUG
+    // Debug builds are the Cloud development surface. Keep the Machines tab
+    // available without requiring every tagged build to repeat the beta toggle.
+    static let defaultCloudMachinesEnabled = true
+    #else
     static let defaultCloudMachinesEnabled = false
+    #endif
     static let didChangeNotification = Notification.Name("rightSidebarBetaFeatureDidChange")
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
