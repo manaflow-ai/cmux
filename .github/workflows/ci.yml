@@ -1612,6 +1612,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_claude_wrapper_dead_settings_path.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
           python3 tests/test_cmux_cua_mcp_smoke.py
           python3 tests/test_cmux_cua_build_cache_safety.py
@@ -1620,6 +1621,7 @@ jobs:
           python3 tests/test_claude_wrapper_mutual_shim_loop.py
           python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
+          python3 tests/test_claude_wrapper_subrouter_resume_marker.py
           python3 tests/test_claude_teams_test_utils.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_codex_teams_informational.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
