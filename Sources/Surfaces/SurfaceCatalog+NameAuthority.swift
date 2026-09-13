@@ -75,7 +75,7 @@ extension SurfaceCatalog {
             do { try await write.value }
             catch {
                 // A superseded automatic result is expected, not a user error.
-                if !automatic, !(error is CancellationError) { workspace?.presentCloudPlacementFailure(error) }
+                if !automatic, !(error is CancellationError) { workspace?.presentCloudRenameFailure(error) }
             }
         }
     }

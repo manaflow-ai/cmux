@@ -187,4 +187,14 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("Reporting a failed rename without a live window never starts a modal loop")
+    func cloudRenameFailureWithoutWindowReturns() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        #expect(manager.window == nil)
+        workspace.presentCloudRenameFailure(SurfaceCatalogError.noProvider(.cloud("missing")))
+        #expect(manager.window == nil)
+    }
+
 }
