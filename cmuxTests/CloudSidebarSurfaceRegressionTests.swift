@@ -10,6 +10,137 @@ import Testing
 struct CloudSidebarSurfaceRegressionTests {
     private let machine = SurfaceMachineID.cloud("sidebar-vm")
 
+    @Test("Cloud-bound workspaces never use local sidebar provenance")
+    @MainActor
+    func cloudBindingRejectsLocalDirectoryAndGitStateIncludingRestore() throws {
+        let workspace = Workspace(workingDirectory: "/Users/alice/local-checkout")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "local-only", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelID, number: 4, label: "PR", url: try #require(URL(string: "https://github.com/example/local/pull/4")), status: .open
+        )
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "cloud-sidebar-vm", isBase: false, remoteWorkspaceID: "ws_1"
+        )
+        #expect(workspace.usesRemoteDirectoryProvenance)
+        #expect(!workspace.allowsLocalDirectoryFallback(panelId: panelID))
+        #expect(!workspace.updatePanelDirectory(panelId: panelID, directory: "/Users/alice/local-checkout"))
+        #expect(workspace.effectivePanelDirectory(panelId: panelID) == nil)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "local-only", isDirty: true)
+        #expect(workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [panelID]).isEmpty)
+        #expect(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelID]).isEmpty)
+        let defaults = try #require(UserDefaults(suiteName: "cloud-sidebar-\(UUID())"))
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+        ).makeSnapshot()
+        #expect(snapshot.compactDirectoryCandidates.isEmpty)
+        #expect(snapshot.compactGitBranchSummaryText == nil)
+        #expect(snapshot.branchDirectoryLines.isEmpty)
+        #expect(snapshot.pullRequestRows.isEmpty)
+        #expect(snapshot.finderDirectoryPath == nil)
+        let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)
+        #expect(accessibilityLabel.contains("Cloud workspace on cloud-sidebar-vm"))
+        #expect(!accessibilityLabel.contains("local-checkout"))
+        let sidebarDecision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: nil,
+            next: snapshot,
+            force: false,
+            contextMenuVisible: false
+        )
+        #expect(sidebarDecision.workspaceSnapshotStorage == snapshot)
+        #expect(sidebarDecision.pendingWorkspaceSnapshot == nil)
+
+        let manager = TabManager(
+            initialWorkspaceTitle: "Cloud",
+            initialWorkingDirectory: "/Users/alice/local-checkout",
+            autoWelcomeIfNeeded: false
+        )
+        let managedWorkspace = try #require(manager.selectedWorkspace)
+        let managedPanelID = try #require(managedWorkspace.focusedPanelId)
+        managedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "cloud-sidebar-vm", isBase: false, remoteWorkspaceID: "ws_1"
+        )
+        #expect(manager.gitProbeDirectory(for: managedWorkspace, panelId: managedPanelID) == nil)
+
+        let restored = Workspace()
+        _ = restored.restoreSessionSnapshot(workspace.sessionSnapshot(includeScrollback: false))
+        let restoredPanelID = try #require(restored.focusedPanelId)
+        #expect(restored.usesRemoteDirectoryProvenance)
+        #expect(restored.terminalPanel(for: restoredPanelID)?.requestedWorkingDirectory == nil)
+        #expect(restored.effectivePanelDirectory(panelId: restoredPanelID) == nil)
+        #expect(restored.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [restoredPanelID]).isEmpty)
+    }
+
+    @Test("a projected cloud panel cannot reuse local metadata after its remote cwd arrives")
+    @MainActor
+    func projectedPanelRejectsLocalMetadataWithoutWorkspaceBinding() throws {
+        let workspace = Workspace(workingDirectory: "/Users/alice/local-checkout")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "local-only", isDirty: true)
+        let remoteMachine = SurfaceMachineID.cloud("sidebar-test-\(UUID())")
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: remoteMachine, kind: .terminal, key: "term_1"),
+            title: "terminal", detail: nil, lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        catalog.upsert(resource)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
+        defer {
+            catalog.endProjections(panelID: panelID)
+            catalog.remove(resource.id)
+        }
+        #expect(workspace.cloudVMBinding == nil)
+        #expect(workspace.usesRemoteDirectoryProvenance)
+        #expect(!workspace.allowsLocalDirectoryFallback(panelId: panelID))
+        #expect(workspace.effectivePanelDirectory(panelId: panelID) == nil)
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/cloud/project")
+        #expect(workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: [panelID]).isEmpty)
+    }
+
+    @Test("daemon cwd enters the trusted remote directory path")
+    @MainActor
+    func daemonCwdIsPresentedForCloudProjection() throws {
+        let workspace = Workspace(workingDirectory: "/Users/alice/local-checkout")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_1")
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
+            title: "terminal", detail: "/home/cloud/project", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog()
+        catalog.upsert(resource)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "workspaces": [["id": "ws_1", "name": "Cloud", "index": 0, "focused": true]],
+            "screens": [], "panes": [], "tabs": [],
+            "terminals": [["id": "term_1", "title": "terminal", "cwd": "/home/cloud/project", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ], machine: machine))
+        let info = SurfaceMachineInfo(
+            id: machine,
+            name: machine.rawValue,
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil
+        )
+        catalog.replaceCloudState(state, resources: [resource], info: info)
+        let service = CloudWorkspaceRenameService(
+            environment: CloudWorkspaceRenameEnvironment(workspaces: { [workspace] })
+        )
+        service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: .current)
+        #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/home/cloud/project")
+        #expect(workspace.presentedCurrentDirectory == "/home/cloud/project")
+    }
+
     private func nodes(link: SurfaceLinkState?, desktop: Bool = true) -> [CloudTreeNode] {
         let row = MachineSnapshot(
             id: machine.rawValue, provider: "freestyle", image: "desktop",
@@ -148,7 +279,7 @@ struct CloudSidebarSurfaceRegressionTests {
 
     @Test("Visibility preserves workspace metadata and nonterminal content")
     @MainActor
-    func hiddenWorkspacesKeepPersistentState() throws {
+    func nonterminalWorkspacesKeepVisiblePersistentState() throws {
         let catalog = SurfaceCatalog()
         var document = try #require(visibilityState().snapshotObject())
         document["terminals"] = [] as [[String: Any]]
@@ -160,7 +291,7 @@ struct CloudSidebarSurfaceRegressionTests {
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
         publishVisibility(state, to: catalog, incremental: false)
         let before = catalog.snapshot
-        #expect(workspaceRows(catalog.snapshot).isEmpty)
+        #expect(workspaceIDs(catalog.snapshot) == ["ws_main", "ws_side"])
         #expect(catalog.snapshot == before && catalog.cloudStates[machine] == state, "visibility never deletes persistent state")
         #expect(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main").placements.count == 1)
         #expect(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_side").placements.count == 1)

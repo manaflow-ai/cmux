@@ -16,8 +16,11 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var renamedTabs: [(id: String, name: String)] = []
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
+    var beforeMaterialization: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
+    var workspaceRenames: [String] = []
+    var tabRenames: [String] = []
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -28,14 +31,24 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+        try await beforeMaterialization?()
+        return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+                          remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+    }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")
     }
-    func projectionDidEnd(_ projection: SurfaceProjection) {}
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        try await beforeMutation?()
+        workspaceRenames.append(name)
+    }
     func renameRemoteTab(id: String, name: String) async throws {
         try await beforeMutation?()
+        tabRenames.append(name)
         renamedTabs.append((id, name))
     }
+    func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
         try await beforeMutation?()

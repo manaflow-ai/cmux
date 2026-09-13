@@ -958,40 +958,6 @@ extension TerminalController {
     /// Creates a terminal on `machine` through its provider and, when a destination is given,
     /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
     /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
-    nonisolated static func surfaceNewTerminal(
-        machine: SurfaceMachineID,
-        command: [String]?,
-        cwd: String?,
-        name: String?,
-        remoteWorkspaceID: String?,
-        destination: SurfaceDestination?,
-        focus: Bool
-    ) async throws -> [String: Any] {
-        let catalog = await SurfaceCatalog.shared
-        guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
-        var payload: [String: Any] = [
-            "resource": resource.id.rawValue,
-            "terminal_id": resource.id.key,
-            "machine": machine.rawValue,
-            "remote_workspace_id": resource.remoteWorkspace?.id ?? NSNull(),
-        ]
-        if let destination {
-            let opened = try await catalog.project(
-                resource.id,
-                into: destination,
-                focus: focus,
-                reuseExisting: false,
-                remoteView: resource.remoteViews?.count == 1 ? resource.remoteViews?.first : nil
-            )
-            payload["workspace_id"] = opened.projection.workspaceID.uuidString
-            payload["surface_id"] = opened.projection.panelID.uuidString
-        }
-        return payload
-    }
-
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
     /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
     /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected

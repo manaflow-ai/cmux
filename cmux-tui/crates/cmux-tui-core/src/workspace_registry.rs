@@ -2621,6 +2621,11 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        {
+            let tx = connection.unchecked_transaction()?;
+            resource_store::migrate_tab_name_authority(&tx)?;
+            tx.commit()?;
+        }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_to_session_ownership(&tx)?;

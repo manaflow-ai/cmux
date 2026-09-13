@@ -31,12 +31,14 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     let placements: [SurfaceResourcePlacement]
     /// A common placement used by legacy callers that have no per-member tab id.
     let remoteWorkspaceID: String?
+    /// True only for a whole workspace row, never a selection of its tabs.
+    let representsWorkspace: Bool
 
     var resources: [SurfaceResourceID] { placements.map(\.resource) }
     var isEmpty: Bool { placements.isEmpty }
 
     func withRemoteWorkspaceID(_ id: String?) -> Self {
-        SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID)
+        SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID, representsWorkspace: representsWorkspace)
     }
 
     init(title: String, resources: [SurfaceResourceID], remoteWorkspaceID: String? = nil) {
@@ -52,8 +54,10 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     init(
         title: String,
         placements: [SurfaceResourcePlacement],
-        remoteWorkspaceID: String? = nil
+        remoteWorkspaceID: String? = nil,
+        representsWorkspace: Bool = false
     ) {
+        self.representsWorkspace = representsWorkspace
         self.title = title
         self.placements = placements
         self.remoteWorkspaceID = remoteWorkspaceID
@@ -69,6 +73,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
         case resources
         case placements
         case remoteWorkspaceID
+        case representsWorkspace
     }
 
     /// Decode both the placement-aware format and the original id-only format.
@@ -77,6 +82,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
+        representsWorkspace = try container.decodeIfPresent(Bool.self, forKey: .representsWorkspace) ?? false
         let decodedRemoteWorkspaceID = try container.decodeIfPresent(String.self, forKey: .remoteWorkspaceID)
         remoteWorkspaceID = decodedRemoteWorkspaceID
         if let decoded = try container.decodeIfPresent([SurfaceResourcePlacement].self, forKey: .placements) {
@@ -94,6 +100,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
+        try container.encode(representsWorkspace, forKey: .representsWorkspace)
         try container.encode(resources, forKey: .resources)
         try container.encode(placements, forKey: .placements)
         try container.encodeIfPresent(remoteWorkspaceID, forKey: .remoteWorkspaceID)
@@ -139,6 +146,9 @@ extension SurfaceCatalog {
         focus: Bool,
         paneLookup: PaneLookup = { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) }
     ) async throws -> [SurfaceProjection] {
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
+        let group = try currentCloudWorkspace(group)?.group ?? group
         var projected: [SurfaceProjection] = []
         var firstError: Error?
         var anchor: SurfaceDestination?
@@ -271,6 +281,12 @@ extension SurfaceCatalog {
         host: NewWorkspaceHost,
         layout: SurfaceProjectionLayout? = nil
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
+        let current = try currentCloudWorkspace(group)
+        let group = current?.group ?? group
+        let title = current?.group.title ?? title
+        let layout = current.map { $0.layout } ?? layout
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title)

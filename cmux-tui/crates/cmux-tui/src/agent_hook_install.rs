@@ -1290,12 +1290,11 @@ fn install_provider(
             let marker_start = "# cmux hooks rovodev begin";
             let marker_end = "# cmux hooks rovodev end";
             let mut lines: Vec<&str> = existing.lines().collect();
-            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start) {
-                if let Some(end_rel) =
+            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start)
+                && let Some(end_rel) =
                     lines[start..].iter().position(|line| line.trim() == marker_end)
-                {
-                    lines.drain(start..=start + end_rel);
-                }
+            {
+                lines.drain(start..=start + end_rel);
             }
             if !lines.is_empty() {
                 lines.push("");
@@ -1306,9 +1305,9 @@ fn install_provider(
             let mut owned = lines.iter().map(|line| (*line).to_string()).collect::<Vec<_>>();
             for event in provider.events {
                 let command = helper_command(provider.id, event);
-                owned.push(format!("    - name: {}", event));
+                owned.push(format!("    - name: {event}"));
                 owned.push("      commands:".into());
-                owned.push(format!("        - command: {:?}", command));
+                owned.push(format!("        - command: {command:?}"));
             }
             owned.push(marker_end.into());
             let output = owned.join("\n") + "\n";
@@ -1323,10 +1322,10 @@ fn install_provider(
             let start = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin";
             let end = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end";
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
-            if let Some(index) = lines.iter().position(|line| line.trim() == start) {
-                if let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end) {
-                    lines.drain(index..=index + end_rel);
-                }
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
             }
             if !lines.is_empty() && lines.last().is_some_and(|line| !line.is_empty()) {
                 lines.push(String::new());
@@ -1334,7 +1333,7 @@ fn install_provider(
             lines.push(start.into());
             for event in provider.events {
                 lines.push("[[hooks]]".into());
-                lines.push(format!("event = \"{}\"", event));
+                lines.push(format!("event = \"{event}\""));
                 lines.push(format!(
                     "command = \"{}\"",
                     helper_command(provider.id, event).replace('\\', "\\\\").replace('"', "\\\"")
@@ -1473,11 +1472,11 @@ fn uninstall_provider(
             };
             let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
             let mut changed = false;
-            if let Some(index) = lines.iter().position(|line| line.trim() == start) {
-                if let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end) {
-                    lines.drain(index..=index + end_rel);
-                    changed = true;
-                }
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+                changed = true;
             }
             if changed {
                 let output = if lines.is_empty() { String::new() } else { lines.join("\n") + "\n" };
@@ -3433,10 +3432,34 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn every_catalog_provider_installs_and_reports_ready_in_a_real_home() {
         let root = tempfile::tempdir().unwrap();
-        let context = context(root.path());
+        let mut context = context(root.path());
+        // Hermes activation requires its CLI, unlike file-only providers.
+        // Keep the executable and its enabled state inside this test's home.
+        let binary = root.path().join("hermes");
+        atomic_write(
+            &binary,
+            br#"#!/bin/sh
+state="${0%/*}/hermes-enabled"
+case "$*" in
+  'plugins list --enabled --user --no-bundled --json')
+    if [ -s "$state" ]; then
+      printf '[{"name":"cmux-tui-journal"}]\n'
+    else
+      printf '[]\n'
+    fi ;;
+  'plugins enable cmux-tui-journal') printf enabled > "$state" ;;
+  'plugins disable cmux-tui-journal') : > "$state" ;;
+  *) exit 64 ;;
+esac
+"#,
+            Some(0o755),
+        )
+        .unwrap();
+        context.path = Some(root.path().as_os_str().to_owned());
         for provider in PROVIDERS {
             let plan = Plan { action: Action::Install, providers: vec![provider.id.into()] };
             let result = run_with_context(&plan, &context);
@@ -3449,6 +3472,22 @@ mod tests {
                 provider.id, result.value
             );
         }
+        assert_eq!(fs::read_to_string(root.path().join("hermes-enabled")).unwrap(), "enabled");
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hermes_install_requires_its_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        let error = result.value["errors"][0].as_str().unwrap();
+        assert!(error.contains("Hermes Agent executable is unavailable"));
     }
 
     #[cfg(unix)]

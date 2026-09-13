@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 567d1717b69de4a77dde2b72bfea5dc25e89d84caee83502c24cf968f7ae299d.
+// cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -100,6 +100,8 @@ pub struct ColorsChangedEvent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<T::CursorStyle>,
     pub fg: Nullable<T::ColorHex>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<T::TerminalColorOverrides>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, T::ColorHex>>,
     pub selection_bg: Nullable<T::ColorHex>,

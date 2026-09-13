@@ -4459,6 +4459,36 @@
    },
    "additional_properties": false
   },
+  "TerminalColorOverrides": {
+   "kind": "object",
+   "fields": {
+    "fg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "bg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cursor": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalColors": {
    "kind": "object",
    "fields": {
@@ -4486,6 +4516,15 @@
      "presence": "optional",
      "nullable": true,
      "since": 6
+    },
+    "overrides": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalColorOverrides"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     },
     "selection_bg": {
      "type": {
@@ -10718,6 +10757,15 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "overrides": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalColorOverrides"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
      },
      "selection_bg": {
       "type": {
