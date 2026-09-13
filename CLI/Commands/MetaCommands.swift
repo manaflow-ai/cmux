@@ -11,8 +11,8 @@ struct WelcomeCommand: LegacyMetaCommand {
     static let configuration = CommandConfiguration(commandName: "welcome", helpNames: [])
 }
 
-/// Dispatched before the legacy parser's command switch. `--skill` is the same
-/// guide as a flag spelling, so it stays with the legacy parser.
+/// Dispatched before the legacy parser's command switch. Its flag spelling,
+/// `cmux --skill`, is declared on `CmuxCommand` for completion only.
 struct GuideCommand: LegacyMetaCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "guide", helpNames: [])

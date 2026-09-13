@@ -5,6 +5,11 @@ import Foundation
 struct CmuxCommand: AsyncParsableCommand {
     @OptionGroup var globals: GlobalOptions
 
+    /// The flag spelling of `cmux guide`. `--skill` is not a declared command
+    /// name, so the router always hands `cmux --skill` to the legacy parser;
+    /// this declaration only lets completion offer it.
+    @Flag(name: .customLong("skill")) var skill = false
+
     static let configuration = CommandConfiguration(
         commandName: "cmux",
         abstract: String(

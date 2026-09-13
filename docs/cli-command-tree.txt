@@ -1180,6 +1180,21 @@ command  vault sessions  aliases=ls
 command  version  aliases=-
   arg  arguments  kind=argument  completion=-
 command  vm  aliases=cloud
+  arg  --skill  kind=flag  completion=-
+command  vm agent  aliases=-
+  arg  --agent  kind=option  completion=list(claude,codex,opencode,pi)
+  arg  --cwd  kind=option  completion=directory
+  arg  --machine  kind=option  completion=custom-deprecated
+  arg  --name  kind=option  completion=-
+  arg  --new  kind=flag  completion=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --output  kind=flag  completion=-
+  arg  --remote-workspace  kind=option  completion=-
+  arg  --size  kind=option  completion=-
+  arg  --sync  kind=flag  completion=-
+  arg  --timeout  kind=option  completion=-
+  arg  --wait  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
 command  vm base  aliases=-
 command  vm base open  aliases=-
   arg  --base  kind=flag  completion=-
@@ -1199,6 +1214,73 @@ command  vm base reset  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  vm desktop  aliases=vnc
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm dev  aliases=-
+  arg  --command  kind=option  completion=-
+  arg  --dry-run  kind=flag  completion=-
+  arg  --layout  kind=option  completion=file()
+  arg  --name  kind=option  completion=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --no-sync  kind=flag  completion=-
+  arg  --port  kind=option  completion=-
+  arg  --remote  kind=option  completion=-
+  arg  --sync  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  local-directory  kind=argument  completion=directory
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm domains  aliases=-
+command  vm domains access  aliases=-
+  arg  --team  kind=option  completion=-
+  arg  --yes  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  level  kind=argument  completion=list(personal,public,team)
+  arg  target  kind=argument  completion=-
+command  vm domains grant  aliases=-
+  arg  --expires  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  email  kind=argument  completion=-
+  arg  hostname  kind=argument  completion=-
+command  vm domains grants  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  hostname  kind=argument  completion=-
+command  vm domains list  aliases=ls
+  arg  arguments  kind=argument  completion=-
+command  vm domains publish  aliases=-
+  arg  --access  kind=option  completion=list(personal,public,team)
+  arg  --domain  kind=option  completion=-
+  arg  --org-slug  kind=option  completion=-
+  arg  --team  kind=option  completion=-
+  arg  --yes  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+  arg  port  kind=argument  completion=-
+command  vm domains rm  aliases=delete,remove
+  arg  arguments  kind=argument  completion=-
+  arg  hostname  kind=argument  completion=-
+command  vm domains ungrant  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  email  kind=argument  completion=-
+  arg  hostname  kind=argument  completion=-
+command  vm domains verify  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  domain  kind=argument  completion=-
+command  vm domains zones  aliases=custom
+  arg  arguments  kind=argument  completion=-
+command  vm env  aliases=-
+command  vm env ls  aliases=list
+  arg  --show  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm env rm  aliases=remove,unset
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm env set  aliases=add
+  arg  --from-file  kind=option  completion=file()
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
 command  vm exec  aliases=-
   arg  command  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
@@ -1208,9 +1290,25 @@ command  vm fork  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm guide  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  vm handoff  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm layout  aliases=-
+command  vm layout apply  aliases=set
+  arg  --cwd  kind=option  completion=directory
+  arg  --from-saved  kind=option  completion=-
+  arg  --name  kind=option  completion=-
+  arg  --open  kind=flag  completion=-
+  arg  --workspace  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  file  kind=argument  completion=file()
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm layout export  aliases=get,show
+  arg  --raw  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
 command  vm ls  aliases=list
   arg  arguments  kind=argument  completion=-
 command  vm new  aliases=create
@@ -1226,10 +1324,46 @@ command  vm new  aliases=create
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
+command  vm open  aliases=port
+  arg  --focus  kind=option  completion=list(false,true)
+  arg  --print  kind=flag  completion=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  target  kind=argument  completion=custom-deprecated
+command  vm pause  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
 command  vm ports  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
 command  vm promote-template  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm prompt  aliases=skill
+  arg  --open  kind=option  completion=list(claude,codex,opencode)
+  arg  arguments  kind=argument  completion=-
+command  vm pull  aliases=download
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm push  aliases=upload
+  arg  --exclude  kind=option  completion=-
+  arg  --interval  kind=option  completion=-
+  arg  --mode  kind=option  completion=-
+  arg  --no-default-excludes  kind=flag  completion=-
+  arg  --secret  kind=flag  completion=-
+  arg  --watch  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+  arg  local-path  kind=argument  completion=file()
+command  vm rename  aliases=-
+  arg  --clear  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm resize  aliases=-
+  arg  --cpu  kind=option  completion=-
+  arg  --disk  kind=option  completion=-
+  arg  --memory  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
 command  vm restore  aliases=-
@@ -1238,9 +1372,31 @@ command  vm restore  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
   arg  snapshot-id  kind=argument  completion=-
+command  vm resume  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
 command  vm rm  aliases=delete,destroy
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm route  aliases=-
+  arg  --cwd  kind=option  completion=directory
+  arg  --new  kind=flag  completion=-
+  arg  --provision  kind=flag  completion=-
+  arg  --size  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+command  vm run  aliases=-
+  arg  --machine  kind=option  completion=custom-deprecated
+  arg  --new  kind=flag  completion=-
+  arg  --output  kind=flag  completion=-
+  arg  --pull  kind=option  completion=-
+  arg  --size  kind=option  completion=-
+  arg  --sync  kind=flag  completion=-
+  arg  --timeout  kind=option  completion=-
+  arg  --wait  kind=flag  completion=-
+  arg  command  kind=argument  completion=-
+command  vm self  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
 command  vm shell  aliases=attach
   arg  --window  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
@@ -1260,12 +1416,87 @@ command  vm ssh-attach  aliases=-
 command  vm ssh-info  aliases=-
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm stats  aliases=top
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
 command  vm status  aliases=info
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm tab  aliases=-
+command  vm tab rename  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal  aliases=-
+command  vm terminal close  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal output  aliases=-
+  arg  --after  kind=option  completion=-
+  arg  --max-bytes  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal read  aliases=screen
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal rename  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal send  aliases=write
+  arg  --keys  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal wait  aliases=-
+  arg  --pattern  kind=option  completion=-
+  arg  --timeout  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm terminal wait-exit  aliases=-
+  arg  --timeout  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
 command  vm tools  aliases=tool-inspector
   arg  arguments  kind=argument  completion=-
   arg  id  kind=argument  completion=custom-deprecated
+command  vm tree  aliases=-
+  arg  --refresh  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm tui  aliases=-
+  arg  --window  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm wait  aliases=-
+  arg  --timeout  kind=option  completion=-
+  arg  --wake  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  id  kind=argument  completion=custom-deprecated
+command  vm workspace  aliases=-
+command  vm workspace close  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm workspace new  aliases=-
+  arg  --name  kind=option  completion=-
+  arg  --no-open  kind=flag  completion=-
+  arg  --reuse  kind=flag  completion=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm workspace open  aliases=-
+  arg  --down  kind=flag  completion=-
+  arg  --here  kind=flag  completion=-
+  arg  --left  kind=flag  completion=-
+  arg  --pane  kind=option  completion=custom-deprecated
+  arg  --right  kind=flag  completion=-
+  arg  --tabs  kind=flag  completion=-
+  arg  --up  kind=flag  completion=-
+  arg  --workspace  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm workspace rename  aliases=-
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
+command  vm workspace rm  aliases=delete
+  arg  arguments  kind=argument  completion=-
+  arg  machine  kind=argument  completion=custom-deprecated
 command  vm-pty-attach  aliases=-
   arg  --id  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
