@@ -37,8 +37,10 @@ mod download_ledger_tests {
             directory: None,
             records: VecDeque::new(),
             frame_sessions: HashMap::new(),
+            session_targets: HashMap::new(),
         };
         ledger.remember_frame("frame", "session");
+        ledger.register_session("session", "target");
         ledger.begin(DownloadWillBegin {
             session_id: None,
             frame_id: Some("frame".into()),
@@ -61,7 +63,7 @@ mod download_ledger_tests {
             total_bytes: Some(7),
             file_path: None,
         });
-        let rows = ledger.for_session("session");
+        let rows = ledger.for_target("target");
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].guid, "guid-a");
         assert_eq!(rows[0].status, "saved");
@@ -74,7 +76,7 @@ mod download_ledger_tests {
             url: "https://example.test/b".into(),
             suggested_filename: "same.txt".into(),
         });
-        assert_eq!(ledger.for_session("session").len(), 2);
+        assert_eq!(ledger.for_target("target").len(), 2);
     }
 
     #[test]
@@ -87,6 +89,7 @@ mod download_ledger_tests {
             directory: Some(directory.clone()),
             records: VecDeque::new(),
             frame_sessions: HashMap::new(),
+            session_targets: HashMap::new(),
         };
         ledger.begin(DownloadWillBegin {
             session_id: Some("session".into()),
@@ -113,6 +116,7 @@ mod download_ledger_tests {
             directory: None,
             records: VecDeque::new(),
             frame_sessions: HashMap::new(),
+            session_targets: HashMap::new(),
         };
         ledger.remember_frame("reused-frame", "session-a");
         ledger.remember_frame("reused-frame", "session-b");
@@ -123,8 +127,8 @@ mod download_ledger_tests {
             url: String::new(),
             suggested_filename: "file.txt".into(),
         });
-        assert!(ledger.for_session("session-a").is_empty());
-        assert!(ledger.for_session("session-b").is_empty());
+        assert!(ledger.for_target("target-a").is_empty());
+        assert!(ledger.for_target("target-b").is_empty());
     }
 }
 
@@ -701,6 +705,7 @@ const DOWNLOAD_FRAME_SESSION_CAPACITY: usize = 256;
 struct DownloadRecord {
     guid: String,
     session_id: Option<String>,
+    target_id: Option<String>,
     filename: String,
     path: Option<PathBuf>,
     status: String,
@@ -713,6 +718,7 @@ struct DownloadLedger {
     directory: Option<PathBuf>,
     records: VecDeque<DownloadRecord>,
     frame_sessions: HashMap<String, Option<String>>,
+    session_targets: HashMap<String, String>,
 }
 
 impl DownloadLedger {
@@ -725,7 +731,21 @@ impl DownloadLedger {
         } else {
             None
         };
-        Self { directory, records: VecDeque::new(), frame_sessions: HashMap::new() }
+        Self {
+            directory,
+            records: VecDeque::new(),
+            frame_sessions: HashMap::new(),
+            session_targets: HashMap::new(),
+        }
+    }
+
+    fn register_session(&mut self, session_id: &str, target_id: &str) {
+        self.session_targets.insert(session_id.to_string(), target_id.to_string());
+    }
+
+    fn forget_session(&mut self, session_id: &str) {
+        self.session_targets.remove(session_id);
+        self.frame_sessions.retain(|_, mapped| mapped.as_deref() != Some(session_id));
     }
 
     fn remember_frame(&mut self, frame_id: &str, session_id: &str) {
@@ -766,6 +786,8 @@ impl DownloadLedger {
                 .as_deref()
                 .and_then(|frame| self.frame_sessions.get(frame).cloned().flatten())
         });
+        let target_id =
+            session_id.as_ref().and_then(|session| self.session_targets.get(session).cloned());
         let filename = PathBuf::from(&event.suggested_filename)
             .file_name()
             .and_then(|name| name.to_str())
@@ -775,6 +797,7 @@ impl DownloadLedger {
         self.records.push_back(DownloadRecord {
             guid: event.guid,
             session_id,
+            target_id,
             filename,
             path: None,
             status: "downloading".into(),
@@ -797,6 +820,10 @@ impl DownloadLedger {
             return;
         };
         record.session_id = session_id;
+        if let Some(session_id) = record.session_id.as_ref() {
+            record.target_id =
+                self.session_targets.get(session_id).cloned().or(record.target_id.clone());
+        }
         record.received_bytes = Some(event.received_bytes);
         record.total_bytes = event.total_bytes;
         record.status = match event.state.as_str() {
@@ -814,10 +841,10 @@ impl DownloadLedger {
         }
     }
 
-    fn for_session(&self, session_id: &str) -> Vec<DownloadRecord> {
+    fn for_target(&self, target_id: &str) -> Vec<DownloadRecord> {
         self.records
             .iter()
-            .filter(|record| record.session_id.as_deref() == Some(session_id))
+            .filter(|record| record.target_id.as_deref() == Some(target_id))
             .cloned()
             .collect()
     }
@@ -1182,6 +1209,7 @@ impl BrowserRuntime {
 
     fn register(&self, target_id: &str, session_id: &str) -> Arc<SurfaceRoute> {
         let route = Arc::new(SurfaceRoute::new());
+        self.downloads.lock().unwrap().register_session(session_id, target_id);
         let mut routes = self.routes.lock().unwrap();
         if self.closed.load(Ordering::Acquire) {
             drop(routes);
@@ -1195,6 +1223,7 @@ impl BrowserRuntime {
 
     fn unregister(&self, target_id: &str, session_id: &str) {
         self.client.unregister_frame_epoch(session_id);
+        self.downloads.lock().unwrap().forget_session(session_id);
         let route = {
             let mut routes = self.routes.lock().unwrap();
             let by_session = routes.by_session.remove(session_id);
@@ -1259,14 +1288,14 @@ impl BrowserRuntime {
         self.downloads.lock().unwrap().progress(event);
     }
 
-    pub(crate) fn downloads_for_session(
+    pub(crate) fn downloads_for_target(
         &self,
-        session_id: &str,
+        target_id: &str,
     ) -> Vec<(String, String, Option<String>, Option<bool>, String, Option<u64>, Option<u64>)> {
         self.downloads
             .lock()
             .unwrap()
-            .for_session(session_id)
+            .for_target(target_id)
             .into_iter()
             .map(|record| {
                 let path = record.path.map(|path| path.to_string_lossy().into_owned());
@@ -2435,7 +2464,7 @@ impl BrowserSurface {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|session| session.runtime.downloads_for_session(&session.session_id))
+            .map(|session| session.runtime.downloads_for_target(&session.target_id))
             .unwrap_or_default()
     }
 
