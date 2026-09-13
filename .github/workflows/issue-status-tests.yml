@@ -21,12 +21,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: issue-status-tests-\${{ github.ref }}
+  group: issue-status-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   tests:
-    runs-on: \${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -37,4 +37,3 @@ jobs:
         run: bash -n scripts/issue-status.sh
       - name: Run issue status contract tests
         run: python3 tests/test_issue_status.py
-
