@@ -9,7 +9,7 @@ extension Workspace {
               let panelIds = canvasModel.layout.panelIds(in: canvasPaneId),
               let paneId = bonsplitPaneId(forPanelId: panelId),
               let tabId = surfaceIdFromPanelId(panelId) else { return nil }
-        let visibleTabIds = panelIds.compactMap(surfaceIdFromPanelId)
+        let visibleTabIds = panelIds.compactMap { surfaceIdFromPanelId($0.rawValue) }
         return bonsplitController.makeTabContextMenu(
             for: tabId,
             inPane: paneId,
