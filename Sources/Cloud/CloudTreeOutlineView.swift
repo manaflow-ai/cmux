@@ -1116,6 +1116,7 @@ final class CloudTreeContainerView: NSView {
         scrollView.documentView = outlineView
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
+        outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
         outlineView.frame = scrollView.contentView.bounds
         outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
@@ -1131,7 +1132,6 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Recomputes document geometry whenever the container lays out.
     override func layout() {
         super.layout()
         let viewportWidth = scrollView.contentView.bounds.width
