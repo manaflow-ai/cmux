@@ -1492,8 +1492,14 @@ public actor MobileIrxRuntimeComposition {
                     ownerID: ownerID
                 )
             },
-            onClose: { [weak self] in
-                await self?.releaseControlLane(ownerID: ownerID)
+            onClose: { [weak self] connection, closeCode, retiresConnection in
+                await self?.finishControlLane(
+                    peerHex: peerHex,
+                    ownerID: ownerID,
+                    connection: connection,
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
             }
         )
     }
@@ -1522,6 +1528,22 @@ public actor MobileIrxRuntimeComposition {
 
     private func releaseControlLane(ownerID: UUID) {
         controlLaneClaims.release(ownerID: ownerID)
+    }
+
+    private func finishControlLane(
+        peerHex: String,
+        ownerID: UUID,
+        connection: IrxConnection,
+        closeCode: IrxCloseCode,
+        retiresConnection: Bool
+    ) async {
+        if retiresConnection {
+            _ = await engine(forPeer: peerHex).retire(
+                connection: connection,
+                code: closeCode
+            )
+        }
+        releaseControlLane(ownerID: ownerID)
     }
 }
 

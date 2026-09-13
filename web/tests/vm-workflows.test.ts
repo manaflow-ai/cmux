@@ -585,6 +585,53 @@ describe("VM Effect workflows", () => {
     expect(usageEvents[0]?.eventType).toBe("vm.resize");
   });
 
+  for (const storageMb of [undefined, 65536]) {
+    test.each([true, false])(`reservation compare-and-set controls ${storageMb ? "combined" : "compute"} resize success: %s`, async (committed) => {
+      const vm = testCloudVmRow({
+        userId: "resize-reservation-race", providerVmId: "provider-reservation-race",
+        status: "running", billingPlanId: "max",
+        providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 } },
+      });
+      const usageEvents: RecordedUsageEvent[] = [];
+      const confirmations: Parameters<NonNullable<VmRepositoryShape["setResourceReservation"]>>[0][] = [];
+      let resized = false;
+      const repo: VmRepositoryShape = {
+        ...testWorkflowRepo({ vm, usageEvents }),
+        setResourceReservation: (confirmation) => Effect.sync(() => {
+          expect(resized).toBe(true);
+          confirmations.push(confirmation);
+          return committed;
+        }),
+      };
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        getStatus: () => Effect.succeed("running"),
+        getStats: () => Effect.sync(() => ({
+          state: "awake", sampledAt: 1780000000000,
+          cpus: resized ? 4 : 2, memoryTotalMb: resized ? 8192 : 4096,
+          diskTotalMb: resized ? storageMb ?? 32768 : 32768,
+        })),
+        resize: () => Effect.sync(() => { resized = true; }),
+      };
+      const result = await Effect.runPromise(resizeVm({
+        userId: vm.userId, teamIds: [vm.billingTeamId!], providerVmId: vm.providerVmId!,
+        billingPlanId: "max", cpu: 4, memoryMb: 8192, storageMb,
+      }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+      expect(confirmations).toEqual([{
+        id: vm.id,
+        reservation: { vcpus: 4, memoryMb: 8192, diskMb: storageMb ?? 32768 },
+        expectedReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+      }]);
+      if (committed) {
+        expect(result).toMatchObject({ _tag: "Right", right: { cpus: 4, memoryTotalMb: 8192 } });
+        expect(usageEvents).toHaveLength(1);
+      } else {
+        expect(result).toMatchObject({ _tag: "Left", left: { _tag: "VmResizeInProgressError", vmId: vm.providerVmId } });
+        expect(usageEvents).toHaveLength(0);
+      }
+    });
+  }
+
   test("persists a provider-rounded disk claim after a paid resize", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000142",
