@@ -290,12 +290,19 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
+        let cloudWorkspaceCoordinator = Self.makeCloudWorkspaceCoordinator(auth: authComposition)
+        let cloudWorkspaceOperationController = CloudWorkspaceOperationController(
+            isAvailable: { cloudWorkspaceCoordinator.isAvailable }
+        )
         appDelegate.configure(
             tabManager: tabManager,
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            cloudWorkspaceCoordinator: cloudWorkspaceCoordinator,
+            cloudWorkspaceOperationController: cloudWorkspaceOperationController,
+            newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )
@@ -837,6 +844,15 @@ struct cmuxApp: App {
                         // the browser-availability gate identical to the
                         // shared action path.
                         activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                    }
+                }
+
+                if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
+                    splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "menu.newCloudWorkspace")
+                    }
+                    splitCommandButton(title: String(localized: "menu.file.newCloudMachine", defaultValue: "New Cloud Machine"), shortcut: menuShortcut(for: .newCloudMachine)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
                     }
                 }
 
