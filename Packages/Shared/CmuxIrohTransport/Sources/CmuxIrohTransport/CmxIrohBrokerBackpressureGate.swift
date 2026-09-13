@@ -351,6 +351,14 @@ public actor CmxIrohBrokerBackpressureGate {
                 CmxIrohBrokerCooldown.defaultRateLimitedSeconds,
                 .cooldown
             )
+        case let .rejectedWithMetadata(statusCode, code, _, retryAfterSeconds)
+            where statusCode == 429:
+            directive = (
+                Self.normalizedRetryAfter(
+                    retryAfterSeconds ?? CmxIrohBrokerCooldown.defaultRateLimitedSeconds
+                ),
+                .brokerRateLimit(code: code)
+            )
         default:
             directive = nil
         }

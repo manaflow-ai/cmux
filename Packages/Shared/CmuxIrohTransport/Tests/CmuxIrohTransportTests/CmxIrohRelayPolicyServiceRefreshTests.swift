@@ -29,6 +29,30 @@ private actor RefreshBootstrapBroker: CmxIrohRelayPolicyServing {
     }
 }
 
+private actor FailingRefreshBroker: CmxIrohRelayPolicyServing {
+    private let error: CmxIrohTrustBrokerClientError
+
+    init(error: CmxIrohTrustBrokerClientError) {
+        self.error = error
+    }
+
+    func issueRelayBootstrap(
+        endpointID _: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRelayBootstrapResponse {
+        throw error
+    }
+
+    func relayPreference() async throws -> CmxIrohRelayPreferenceResponse {
+        throw error
+    }
+
+    func updateRelayPreference(
+        _: CmxIrohRelayPreferenceUpdateRequest
+    ) async throws -> CmxIrohRelayPreferenceResponse {
+        throw error
+    }
+}
+
 @Suite
 struct CmxIrohRelayPolicyServiceRefreshTests {
     @Test
@@ -67,6 +91,40 @@ struct CmxIrohRelayPolicyServiceRefreshTests {
         #expect(outcome.effective.endpointRelayProfile.allowedRelayURLs
             == Set(fixture.relayURLs))
         #expect(await broker.bootstrapRequestCount == 1)
+    }
+
+    @Test
+    func refreshPublishesBrokerFailureMetadata() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let failure = CmxIrohTrustBrokerClientError.rejectedWithMetadata(
+            statusCode: 503,
+            code: "relay_policy_unavailable",
+            requestID: "req-broker-503",
+            retryAfterSeconds: 15
+        )
+        let broker = FailingRefreshBroker(error: failure)
+        let service = CmxIrohRelayPolicyService(broker: broker)
+
+        await #expect(throws: failure) {
+            _ = try await service.refresh(
+                endpointID: try CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "c", count: 64)
+                ),
+                accountID: "account-a",
+                trustRoot: fixture.firstTrustRoot,
+                now: fixture.now
+            )
+        }
+
+        let diagnostics = await service.diagnosticsSnapshot()
+        #expect(diagnostics.failure == .policyUnavailable)
+        #expect(
+            diagnostics.brokerFailure == CmxIrohBrokerFailure(
+                statusCode: 503,
+                code: "relay_policy_unavailable",
+                requestID: "req-broker-503"
+            )
+        )
     }
 
     @Test

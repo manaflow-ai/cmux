@@ -522,6 +522,7 @@ private final class MobileIrohSettingsControllerDouble:
             policyExpiresAt: snapshot.policyExpiresAt,
             staleRelayIDs: snapshot.staleRelayIDs,
             failureDescription: snapshot.failureDescription,
+            brokerFailure: snapshot.brokerFailure,
             debugTransportVerificationMode: mode
         )
     }

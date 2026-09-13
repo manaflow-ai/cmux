@@ -61,13 +61,26 @@ public actor CmxIrohRelayPolicyService {
         now: Date = Date()
     ) async throws -> RefreshOutcome {
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
-        let bootstrap = try await broker.issueRelayBootstrap(endpointID: endpointID)
+        let operation = beginOperation()
+        let bootstrap: CmxIrohRelayBootstrapResponse
+        do {
+            bootstrap = try await broker.issueRelayBootstrap(endpointID: endpointID)
+        } catch {
+            if isCurrent(operation) {
+                publishFailure(
+                    Resolver.failure(for: error),
+                    brokerFailure: (error as? CmxIrohTrustBrokerClientError)?.brokerFailure
+                )
+            }
+            throw error
+        }
         let effective = try await install(
             response: bootstrap.relayPolicy,
             accountID: accountID,
             trustRoot: trustRoot,
             relayCredential: bootstrap.relayToken,
-            now: now
+            now: now,
+            operation: operation
         )
         return RefreshOutcome(
             effective: effective,
@@ -87,7 +100,24 @@ public actor CmxIrohRelayPolicyService {
         relayCredential: CmxIrohRelayTokenResponse?,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
-        let operation = beginOperation()
+        try await install(
+            response: response,
+            accountID: accountID,
+            trustRoot: trustRoot,
+            relayCredential: relayCredential,
+            now: now,
+            operation: beginOperation()
+        )
+    }
+
+    private func install(
+        response: CmxIrohRelayPolicyResponse,
+        accountID: String,
+        trustRoot: CmxIrohRelayPolicyTrustRoot,
+        relayCredential: CmxIrohRelayTokenResponse?,
+        now: Date,
+        operation: UInt64
+    ) async throws -> CmxIrohEffectiveRelayPolicy {
         do {
             try await Resolver.validatePreferenceRevision(
                 response.preferenceRevision,
@@ -294,6 +324,12 @@ public actor CmxIrohRelayPolicyService {
         do {
             response = try await broker.updateRelayPreference(request)
         } catch {
+            if isCurrent(operation) {
+                publishFailure(
+                    Resolver.failure(for: error),
+                    brokerFailure: (error as? CmxIrohTrustBrokerClientError)?.brokerFailure
+                )
+            }
             if let authoritative = try? await broker.relayPreference() {
                 _ = try? await reconcileCommittedConfiguration(
                     authoritative,
@@ -487,16 +523,25 @@ public actor CmxIrohRelayPolicyService {
 
     private func publish(
         _ effective: CmxIrohEffectiveRelayPolicy,
-        failure: CmxIrohRelayPolicyFailure?
+        failure: CmxIrohRelayPolicyFailure?,
+        brokerFailure: CmxIrohBrokerFailure? = nil
     ) {
         currentEffective = effective
-        currentDiagnostics = Resolver.diagnostics(for: effective, failure: failure)
+        currentDiagnostics = Resolver.diagnostics(
+            for: effective,
+            failure: failure,
+            brokerFailure: brokerFailure
+        )
         for continuation in continuations.values {
             continuation.yield(currentDiagnostics)
         }
     }
 
-    private func publishFailure(_ failure: CmxIrohRelayPolicyFailure) {
+    private func publishFailure(
+        _ failure: CmxIrohRelayPolicyFailure,
+        brokerFailure: CmxIrohBrokerFailure? = nil
+    ) {
+        let diagnosticBrokerFailure = brokerFailure ?? currentDiagnostics.brokerFailure
         guard let effective = currentEffective else {
             currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot(
                 source: .inactive,
@@ -508,14 +553,19 @@ public actor CmxIrohRelayPolicyService {
                 selectedRelayCount: 0,
                 staleRelayIDs: [],
                 missingCredentialRelayIDs: [],
-                failure: failure
+                failure: failure,
+                brokerFailure: diagnosticBrokerFailure
             )
             for continuation in continuations.values {
                 continuation.yield(currentDiagnostics)
             }
             return
         }
-        currentDiagnostics = Resolver.diagnostics(for: effective, failure: failure)
+        currentDiagnostics = Resolver.diagnostics(
+            for: effective,
+            failure: failure,
+            brokerFailure: diagnosticBrokerFailure
+        )
         for continuation in continuations.values {
             continuation.yield(currentDiagnostics)
         }

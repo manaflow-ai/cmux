@@ -59,6 +59,7 @@ extension MobileHostIrohRuntime {
             policyExpiresAt: diagnostics?.policyExpiresAt,
             staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
             failureDescription: diagnostics?.failure?.rawValue,
+            brokerFailure: diagnostics?.brokerFailure,
             debugTransportVerificationMode: debugTransportVerificationMode
         )
     }

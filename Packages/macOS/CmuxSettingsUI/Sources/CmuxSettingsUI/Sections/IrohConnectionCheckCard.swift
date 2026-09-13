@@ -140,6 +140,7 @@ struct IrohConnectionCheckCard: View {
         lines.append(contentsOf: report.stages.filter { $0.status != .notApplicable }.map {
             "\(stageTitle($0.kind)): \(stageStatus($0.status))"
         })
+        lines.append(contentsOf: brokerFailureReportLines(report))
         if report.recommendation != .none {
             lines.append(
                 "\(String(localized: "settings.networking.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
@@ -148,6 +149,38 @@ struct IrohConnectionCheckCard: View {
         // Relay origins stay out of this report: the diagnostics privacy copy
         // promises reports exclude relay URLs. The IT allowlist carries them.
         return lines.joined(separator: "\n")
+    }
+
+    private func brokerFailureReportLines(
+        _ report: CmxIrohConnectionCheckReport
+    ) -> [String] {
+        guard let failure = report.brokerFailure else { return [] }
+        let unknown = String(
+            localized: "settings.networking.diagnostics.failure.unknown",
+            defaultValue: "Unknown"
+        )
+        var lines = [
+            String(
+                format: String(
+                    localized: "settings.networking.check.report.brokerFailure",
+                    defaultValue: "Broker response: HTTP %1$d (%2$@)"
+                ),
+                failure.statusCode,
+                failure.code ?? unknown
+            ),
+        ]
+        if let requestID = failure.requestID {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "settings.networking.check.report.requestID",
+                        defaultValue: "Support request ID: %@"
+                    ),
+                    requestID
+                )
+            )
+        }
+        return lines
     }
 
     private func selectedPath(_ path: CmxIrohSelectedTransportPath) -> String {

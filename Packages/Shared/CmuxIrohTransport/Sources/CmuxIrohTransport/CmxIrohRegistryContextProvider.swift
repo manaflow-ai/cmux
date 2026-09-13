@@ -1067,10 +1067,18 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             )
             pairGrantRetryDeadline = nil
         } catch let error as CmxIrohTrustBrokerClientError {
-            if case let .rateLimited(code, retryAfterSeconds) = error {
+            if error.brokerStatusCode == 429 {
                 pairGrantRetryDeadline = (
-                    code: code,
-                    date: now.addingTimeInterval(TimeInterval(max(1, retryAfterSeconds)))
+                    code: error.brokerResponseCode,
+                    date: now.addingTimeInterval(
+                        TimeInterval(
+                            max(
+                                1,
+                                error.retryAfterSeconds
+                                    ?? CmxIrohBrokerCooldown.defaultRateLimitedSeconds
+                            )
+                        )
+                    )
                 )
             }
             throw error

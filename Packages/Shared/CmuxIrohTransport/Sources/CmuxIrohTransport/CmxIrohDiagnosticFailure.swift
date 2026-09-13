@@ -177,6 +177,12 @@ extension CmxIrohTrustBrokerClientError: DiagnosticFailureProviding {
             case 408: .timedOut
             default: .policyUnavailable
             }
+        case let .rejectedWithMetadata(statusCode, _, _, _):
+            switch statusCode {
+            case 401, 403: .authorizationFailed
+            case 408: .timedOut
+            default: .policyUnavailable
+            }
         case .invalidBaseURL, .nonHTTPResponse, .invalidResponse:
             .protocolViolation
         }

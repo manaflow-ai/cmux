@@ -276,7 +276,8 @@ enum CmxIrohRelayPolicyResolution {
 
     static func diagnostics(
         for effective: CmxIrohEffectiveRelayPolicy,
-        failure: CmxIrohRelayPolicyFailure?
+        failure: CmxIrohRelayPolicyFailure?,
+        brokerFailure: CmxIrohBrokerFailure? = nil
     ) -> CmxIrohRelayDiagnosticsSnapshot {
         let policy = effective.managedPolicy
         let selectedIDs: [String]
@@ -300,11 +301,15 @@ enum CmxIrohRelayPolicyResolution {
             selectedRelayCount: effective.endpointRelayProfile.allowedRelayURLs.count,
             staleRelayIDs: effective.staleRelayIDs.sorted(),
             missingCredentialRelayIDs: effective.missingCredentialRelayIDs.sorted(),
-            failure: failure
+            failure: failure,
+            brokerFailure: brokerFailure
         )
     }
 
     static func failure(for error: any Error) -> CmxIrohRelayPolicyFailure {
+        if error is CmxIrohTrustBrokerClientError {
+            return .policyUnavailable
+        }
         if let serviceError = error as? CmxIrohRelayPolicyServiceError,
            serviceError == .preferenceRollback {
             return .preferenceRollback

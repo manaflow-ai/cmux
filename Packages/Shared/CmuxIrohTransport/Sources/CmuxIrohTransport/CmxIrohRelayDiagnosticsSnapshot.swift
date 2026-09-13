@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 
 /// Redacted relay policy state suitable for UI and support diagnostics.
@@ -32,6 +33,9 @@ public struct CmxIrohRelayDiagnosticsSnapshot: Equatable, Sendable {
     /// Last non-secret policy resolution failure.
     public let failure: CmxIrohRelayPolicyFailure?
 
+    /// Bounded metadata from the most recent broker response failure.
+    public let brokerFailure: CmxIrohBrokerFailure?
+
     static let inactive = CmxIrohRelayDiagnosticsSnapshot(
         source: .inactive,
         policyID: nil,
@@ -42,6 +46,7 @@ public struct CmxIrohRelayDiagnosticsSnapshot: Equatable, Sendable {
         selectedRelayCount: 0,
         staleRelayIDs: [],
         missingCredentialRelayIDs: [],
-        failure: nil
+        failure: nil,
+        brokerFailure: nil
     )
 }

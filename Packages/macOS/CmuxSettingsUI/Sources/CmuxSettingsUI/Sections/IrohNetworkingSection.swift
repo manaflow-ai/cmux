@@ -275,6 +275,9 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 clear: { await model.clearDiagnosticReport() }
             )
+            if let brokerFailure = model.snapshot.brokerFailure {
+                SettingsCardNote(brokerFailureNote(brokerFailure))
+            }
             if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
                 SettingsCardNote(String(
                     localized: "settings.networking.attention",
@@ -282,6 +285,35 @@ public struct IrohNetworkingSection: View {
                 ))
             }
         }
+    }
+
+    private func brokerFailureNote(_ failure: CmxIrohBrokerFailure) -> String {
+        let unknown = String(
+            localized: "settings.networking.diagnostics.failure.unknown",
+            defaultValue: "Unknown"
+        )
+        var lines = [
+            String(
+                format: String(
+                    localized: "settings.networking.policy.brokerFailure",
+                    defaultValue: "Broker response: HTTP %1$d (%2$@)"
+                ),
+                failure.statusCode,
+                failure.code ?? unknown
+            ),
+        ]
+        if let requestID = failure.requestID {
+            lines.append(
+                String(
+                    format: String(
+                        localized: "settings.networking.policy.requestID",
+                        defaultValue: "Support request ID: %@"
+                    ),
+                    requestID
+                )
+            )
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var connectionCheckCard: some View {
