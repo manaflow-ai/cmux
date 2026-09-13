@@ -149,27 +149,29 @@ struct CloudPortsVPNAffordanceTests {
         #expect(rowOpens == 0 && setups == 1)
     }
 
-    @Test("Setup reuses the selected workspace even when another workspace has a guide")
-    func setupPaneStaysInSelectedWorkspace() throws {
+    @Test("Setup uses its dedicated pane and honors background focus without altering the machine workspace")
+    func setupPanePreservesMachineWorkspace() throws {
         let suite = "CloudVPNSetupNavigation.\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false,
             settings: UserDefaultsSettingsClient(defaults: defaults), closeTabWarningDefaults: defaults)
-        let first = manager.addWorkspace(eagerLoadTerminal: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false)
+        let machineWorkspace = manager.addWorkspace(eagerLoadTerminal: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false)
+        let originalPanelIDs = Set(machineWorkspace.panels.keys)
+        let originalFocus = machineWorkspace.focusedPanelId
         let navigation = CloudVPNSetupNavigation(coordinator: nil)
-        #expect(navigation.open(in: manager)?.id == first.id)
-        let selected = manager.addWorkspace(eagerLoadTerminal: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false)
-        let originalPanelIDs = Set(selected.panels.keys)
-        #expect(navigation.open(in: manager)?.id == selected.id)
-        #expect(manager.selectedTabId == selected.id)
+        let guideWorkspace = try #require(navigation.open(in: manager, focus: false))
+        #expect(manager.selectedTabId == machineWorkspace.id)
+        #expect(machineWorkspace.focusedPanelId == originalFocus)
+        #expect(Set(machineWorkspace.panels.keys) == originalPanelIDs)
+        #expect(guideWorkspace.id != machineWorkspace.id)
+        #expect(navigation.open(in: manager)?.id == guideWorkspace.id)
+        #expect(manager.selectedTabId == guideWorkspace.id)
+        let guide = try #require(guideWorkspace.panels.values.compactMap { $0 as? CloudVPNSetupPanel }.first)
+        #expect(guideWorkspace.focusedPanelId == guide.id)
+        #expect(navigation.open(in: manager)?.id == guideWorkspace.id)
         #expect(manager.tabs.count == 2)
-        let guide = try #require(selected.panels.values.compactMap { $0 as? CloudVPNSetupPanel }.first)
-        #expect(selected.focusedPanelId == guide.id)
-        #expect(originalPanelIDs.isSubset(of: Set(selected.panels.keys)))
-        #expect(navigation.open(in: manager)?.id == selected.id)
-        #expect(selected.panels.values.filter { $0 is CloudVPNSetupPanel }.count == 1)
-        #expect(first.panels.values.filter { $0 is CloudVPNSetupPanel }.count == 1)
+        #expect(guideWorkspace.panels.values.filter { $0 is CloudVPNSetupPanel }.count == 1)
         for workspace in manager.tabs { manager.closeWorkspace(workspace, recordHistory: false) }
     }
 
