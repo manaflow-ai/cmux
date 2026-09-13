@@ -2139,7 +2139,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var faviconPNGData: Data?
 
     /// Published loading state
-    @Published private(set) var isLoading: Bool = false {
+    @Published var isLoading: Bool = false {
         didSet {
             guard oldValue != isLoading else { return }
             mobileBrowserStreamStateDidChange(markDirty: true)
@@ -8000,17 +8000,6 @@ private extension BrowserPanel {
         case .failure:
             return false
         }
-    }
-
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
     }
 
     static func visibleDescendants(in root: NSView) -> [NSView] {

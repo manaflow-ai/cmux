@@ -3,6 +3,19 @@ import Foundation
 import WebKit
 
 extension BrowserPanel {
+    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+        var responder = start
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if current === target { return true }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return false
+    }
+}
+
+extension BrowserPanel {
     func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
 
