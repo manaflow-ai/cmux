@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudImagePaste
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -25,7 +26,11 @@ final class CloudImagePasteTestPeer {
     private let continuation: AsyncStream<Command>.Continuation
     private(set) var sent: [Command] = []
 
-    init(coordinator: CloudImagePasteCoordinator = CloudImagePasteCoordinator()) {
+    init() {
+        self.init(coordinator: CloudImagePasteCoordinator())
+    }
+
+    init(coordinator: CloudImagePasteCoordinator) {
         self.coordinator = coordinator
         (commands, continuation) = AsyncStream.makeStream(of: Command.self)
     }

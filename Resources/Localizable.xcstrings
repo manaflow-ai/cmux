@@ -519272,6 +519272,72 @@
             "state": "translated",
             "value": "画像を転送中です。完了するまで待つか、転送をキャンセルしてから再度貼り付けてください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijenos slike je već u toku. Sačekajte da završi ili ga otkažite prije novog lijepljenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En billedoverførsel er allerede i gang. Vent, til den er færdig, eller annullér den, før du indsætter igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È già in corso un trasferimento di immagini. Attendi che finisca oppure annullalo prima di incollare di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទេររូបភាពកំពុងដំណើរការ។ សូមរង់ចាំឱ្យវាបញ្ចប់ ឬបោះបង់វាមុនពេលបិទភ្ជាប់ម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En bildeoverføring pågår allerede. Vent til den er ferdig, eller avbryt den før du limer inn på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trwa już przesyłanie obrazu. Poczekaj na zakończenie albo anuluj je przed ponownym wklejeniem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já existe uma transferência de imagem em andamento. Aguarde a conclusão ou cancele-a antes de colar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передача изображения уже выполняется. Дождитесь её завершения или отмените её перед повторной вставкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังถ่ายโอนรูปภาพอยู่แล้ว รอให้เสร็จหรือยกเลิกก่อนวางอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir görüntü aktarımı zaten devam ediyor. Yeniden yapıştırmadan önce bitmesini bekleyin veya iptal edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передавання зображення вже триває. Дочекайтеся завершення або скасуйте його, перш ніж вставляти знову."
+          }
         }
       }
     },
@@ -519330,6 +519396,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud ターミナルに接続できません。ターミナルを再接続して、画像をもう一度貼り付けてください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s Cloud terminalom nije dostupna. Ponovo povežite terminal, a zatim zalijepite sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen til Cloud-terminalen er ikke tilgængelig. Tilslut terminalen igen, og indsæt derefter billedet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il collegamento al terminale Cloud non è disponibile. Riconnetti il terminale, quindi incolla nuovamente l’immagine."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណភ្ជាប់ស្ថានីយ Cloud មិនអាចប្រើបានទេ។ សូមភ្ជាប់ស្ថានីយឡើងវិញ រួចបិទភ្ជាប់រូបភាពម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-terminalkoblingen er ikke tilgjengelig. Koble til terminalen på nytt, og lim inn bildet igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie z terminalem Cloud jest niedostępne. Połącz terminal ponownie, a następnie wklej obraz jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link do terminal Cloud está indisponível. Reconecte o terminal e cole a imagem novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Связь с облачным терминалом недоступна. Подключите терминал снова и повторите вставку изображения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์เทอร์มินัล Cloud ไม่พร้อมใช้งาน เชื่อมต่อเทอร์มินัลอีกครั้งแล้ววางรูปภาพใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud terminal bağlantısı kullanılamıyor. Terminali yeniden bağlayıp görüntüyü tekrar yapıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З’єднання з терміналом Cloud недоступне. Повторно під’єднайте термінал і вставте зображення ще раз."
           }
         }
       }
@@ -519390,6 +519522,72 @@
             "state": "translated",
             "value": "この Cloud デーモンはクリップボード画像を受信できません。マシンの cmux-tui を更新して、ターミナルを再接続してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Cloud daemon ne može primati slike iz međuspremnika. Ažurirajte cmux-tui na računaru i ponovo povežite terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-daemon kan ikke modtage billeder fra udklipsholderen. Opdatér cmux-tui på maskinen, og tilslut terminalen igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo daemon Cloud non può ricevere immagini dagli appunti. Aggiorna cmux-tui sulla macchina e riconnetti il terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud daemon នេះមិនអាចទទួលរូបភាពពីក្ដារតម្បៀតខ្ទាស់បានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux-tui លើម៉ាស៊ីន ហើយភ្ជាប់ស្ថានីយឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Cloud-daemonen kan ikke motta bilder fra utklippstavlen. Oppdater cmux-tui på maskinen og koble til terminalen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten demon Cloud nie może odbierać obrazów ze schowka. Zaktualizuj cmux-tui na komputerze i połącz terminal ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este daemon Cloud não pode receber imagens da área de transferência. Atualize o cmux-tui na máquina e reconecte o terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот облачный демон не может получать изображения из буфера обмена. Обновите cmux-tui на машине и подключите терминал снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud daemon นี้ไม่สามารถรับรูปภาพจากคลิปบอร์ดได้ อัปเดต cmux-tui บนเครื่องแล้วเชื่อมต่อเทอร์มินัลอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Cloud daemon’ı panodan görüntü alamıyor. Makinedeki cmux-tui’yi güncelleyip terminali yeniden bağlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Cloud daemon не може отримувати зображення з буфера обміну. Оновіть cmux-tui на машині та повторно під’єднайте термінал."
+          }
         }
       }
     },
@@ -519448,6 +519646,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像が 20 MiB の上限を超えています。サイズを小さくして、もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slika premašuje ograničenje od 20 MiB. Smanjite je i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billedet overskrider grænsen på 20 MiB. Gør det mindre, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’immagine supera il limite di 20 MiB. Ridimensionala e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាពលើសកម្រិត 20 MiB។ សូមបង្រួមទំហំ ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildet overskrider grensen på 20 MiB. Endre størrelsen og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obraz przekracza limit 20 MiB. Zmniejsz go i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A imagem excede o limite de 20 MiB. Redimensione-a e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размер изображения превышает лимит 20 МиБ. Уменьшите его и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปภาพมีขนาดเกิน 20 MiB ปรับขนาดแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü 20 MiB sınırını aşıyor. Boyutunu küçültüp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зображення перевищує обмеження у 20 МіБ. Змініть його розмір і спробуйте ще раз."
           }
         }
       }
@@ -519508,6 +519772,72 @@
             "state": "translated",
             "value": "Cloud への画像貼り付けは PNG、JPEG、GIF、WebP に対応しています。対応する画像をコピーして、もう一度お試しください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud lijepljenje slika prihvata PNG, JPEG, GIF i WebP. Kopirajte podržanu sliku i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-billedindsættelse understøtter PNG, JPEG, GIF og WebP. Kopiér et understøttet billede, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il trasferimento di immagini Cloud supporta PNG, JPEG, GIF e WebP. Copia un’immagine supportata e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបិទភ្ជាប់រូបភាព Cloud គាំទ្រ PNG, JPEG, GIF និង WebP។ សូមចម្លងរូបភាពដែលគាំទ្រ ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-bildeinnliming støtter PNG, JPEG, GIF og WebP. Kopier et støttet bilde og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wklejanie obrazów Cloud obsługuje PNG, JPEG, GIF i WebP. Skopiuj obsługiwany obraz i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A colagem de imagens no Cloud aceita PNG, JPEG, GIF e WebP. Copie uma imagem compatível e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставка изображений в Cloud поддерживает PNG, JPEG, GIF и WebP. Скопируйте поддерживаемое изображение и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การวางรูปภาพ Cloud รองรับ PNG, JPEG, GIF และ WebP คัดลอกรูปภาพที่รองรับแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud görüntü yapıştırma PNG, JPEG, GIF ve WebP biçimlerini destekler. Desteklenen bir görüntü kopyalayıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставлення зображень у Cloud підтримує PNG, JPEG, GIF і WebP. Скопіюйте підтримуване зображення та спробуйте ще раз."
+          }
         }
       }
     },
@@ -519566,6 +519896,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud の画像用一時ストレージがいっぱいです。以前の画像の有効期限が切れるまで 10 分待ってから、もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privremena Cloud pohrana slika je puna. Sačekajte deset minuta da prethodne slike isteknu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clouds midlertidige billedlager er fuldt. Vent ti minutter, til tidligere billeder udløber, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo spazio temporaneo Cloud per le immagini è pieno. Attendi dieci minuti che le immagini precedenti scadano, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងផ្ទុករូបភាពបណ្ដោះអាសន្នរបស់ Cloud ពេញហើយ។ សូមរង់ចាំដប់នាទីឱ្យរូបភាពចាស់ផុតកំណត់ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clouds midlertidige bildelager er fullt. Vent ti minutter til tidligere bilder utløper, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tymczasowa pamięć obrazów Cloud jest pełna. Poczekaj dziesięć minut na wygaśnięcie poprzednich obrazów i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O armazenamento temporário de imagens do Cloud está cheio. Aguarde dez minutos para as imagens anteriores expirarem e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Временное хранилище изображений Cloud заполнено. Подождите десять минут, пока старые изображения не истекут, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่จัดเก็บรูปภาพชั่วคราวของ Cloud เต็มแล้ว รอสิบนาทีให้รูปภาพก่อนหน้าหมดอายุแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud geçici görüntü depolama alanı dolu. Önceki görüntülerin süresinin dolması için on dakika bekleyip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тимчасове сховище зображень Cloud заповнене. Зачекайте десять хвилин, доки попередні зображення не завершать термін дії, і спробуйте знову."
           }
         }
       }
@@ -519626,6 +520022,72 @@
             "state": "translated",
             "value": "画像を保存できませんでした。マシンのディスク空き容量を確認して、画像をもう一度コピーしてください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sliku nije moguće pohraniti. Provjerite slobodan prostor na računaru i ponovo kopirajte sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billedet kunne ikke gemmes. Kontrollér maskinens ledige diskplads, og kopiér billedet igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile salvare l’immagine. Controlla lo spazio disponibile sulla macchina e copia di nuovo l’immagine."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចរក្សាទុករូបភាពបានទេ។ សូមពិនិត្យទំហំថាសទំនេររបស់ម៉ាស៊ីន ហើយចម្លងរូបភាពម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildet kunne ikke lagres. Kontroller ledig diskplass på maskinen og kopier bildet på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można zapisać obrazu. Sprawdź wolne miejsce na dysku komputera i skopiuj obraz ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível armazenar a imagem. Verifique o espaço disponível em disco e copie a imagem novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось сохранить изображение. Проверьте свободное место на диске машины и скопируйте изображение снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจัดเก็บรูปภาพได้ ตรวจสอบพื้นที่ดิสก์ที่ว่างบนเครื่องแล้วคัดลอกรูปภาพอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü depolanamadı. Makinedeki boş disk alanını kontrol edip görüntüyü yeniden kopyalayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зберегти зображення. Перевірте вільне місце на диску машини та скопіюйте зображення ще раз."
+          }
         }
       }
     },
@@ -519684,6 +520146,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像転送がタイムアウトしました。Cloud ターミナルを再接続して、もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijenos slike je istekao. Ponovo povežite Cloud terminal i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billedoverførslen fik timeout. Tilslut Cloud-terminalen igen, og prøv på ny."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il trasferimento dell’immagine ha superato il tempo limite. Riconnetti il terminale Cloud e riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទេររូបភាពអស់ពេល។ សូមភ្ជាប់ស្ថានីយ Cloud ឡើងវិញ ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidsavbrudd for bildeoverføringen. Koble til Cloud-terminalen på nytt og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przesyłanie obrazu przekroczyło limit czasu. Połącz ponownie terminal Cloud i spróbuj jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A transferência da imagem atingiu o tempo limite. Reconecte o terminal Cloud e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время передачи изображения истекло. Подключите Cloud-терминал снова и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การถ่ายโอนรูปภาพหมดเวลา เชื่อมต่อเทอร์มินัล Cloud อีกครั้งแล้วลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü aktarımının süresi doldu. Cloud terminali yeniden bağlayıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Час передавання зображення вичерпано. Повторно під’єднайте Cloud-термінал і спробуйте ще раз."
           }
         }
       }
@@ -519744,6 +520272,72 @@
             "state": "translated",
             "value": "画像の貼り付けを確認する前に接続が切断されました。再度貼り付ける前に、エージェントが添付画像を受信しているか確認してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza se zatvorila prije potvrde lijepljenja slike. Provjerite agenta ima li prilog prije novog pokušaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen blev lukket, før billedindsættelsen blev bekræftet. Kontrollér agenten for en vedhæftning, før du prøver igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il collegamento si è chiuso prima della conferma dell’incolla. Controlla nell’agente la presenza di un allegato prima di riprovare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំណភ្ជាប់បានបិទ មុនពេលបញ្ជាក់ការបិទភ្ជាប់រូបភាព។ សូមពិនិត្យភ្នាក់ងាររកឯកសារភ្ជាប់ មុនពេលបិទភ្ជាប់ម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koblingen ble lukket før bildeinnlimingen ble bekreftet. Kontroller agenten for et vedlegg før du prøver igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie zamknięto przed potwierdzeniem wklejenia obrazu. Przed ponowną próbą sprawdź, czy agent ma załącznik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link foi fechado antes da confirmação da colagem. Verifique se o agente recebeu um anexo antes de tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединение закрылось до подтверждения вставки изображения. Проверьте наличие вложения у агента перед повторной вставкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลิงก์ปิดก่อนยืนยันการวางรูปภาพ ตรวจสอบเอเจนต์ว่ามีไฟล์แนบหรือไม่ก่อนวางอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü yapıştırma onaylanmadan bağlantı kapandı. Yeniden yapıştırmadan önce ajanda ek olup olmadığını kontrol edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З’єднання закрилося до підтвердження вставлення зображення. Перевірте наявність вкладення в агента, перш ніж вставляти знову."
+          }
         }
       }
     },
@@ -519803,6 +520397,72 @@
             "state": "translated",
             "value": "この画像を Cloud ターミナルに直接貼り付けてください。コマンドバッファでの画像添付にはまだ対応していません。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalijepite ovu sliku direktno u Cloud terminal. Prilozi slika u komandnom polju još nisu podržani."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt dette billede direkte i Cloud-terminalen. Billedvedhæftninger i kommandofeltet understøttes ikke endnu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla questa immagine direttamente nel terminale Cloud. Gli allegati immagine nel campo dei comandi non sono ancora supportati."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមបិទភ្ជាប់រូបភាពនេះដោយផ្ទាល់ទៅក្នុងស្ថានីយ Cloud។ ការភ្ជាប់រូបភាពក្នុងប្រអប់ពាក្យបញ្ជាមិនទាន់គាំទ្រទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lim inn bildet direkte i Cloud-terminalen. Bildevedlegg i kommandofeltet støttes ikke ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wklej ten obraz bezpośrednio do terminala Cloud. Załączniki obrazów w polu poleceń nie są jeszcze obsługiwane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole esta imagem diretamente no terminal Cloud. Anexos de imagem no campo de comando ainda não são compatíveis."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте это изображение непосредственно в Cloud-терминал. Вложения изображений в поле команды пока не поддерживаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วางรูปภาพนี้โดยตรงในเทอร์มินัล Cloud ขณะนี้ยังไม่รองรับไฟล์แนบรูปภาพในช่องคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu görüntüyü doğrudan Cloud terminaline yapıştırın. Komut alanındaki görüntü ekleri henüz desteklenmiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставте це зображення безпосередньо в Cloud-термінал. Вкладення зображень у полі команди ще не підтримуються."
+          }
         }
       }
     },
@@ -519861,6 +520521,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像を貼り付けられませんでした"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sliku nije moguće zalijepiti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Billedet kunne ikke indsættes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile incollare l’immagine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបិទភ្ជាប់រូបភាពបានទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke lime inn bildet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można wkleić obrazu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível colar a imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось вставить изображение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วางรูปภาพไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görüntü yapıştırılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вставити зображення"
           }
         }
       }

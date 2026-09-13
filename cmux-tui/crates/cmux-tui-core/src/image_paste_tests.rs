@@ -1,5 +1,7 @@
 use super::*;
 use std::fs;
+use std::sync::Arc;
+use std::sync::mpsc;
 
 const ID: &str = "0123456789abcdef0123456789abcdef";
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nimage-paste-fixture";
@@ -38,6 +40,34 @@ fn cloud_image_paste_remote_file_is_readable_and_only_pasted_once() {
     assert!(path.exists(), "a reconnect must not remove an attachment an agent may be reading");
     store.close_terminal("term_1");
     assert!(!path.exists());
+}
+
+#[test]
+fn cloud_image_paste_cleanup_waits_for_blocking_delivery() {
+    let store = Arc::new(ImagePasteStore::with_recovery(None));
+    let path = prepared(&store);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let worker_store = Arc::clone(&store);
+    let worker = std::thread::spawn(move || {
+        worker_store
+            .commit(&owner(), ID, |_| {
+                entered_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok(())
+            })
+            .unwrap();
+    });
+    entered_rx.recv().unwrap();
+
+    let cleanup_store = Arc::clone(&store);
+    let cleanup = std::thread::spawn(move || cleanup_store.close_terminal("term_1"));
+    cleanup.join().unwrap();
+    assert!(path.exists(), "cleanup must not race the in-flight terminal write");
+
+    release_tx.send(()).unwrap();
+    worker.join().unwrap();
+    assert!(!path.exists(), "deferred terminal cleanup should run after delivery");
 }
 
 #[test]

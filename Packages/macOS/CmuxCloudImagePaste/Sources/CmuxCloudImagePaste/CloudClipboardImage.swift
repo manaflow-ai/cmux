@@ -1,12 +1,21 @@
-import Foundation
+public import Foundation
 
-/// A bounded image read from the existing clipboard materialization seam.
-struct CloudClipboardImage: Sendable {
-    static let maximumBytes = 20 * 1024 * 1024
-    let data: Data
-    let mime: String
+/// A bounded, signature-validated image payload ready for Cloud transfer.
+public struct CloudClipboardImage: Sendable {
+    /// The maximum number of bytes accepted from the clipboard.
+    public static let maximumBytes = 20 * 1024 * 1024
+    /// The validated image bytes.
+    public let data: Data
+    /// The MIME type derived from the image signature.
+    public let mime: String
 
-    init(data: Data) throws {
+    /// Validates an image payload and derives its supported MIME type.
+    ///
+    /// - Parameter data: The complete clipboard image payload.
+    /// - Throws: ``CloudImagePasteError/sizeLimit`` or
+    ///   ``CloudImagePasteError/unsupportedType`` when the payload is not
+    ///   supported by the Cloud daemon.
+    public init(data: Data) throws {
         guard !data.isEmpty else { throw CloudImagePasteError.unsupportedType }
         guard data.count <= Self.maximumBytes else { throw CloudImagePasteError.sizeLimit }
         if data.starts(with: [0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]) {

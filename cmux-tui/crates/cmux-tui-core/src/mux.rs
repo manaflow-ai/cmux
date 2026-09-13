@@ -14540,11 +14540,13 @@ impl Mux {
         }
         drop(state);
         drop(registry);
+        #[cfg(unix)]
+        if let Some(terminal_id) = &public_terminal_id {
+            // Replay is a recovery path: the durable exit may have committed
+            // before the previous cleanup attempt completed.
+            self.image_pastes.close_terminal(terminal_id.as_str());
+        }
         if !replayed {
-            #[cfg(unix)]
-            if let Some(terminal_id) = &public_terminal_id {
-                self.image_pastes.close_terminal(terminal_id.as_str());
-            }
             if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.

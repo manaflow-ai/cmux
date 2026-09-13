@@ -1,12 +1,17 @@
-import Foundation
+public import Foundation
 
-/// Owns a single cancellable image transaction on the current leased attachment.
+/// Owns one cancellable image transaction on the current leased attachment.
 /// Acknowledged chunks bound transport memory and prevent a commit overtaking data.
 @MainActor
-final class CloudImagePasteCoordinator {
-    static let capability = "terminal-image-paste-v1"
-    static let chunkBytes = 48 * 1024
-    typealias Send = @MainActor ([String: Any]) throws -> UInt64
+public final class CloudImagePasteCoordinator {
+    /// The daemon capability required for Cloud image paste.
+    public static let capability = "terminal-image-paste-v1"
+    /// The maximum acknowledged payload sent in one control request.
+    public static let chunkBytes = 48 * 1024
+    /// Sends an authenticated control command and returns its request ID.
+    public typealias Send = @MainActor ([String: Any]) throws -> UInt64
+    /// Provides the bounded cancellation-aware request deadline.
+    public typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
 
     private struct Endpoint {
         let generation = UUID()
@@ -18,7 +23,7 @@ final class CloudImagePasteCoordinator {
     private struct Pending {
         let requestID: UInt64
         let token: UUID
-        let continuation: CheckedContinuation<Void, Error>
+        let continuation: CheckedContinuation<Void, any Error>
     }
 
     private var endpoint: Endpoint?
@@ -29,15 +34,34 @@ final class CloudImagePasteCoordinator {
     private var committing = false
     private var preparing = false
     private let deadline: Duration
-    private let clock: any Clock<Duration>
-    private(set) var transferredBytes = 0
+    private let deadlineSleep: DeadlineSleep
+    /// The number of image bytes acknowledged by the daemon for the active upload.
+    public private(set) var transferredBytes = 0
 
-    init(deadline: Duration = .seconds(120), clock: any Clock<Duration> = ContinuousClock()) {
+    /// Creates a coordinator with an injected, cancellation-aware deadline.
+    ///
+    /// - Parameters:
+    ///   - deadline: Maximum time allowed for one upload transaction.
+    ///   - deadlineSleep: Deadline implementation. The default uses
+    ///     ``ContinuousClock`` and is replaceable by tests.
+    public init(
+        deadline: Duration = .seconds(120),
+        deadlineSleep: @escaping DeadlineSleep = { duration in
+            try await ContinuousClock().sleep(for: duration)
+        }
+    ) {
         self.deadline = deadline
-        self.clock = clock
+        self.deadlineSleep = deadlineSleep
     }
 
-    func bind(terminalID: String, surfaceID: UInt64, lease: String?, capabilities: Set<String>, send: @escaping Send) {
+    /// Binds the coordinator to the current authenticated terminal attachment.
+    public func bind(
+        terminalID: String,
+        surfaceID: UInt64,
+        lease: String?,
+        capabilities: Set<String>,
+        send: @escaping Send
+    ) {
         disconnect()
         attached = true
         supportsImages = capabilities.contains(Self.capability)
@@ -46,23 +70,27 @@ final class CloudImagePasteCoordinator {
         }
     }
 
-    func requireAvailable() throws {
+    /// Throws when the current attachment cannot accept Cloud images.
+    public func requireAvailable() throws {
         guard attached else { throw CloudImagePasteError.unavailable }
         guard supportsImages else { throw CloudImagePasteError.unsupported }
         guard endpoint != nil else { throw CloudImagePasteError.unavailable }
     }
 
     /// Reserve before filesystem I/O so another paste cannot replace its Cancel UI.
-    func beginPreparation() throws -> UUID {
+    /// Reserves the attachment while clipboard bytes are materialized.
+    public func beginPreparation() throws -> UUID {
         try requireAvailable()
         guard !preparing, activeToken == nil, let endpoint else { throw CloudImagePasteError.busy }
         preparing = true
         return endpoint.generation
     }
 
-    func endPreparation() { preparing = false }
+    /// Releases the clipboard materialization reservation.
+    public func endPreparation() { preparing = false }
 
-    func disconnect() {
+    /// Retires the attachment and fails any pending request.
+    public func disconnect() {
         endpoint = nil
         attached = false
         supportsImages = false
@@ -70,7 +98,8 @@ final class CloudImagePasteCoordinator {
     }
 
     /// Image responses are consumed before the mirror's diagnostic logger sees them.
-    func receive(requestID: UInt64, ok: Bool, accepted: Bool? = true, error: String?) -> Bool {
+    /// Consumes one daemon response before it reaches diagnostic logging.
+    public func receive(requestID: UInt64, ok: Bool, accepted: Bool? = true, error: String?) -> Bool {
         guard let pending, pending.requestID == requestID else { return false }
         self.pending = nil
         if ok && accepted == true { pending.continuation.resume() }
@@ -79,7 +108,15 @@ final class CloudImagePasteCoordinator {
         return true
     }
 
-    func paste(_ image: CloudClipboardImage, generation: UUID? = nil) async throws {
+    /// Uploads and brackets one validated image through the leased terminal.
+    ///
+    /// - Parameters:
+    ///   - image: Validated clipboard image bytes.
+    ///   - generation: Optional preparation generation used to fence a
+    ///     reconnect or replacement surface.
+    /// - Throws: ``CloudImagePasteError`` when the link, daemon, or upload is
+    ///   unavailable.
+    public func paste(_ image: CloudClipboardImage, generation: UUID? = nil) async throws {
         try requireAvailable()
         try Task.checkCancellation()
         guard activeToken == nil, let endpoint else { throw CloudImagePasteError.busy }
@@ -89,8 +126,9 @@ final class CloudImagePasteCoordinator {
         activeToken = token
         committing = false
         transferredBytes = 0
-        let timeout = Task { [weak self, clock, deadline] in
-            do { try await clock.sleep(for: deadline) } catch { return }
+        let deadlineSleep = self.deadlineSleep
+        let timeout = Task { [weak self, deadlineSleep, deadline] in
+            do { try await deadlineSleep(deadline) } catch { return }
             self?.cancel(token: token, error: CloudImagePasteError.timedOut)
         }
         defer {
@@ -147,12 +185,12 @@ final class CloudImagePasteCoordinator {
         _ = try? endpoint.send(command(endpoint, uploadID: uploadID, fields: ["op": "cancel"]))
     }
 
-    private func cancel(token: UUID, error: Error) {
+    private func cancel(token: UUID, error: any Error) {
         guard activeToken == token, pending?.token == token else { return }
         failPending(committing ? CloudImagePasteError.deliveryUncertain : error)
     }
 
-    private func failPending(_ error: Error) {
+    private func failPending(_ error: any Error) {
         let previous = pending
         pending = nil
         previous?.continuation.resume(throwing: error)

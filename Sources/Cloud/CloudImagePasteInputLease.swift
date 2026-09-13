@@ -23,6 +23,11 @@ final class CloudImagePasteInputLease {
         }
     }
 
+    deinit {
+        // Cleanup is explicit in finish() so the native clipboard request is
+        // completed on the owning actor before this lease is released.
+    }
+
     func finish() {
         guard !finished else { return }
         finished = true

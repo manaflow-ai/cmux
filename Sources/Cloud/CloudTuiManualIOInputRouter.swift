@@ -66,9 +66,11 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Orders a control request with the manual input that preceded the paste.
     func sendControl(
         _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
-    ) -> UInt64 {
+    ) throws -> UInt64 {
         let command = command.merging(["id": requestID]) { _, value in value }
-        guard let line = commandBuilder.line(command) else { return requestID }
+        guard let line = commandBuilder.line(command) else {
+            throw CloudImagePasteError.unavailable
+        }
         // Image commit shares the input lane. Queue it behind prior manual input,
         // and retain this exact connection rather than replaying it after reconnect.
         queue.async { connection.send(line: line) }

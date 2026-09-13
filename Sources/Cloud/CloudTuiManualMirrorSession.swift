@@ -1,8 +1,8 @@
 import CmuxTerminal
 import CmuxCore
+import CmuxCloudImagePaste
 import Foundation
 import os
-
 private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
 
 /// Owns one native attachment between a remote cmux-tui PTY and a local surface.

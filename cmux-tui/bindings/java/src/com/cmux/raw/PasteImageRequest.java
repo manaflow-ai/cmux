@@ -108,7 +108,7 @@ public final class PasteImageRequest implements WireValue {
     public int hashCode() { return Objects.hash(data, lease, mime, offset, op, size, surface, terminalId, uploadId); }
 
     @Override
-    public String toString() { return "PasteImageRequest" + toWire(); }
+    public String toString() { return "PasteImageRequest{" + "data=[redacted]" + ", " + "lease=[redacted]" + ", " + "mime=" + String.valueOf(mime) + ", " + "offset=" + String.valueOf(offset) + ", " + "op=" + String.valueOf(op) + ", " + "size=" + String.valueOf(size) + ", " + "surface=" + String.valueOf(surface) + ", " + "terminal_id=" + String.valueOf(terminalId) + ", " + "upload_id=" + String.valueOf(uploadId) + "}"; }
 
     public static final class Builder {
         private Field<String> data = Field.omitted();

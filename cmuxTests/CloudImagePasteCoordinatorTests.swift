@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudImagePaste
 import Testing
 
 #if canImport(cmux_DEV)

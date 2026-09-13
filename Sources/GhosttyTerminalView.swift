@@ -9256,13 +9256,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
                 let operation = operation ?? TerminalImageTransferOperation()
                 let lease = CloudImagePasteInputLease(view: self, operation: operation)
-                terminalSurface.pasteCloudImages(urls, operation: operation, onCancel: {
-                    lease.finish()
-                    onCancel()
-                }) {
-                    lease.finish()
-                    onTextCompletion()
+                terminalSurface.hostedView.beginImageTransferIndicator(
+                    for: operation,
+                    onCancel: {
+                        lease.finish()
+                        onCancel()
+                    }
+                )
+                let task = Task { @MainActor in
+                    defer {
+                        lease.finish()
+                        terminalSurface.hostedView.endImageTransferIndicator(for: operation)
+                        onTextCompletion()
+                    }
+                    do {
+                        try await terminalSurface.pasteCloudImages(
+                            urls,
+                            operation: operation
+                        )
+                    } catch is CancellationError {
+                        _ = operation.cancel()
+                    } catch {
+                        _ = operation.finish()
+                    }
                 }
+                operation.installCancellationHandler { task.cancel() }
             }
             return true
         }

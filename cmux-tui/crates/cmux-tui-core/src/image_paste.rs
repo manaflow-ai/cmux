@@ -31,6 +31,7 @@ struct Upload {
     size: usize,
     received: usize,
     committed: bool,
+    delivery_in_flight: bool,
     cleanup_pending: bool,
     deadline: Instant,
 }
@@ -166,6 +167,7 @@ impl ImagePasteStore {
                 size,
                 received: 0,
                 committed: false,
+                delivery_in_flight: false,
                 cleanup_pending: false,
                 deadline: Instant::now() + UPLOAD_TTL,
             },
@@ -218,9 +220,25 @@ impl ImagePasteStore {
         // Input delivery can fail after a partial write. Retain the readable file
         // until TTL and never automatically retry an ambiguous paste.
         upload.committed = true;
+        upload.delivery_in_flight = true;
         upload.deadline = Instant::now() + IMAGE_TTL;
         self.shared.changed.notify_one();
-        paste(&quoted).map_err(|_| anyhow::anyhow!("image-paste-uncertain"))
+        let key = (owner.client, id.to_owned());
+        drop(state);
+
+        // The PTY or host attachment may block while accepting the bracketed
+        // paste. Do not hold the store mutex across that I/O.
+        let result = paste(&quoted).map_err(|_| anyhow::anyhow!("image-paste-uncertain"));
+
+        let mut state = self.shared.state.lock().unwrap();
+        if let Some(upload) = state.uploads.get_mut(&key) {
+            upload.delivery_in_flight = false;
+        }
+        // A terminal close may have requested cleanup while delivery was in
+        // flight. Reap now that it is safe to unlink the owned file.
+        Self::reap(&mut state, Instant::now());
+        self.shared.changed.notify_one();
+        result
     }
 
     pub(crate) fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
@@ -281,6 +299,12 @@ impl ImagePasteStore {
                 return true;
             }
             upload.cleanup_pending = true;
+            if upload.delivery_in_flight {
+                // Keep the file and reservation until the terminal write
+                // returns. Removing it here could race the reader or cause a
+                // partial paste to reference a vanished path.
+                return true;
+            }
             if upload.file.remove_owned() {
                 return false;
             }

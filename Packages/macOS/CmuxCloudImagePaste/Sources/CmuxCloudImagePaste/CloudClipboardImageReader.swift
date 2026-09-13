@@ -1,9 +1,15 @@
 import Darwin
-import Foundation
+public import Foundation
 
-/// Keeps filesystem reads and image validation off the main actor.
-actor CloudClipboardImageReader {
-    func read(_ url: URL) throws -> CloudClipboardImage {
+/// Reads and validates a materialized clipboard image off the main actor.
+public actor CloudClipboardImageReader {
+    /// Reads one regular file without following symlinks.
+    ///
+    /// - Parameter url: A file URL produced by the clipboard materialization
+    ///   service.
+    /// - Returns: A bounded, signature-validated image payload.
+    /// - Throws: ``CloudImagePasteError`` when the file cannot be safely read.
+    public func read(_ url: URL) throws -> CloudClipboardImage {
         try Task.checkCancellation()
         guard url.isFileURL else { throw CloudImagePasteError.unsupportedType }
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)

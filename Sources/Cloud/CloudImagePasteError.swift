@@ -1,17 +1,7 @@
+import CmuxCloudImagePaste
 import Foundation
 
-enum CloudImagePasteError: Error, LocalizedError, Equatable {
-    case unavailable
-    case unsupported
-    case sizeLimit
-    case unsupportedType
-    case capacity
-    case storage
-    case timedOut
-    case deliveryUncertain
-    case useTerminal
-    case busy
-
+extension CloudImagePasteError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
@@ -37,15 +27,4 @@ enum CloudImagePasteError: Error, LocalizedError, Equatable {
         }
     }
 
-    init(serverCode: String?) {
-        switch serverCode {
-        case "image-type-rejected": self = .unsupportedType
-        case "image-size-limit": self = .sizeLimit
-        case "image-capacity-limit": self = .capacity
-        case "image-storage-unavailable": self = .storage
-        case "image-paste-uncertain", "image-already-pasted": self = .deliveryUncertain
-        case "image-upload-expired": self = .timedOut
-        default: self = .unavailable
-        }
-    }
 }

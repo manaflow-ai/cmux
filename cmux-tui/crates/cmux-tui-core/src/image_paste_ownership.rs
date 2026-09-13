@@ -32,10 +32,14 @@ impl ImagePasteOwnership {
             )
         };
         #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-        let result = {
+        {
             let _ = (file, token, name);
-            -1
-        };
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "persistent image ownership is unavailable on this platform",
+            ));
+        }
+        #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
         if result == 0 { file.sync_all() } else { Err(io::Error::last_os_error()) }
     }
 
