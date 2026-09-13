@@ -91,12 +91,16 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        // Admission only appends an immutable event to the actor-owned queue;
+        // all downstream process/socket work happens after the reply.
+        "agent.hook.enqueue",
+        "agent.hook.barrier",
         // Performs a fresh off-main process scan before one agent exec. Only
         // the final target revalidation and launch claim hop to MainActor.
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
-        "browser.download.wait",
+        "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -375,7 +379,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.list",
         "pane.surfaces",
         "system.identify",
-        "system.tree",
+        "system.tree", "browser.download.list",
         // The v2 send lane (tranche E): one narrow, non-blocking hop each
         // (resolve target + inject input + forceRefresh), so an inline
         // main-thread run is exactly the legacy main-lane dispatch.

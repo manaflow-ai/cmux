@@ -436,8 +436,7 @@ struct CloudNotificationSyncTests {
         // Final drain: the link is healthy, everything pending must flush.
         effects.sendFails = false
         effects.declineDelivery = false
-        sync.linkDidConnect()
-        for _ in 0..<20 { await Task.yield() }
+        await sync.flushPendingReads()
         #expect(sync.state.pendingAcks.isEmpty, "pending acks after a healthy flush: \(sync.state.pendingAcks)")
         // No key was ever sent with two different id sets.
         #expect(effects.acked.values.allSatisfy { Set($0).count == $0.count })

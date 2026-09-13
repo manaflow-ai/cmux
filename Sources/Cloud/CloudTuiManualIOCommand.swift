@@ -1,9 +1,6 @@
 import Foundation
 
-/// Builds the private JSON commands used by a native cloud manual-I/O pane.
-///
-/// These commands are transport operations only. They never ask cmux-tui to
-/// render a viewport; the host consumes the resulting raw PTY bytes.
+/// Builds private transport commands for a native Cloud Ghostty byte mirror.
 struct CloudTuiManualIOCommand: Sendable {
     /// cmux-tui's terminal geometry clamp (the protocol's uint16 values are
     /// additionally bounded to keep pathological panes from exhausting the
@@ -35,6 +32,16 @@ struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
+    /// A round trip that proves the control connection is alive. Every daemon
+    /// answers it; the watchdog sends it when an attached stream has carried
+    /// no frame for a while.
+    func ping(requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "ping",
+        ]
+    }
+
     /// Advertises this connection as the native Ghostty mirror.  The server
     /// only adds capabilities it recognizes, so sending these to an older
     /// daemon is safe and leaves the byte attach fallback available.
@@ -51,6 +58,7 @@ struct CloudTuiManualIOCommand: Sendable {
             "capabilities": [
                 viewAttachmentLeaseCapability,
                 viewAttachmentDetachCapability,
+                "terminal-color-overrides-v1",
             ],
         ]
     }

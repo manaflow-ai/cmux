@@ -4,6 +4,7 @@ public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
 import CmuxMobileShellModel
+import CmuxMobilePairedMac
 import CmuxMobileTransport
 public import Foundation
 
@@ -480,11 +481,37 @@ public actor MobileIrxRuntimeComposition {
     /// Mirrors the lease into the @Observable UI state (Computers rows read
     /// it to badge seeded Macs).
     private func projectDeviceListForUI(_ snapshot: IrxDeviceListSnapshot) async {
+        let entries = Self.macListAuthEntries(from: snapshot)
+        await MainActor.run {
+            MobileMacListAuthState.shared.replace(
+                entriesByIdentity: entries,
+                minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
+            )
+        }
+        publishSettingsUpdate()
+    }
+
+    /// Preserves each advertised app, endpoint, binding, and generation all the
+    /// way to the state read by the Computers screen.
+    nonisolated static func macListAuthEntries(
+        from snapshot: IrxDeviceListSnapshot
+    ) -> [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] {
         let fresh = snapshot.isFresh(now: .now)
-        var byEndpoint: [String: MobileMacListAuthState.Entry] = [:]
-        var byDevice: [String: MobileMacListAuthState.Entry] = [:]
+        var entries: [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] = [:]
         for (endpointIDHex, entry) in snapshot.entries {
-            let projected = MobileMacListAuthState.Entry(
+            let pairingID = entry.deviceID.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0,
+                    instanceTag: entry.tag ?? (entry.releaseTrack == "nightly" ? "nightly" : "default")
+                )
+            }
+            let identity = MobileMacListAuthState.Identity(
+                pairingID: pairingID,
+                endpointIDHex: endpointIDHex,
+                bindingID: entry.bindingID,
+                identityGeneration: entry.identityGeneration
+            )
+            entries[identity] = MobileMacListAuthState.Entry(
                 status: entry.status,
                 revoked: entry.revoked,
                 isFresh: fresh,
@@ -492,19 +519,8 @@ public actor MobileIrxRuntimeComposition {
                 minimumSupportedVersion: snapshot.minimumSupportedMacVersion,
                 releaseTrack: entry.releaseTrack
             )
-            byEndpoint[endpointIDHex] = projected
-            if let deviceID = entry.deviceID {
-                byDevice[deviceID] = projected
-            }
         }
-        await MainActor.run {
-            MobileMacListAuthState.shared.replace(
-                entriesByEndpointID: byEndpoint,
-                entriesByDeviceID: byDevice,
-                minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
-            )
-        }
-        publishSettingsUpdate()
+        return entries
     }
 
     /// UI/programmatic lookup: the peer's list-auth stance right now.
@@ -1476,8 +1492,14 @@ public actor MobileIrxRuntimeComposition {
                     ownerID: ownerID
                 )
             },
-            onClose: { [weak self] in
-                await self?.releaseControlLane(ownerID: ownerID)
+            onClose: { [weak self] connection, closeCode, retiresConnection in
+                await self?.finishControlLane(
+                    peerHex: peerHex,
+                    ownerID: ownerID,
+                    connection: connection,
+                    closeCode: closeCode,
+                    retiresConnection: retiresConnection
+                )
             }
         )
     }
@@ -1506,6 +1528,22 @@ public actor MobileIrxRuntimeComposition {
 
     private func releaseControlLane(ownerID: UUID) {
         controlLaneClaims.release(ownerID: ownerID)
+    }
+
+    private func finishControlLane(
+        peerHex: String,
+        ownerID: UUID,
+        connection: IrxConnection,
+        closeCode: IrxCloseCode,
+        retiresConnection: Bool
+    ) async {
+        if retiresConnection {
+            _ = await engine(forPeer: peerHex).retire(
+                connection: connection,
+                code: closeCode
+            )
+        }
+        releaseControlLane(ownerID: ownerID)
     }
 }
 

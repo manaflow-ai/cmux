@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import Foundation
 import SwiftUI
 
@@ -54,6 +55,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
+    /// True when this is the machine used by the quick cloud-workspace shortcut.
+    var isDefault: Bool = false
 
     /// The label when set, else the generated name, else the machine id.
     var displayName: String {
@@ -417,11 +420,19 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
-    /// Creates in flight or failed, mirrored from ``createCoordinator`` so the
-    /// tree renders them as pending machine rows above the fleet. The
-    /// coordinator outlives this panel: a create started from one window shows
-    /// in every Machines panel and survives the panel closing.
+    /// In-flight and failed creates appear above the fleet; the shared
+    /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
+
+    func setDefaultMachine(id: String) {
+        guard machines.contains(where: { $0.id == id }) else { return }
+        defaultMachineStore?.machineID = id
+        machines = machines.map { machine in
+            var next = machine
+            next.isDefault = machine.id == id
+            return next
+        }
+    }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
     var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
@@ -461,9 +472,13 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
+    private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator? = nil) {
+    let defaultMachineStore: DefaultCloudMachineStore?
+
+    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil) {
+        self.defaultMachineStore = defaultMachineStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
@@ -592,8 +607,7 @@ final class MachinesPanelViewModel: ObservableObject {
         unreadTerminalIDs = unread
     }
 
-    /// The explicit Refresh verb: asks every provider to re-sync (machine list,
-    /// links, local panels), then re-reads the catalog.
+    /// The explicit Refresh verb re-syncs every provider and reads the catalog.
     func refreshTree(force: Bool) {
         treeTask?.cancel()
         treeTask = Task { [weak self] in
@@ -601,17 +615,17 @@ final class MachinesPanelViewModel: ObservableObject {
                 await SurfaceCatalog.shared.refreshAll()
             }
             guard !Task.isCancelled, let self else { return }
-            self.readCatalog()
             self.treeErrorDescription = nil
+            self.readCatalog()
         }
     }
 
-    /// `refresh(tree: true)` is the explicit Refresh verb: machines, stats, and a
-    /// forced catalog re-sync.
+    /// `refresh(tree: true)` refreshes machines, stats, and the catalog.
     func refresh(tree forceTree: Bool) {
         refresh()
         refreshTree(force: forceTree)
     }
+    func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
 
     /// Samples machines advertising stats support. Sleeping machines report
     /// `asleep` without being woken, so polling never costs the user anything.
@@ -708,6 +722,7 @@ final class MachinesPanelViewModel: ObservableObject {
         usageTask = nil
         treeTask?.cancel()
         treeTask = nil
+        machineRefreshes.cancelAll()
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
     }
@@ -753,6 +768,7 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessTransitionTask = nil
         treeTask?.cancel()
         treeTask = nil
+        machineRefreshes.cancelAll()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
@@ -776,6 +792,7 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         do {
             let page = try await client.listPage()
+            try Task.checkCancellation()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -787,6 +804,15 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            let defaultMachineID = defaultMachineStore?.resolveMachineID(
+                from: snapshots.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.isDesktop) },
+                isComplete: true
+            )
+            snapshots = snapshots.map { snapshot in
+                var next = snapshot
+                next.isDefault = snapshot.id == defaultMachineID
+                return next
+            }
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()

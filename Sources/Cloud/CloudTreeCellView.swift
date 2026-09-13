@@ -11,6 +11,7 @@ final class CloudTreeCellView: NSTableCellView {
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
@@ -33,8 +34,13 @@ final class CloudTreeCellView: NSTableCellView {
             ),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
         ])
+        let trailing = displayHost.trailingAnchor.constraint(equalTo: trailingAnchor)
+        // Hover controls own the last few points on machine rows. Keeping this
+        // just below required lets their stronger constraint win while making
+        // every other row fill the cell's actual visible width.
+        trailing.priority = NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.required.rawValue - 1)
+        trailing.isActive = true
     }
 
     @available(*, unavailable)
@@ -42,11 +48,20 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Rehosts one immutable tree snapshot and its optional row actions.
+    ///
+    /// - Parameters:
+    ///   - node: The row snapshot to display.
+    ///   - machineActions: Actions for machine and creation controls.
+    ///   - nodeActions: Actions for workspace and surface controls.
+    ///   - style: The visual preset for the row.
+    ///   - showsCloudVPNWarning: Whether the Ports group exposes the VPN affordance.
     func configure(
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        showsCloudVPNWarning: Bool = false
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
@@ -54,38 +69,48 @@ final class CloudTreeCellView: NSTableCellView {
         }
         #endif
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
+        if CloudTreeRowHoverButtons.hasButtons(for: node.kind, showsCloudVPNWarning: showsCloudVPNWarning) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions, showsCloudVPNWarning: showsCloudVPNWarning))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
-            // Two-line machine cards pin the buttons to the name line; every
-            // other row centers them vertically.
-            let pinToNameLine = node.isMachineRow && style.machineRowLayout == .twoLine
-            buttonsTopConstraint?.constant = style.machineVerticalPadding
+            buttonsLeadingConstraint?.isActive = true
+            // Cloud resources sit below the name; keep hover buttons on its line.
+            // Local and pending rows retain their preset alignment.
+            let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
+            buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)
             buttonsTopConstraint?.isActive = pinToNameLine
             buttonsCenterConstraint?.isActive = !pinToNameLine
         } else {
             buttonsHost?.isHidden = true
+            buttonsLeadingConstraint?.isActive = false
         }
         if case .machine(let machine, _) = node.kind {
-            toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
+            toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
+        } else if showsCloudVPNWarning, case .portsGroup = node.kind {
+            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
+        } else if showsCloudVPNWarning, case .display = node.kind {
+            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
         } else {
             toolTip = nil
         }
-        setAccessibilityLabel(node.searchableTitle)
+        if case .machine(let machine, _) = node.kind {
+            setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else {
+            setAccessibilityLabel(node.searchableTitle)
+        }
     }
 
     private func makeButtonsHost() -> NSHostingView<AnyView> {
@@ -99,8 +124,11 @@ final class CloudTreeCellView: NSTableCellView {
         NSLayoutConstraint.activate([
             host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
             top,
-            displayHost.trailingAnchor.constraint(lessThanOrEqualTo: host.leadingAnchor, constant: -CloudTreeRowGrid.trailingGap),
         ])
+        buttonsLeadingConstraint = displayHost.trailingAnchor.constraint(
+            lessThanOrEqualTo: host.leadingAnchor,
+            constant: -CloudTreeRowGrid.trailingGap
+        )
         buttonsTopConstraint = top
         buttonsCenterConstraint = center
         buttonsHost = host

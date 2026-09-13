@@ -93,7 +93,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// `requiredVersion` is the channel-specific minimum to name in copy.
     case macAppVersionTooOld(
         macVersion: String?,
-        requiredVersion: String,
+        requiredVersion: String?,
         isNightlyChannel: Bool
     )
     /// The pairing code carried only an untrusted manual route that cannot carry
@@ -368,6 +368,12 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Update cmux on this Mac to connect securely."
             )
         case let .macAppVersionTooOld(macVersion, requiredVersion, isNightlyChannel):
+            guard let requiredVersion else {
+                return L10n.string(
+                    "mobile.pairing.guidance.macUpdateRequired",
+                    defaultValue: "Update cmux on this Mac to connect securely."
+                )
+            }
             // Product-neutral copy on every channel: versions carry no internal
             // lane vocabulary, so there is no separate official variant.
             if isNightlyChannel {

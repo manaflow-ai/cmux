@@ -57,6 +57,8 @@ final class CloudTreeNode: NSObject {
         case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
+        /// Port discovery is demand-driven when the user opens the Ports group.
+        var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
 
     let id: String
@@ -73,7 +75,9 @@ final class CloudTreeNode: NSObject {
     }
 
     var isExpandable: Bool { !children.isEmpty }
-
+    var contentSnapshot: CloudTreeNodeContentSnapshot {
+        .init(id: id, kind: kind, explicitDragGroup: explicitDragGroup)
+    }
     /// The case of `kind` without its payload: what decides row height, menus,
     /// expandability and drag-ability. Two trees with equal structure signatures
     /// can be updated in place; a content-only change never needs `reloadData`.
@@ -96,7 +100,6 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         }
     }
-
     /// Copies the values of an equal-structure rebuild into this node (NSOutlineView keeps
     /// the object it was handed; updating it in place keeps rows, expansion and the
     /// selection untouched). Children are adopted pairwise — callers guarantee the
@@ -108,7 +111,6 @@ final class CloudTreeNode: NSObject {
             child.adopt(from: replacement)
         }
     }
-
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
@@ -264,7 +266,7 @@ struct CloudTreeTerminalRow: Equatable {
         if let name = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
         }
-        return resource.title
+        return resource.machine.isLocal ? resource.title : (remoteView == nil ? resource.cloudPoolDisplayTitle : resource.cloudProcessDisplayTitle)
     }
 
     /// True when no daemon tab currently contains this terminal.
@@ -881,10 +883,8 @@ enum CloudTreeNodeBuilder {
         return children
     }
 
-    /// The Workspaces group is a placement projection of the daemon graph. A
-    /// resource can appear once for every exact tab view, while an empty workspace
-    /// still gets a row from machine info. This is the sole tree construction path
-    /// for workspace rows, so ordering and rename identity cannot diverge.
+    /// Builds every nonempty Cloud workspace from its actual layout members.
+    /// Empty daemon records remain available to lookup and persistence.
     private static func workspacesGroupNode(
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
@@ -912,7 +912,7 @@ enum CloudTreeNodeBuilder {
             rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
@@ -961,7 +961,7 @@ enum CloudTreeNodeBuilder {
                 dragGroup: SurfaceResourceGroup(
                     title: workspace.name,
                     placements: orderedRealPlacements,
-                    remoteWorkspaceID: workspace.id
+                    remoteWorkspaceID: workspace.id, representsWorkspace: true
                 )
             )
         }
@@ -1166,8 +1166,7 @@ enum CloudTreeNodeBuilder {
         )
     }
 
-    /// Depth-first flattening in display order (every node expanded); used by
-    /// tests and by quick-search.
+    /// Depth-first display order, including collapsed descendants.
     static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
         nodes.flatMap { [$0] + flattened($0.children) }
     }
@@ -1177,9 +1176,8 @@ enum CloudTreeNodeBuilder {
         flattened(nodes).map { "\($0.id)|\($0.structureTag)|\($0.children.count)" }
     }
 
-    /// Everything a row displays — a change here with an equal structure signature is
-    /// applied to the existing rows in place.
-    static func contentSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\(String(describing: $0.kind))|\(String(describing: $0.dragGroup))" }
+    /// Typed content includes action payloads as well as displayed values.
+    static func contentSignature(_ nodes: [CloudTreeNode]) -> [CloudTreeNodeContentSnapshot] {
+        flattened(nodes).map(\.contentSnapshot)
     }
 }

@@ -2,9 +2,6 @@ import AppKit
 import Foundation
 
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
-/// Bound once above the outline (never a store below it). Every open verb is
-/// `SurfaceCatalog.project` — the same path the socket and `cmux vm open` use —
-/// so a row, a drop, and the CLI cannot disagree about what "open" means.
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
@@ -48,12 +45,13 @@ struct CloudTreeNodeActions {
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
-    /// Copy a link that works from any app on this Mac for a machine port: the
-    /// loopback forward over the user-space hub, started if needed. The private
-    /// address is only reachable with `cmux vpn up`, so it is not what "Copy
-    /// Link" hands out.
+    /// Copy the machine port's private URL without changing network state.
+    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    /// Navigates a nested terminal through its owning Cloud workspace.
+    var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
     @MainActor
     static func bound(
@@ -63,19 +61,23 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
-        refresh: @escaping @MainActor () -> Void
+        refresh: @escaping @MainActor () -> Void,
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
+        @discardableResult
+        func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) -> Task<Void, Never> {
             onWillMutate(label)
-            Task { @MainActor in
+            return Task { @MainActor in
+                defer { onDidMutate() }
                 do {
-                    try await operation(catalog())
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
                 } catch {
-                    // Human wording first: the panel now shows this text inline, and a
-                    // raw enum dump ("noProvider(cloud(\"m\"))") explains nothing there.
                     onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
                 }
-                onDidMutate()
             }
         }
         func destination(_ placement: SurfacePlacement) throws -> SurfaceDestination {
@@ -84,9 +86,6 @@ struct CloudTreeNodeActions {
             }
             return .workspace(id: workspaceID, placement: placement)
         }
-        // `catalog()` is a plain synchronous accessor, so resolving the
-        // machine's real name is safe here even though the mutation itself
-        // runs on a later Task.
         let machineName: (SurfaceMachineID) -> String = { machine in
             Self.resolvedMachineName(machine, snapshot: catalog().snapshot)
         }
@@ -96,7 +95,7 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
-        return CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
                 // Row selection and refresh notifications can otherwise change the
@@ -200,6 +199,8 @@ struct CloudTreeNodeActions {
             newTerminal: { machine, remoteWorkspaceID in
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                    let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
+                    defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
@@ -264,8 +265,6 @@ struct CloudTreeNodeActions {
                 } else {
                     run(openingLabel(machine)) { catalog in
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
-                        // Clicking a workspace row opens its layout: the machine screen's
-                        // splits, ratios and tabs, when the daemon reports them (nil → grid).
                         let layout: SurfaceProjectionLayout? = if let remoteWorkspaceID = routedGroup.remoteWorkspaceID {
                             await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: remoteWorkspaceID, catalog: catalog)
                         } else {
@@ -364,6 +363,14 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.refreshMachine = refreshMachine
+        let navigation = CloudTreeTerminalNavigationCoordinator(
+            machineName: machineName,
+            run: run,
+            operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
+        )
+        actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
+        return actions
     }
 
     /// The local workspace's title: the remote workspace's own name — what a

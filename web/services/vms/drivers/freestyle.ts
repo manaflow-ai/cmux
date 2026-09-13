@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
   type AttachTransport,
@@ -56,7 +57,10 @@ import {
   cmuxTuiAttachBundleCommand,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand,
+  cmuxTuiAgentHooksInstallCommand,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
@@ -628,6 +632,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
       "cmux.vm.provider.ensure_network",
+      "tunnel",
       { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug, "cmux.vm.network.heal": options.heal === true },
         async (span) => {
         const fs = this.client();
@@ -692,6 +697,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
     return withVmSpan(
       "cmux.vm.provider.create_tunnel",
+      "tunnel",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create_tunnel",
@@ -910,6 +916,7 @@ export class FreestyleProvider implements VMProvider {
     const tlsRules = freestyleEdgeRules(options.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.create",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create",
@@ -958,7 +965,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
@@ -1025,6 +1032,7 @@ export class FreestyleProvider implements VMProvider {
   async destroy(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.destroy",
+      "provider",
       spanAttributes(vmId, "destroy"),
       async () => {
         try {
@@ -1040,6 +1048,7 @@ export class FreestyleProvider implements VMProvider {
   async getStatus(vmId: string): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
+      "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
@@ -1059,6 +1068,7 @@ export class FreestyleProvider implements VMProvider {
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.pause",
+      "provider",
       spanAttributes(vmId, "pause"),
       async () => {
         try {
@@ -1073,6 +1083,7 @@ export class FreestyleProvider implements VMProvider {
   async resume(vmId: string): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
+      "provider",
       spanAttributes(vmId, "resume"),
       async (span) => {
         try {
@@ -1132,6 +1143,7 @@ export class FreestyleProvider implements VMProvider {
     const timeoutMs = normalizeFreestyleExecTimeout(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",
+      "provider",
       spanAttributes(vmId, "exec", {
         "cmux.command_length": command.length,
         "cmux.timeout_ms": timeoutMs,
@@ -1142,7 +1154,7 @@ export class FreestyleProvider implements VMProvider {
           const vm = fs.vms.ref(vmId);
           const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
           const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
-          if (current?.exitCode !== 0) await this.installGuestCli(vm);
+          if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1159,6 +1171,7 @@ export class FreestyleProvider implements VMProvider {
   async getStats(vmId: string): Promise<VMStats> {
     return withVmSpan(
       "cmux.vm.provider.get_stats",
+      "provider",
       spanAttributes(vmId, "getStats"),
       async () => {
         try {
@@ -1184,6 +1197,7 @@ export class FreestyleProvider implements VMProvider {
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.resize",
+      "provider",
       spanAttributes(vmId, "resize", {
         "cmux.vm.resize.storage_mb": options.storageMb ?? 0,
       }),
@@ -1207,6 +1221,7 @@ export class FreestyleProvider implements VMProvider {
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
     return withVmSpan(
       "cmux.vm.provider.snapshot",
+      "provider",
       spanAttributes(vmId, "snapshot", {
         "cmux.snapshot.named": !!name,
         "cmux.timeout_ms": SNAPSHOT_TIMEOUT_MS,
@@ -1231,6 +1246,7 @@ export class FreestyleProvider implements VMProvider {
   async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
     return withVmSpan(
       "cmux.vm.provider.list_snapshots",
+      "provider",
       spanAttributes(vmId, "listSnapshots"),
       async (span) => {
         try {
@@ -1258,6 +1274,7 @@ export class FreestyleProvider implements VMProvider {
   async deleteSnapshot(vmId: string, snapshotId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.delete_snapshot",
+      "provider",
       spanAttributes(vmId, "deleteSnapshot", { "cmux.snapshot.id": snapshotId }),
       async () => {
         try {
@@ -1280,6 +1297,7 @@ export class FreestyleProvider implements VMProvider {
     const tlsRules = freestyleEdgeRules(options?.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.restore",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "restore",
@@ -1311,7 +1329,7 @@ export class FreestyleProvider implements VMProvider {
           // remains best-effort for a transient resume race. The new machine's
           // edge rule is supplied inline, so its route is still fail-closed.
           try {
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId);
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
@@ -1341,6 +1359,7 @@ export class FreestyleProvider implements VMProvider {
   async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_cmux_remote",
+      "tunnel",
       spanAttributes(vmId, "open_cmux_remote"),
       // oxlint-disable-next-line complexity -- Attach healing must preserve readiness, enrollment, and route-token ordering.
       async (span) => {
@@ -1375,6 +1394,13 @@ export class FreestyleProvider implements VMProvider {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
             bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+          }
+          if (!healed && bundleResult?.exitCode === 0) {
+            // The healthy fast path skips the heal, so this is where a machine
+            // that predates hook installation gets its Claude Code and Codex
+            // hooks (best effort inside).
+            await this.ensureAgentHooks(vm, vmId);
+            await this.ensureResourceReporter(vm, vmId);
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1459,6 +1485,7 @@ export class FreestyleProvider implements VMProvider {
     void options;
     return withVmSpan(
       "cmux.vm.provider.approve_cmux_remote_enrollment",
+      "provider",
       spanAttributes(vmId, "approve_cmux_remote_enrollment"),
       async () => {
         try {
@@ -1485,6 +1512,7 @@ export class FreestyleProvider implements VMProvider {
   async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
     return withVmSpan(
       "cmux.vm.provider.open_port",
+      "provider",
       spanAttributes(vmId, "open_port", { "cmux.vm.port": port }),
       async (span) => {
         if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_TUI_PORT) {
@@ -1528,6 +1556,7 @@ export class FreestyleProvider implements VMProvider {
   async revokeEndpointLeases(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.revoke_endpoint_leases",
+      "provider",
       spanAttributes(vmId, "revoke_endpoint_leases"),
       async () => {
         const fs = this.deps.client();
@@ -1553,9 +1582,12 @@ export class FreestyleProvider implements VMProvider {
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string, installGuestCli = true): Promise<void> {
     // Keep the shim present even when the baked daemon is already healthy.
-    if (installGuestCli) await this.installGuestCli(vm);
+    if (installGuestCli) await this.installGuestCli(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
-    if (healthy?.exitCode === 0) return;
+    if (healthy?.exitCode === 0) {
+      await this.ensureAgentHooks(vm, vmId);
+      return;
+    }
     const source = await this.deps.resolveDaemonSource("freestyle");
     const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
     if (pinned?.exitCode !== 0) {
@@ -1566,6 +1598,52 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+    // A repaired daemon whose binary was still pinned skipped the install
+    // (and with it the hooks); a resumed machine lands here while its
+    // supervisor re-keys the daemon. Same idempotent check as the healthy path.
+    await this.ensureAgentHooks(vm, vmId);
+  }
+
+  /**
+   * A healthy daemon from a bake or create that predates hook installation
+   * has no Claude Code / Codex hooks, so its agents never post turn-completed
+   * or approval notifications. Install them for the daemon's own commit (the
+   * pin file the bake wrote, else the live pin the create used), the helper
+   * beside the binary so the two never disagree in generation. The daemon
+   * keeps running: it already exports CMUX_TUI_HOOK into every pane, and
+   * agents read hooks at their next launch.
+   */
+  private async ensureAgentHooks(vm: Vm, vmId: string): Promise<void> {
+    // Best effort throughout: a hook failure is logged and never costs the
+    // attach or the heal that called it.
+    try {
+      await this.installAgentHooks(vm, vmId);
+    } catch (err) {
+      console.warn(`[freestyle] ${vmId}: agent hooks not installed: ${errorMessage(err)}`);
+    }
+  }
+
+  private async installAgentHooks(vm: Vm, vmId: string): Promise<void> {
+    const ready = await this.execResult(vm, cmuxTuiHooksReadyCommand());
+    if (ready?.exitCode === 0) return;
+    const pin = await this.execResult(vm, "cut -d' ' -f2 /etc/cmux/cmux-tui-pin 2>/dev/null");
+    const commit = pin?.exitCode === 0 ? pin.stdout.trim() : "";
+    // A pinned build published before the helper shipped throws here: the
+    // daemon is left as it is rather than paired with a helper from another
+    // generation.
+    const source = /^[0-9a-f]{40}$/.test(commit)
+      ? await this.deps.resolveDaemonSource("freestyle", cmuxTuiPinnedManifestUrl(commit))
+      : await this.deps.resolveDaemonSource("freestyle");
+    await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+  }
+
+  /** Advisory telemetry must not prevent the machine or its CLI from working. */
+  private async ensureResourceReporter(vm: Vm, vmId: string): Promise<void> {
+    try {
+      await this.execOrThrow(vm, vmId, guestResourceReporterInstallCommand(), 5_000);
+    } catch (error) {
+      console.warn(`[freestyle] ${vmId}: resource reporter not installed: ${errorMessage(error)}`);
+    }
   }
 
   /**
@@ -1575,7 +1653,7 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm): Promise<void> {
+  private async installGuestCli(vm: Vm, vmId: string): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
@@ -1592,6 +1670,7 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
+    await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
