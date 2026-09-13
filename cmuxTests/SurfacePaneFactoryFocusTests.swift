@@ -100,6 +100,7 @@ import Testing
         let catalog = SurfaceCatalog.shared
         catalog.register(provider)
         defer { catalog.unregister(machine: machine) }
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-failure", name: "failure", index: 0, focused: true)
 
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
@@ -107,7 +108,8 @@ import Testing
             detail: "/remote/home",
             lifecycle: .running,
             agent: nil,
-            remoteWorkspace: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-failure", workspace: remoteWorkspace)],
             port: nil,
             url: nil
         )
@@ -115,7 +117,9 @@ import Testing
         catalog.record(SurfaceProjection(
             resource: resource.id,
             workspaceID: workspace.id,
-            panelID: sourcePanelID
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-failure"
         ))
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
