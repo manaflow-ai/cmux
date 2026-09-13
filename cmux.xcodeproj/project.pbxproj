@@ -232,6 +232,7 @@
 		A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
 		D77690000000000000000001 /* AppDelegate+MultiWindowNotificationUITestFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */; };
+		E688474283CE6DF3742B2682 /* AppDelegate+NewCloudWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */; };
 		A5FB1301 /* AppDelegate+NewWorkspaceContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */; };
 		C0DE77060000000000000001 /* AppDelegate+NewWorkspaceMenuRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */; };
 		737100000000000000000003 /* AppDelegate+NonInteractiveWindowClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */; };
@@ -859,9 +860,12 @@
 		05FCD63D10A4F9C56B683B5A /* CloudWireGuardHubProcessSpawner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C68DA526C0C2D39FE217B6 /* CloudWireGuardHubProcessSpawner.swift */; };
 		1E23CF0E5CE10BA3913DCEFA /* CloudWireGuardHubSocketReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AD6858EA2C504C53360CE36 /* CloudWireGuardHubSocketReadiness.swift */; };
 		62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */; };
+		826E2F85AF36405A9A358B50 /* CloudWorkspaceDestinationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */; };
+		5D999EE2FD784319A73C3945 /* CloudWorkspaceGroupDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = 097212CF5CB04F3B8D671C46 /* CloudWorkspaceGroupDestination.swift */; };
 		0B2534A7872AF46D59819D49 /* CloudWorkspaceLayoutTranslator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */; };
 		341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */; };
 		4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */; };
+		15E5F36E592C4D2894AF93CF /* CloudWorkspaceOperationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		9758A0029758A0029758A002 /* cmux-amp-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = 9758A0019758A0019758A001 /* cmux-amp-wrapper */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
@@ -888,6 +892,7 @@
 		8295A0018295A0018295A001 /* CmuxAlertContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0028295A0028295A002 /* CmuxAlertContent.swift */; };
 		8295A0058295A0058295A005 /* CmuxAlertContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0068295A0068295A006 /* CmuxAlertContentTests.swift */; };
 		8295A0038295A0038295A003 /* CmuxAlertScrollableDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0048295A0048295A004 /* CmuxAlertScrollableDetailsView.swift */; };
+		3F4F74BE5EBF4B51B8E64AB6 /* cmuxApp+CloudWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DF23874CA9E46EFB0708B3D /* cmuxApp+CloudWorkspace.swift */; };
 		E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */; };
 		C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */; };
 		875200000000000000000012 /* cmuxApp+SurfaceNavigationMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */; };
@@ -1042,6 +1047,8 @@
 		C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */; };
 		C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6495000000000000000C /* CMUXCLISessionsListTranscriptPidTests.swift */; };
 		C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */; };
+		5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
+		F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
@@ -1097,6 +1104,7 @@
 		1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */; };
 		1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132112 /* CmuxIrxTransport */; };
 		E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */; };
+		C12289000000000000000001 /* CmuxMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12289000000000000000002 /* CmuxMain.swift */; };
 		2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C07000000000000000001 /* CmuxMainWindow.swift */; };
 		D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */; };
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
@@ -2018,12 +2026,14 @@
 		A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */; };
 		7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
+		5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */; };
 		5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */; };
 		D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */; };
 		EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70D01FA1A02DF947CEAEA499 /* NewMachineModelUncappedPlanTests.swift */; };
 		DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3770734999CDCF396F04F32 /* NewMachineSheet.swift */; };
 		C0DE1223900000000000000B /* NewMachineSheetKindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1223900000000000000A /* NewMachineSheetKindUITests.swift */; };
 		548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */; };
+		44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */; };
 		A1122301A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
@@ -3878,6 +3888,7 @@
 		A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MonitorMemory.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+MultiWindowNotificationUITestFixture.swift"; sourceTree = "<group>"; };
+		AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewCloudWorkspace.swift"; sourceTree = "<group>"; };
 		A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceContextMenu.swift"; sourceTree = "<group>"; };
 		C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceMenuRendering.swift"; sourceTree = "<group>"; };
 		737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NonInteractiveWindowClose.swift"; sourceTree = "<group>"; };
@@ -4493,9 +4504,12 @@
 		20C68DA526C0C2D39FE217B6 /* CloudWireGuardHubProcessSpawner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubProcessSpawner.swift; sourceTree = "<group>"; };
 		5AD6858EA2C504C53360CE36 /* CloudWireGuardHubSocketReadiness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubSocketReadiness.swift; sourceTree = "<group>"; };
 		C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubTests.swift; sourceTree = "<group>"; };
+		0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceDestinationTests.swift; sourceTree = "<group>"; };
+		097212CF5CB04F3B8D671C46 /* CloudWorkspaceGroupDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceGroupDestination.swift"; sourceTree = "<group>"; };
 		183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslator.swift; sourceTree = "<group>"; };
 		FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceLayoutTranslatorTests.swift; sourceTree = "<group>"; };
 		F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceMembershipTests.swift; sourceTree = "<group>"; };
+		7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceOperationController.swift"; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		9758A0019758A0019758A001 /* cmux-amp-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-amp-wrapper"; sourceTree = SOURCE_ROOT; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -4517,6 +4531,7 @@
 		8295A0028295A0028295A002 /* CmuxAlertContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAlertContent.swift; sourceTree = "<group>"; };
 		8295A0068295A0068295A006 /* CmuxAlertContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAlertContentTests.swift; sourceTree = "<group>"; };
 		8295A0048295A0048295A004 /* CmuxAlertScrollableDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxAlertScrollableDetailsView.swift; sourceTree = "<group>"; };
+		1DF23874CA9E46EFB0708B3D /* cmuxApp+CloudWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+CloudWorkspace.swift"; sourceTree = "<group>"; };
 		E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+EqualizeSplitsMenu.swift"; sourceTree = "<group>"; };
 		C4160A010000000000000002 /* cmuxApp+HistoryMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+HistoryMenu.swift"; sourceTree = "<group>"; };
 		875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+SurfaceNavigationMenu.swift"; sourceTree = "<group>"; };
@@ -4690,6 +4705,7 @@
 		A11C00040000000000000002 /* CmuxHostedSystemSymbolImageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxHostedSystemSymbolImageTests.swift; sourceTree = "<group>"; };
 		C0DE46010000000000000002 /* CMUXInstalledExtensionSidebarHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXInstalledExtensionSidebarHostView.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxLifecycleEventPublishing.swift; sourceTree = "<group>"; };
+		C12289000000000000000002 /* CmuxMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMain.swift; sourceTree = "<group>"; };
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		D36090010000000000000006 /* CmuxMainWindowConstrainFrameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowConstrainFrameTests.swift; sourceTree = "<group>"; };
 		D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxMainWindowFullScreenCapabilityTests.swift; sourceTree = "<group>"; };
@@ -5553,12 +5569,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NativeTextSurfaceSelectionReader.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkExtensionTunnelController.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
+		C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCloudWorkspaceShortcutTests.swift"; sourceTree = "<group>"; };
 		751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModel.swift; sourceTree = "<group>"; };
 		5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelTests.swift; sourceTree = "<group>"; };
 		70D01FA1A02DF947CEAEA499 /* NewMachineModelUncappedPlanTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelUncappedPlanTests.swift; sourceTree = "<group>"; };
 		D3770734999CDCF396F04F32 /* NewMachineSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineSheet.swift; sourceTree = "<group>"; };
 		C0DE1223900000000000000A /* NewMachineSheetKindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewMachineSheetKindUITests.swift; sourceTree = "<group>"; };
 		7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineSheetPresenter.swift; sourceTree = "<group>"; };
+		28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewMachineSheetPresenting.swift"; sourceTree = "<group>"; };
 		A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceButtonHitAreaUITests.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
@@ -7095,6 +7113,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */,
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
+				5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A3 /* CmuxCore in Frameworks */,
@@ -7162,6 +7181,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			files = (
 				A77A0004A1B2C3D4E5F60001 /* CmuxAgentJournal in Frameworks */,
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
+				F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */,
 				C79470010000000000000005 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A5 /* CmuxCore in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
@@ -7548,6 +7568,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */,
 				C11324720000000000000001 /* CloudTuiResolvedSurface.swift */,
 				7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */,
+				28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */,
+				097212CF5CB04F3B8D671C46 /* CloudWorkspaceGroupDestination.swift */,
+				7C2B9391A62B4D0E8AC7575F /* CloudWorkspaceOperationController.swift */,
 				D3770734999CDCF396F04F32 /* NewMachineSheet.swift */,
 				751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */,
 				7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */,
@@ -7717,6 +7740,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				C97160000000000000000002 /* AppHostProcessReceipt.swift */,
 				A5001011 /* cmuxApp.swift */,
+				C12289000000000000000002 /* CmuxMain.swift */,
 				875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */,
 				C51A73000000000000000014 /* CmuxWorkerEntrypoint.swift */,
 				80410000000000000000000E /* cmuxApp+WorkspaceCommandHelpers.swift */,
@@ -8849,6 +8873,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1208 /* AppDelegate+WorkspaceActionSave.swift */,
 				A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */,
 				A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */,
+				AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */,
+				1DF23874CA9E46EFB0708B3D /* cmuxApp+CloudWorkspace.swift */,
 				C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */,
 				737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */,
 				C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */,
@@ -10651,6 +10677,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7D41E02 /* WorkspaceActionSaveDialogAccessoryTests.swift */,
 				A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */,
 				A5FB1401 /* NewWorkspaceMenuModelTests.swift */,
+				C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */,
+				0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */,
 				A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */,
 				E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */,
 				FE002012 /* FileExplorerGitStatusProviderTests.swift */,
@@ -10832,6 +10860,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			name = cmux;
 			packageProductDependencies = (
+				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				A5001231 /* Sparkle */,
 				A5001271 /* PostHog */,
 				A5001261 /* Bonsplit */,
@@ -10975,6 +11004,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
+				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
 				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
@@ -11069,6 +11099,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			);
 			mainGroup = A5001040;
 			packageReferences = (
+				3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */,
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
@@ -11531,6 +11562,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */,
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,
 				D77690000000000000000001 /* AppDelegate+MultiWindowNotificationUITestFixture.swift in Sources */,
+				E688474283CE6DF3742B2682 /* AppDelegate+NewCloudWorkspace.swift in Sources */,
 				A5FB1301 /* AppDelegate+NewWorkspaceContextMenu.swift in Sources */,
 				C0DE77060000000000000001 /* AppDelegate+NewWorkspaceMenuRendering.swift in Sources */,
 				737100000000000000000003 /* AppDelegate+NonInteractiveWindowClose.swift in Sources */,
@@ -11922,11 +11954,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000710 /* CloudWireGuardHubDialer.swift in Sources */,
 				05FCD63D10A4F9C56B683B5A /* CloudWireGuardHubProcessSpawner.swift in Sources */,
 				1E23CF0E5CE10BA3913DCEFA /* CloudWireGuardHubSocketReadiness.swift in Sources */,
+				5D999EE2FD784319A73C3945 /* CloudWorkspaceGroupDestination.swift in Sources */,
 				0B2534A7872AF46D59819D49 /* CloudWorkspaceLayoutTranslator.swift in Sources */,
+				15E5F36E592C4D2894AF93CF /* CloudWorkspaceOperationController.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,
 				8295A0018295A0018295A001 /* CmuxAlertContent.swift in Sources */,
 				8295A0038295A0038295A003 /* CmuxAlertScrollableDetailsView.swift in Sources */,
+				3F4F74BE5EBF4B51B8E64AB6 /* cmuxApp+CloudWorkspace.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C4160A010000000000000001 /* cmuxApp+HistoryMenu.swift in Sources */,
 				875200000000000000000012 /* cmuxApp+SurfaceNavigationMenu.swift in Sources */,
@@ -11953,6 +11988,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A11C00010000000000000001 /* CmuxHostedSystemSymbolImage.swift in Sources */,
 				C0DE46010000000000000001 /* CMUXInstalledExtensionSidebarHostView.swift in Sources */,
 				E7E00000000000000000000B /* CmuxLifecycleEventPublishing.swift in Sources */,
+				C12289000000000000000001 /* CmuxMain.swift in Sources */,
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				CA1F0A01CA1F0A01CA1F0A01 /* CmuxModalAlertPresentation.swift in Sources */,
 				C54860110000000000000001 /* CmuxNavigationResolution.swift in Sources */,
@@ -12541,6 +12577,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */,
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */,
+				44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
@@ -14165,6 +14202,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				2D7F228001C24ABD865AFD66 /* CloudVMStateSnapshotComparisonTests.swift in Sources */,
 				C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */,
 				62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */,
+				826E2F85AF36405A9A358B50 /* CloudWorkspaceDestinationTests.swift in Sources */,
 				341E0463C183CD4C0CB655DE /* CloudWorkspaceLayoutTranslatorTests.swift in Sources */,
 				4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */,
 				C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */,
@@ -14419,6 +14457,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
+				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,
 				D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */,
 				EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */,
 				A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */,
@@ -15544,6 +15583,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = vendor/WireGuardKit;
 		};
+		3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/macOS/CmuxCloudMachines; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -15946,6 +15986,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			package = 7A0CE1000000000000000065 /* XCLocalSwiftPackageReference "WireGuardKit" */;
 			productName = WireGuardKit;
 		};
+		79E4513469FB44C7A3690415 /* CmuxCloudMachines */ = {isa = XCSwiftPackageProductDependency; package = 3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */; productName = CmuxCloudMachines; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A5001070 /* Project object */;

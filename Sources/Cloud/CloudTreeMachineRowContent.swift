@@ -21,6 +21,12 @@ struct CloudTreeMachineRowContent: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                        if machine.isDefault {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                        }
                         if let fact = Self.inlineFact(machine, style: style) {
                             Text(fact)
                                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
@@ -51,8 +57,11 @@ struct CloudTreeMachineRowContent: View {
     }
 
     static func accessibilityLabel(_ machine: MachineSnapshot) -> String {
-        [machine.displayName, machine.activityLabel, CloudTreeMachineResources(machine: machine).summary]
-            .joined(separator: ", ")
+        var parts = [machine.displayName, machine.activityLabel, CloudTreeMachineResources(machine: machine).summary]
+        if machine.isDefault {
+            parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+        }
+        return parts.joined(separator: ", ")
     }
 
     static func toolTip(_ machine: MachineSnapshot) -> String {
