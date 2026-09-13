@@ -18,6 +18,12 @@ struct CloudTreeLayoutMetricsTests {
         #expect(metrics.documentWidth(viewportWidth: -1) == 0)
     }
 
+    @Test("document height stays usable before rows load")
+    func documentHeightTracksViewport() {
+        #expect(metrics.documentHeight(viewportHeight: 300, existingHeight: 0) == 300)
+        #expect(metrics.documentHeight(viewportHeight: 300, existingHeight: 520) == 520)
+    }
+
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
         #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)

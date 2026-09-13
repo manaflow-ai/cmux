@@ -56,6 +56,7 @@ struct CloudTreeWorkspaceTitleLayoutTests {
                 return
             }
             #expect(abs(outline.frame.width - scroll.contentView.bounds.width) <= 0.5)
+            #expect(outline.frame.height >= scroll.contentView.bounds.height - 0.5)
         }
     }
 }
