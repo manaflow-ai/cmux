@@ -977,14 +977,24 @@ extension TerminalController {
                 explicitWorkspaceID = explicit
             }
             if v2HasNonNullParam(params, "pane_id") {
-                guard let paneID = v2UUID(params, "pane_id"),
-                      let located = v2MainSync({ self.v2LocatePane(paneID) }) else {
+                guard let paneID = v2UUID(params, "pane_id") else {
                     return nil
                 }
-                if let explicitWorkspaceID, explicitWorkspaceID != located.workspace.id {
+                let locatedWorkspaceID = v2MainSync { () -> UUID? in
+                    if let explicitWorkspaceID {
+                        let workspace = self.tabManager?.tabs.first(where: { $0.id == explicitWorkspaceID })
+                            ?? AppDelegate.shared?.tabManagerFor(tabId: explicitWorkspaceID)?.tabs.first(where: { $0.id == explicitWorkspaceID })
+                        return workspace?.bonsplitController.allPaneIds.contains(where: { $0.id == paneID }) == true
+                            ? explicitWorkspaceID
+                            : nil
+                    }
+                    return self.v2LocatePane(paneID)?.workspace.id
+                }
+                guard let locatedWorkspaceID else { return nil }
+                if let explicitWorkspaceID, explicitWorkspaceID != locatedWorkspaceID {
                     return nil
                 }
-                explicitWorkspaceID = located.workspace.id
+                explicitWorkspaceID = locatedWorkspaceID
             }
             if v2HasNonNullParam(params, "surface_id") {
                 guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
