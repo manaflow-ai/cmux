@@ -524157,6 +524157,20 @@
         }
       }
     },
+    "cloud.ports.vpnOff.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set Up VPN…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "VPN einrichten…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Configurer le VPN…" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إعداد VPN…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Configurar VPN…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定 VPN…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置 VPN…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "VPN 설정…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "VPN を設定…" } }
+      }
+    },
     "cloud.ports.vpnOff.explanation": {
       "extractionState": "manual",
       "localizations": {

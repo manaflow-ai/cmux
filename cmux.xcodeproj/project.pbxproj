@@ -945,6 +945,7 @@
 		C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */; };
 		73678AB2B787782A11CFB916 /* CloudVPNRowHeightRecordingOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F6AA633EBFB926590ACC01 /* CloudVPNRowHeightRecordingOutline.swift */; };
 		A629A83F7355025B4DD7D90B /* CloudVPNRowHeightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38F578B90DA7AF04FC82007 /* CloudVPNRowHeightTests.swift */; };
+		C12539010000000000000001 /* CloudTreeGroupRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12539010000000000000002 /* CloudTreeGroupRowContent.swift */; };
 		C12489020000000000000001 /* CloudVPNSetupButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12489020000000000000002 /* CloudVPNSetupButton.swift */; };
 		FA180397F33FBA8B9015B562 /* CloudVPNSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3055A839520F46C3C7FCD198 /* CloudVPNSetupModel.swift */; };
 		3B2D0608A8C4D5074BEA96BF /* CloudVPNSetupNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC5EDA83C23FE7F82363DC7 /* CloudVPNSetupNavigation.swift */; };
@@ -4769,6 +4770,7 @@
 		C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNExplicitActivationTests.swift; sourceTree = "<group>"; };
 		A7F6AA633EBFB926590ACC01 /* CloudVPNRowHeightRecordingOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNRowHeightRecordingOutline.swift"; sourceTree = "<group>"; };
 		C38F578B90DA7AF04FC82007 /* CloudVPNRowHeightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNRowHeightTests.swift"; sourceTree = "<group>"; };
+		C12539010000000000000002 /* CloudTreeGroupRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeGroupRowContent.swift; sourceTree = "<group>"; };
 		C12489020000000000000002 /* CloudVPNSetupButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupButton.swift; sourceTree = "<group>"; };
 		3055A839520F46C3C7FCD198 /* CloudVPNSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Cloud/Tunnel/CloudVPNSetupModel.swift"; sourceTree = "<group>"; };
 		9CC5EDA83C23FE7F82363DC7 /* CloudVPNSetupNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Tunnel/CloudVPNSetupNavigation.swift"; sourceTree = "<group>"; };
@@ -8060,6 +8062,7 @@
 				D0F2A0000000000000000006 /* CloudBannerDismissal.swift */,
 				D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */,
 				C12489010000000000000002 /* CloudPortsVPNEmptyStateContent.swift */,
+				C12539010000000000000002 /* CloudTreeGroupRowContent.swift */,
 				C12489020000000000000002 /* CloudVPNSetupButton.swift */,
 				C12489040000000000000002 /* CloudTreeNode+CloudVPN.swift */,
 				C12489050000000000000002 /* CloudTreeOutlineView+CloudVPN.swift */,
@@ -12556,6 +12559,7 @@
 				C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */,
 				2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */,
 				E34036E08961479A9D9BF649 /* CloudVMTabState.swift in Sources */,
+				C12539010000000000000001 /* CloudTreeGroupRowContent.swift in Sources */,
 				C12489020000000000000001 /* CloudVPNSetupButton.swift in Sources */,
 				FA180397F33FBA8B9015B562 /* CloudVPNSetupModel.swift in Sources */,
 				3B2D0608A8C4D5074BEA96BF /* CloudVPNSetupNavigation.swift in Sources */,
