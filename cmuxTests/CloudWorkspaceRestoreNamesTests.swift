@@ -9,6 +9,56 @@ import Testing
 
 @MainActor
 struct CloudWorkspaceRestoreNamesTests {
+    private struct RenameFailure: Error {}
+
+    @Test("Checkpoint waits for the latest workspace and placement names, including clears")
+    func checkpointWaitsForNames() async throws {
+        let machine = SurfaceMachineID.cloud("checkpoint")
+        let coordinator = CloudRenameCoordinator()
+        var persisted = ["workspace": "Old", "build": "Old build", "logs": "Old logs"]
+        for (key, name) in [("workspace", "API – 東京 🚀"), ("build", "Build & test"), ("logs", "")] {
+            let identity = key == "workspace"
+                ? CloudRenameCoordinator.Key.workspace(machine: machine, id: key)
+                : CloudRenameCoordinator.Key.tab(machine: machine, id: key)
+            coordinator.enqueue(key: identity, pendingName: name) { persisted[key] = name }
+        }
+        try await coordinator.waitForPendingRenames(on: machine)
+        let bytes = try JSONEncoder().encode(persisted)
+        let checkpoint = try JSONDecoder().decode([String: String].self, from: bytes)
+        #expect(checkpoint == ["workspace": "API – 東京 🚀", "build": "Build & test", "logs": ""])
+    }
+
+    @Test("A successful terminal rename cannot hide a failed workspace rename from a checkpoint")
+    func checkpointRejectsFailedName() async {
+        let machine = SurfaceMachineID.cloud("checkpoint")
+        let coordinator = CloudRenameCoordinator()
+        let workspace = coordinator.enqueue(key: .workspace(machine: machine, id: "ws"), pendingName: "New") {
+            throw RenameFailure()
+        }
+        let terminal = coordinator.enqueue(key: .tab(machine: machine, id: "tab"), pendingName: "Build") {}
+        await #expect(throws: RenameFailure.self) { try await coordinator.waitForPendingRenames(on: machine) }
+        _ = await workspace.result
+        _ = await terminal.result
+    }
+
+    @Test("A corrected name supersedes its failed predecessor and unrelated machines do not block capture")
+    func checkpointUsesLatestIntentPerIdentity() async throws {
+        let machine = SurfaceMachineID.cloud("checkpoint")
+        let coordinator = CloudRenameCoordinator()
+        let unrelated = coordinator.enqueue(key: .workspace(machine: .cloud("other"), id: "ws"), pendingName: "Other") {
+            throw RenameFailure()
+        }
+        let first = coordinator.enqueue(key: .workspace(machine: machine, id: "ws"), pendingName: "Failed") {
+            throw RenameFailure()
+        }
+        var savedName = "Old"
+        coordinator.enqueue(key: .workspace(machine: machine, id: "ws"), pendingName: "Corrected") { savedName = "Corrected" }
+        try await coordinator.waitForPendingRenames(on: machine)
+        #expect(savedName == "Corrected")
+        _ = await first.result
+        _ = await unrelated.result
+    }
+
     @Test("Checkpoint names survive restore, delayed publications, and refresh",
           arguments: ["snapshot", "delta", "topology"], [false, true])
     func restoredNamesSurviveRefresh(path: String, daemonRestarted: Bool) throws {
