@@ -79,6 +79,16 @@ class AppHostTestOutputTests(unittest.TestCase):
         self.assertEqual(diagnosis["category"], "test assertion failure")
         self.assertEqual(diagnosis["executed_tests"], 9)
 
+    def test_diagnoses_app_host_failure_before_assertion_failure(self) -> None:
+        diagnosis = MODULE.diagnose(
+            "Test run with 9 tests in 1 suite failed after 0.1 seconds.\n"
+            "Restarting after unexpected exit, crash, or test timeout.\n",
+            exit_code=65,
+        )
+
+        self.assertEqual(diagnosis["category"], "post-test app-host failure")
+        self.assertEqual(diagnosis["executed_tests"], 9)
+
     def test_diagnoses_pass(self) -> None:
         diagnosis = MODULE.diagnose(
             "Test run with 3 tests in 1 suite passed after 0.1 seconds.\n",
