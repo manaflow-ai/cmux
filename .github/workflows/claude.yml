@@ -36,7 +36,7 @@ jobs:
     permissions:
       contents: read # Read the checked-out base and PR files.
       pull-requests: read # Read PR metadata and review requests.
-      issues: read # Read issue comments and issue-trigger payloads.
+      issues: write # Read issue events and post lifecycle feedback comments.
       id-token: write # Exchange a short-lived token for the scoped GitHub App token.
       actions: read # Read CI results on pull requests.
     steps:

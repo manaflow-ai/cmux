@@ -7,6 +7,7 @@ on:
       - tests/test_issue_status.py
       - CLAUDE.md
       - .github/pull_request_template.md
+      - .github/workflows/claude.yml
       - .github/workflows/issue-status-tests.yml
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - tests/test_issue_status.py
       - CLAUDE.md
       - .github/pull_request_template.md
+      - .github/workflows/claude.yml
       - .github/workflows/issue-status-tests.yml
 
 permissions:
