@@ -159,3 +159,5 @@ struct CloudPresenceTests {
             .viewerRow(viewerScrollOffset: 0, rows: 24) == nil)
     }
 }
+
+// Keep the semantic CI path exercised on presence target membership.
