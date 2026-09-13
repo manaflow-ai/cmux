@@ -774,6 +774,7 @@
 		EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */; };
 		3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */; };
 		DF3CB4E1EB244622B4300041 /* CloudSidebarOrganizationTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */; };
+		EA9F42A5F5EF461CBDB53012 /* CloudSidebarRenameFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */; };
 		B656E460C0904C4D96D87C9B /* CloudSidebarRowDecoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DCB7412E584AB1AAA90BA5 /* CloudSidebarRowDecoration.swift */; };
 		375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */; };
 		4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */; };
@@ -2579,6 +2580,7 @@
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */; };
+		077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
 		D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */; };
@@ -4506,6 +4508,7 @@
 		416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationState.swift"; sourceTree = "<group>"; };
 		4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationStore.swift"; sourceTree = "<group>"; };
 		EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationTree.swift"; sourceTree = "<group>"; };
+		0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarRenameFixture.swift"; sourceTree = "<group>"; };
 		F5DCB7412E584AB1AAA90BA5 /* CloudSidebarRowDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarRowDecoration.swift"; sourceTree = "<group>"; };
 		7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarRowSnapshot.swift"; sourceTree = "<group>"; };
 		F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarSurfaceRegressionTests.swift; sourceTree = "<group>"; };
@@ -6198,6 +6201,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWindowSnapshot+Scrollback.swift"; sourceTree = "<group>"; };
+		FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SetAutoTitleSocketTests+CloudSidebar.swift"; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -10609,6 +10613,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */,
 				4088DB52FA564E2A8E670921 /* CloudWorkspaceLiveProjectionTests.swift */,
 				B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */,
+				FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */,
+				0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */,
 				A838AA211BDA47268C683502 /* CloudTuiManualIOConnectionTests.swift */,
 				BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */,
 				EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */,
@@ -14511,6 +14517,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */,
 				084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */,
 				BEDA293E177041CCBF7677A0 /* CloudSidebarOrderingTests.swift in Sources */,
+				EA9F42A5F5EF461CBDB53012 /* CloudSidebarRenameFixture.swift in Sources */,
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */,
 				8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */,
@@ -14934,6 +14941,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
+				077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */,
 				583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
 				D80100010000000000000001 /* SettingsWindowChromeTests.swift in Sources */,

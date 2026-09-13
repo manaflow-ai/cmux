@@ -165,6 +165,38 @@ struct CloudSidebarNotificationTests {
         #expect(fixture.catalog.machines[fixture.machine] == nil)
     }
 
+    @Test("Completion raises folders while preserving all terminal orders")
+    func completionNeverReordersTerminals() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = fixture.snapshot()
+        var extra = snapshot.resources[1]
+        extra.id.key = "term_extra"
+        extra.remoteViews?[0].tabID = "tab_extra"
+        let extended = SurfaceCatalogSnapshot(machines: snapshot.machines,
+            resources: snapshot.resources + [extra], projections: [])
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: extended,
+            localWorkspaces: [], includeLocalMachine: false)
+        let owner = fixture.catalog.sidebarOrganization
+        let flat = CloudTreeNodeBuilder.flattened(nodes)
+        let folder = try #require(flat.first { $0.id == fixture.folderID("ws_2") })
+        let last = try #require(folder.children.last)
+        #expect(owner.perform(.up, id: last.id, nodes: nodes))
+        let before = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
+        let terminalOrders = Dictionary(uniqueKeysWithValues: CloudTreeNodeBuilder.flattened(before)
+            .filter { $0.children.contains { if case .terminal = $0.kind { return true }; return false } }
+            .map { ($0.id, $0.children.map(\.id)) })
+        let target = try #require(folder.children.last?.dragResource?.id)
+        owner.raiseNotification(resource: target, nodes: before)
+        let after = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: owner.state)
+        let group = try #require(CloudSidebarOrganizationTree(nodes: after).parent(of: folder.id))
+        #expect(group.children.first?.id == folder.id)
+        for row in CloudTreeNodeBuilder.flattened(after) {
+            if let expected = terminalOrders[row.id] { #expect(row.children.map(\.id) == expected) }
+        }
+        #expect(CloudSidebarOrganizationStore(defaults: fixture.defaults).state == owner.state)
+    }
+
     private func notification(_ id: String, terminal: String) -> CloudVMNotificationRow {
         CloudVMNotificationRow(id: id, title: "Fixture notification", subtitle: nil, body: "", level: "info",
                                createdAtMs: 1, terminalID: terminal, readBy: [])
