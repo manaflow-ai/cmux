@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 
@@ -13,6 +14,29 @@ import Testing
 @MainActor
 @Suite("Sidebar derived state scale", .serialized)
 struct SidebarDerivedStateScaleTests {
+    @Test(arguments: [20, 50, 100])
+    func paneRegistryBookkeepingDoesNotInvalidateCachedSidebar(workspaceCount: Int) async throws {
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
+            workspaceCount: workspaceCount, includeGroups: false
+        )
+        defer { harness.tearDown() }
+        await settle(harness)
+        harness.counter.reset()
+        let workspace = try #require(harness.tabManager.tabs.last)
+        let inferred = workspace.inferredTaskStatus
+        // A surface mapping may arrive before its panel is installed. No live
+        // panel, title, PR, branch, or status changes until that installation.
+        let provisionalSurface = TabID()
+        workspace.bindSurface(provisionalSurface, toPanelId: UUID())
+        defer { workspace.paneTree.removeSurfaceMapping(forSurfaceId: provisionalSurface) }
+        #expect(workspace.inferredTaskStatus == inferred)
+        await settle(harness, minimumSnapshotBuilds: 0)
+        print("SIDEBAR_DERIVED_SCALE workspaces=\(workspaceCount) pane_registry_changes=1 snapshot_builds=\(harness.counter.workspaceSnapshotBuilds) row_inputs=\(harness.counter.workspaceRowInputProjections)")
+        #expect(harness.counter.workspaceSnapshotBuilds == 0)
+        #expect(harness.counter.workspaceRowInputProjections == 0,
+                "Cached sidebar rows must not observe pane registry bookkeeping through task-status inference.")
+    }
+
     @Test(arguments: [20, 50, 100])
     func workspaceEventKeepsDerivedWorkScoped(workspaceCount: Int) async throws {
         let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
@@ -40,7 +64,7 @@ struct SidebarDerivedStateScaleTests {
 
     /// Wait for accepted publisher emissions, then require a quiet interval.
     /// This is a test deadline, not a delay or polling loop in shipped code.
-    private func settle(_ harness: SidebarLazyLayoutScaleTests.Harness) async {
+    private func settle(_ harness: SidebarLazyLayoutScaleTests.Harness, minimumSnapshotBuilds: Int = 1) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(4))
         var quietSince = ContinuousClock.now
         var previous = -1
@@ -52,7 +76,7 @@ struct SidebarDerivedStateScaleTests {
                 previous = count
                 quietSince = .now
             }
-            if harness.counter.workspaceSnapshotBuilds > 0,
+            if harness.counter.workspaceSnapshotBuilds >= minimumSnapshotBuilds,
                quietSince.duration(to: .now) >= .milliseconds(350) { return }
         } while .now < deadline
         Issue.record("Sidebar derived-state work did not converge within four seconds.")
