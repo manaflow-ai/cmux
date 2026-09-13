@@ -79,6 +79,8 @@ describe("Cloud Bash prompt", () => {
   test("renders successive prompts in a real interactive Bash terminal", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
+    // System rc, Ubuntu user defaults, then the user's cmux source line.
+    writeFileSync(path.join(directory, "startup.bash"), `. '${directory}/bashrc'\nPS1='ubuntu> '\n. '${directory}/bashrc'\n`);
     const result = spawnSync("python3", ["-c", String.raw`
 import fcntl, os, pathlib, pty, select, signal, struct, subprocess, sys, termios, time
 root = pathlib.Path(sys.argv[1])
@@ -89,7 +91,7 @@ fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
 def setup():
     os.setsid()
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-shell = subprocess.Popen(["bash", "--noprofile", "--rcfile", str(root / "prompt.bash"), "-i"],
+shell = subprocess.Popen(["bash", "--noprofile", "--rcfile", str(root / "startup.bash"), "-i"],
     stdin=slave, stdout=slave, stderr=slave, preexec_fn=setup,
     env={"PATH": os.environ["PATH"], "HOME": str(root), "TERM": "xterm-256color"})
 os.close(slave)

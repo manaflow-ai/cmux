@@ -3,7 +3,11 @@
 # /home/cmux/.bashrc.
 case $- in *i*) ;; *) return ;; esac
 # A login shell can reach this file through both system and user rc files.
-[[ ${__cmux_bashrc_loaded:-} ]] && return
+if [[ ${__cmux_bashrc_loaded:-} ]]; then
+  # Ubuntu's per-user rc can replace the system PS1 between the two sources.
+  [ -r /etc/cmux/prompt.bash ] && . /etc/cmux/prompt.bash
+  return
+fi
 __cmux_bashrc_loaded=1
 
 # PTYs from the sandbox API do not reliably inherit these.
