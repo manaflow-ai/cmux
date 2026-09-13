@@ -910,13 +910,12 @@ fn browser_download_list(
         .surface(surface_id)
         .filter(|surface| surface.kind() == SurfaceKind::Browser)
         .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
-    let guest_daemon = cfg!(target_os = "linux")
-        && std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1");
+    let guest_daemon = crate::browser::guest_downloads_enabled();
     let (owner, location) = match surface.browser_source() {
         Some(crate::BrowserSource::Provider) if guest_daemon => ("vm", "vm"),
         Some(crate::BrowserSource::Provider) => ("provider", "provider"),
         Some(crate::BrowserSource::External) => ("external", "external"),
-        Some(crate::BrowserSource::Launched) => ("vm", "vm"),
+        Some(crate::BrowserSource::Launched) => ("provider", "provider"),
         None => ("unknown", "unknown"),
     };
     let limit = request.fields.get("limit").and_then(Value::as_u64).unwrap_or(25) as usize;

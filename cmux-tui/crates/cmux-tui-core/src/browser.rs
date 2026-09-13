@@ -1,9 +1,14 @@
 use std::collections::{HashMap, VecDeque};
+use std::fs::{self, DirBuilder, File};
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 
 use cmux_tui_cdp::{
     CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome,
@@ -694,11 +699,9 @@ impl DownloadLedger {
     fn new(source: BrowserSource) -> Self {
         let directory = if source == BrowserSource::Provider
             && cfg!(target_os = "linux")
-            && std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1")
+            && guest_downloads_enabled()
         {
-            let path =
-                std::env::temp_dir().join(format!("cmux-tui-downloads-{}", std::process::id()));
-            std::fs::create_dir_all(&path).ok().then_some(path)
+            managed_download_directory()
         } else {
             None
         };
@@ -780,6 +783,42 @@ impl DownloadLedger {
             .cloned()
             .collect()
     }
+}
+
+fn managed_download_directory() -> Option<PathBuf> {
+    let mut random = [0_u8; 16];
+    File::open("/dev/urandom").ok()?.read_exact(&mut random).ok()?;
+    let suffix = random.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let path =
+        std::env::temp_dir().join(format!("cmux-tui-downloads-{}-{suffix}", std::process::id()));
+    let mut builder = DirBuilder::new();
+    #[cfg(unix)]
+    builder.mode(0o700);
+    if builder.create(&path).is_err() {
+        return None;
+    }
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            let _ = fs::remove_dir(&path);
+            return None;
+        }
+    };
+    if !metadata.file_type().is_dir() {
+        let _ = fs::remove_dir(&path);
+        return None;
+    }
+    #[cfg(unix)]
+    if metadata.permissions().mode() & 0o077 != 0 {
+        let _ = fs::remove_dir(&path);
+        return None;
+    }
+    Some(path)
+}
+
+pub(crate) fn guest_downloads_enabled() -> bool {
+    std::env::var_os("CMUX_TUI_GUEST").is_some_and(|value| value == "1")
+        || (cfg!(target_os = "linux") && PathBuf::from("/etc/cmux/tool-versions").is_file())
 }
 
 #[derive(Default)]
