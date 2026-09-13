@@ -1,6 +1,6 @@
 import AppKit
 import Bonsplit
-import CmuxSettings
+import struct CmuxSettings.AppCatalogSection
 import Testing
 
 #if canImport(cmux_DEV)
