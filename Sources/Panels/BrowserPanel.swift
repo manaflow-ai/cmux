@@ -2053,6 +2053,10 @@ final class BrowserPanel: Panel, ObservableObject {
     var pendingWebContentRecoveryURL: URL? {
         webContentState.recoveryURL
     }
+
+    func isCurrentWebViewObservation(generation: UInt64, webView: WKWebView) -> Bool {
+        generation == webViewObservationGeneration && self.webView === webView
+    }
     /// Whether the failed WebContent view may be mounted in the portal.
     /// WebKit can still deliver process-swap IPC after its termination callback,
     /// so recovery owns the view until an explicit reload creates a fresh page.

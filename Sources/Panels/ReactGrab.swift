@@ -229,7 +229,7 @@ extension BrowserPanel {
         let handler = ReactGrabMessageHandler(
             isCurrent: { [weak self, weak webView] in
                 guard let self, let webView else { return false }
-                return self.webViewObservationGeneration == observedGeneration && self.webView === webView
+                return self.isCurrentWebViewObservation(generation: observedGeneration, webView: webView)
             }
         ) { [weak self] message in
             self?.handleReactGrabBridgeMessage(message)
