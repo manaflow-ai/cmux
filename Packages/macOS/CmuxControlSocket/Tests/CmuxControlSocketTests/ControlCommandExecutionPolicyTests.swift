@@ -122,7 +122,7 @@ struct ControlCommandExecutionPolicyTests {
         // main-thread in-process callers (cmuxTests drive these verbs via
         // handleSocketLine on the main actor).
         for method in [
-            "surface.list", "surface.current",
+            "surface.list", "browser.download.list", "surface.current",
             "workspace.list", "workspace.current",
             "window.list", "window.current", "window.displays",
             "pane.list", "pane.surfaces",

@@ -12,17 +12,6 @@ extension TerminalController {
         let byteCount: Int?
     }
 
-    private enum V2BrowserDownloadListResolution {
-        case snapshot(
-            workspaceId: UUID,
-            workspaceRef: Any,
-            surfaceId: UUID,
-            surfaceRef: Any,
-            entries: [V2BrowserDownloadListEntry]
-        )
-        case error(V2CallResult)
-    }
-
     /// Returns a bounded, non-consuming snapshot of one browser surface's
     /// downloads. The snapshot reads ``BrowserPanel.recentDownloads`` so it
     /// stays in lockstep with the Downloads popover and survives waiters that
@@ -60,17 +49,20 @@ extension TerminalController {
             )
         }
 
-        let resolution: V2BrowserDownloadListResolution = v2MainSync(commandKey: "browser.download.list") {
+        let resolution: (
+            snapshot: (workspaceId: UUID, workspaceRef: Any, surfaceId: UUID, surfaceRef: Any, entries: [V2BrowserDownloadListEntry])?,
+            error: V2CallResult?
+        ) = v2MainSync(commandKey: "browser.download.list") {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
-                return .error(.err(code: "unavailable", message: "TabManager not available", data: nil))
+                return (snapshot: nil, error: .err(code: "unavailable", message: "TabManager not available", data: nil))
             }
             let resolved = v2ResolveBrowserPanelContext(params: params, tabManager: tabManager)
             if let error = resolved.error {
-                return .error(error)
+                return (snapshot: nil, error: error)
             }
             guard let context = resolved.context else {
-                return .error(.err(code: "internal_error", message: "Browser operation failed", data: nil))
+                return (snapshot: nil, error: .err(code: "internal_error", message: "Browser operation failed", data: nil))
             }
 
             let entries = context.browserPanel.recentDownloads
@@ -93,30 +85,34 @@ extension TerminalController {
                         byteCount: record.byteCount
                     )
                 }
-            return .snapshot(
-                workspaceId: context.workspaceId,
-                workspaceRef: v2Ref(kind: .workspace, uuid: context.workspaceId),
-                surfaceId: context.surfaceId,
-                surfaceRef: v2Ref(kind: .surface, uuid: context.surfaceId),
-                entries: entries
+            return (
+                snapshot: (
+                    workspaceId: context.workspaceId,
+                    workspaceRef: v2Ref(kind: .workspace, uuid: context.workspaceId),
+                    surfaceId: context.surfaceId,
+                    surfaceRef: v2Ref(kind: .surface, uuid: context.surfaceId),
+                    entries: entries
+                ),
+                error: nil
             )
         }
 
-        switch resolution {
-        case .error(let error):
+        if let error = resolution.error {
             return error
-        case let .snapshot(workspaceId, workspaceRef, surfaceId, surfaceRef, entries):
-            let downloads = entries.map(v2BrowserDownloadListPayload)
-            return .ok([
-                "workspace_id": workspaceId.uuidString,
-                "workspace_ref": workspaceRef,
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": surfaceRef,
-                "downloads": downloads,
-                "count": downloads.count,
-                "limit": limit,
-            ])
         }
+        guard let snapshot = resolution.snapshot else {
+            return .err(code: "internal_error", message: "Browser operation failed", data: nil)
+        }
+        let downloads = snapshot.entries.map(v2BrowserDownloadListPayload)
+        return .ok([
+            "workspace_id": snapshot.workspaceId.uuidString,
+            "workspace_ref": snapshot.workspaceRef,
+            "surface_id": snapshot.surfaceId.uuidString,
+            "surface_ref": snapshot.surfaceRef,
+            "downloads": downloads,
+            "count": downloads.count,
+            "limit": limit,
+        ])
     }
 
     private nonisolated func v2BrowserDownloadListPayload(
