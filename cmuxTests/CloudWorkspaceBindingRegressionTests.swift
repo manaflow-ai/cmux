@@ -184,7 +184,7 @@ struct CloudWorkspaceBindingRegressionTests {
         let tab = CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab_gone")
 
         #expect(workspace.errorDescription?.contains("remote workspace ws_deleted") == true)
-        #expect(placement.errorDescription?.contains("pane in remote workspace ws_api") == true)
+        #expect(placement.errorDescription?.contains("Remote workspace ws_api has no available terminal placement") == true)
         #expect(tab.errorDescription?.contains("remote tab tab_gone") == true)
     }
 }

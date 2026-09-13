@@ -30,26 +30,26 @@ extension CmuxTuiSurfaceProvider {
             case .remoteWorkspaceNotFound(let id):
                 return String(
                     format: String(
-                        localized: "surfaceCatalog.error.destinationNotFound",
-                        defaultValue: "Destination not found: %@."
+                        localized: "cloudTree.error.remoteWorkspaceNotFound",
+                        defaultValue: "Remote workspace %@ is no longer available. Refresh and retry."
                     ),
-                    "remote workspace \(id)"
+                    id
                 )
             case .remotePlacementUnavailable(let id):
                 return String(
                     format: String(
-                        localized: "surfaceCatalog.error.destinationNotFound",
-                        defaultValue: "Destination not found: %@."
+                        localized: "cloudTree.error.remotePlacementUnavailable",
+                        defaultValue: "Remote workspace %@ has no available terminal placement. Refresh and retry."
                     ),
-                    "a pane in remote workspace \(id)"
+                    id
                 )
             case .remoteTabNotFound(let id):
                 return String(
                     format: String(
-                        localized: "surfaceCatalog.error.destinationNotFound",
-                        defaultValue: "Destination not found: %@."
+                        localized: "cloudTree.error.remoteTabNotFound",
+                        defaultValue: "Remote tab %@ is no longer available. Refresh and retry."
                     ),
-                    "remote tab \(id)"
+                    id
                 )
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
