@@ -15,6 +15,9 @@ import unittest
 
 from test_cli_socket_operation_deadline import FakeUnixServer
 
+# Darwin exposes this socket option in sys/socket.h, but Python does not.
+DARWIN_SO_NOSIGPIPE = 0x1022
+
 
 class BrokenPipeWritesTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -32,11 +35,17 @@ class BrokenPipeWritesTests(unittest.TestCase):
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
         })
 
-    def run_cli(self, *args: str, closed: str | None = None) -> subprocess.CompletedProcess:
+    def run_cli(
+        self, *args: str, closed: str | None = None, socket_stream: bool = False,
+    ) -> subprocess.CompletedProcess:
         outputs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE}
         write_fd = None
         if closed:
-            read_fd, write_fd = os.pipe()
+            if socket_stream:
+                reader, writer = socket.socketpair()
+                read_fd, write_fd = reader.detach(), writer.detach()
+            else:
+                read_fd, write_fd = os.pipe()
             os.close(read_fd)
             outputs[closed] = write_fd
         try:
@@ -107,6 +116,30 @@ class BrokenPipeWritesTests(unittest.TestCase):
         closed = self.run_cli(*args, closed="stderr")
         self.assertEqual(closed.returncode, normal.returncode)
         self.assertEqual(closed.stdout, normal.stdout)
+
+    def test_socket_backed_stdout_does_not_signal(self) -> None:
+        result = self.run_cli("--version", closed="stdout", socket_stream=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, b"")
+
+    def test_socket_backed_stderr_preserves_command_failure(self) -> None:
+        result = self.run_cli(
+            "--socket", str(Path(self.root.name) / "missing.sock"), "ping",
+            closed="stderr", socket_stream=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_stdout_socket_options_are_not_changed_for_other_writers(self) -> None:
+        reader, writer = socket.socketpair()
+        with reader, writer:
+            original = writer.getsockopt(socket.SOL_SOCKET, DARWIN_SO_NOSIGPIPE)
+            result = subprocess.run(
+                [self.cli, "--version"], cwd=self.root.name, env=self.env,
+                stdin=subprocess.DEVNULL, stdout=writer, stderr=subprocess.PIPE, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(writer.getsockopt(socket.SOL_SOCKET, DARWIN_SO_NOSIGPIPE), original)
+            self.assertTrue(reader.recv(4096).startswith(b"cmux "))
 
     def test_consumer_closes_during_large_stdout_write(self) -> None:
         with FakeUnixServer(self.responder("vm.cloud_prompt", {"prompt": "x" * 262_144})) as server:
