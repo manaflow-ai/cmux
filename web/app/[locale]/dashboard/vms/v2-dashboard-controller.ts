@@ -39,6 +39,7 @@ type DashboardOptions = {
   readonly getStackToken: () => Promise<string | null>;
   readonly onDirectory: (directory: DashboardDirectory) => void;
   readonly onWorkspaces?: (workspaces: readonly DashboardWorkspace[]) => void;
+  readonly onAuthExpired?: () => void;
   readonly onError: (message: string) => void;
 };
 
@@ -274,7 +275,14 @@ export class V2DashboardController {
     catch (cause) { this.fail(cause); this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
   }
 
-  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) {
+    const code = errorCode(cause);
+    if (code === "unauthorized" || code === "ticket_expired" || (cause instanceof Error && cause.message === "Dashboard sign-in expired")) {
+      this.options.onAuthExpired?.();
+      return;
+    }
+    this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed");
+  }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {

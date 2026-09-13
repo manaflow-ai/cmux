@@ -29,6 +29,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   const [busyDevice, setBusyDevice] = useState<string | null>(null);
   const [relayURLsDraft, setRelayURLsDraft] = useState("");
   const [savingRelayURLs, setSavingRelayURLs] = useState(false);
+  const redirectingToSignInRef = useRef(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
   useEffect(() => {
     if (!teamId) return;
@@ -42,6 +43,11 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       getStackToken: async () => (await stack.getAuthJson()).accessToken,
       onDirectory: next => { if (!cancelled) setDirectory(next); },
       onWorkspaces: next => { if (!cancelled) setWorkspaces(next); },
+      onAuthExpired: () => {
+        if (cancelled || redirectingToSignInRef.current) return;
+        redirectingToSignInRef.current = true;
+        void stack.redirectToSignIn({ replace: true });
+      },
       onError: next => { if (!cancelled) setError(next); },
     });
     controllerRef.current = controller;
