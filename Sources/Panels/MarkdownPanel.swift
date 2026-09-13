@@ -476,6 +476,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             ))
         case .preview:
             return await rendererSession.readSurfaceSelection(filePath: filePath)
+        case .edit:
+            return await rendererSession.readSurfaceSelection(filePath: filePath)
         }
     }
 
