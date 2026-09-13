@@ -6,11 +6,14 @@ public struct CanvasTabChrome: Equatable, Sendable, Identifiable {
     public let id: UUID
     public var title: String
     public var iconSystemName: String?
+    /// Fully formatted shortcut, present only while the host advertises hints.
+    public var shortcutHint: String?
 
-    public init(id: UUID, title: String, iconSystemName: String?) {
+    public init(id: UUID, title: String, iconSystemName: String?, shortcutHint: String? = nil) {
         self.id = id
         self.title = title
         self.iconSystemName = iconSystemName
+        self.shortcutHint = shortcutHint
     }
 }
 

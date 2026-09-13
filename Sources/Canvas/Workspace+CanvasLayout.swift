@@ -210,9 +210,21 @@ extension Workspace {
         return true
     }
 
-    private func selectableCanvasSurfaceIds() -> [UUID] {
+    func selectableCanvasSurfaceIds() -> [UUID] {
         let canvasPanelIds = Set(canvasModel.layout.allPanelIds.map(\.rawValue))
         return orderedPanelIds.filter { canvasPanelIds.contains($0) && panels[$0] != nil }
+    }
+
+    func canvasTabShortcutHints() -> [UUID: String] {
+        let shortcut = KeyboardShortcutSettings.selectSurfaceByNumberShortcut()
+        guard !shortcut.isUnbound else { return [:] }
+        let prefix = shortcut.numberedDigitHintPrefix
+        let ids = selectableCanvasSurfaceIds()
+        return Dictionary(uniqueKeysWithValues: ids.enumerated().compactMap { index, panelId in
+            let digit = index < 8 ? index + 1 : (index == ids.count - 1 ? 9 : nil)
+            guard let digit else { return nil }
+            return (panelId, "\(prefix)\(digit)")
+        })
     }
 }
 
@@ -277,13 +289,17 @@ extension Workspace {
     /// `anchor` (the Cmd+T-in-canvas semantics). Ensures the panel exists in
     /// the canvas model first, since panel creation can run before the next
     /// descriptor sync.
-    func joinNewPanelIntoCanvasPane(_ panelId: UUID, anchor: UUID) {
+    func joinNewPanelIntoCanvasPane(_ panelId: UUID, anchor: UUID, at index: Int? = nil) {
         guard layoutMode == .canvas else { return }
         canvasModel.syncPanes(
             panelIds: orderedPanelIds,
             focusedPanelId: anchor
         )
-        canvasModel.joinPanel(panelId, withPaneContaining: anchor)
+        if let index, let pane = canvasModel.paneID(containing: anchor) {
+            canvasModel.joinPanel(panelId, into: pane, at: index)
+        } else {
+            canvasModel.joinPanel(panelId, withPaneContaining: anchor)
+        }
         focusPanel(panelId)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
     }

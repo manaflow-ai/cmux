@@ -135,6 +135,22 @@ struct CanvasModelTests {
         #expect(!model.breakOutPanel(b))
     }
 
+    @Test func indexedJoinPreservesCanvasTabPosition() {
+        let model = makeModel()
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        model.restoreFrames([
+            (id: a, frame: CGRect(x: 0, y: 0, width: 300, height: 200)),
+            (id: b, frame: CGRect(x: 400, y: 0, width: 300, height: 200)),
+            (id: c, frame: CGRect(x: 800, y: 0, width: 300, height: 200)),
+        ])
+        #expect(model.joinPanel(b, withPaneContaining: a))
+        let destination = model.paneID(containing: a)!
+        #expect(model.joinPanel(c, into: destination, at: 1))
+        #expect(model.layout.panelIds(in: destination)?.map(\.rawValue) == [a, c, b])
+    }
+
     @Test func syncRemovesOnlyDepartedTabFromJoinedPane() {
         let model = makeModel()
         let a = UUID()

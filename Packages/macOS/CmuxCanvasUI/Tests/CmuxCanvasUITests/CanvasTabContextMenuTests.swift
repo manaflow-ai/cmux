@@ -47,4 +47,25 @@ struct CanvasTabContextMenuTests {
         #expect(delegate.menuRequests == [first])
         #expect(delegate.focusRequests.isEmpty)
     }
+
+    @Test func menuFollowsRenderedTabAfterHorizontalScroll() throws {
+        let first = UUID()
+        let second = UUID()
+        let bar = NSView(frame: CGRect(x: 0, y: 0, width: 140, height: 30))
+        let registry = CanvasTabGeometryRegistry()
+        let firstRegion = CanvasTabHitRegionView.RegionView(tabId: first, kind: .tab)
+        let secondRegion = CanvasTabHitRegionView.RegionView(tabId: second, kind: .tab)
+        firstRegion.frame = CGRect(x: -220, y: 0, width: 200, height: 30)
+        secondRegion.frame = CGRect(x: 0, y: 0, width: 200, height: 30)
+        bar.addSubview(firstRegion)
+        bar.addSubview(secondRegion)
+        firstRegion.registry = registry
+        secondRegion.registry = registry
+        registry.register(firstRegion)
+        registry.register(secondRegion)
+
+        let regions = registry.hitRegions(in: bar)
+        let tester = CanvasTabHitTester(tabOrder: [first, second], hitRegions: regions)
+        #expect(tester.tab(at: CGPoint(x: 20, y: 15)) == second)
+    }
 }

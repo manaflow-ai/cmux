@@ -14674,6 +14674,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        if handleCanvasTabContextAction(action, tab: tab, inPane: pane) { return }
         switch action {
         case .rename:
             promptRenamePanel(tabId: tab.id)
