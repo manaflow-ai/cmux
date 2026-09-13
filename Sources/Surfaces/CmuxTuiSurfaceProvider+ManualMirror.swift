@@ -24,9 +24,14 @@ extension CmuxTuiSurfaceProvider {
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
             link: link,
-            preferredWorkspaceID: catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
-                forLocalWorkspace: destination.workspaceID, on: machine
-            )
+            // A newly-created terminal carries the workspace selected by the
+            // creation request even before its first tab receipt arrives. Keep
+            // that identity ahead of the local binding or daemon focus so a
+            // missing tab_id cannot redirect projection to another workspace.
+            preferredWorkspaceID: resource.remoteWorkspace?.id
+                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                    forLocalWorkspace: destination.workspaceID, on: machine
+                )
         )
 
         let session = CloudTuiManualMirrorSession(
