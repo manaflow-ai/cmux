@@ -50,14 +50,14 @@ impl ImagePasteRequest {
         };
         match (self.op.as_str(), self.mime, self.size, self.offset, self.data) {
             ("begin", Some(mime), Some(size), None, None) => {
-                mux.image_pastes.begin(owner, &upload_id, &mime, size)?
+                mux.image_pastes.begin(owner, &upload_id, &mime, size)?;
             }
             ("chunk", None, None, Some(offset), Some(data)) => {
-                mux.image_pastes.append(&owner, &upload_id, offset, &data)?
+                mux.image_pastes.append(&owner, &upload_id, offset, &data)?;
             }
             ("commit", None, None, None, None) => {
                 mux.image_pastes
-                    .commit(&owner, &upload_id, |path| surface.write_paste(path.as_bytes()))?
+                    .commit(&owner, &upload_id, |path| surface.write_paste(path.as_bytes()))?;
             }
             ("cancel", None, None, None, None) => mux.image_pastes.cancel(&owner, &upload_id)?,
             _ => anyhow::bail!("image-invalid-request"),

@@ -194,8 +194,8 @@ impl ImagePasteFile {
         }
         // fstatat initialized current on success.
         let current = unsafe { current.assume_init() };
-        if current.st_dev as u64 == owned.dev()
-            && current.st_ino as u64 == owned.ino()
+        if current.st_dev == owned.dev()
+            && current.st_ino == owned.ino()
             && current.st_mode & libc::S_IFMT == libc::S_IFREG
         {
             EntryOwnership::Owned
@@ -314,16 +314,9 @@ impl ImagePasteFile {
             self.entry_ownership(&self.name, &self.file),
             self.entry_ownership(&quarantine, &self.file),
         ) {
-            (EntryOwnership::Owned, _) => {
-                if !self.cleanup_entry(&self.name, &self.file) {
-                    return false;
-                }
-            }
-            (_, EntryOwnership::Owned) => {
-                if !self.cleanup_entry(&quarantine, &self.file) {
-                    return false;
-                }
-            }
+            (EntryOwnership::Owned, _) if self.cleanup_entry(&self.name, &self.file) => {}
+            (_, EntryOwnership::Owned) if self.cleanup_entry(&quarantine, &self.file) => {}
+            (EntryOwnership::Owned, _) | (_, EntryOwnership::Owned) => return false,
             (EntryOwnership::Unavailable, _) | (_, EntryOwnership::Unavailable) => return false,
             _ => (), // Ownership changed or the file is already gone; preserve replacements.
         }

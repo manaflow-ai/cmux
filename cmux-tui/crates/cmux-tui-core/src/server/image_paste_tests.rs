@@ -40,7 +40,7 @@ fn cloud_image_paste_is_a_daemon_owned_operation() {
 
 struct PasteInputRecorder(std::sync::mpsc::Sender<Vec<u8>>);
 
-impl std::io::Write for PasteInputRecorder {
+impl Write for PasteInputRecorder {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         self.0.send(bytes.to_vec()).unwrap();
         Ok(bytes.len())

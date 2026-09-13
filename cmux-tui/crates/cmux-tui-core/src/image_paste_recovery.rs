@@ -47,11 +47,11 @@ impl ImagePasteRecovery {
                     {
                         continue;
                     }
-                    if let Some((deadline, file)) = ImagePasteFile::recover_one(entry.path()) {
-                        if deadline > Instant::now() || !file.remove_owned() {
-                            self.scanning_bytes = self.scanning_bytes.saturating_add(file.size());
-                            self.scanning_count = self.scanning_count.saturating_add(1);
-                        }
+                    if let Some((deadline, file)) = ImagePasteFile::recover_one(entry.path())
+                        && (deadline > Instant::now() || !file.remove_owned())
+                    {
+                        self.scanning_bytes = self.scanning_bytes.saturating_add(file.size());
+                        self.scanning_count = self.scanning_count.saturating_add(1);
                     }
                 }
                 Some(Err(_)) => continue,
