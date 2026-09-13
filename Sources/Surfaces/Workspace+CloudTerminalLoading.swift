@@ -27,7 +27,19 @@ extension Workspace {
             surface: panel.surface,
             condition: { true },
             onReady: { setLoading(false) },
-            onEnded: { setLoading(false) }
+            onEnded: { setLoading(false) },
+            onTimedOut: { [weak self, weak panel] in
+                guard let self, let panel,
+                      self.panels[panel.id] != nil else { return }
+                self.setCloudMaterializationFailure(
+                    surfaceID: panel.id,
+                    detail: String(
+                        localized: "cloud.overlay.renderTimedOut.detail",
+                        defaultValue: "The Cloud terminal connected but did not present a visible frame. Reconnect and try again."
+                    ),
+                    reference: nil
+                )
+            }
         )
     }
 }

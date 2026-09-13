@@ -126355,6 +126355,20 @@
         }
       }
     },
+    "cloud.overlay.renderTimedOut.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal connected but did not present a visible frame. Reconnect and try again."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Das Cloud-Terminal wurde verbunden, hat aber keinen sichtbaren Frame angezeigt. Verbinde es erneut und versuche es noch einmal."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le terminal Cloud s’est connecté, mais n’a pas affiché d’image visible. Reconnectez-vous et réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اتصلت طرفية Cloud لكنها لم تعرض إطارًا مرئيًا. أعد الاتصال وحاول مرة أخرى."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El terminal de Cloud se conectó, pero no mostró un fotograma visible. Vuelve a conectarlo e inténtalo de nuevo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機已連線，但沒有顯示可見畫面。請重新連線後再試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端已连接，但未显示可见画面。请重新连接后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널이 연결되었지만 표시되는 프레임이 없습니다. 다시 연결한 후 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルは接続されましたが、表示フレームがありません。再接続してもう一度お試しください。"}}
+      }
+    },
     "cloud.terminal.loading": {
       "extractionState": "manual",
       "localizations": {

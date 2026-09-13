@@ -60,15 +60,28 @@ final class CloudTerminalReadiness {
     private var condition: (@MainActor () -> Bool)?
     private var onReady: (@MainActor () -> Void)?
     private var onEnded: (@MainActor () -> Void)?
+    private var onTimedOut: (@MainActor () -> Void)?
+    private nonisolated(unsafe) var deadlineTask: Task<Void, Never>?
+    private let clock: any Clock<Duration>
+    private let deadline: Duration
     // Notification tokens are only touched on the main actor; the unsafe
     // annotation permits the nonisolated ARC deinit to release them safely.
     private nonisolated(unsafe) var frameObserver: NSObjectProtocol?
     private nonisolated(unsafe) var runtimeObserver: NSObjectProtocol?
     private nonisolated(unsafe) var releaseFrameDemand: (() -> Void)?
 
+    init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        deadline: Duration = .seconds(60)
+    ) {
+        self.clock = clock
+        self.deadline = deadline
+    }
+
     deinit {
         if let frameObserver { NotificationCenter.default.removeObserver(frameObserver) }
         if let runtimeObserver { NotificationCenter.default.removeObserver(runtimeObserver) }
+        deadlineTask?.cancel()
         releaseFrameDemand?()
     }
 
@@ -77,7 +90,8 @@ final class CloudTerminalReadiness {
         surface: TerminalSurface,
         condition: @escaping @MainActor () -> Bool,
         onReady: @escaping @MainActor () -> Void,
-        onEnded: (@MainActor () -> Void)? = nil
+        onEnded: (@MainActor () -> Void)? = nil,
+        onTimedOut: (@MainActor () -> Void)? = nil
     ) {
         let previousOnReady = phase == .waiting ? self.onReady : nil
         let previousOnEnded = phase == .waiting ? self.onEnded : nil
@@ -87,25 +101,19 @@ final class CloudTerminalReadiness {
         self.condition = condition
         self.onReady = Self.composed(previousOnReady, onReady)
         self.onEnded = Self.composed(previousOnEnded, onEnded)
+        self.onTimedOut = onTimedOut
         phase = .waiting
         cloudTerminalReadinessLogger.info(
             "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(self.gate.baselineFrame)"
         )
         let view = surface.hostedView.surfaceView
         releaseFrameDemand = view.retainLocalRenderedFrameNotifications()
-        frameObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidRenderFrame,
-            object: view,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.check() }
-        }
-        runtimeObserver = NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: surface,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.check() }
+        installObservers(surface: surface, view: view)
+        deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
+            do { try await clock.sleep(for: deadline) } catch { return }
+            guard let self, self.phase == .waiting else { return }
+            self.onTimedOut?()
+            self.end()
         }
         check()
     }
@@ -116,6 +124,16 @@ final class CloudTerminalReadiness {
         guard let surface else { return }
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         phase = .waiting
+        if let surface, frameObserver == nil {
+            installObservers(surface: surface, view: surface.hostedView.surfaceView)
+        }
+        deadlineTask?.cancel()
+        deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
+            do { try await clock.sleep(for: deadline) } catch { return }
+            guard let self, self.phase == .waiting else { return }
+            self.onTimedOut?()
+            self.end()
+        }
         check()
     }
 
@@ -133,6 +151,8 @@ final class CloudTerminalReadiness {
             frameSequence: frame
         ) else { return }
         phase = .ready
+        deadlineTask?.cancel()
+        deadlineTask = nil
         cloudTerminalReadinessLogger.info(
             "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=ready frame=\(frame)"
         )
@@ -148,9 +168,21 @@ final class CloudTerminalReadiness {
 
     private func finishEnd(notify: Bool) {
         let shouldNotify = notify && phase != .ended
+        deadlineTask?.cancel()
+        deadlineTask = nil
         releaseObservers()
         if phase != .ended { phase = .ended }
         if shouldNotify { onEnded?() }
+    }
+
+    private func installObservers(surface: TerminalSurface, view: GhosttyNSView) {
+        guard frameObserver == nil, runtimeObserver == nil else { return }
+        frameObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidRenderFrame, object: view, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.check() } }
+        runtimeObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady, object: surface, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.check() } }
     }
 
     private func releaseObservers() {

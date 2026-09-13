@@ -9,7 +9,6 @@ private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class CloudTuiManualMirrorSession {
     private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
-
     let machineID: String
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
@@ -135,7 +134,6 @@ final class CloudTuiManualMirrorSession {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
-    /// Binds the local Ghostty surface and callbacks.
     func bind(surface: TerminalSurface) {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
@@ -178,6 +176,8 @@ final class CloudTuiManualMirrorSession {
         }, onEnded: { [weak self] in
             self?.clearStartupLoading()
             self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }, onTimedOut: { [weak self] in
+            self?.transitionToDisconnected(reason: .livenessTimedOut)
         })
         startupTrace?.mark("surface-bound", surfaceID: remoteSurfaceID)
         surface.flushPendingManualSizeReportIfAttached()
