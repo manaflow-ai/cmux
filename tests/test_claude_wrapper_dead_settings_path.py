@@ -75,6 +75,7 @@ def run_wrapper(
     *,
     with_node: bool = True,
     home_files: dict[str, str] | None = None,
+    restore_of: str | None = None,
 ) -> tuple[int, list[str], str, list[str], list[str]]:
     """Run the wrapper against a fake claude.
 
@@ -201,6 +202,11 @@ exit 0
             "NODE_OPTIONS",
         ):
             env.pop(key, None)
+        # cmux only drops an unreadable --settings for a launch it owns as a
+        # restore replay. An ordinary interactive launch must keep failing
+        # closed, so the scenarios opt in explicitly.
+        if restore_of is not None:
+            env["CMUX_AGENT_RESTORE_LAUNCH"] = f"claude:{restore_of}"
 
         try:
             proc = subprocess.run(
@@ -266,7 +272,7 @@ def assert_single_cmux_hook_settings(
 
 def test_restore_replay_with_dead_settings_path_launches(failures: list[str]) -> None:
     code, real_argv, stderr, captured, documents = run_wrapper(
-        ["--resume", SESSION_ID, "--settings", DEAD_SETTINGS_PATH]
+        ["--resume", SESSION_ID, "--settings", DEAD_SETTINGS_PATH], restore_of=SESSION_ID
     )
     assert_single_cmux_hook_settings("restore replay", code, real_argv, stderr, documents, failures)
     expect(
@@ -287,10 +293,16 @@ def test_restore_replay_with_dead_settings_path_launches(failures: list[str]) ->
 
 
 def test_dead_settings_equals_form_is_dropped(failures: list[str]) -> None:
-    code, real_argv, stderr, captured, documents = run_wrapper([f"--settings={DEAD_SETTINGS_PATH}", "hello"])
+    code, real_argv, stderr, captured, documents = run_wrapper(
+        ["--resume", SESSION_ID, f"--settings={DEAD_SETTINGS_PATH}", "hello"], restore_of=SESSION_ID
+    )
     assert_single_cmux_hook_settings("equals form", code, real_argv, stderr, documents, failures)
     expect(real_argv[-1:] == ["hello"], f"equals form: positional prompt dropped: {real_argv}", failures)
-    expect(DEAD_SETTINGS_PATH not in stderr or "warning" in stderr, f"equals form: {stderr!r}", failures)
+    expect(
+        "warning" in stderr and DEAD_SETTINGS_PATH in stderr,
+        f"equals form: expected a warning naming the dead path, got {stderr!r}",
+        failures,
+    )
     expect(
         not any(DEAD_SETTINGS_PATH in part for part in captured),
         f"equals form: dead path was re-captured: {captured}",
@@ -300,7 +312,8 @@ def test_dead_settings_equals_form_is_dropped(failures: list[str]) -> None:
 
 def test_dead_path_keeps_other_user_settings(failures: list[str]) -> None:
     code, real_argv, stderr, _, documents = run_wrapper(
-        ["--settings", DEAD_SETTINGS_PATH, "--settings", '{"effortLevel":"max"}', "hi"]
+        ["--resume", SESSION_ID, "--settings", DEAD_SETTINGS_PATH, "--settings", '{"effortLevel":"max"}', "hi"],
+        restore_of=SESSION_ID,
     )
     settings = assert_single_cmux_hook_settings("mixed settings", code, real_argv, stderr, documents, failures)
     expect(
@@ -312,11 +325,37 @@ def test_dead_path_keeps_other_user_settings(failures: list[str]) -> None:
 
 
 def test_tilde_dead_path_is_dropped(failures: list[str]) -> None:
-    code, real_argv, stderr, _, _ = run_wrapper(["--settings", "~/missing-settings.json", "hi"])
+    code, real_argv, stderr, _, _ = run_wrapper(
+        ["--resume", SESSION_ID, "--settings", "~/missing-settings.json", "hi"], restore_of=SESSION_ID
+    )
     expect(code == 0, f"tilde dead path: claude exited {code} (stderr: {stderr!r}; argv: {real_argv})", failures)
     values = settings_values(real_argv)
     expect(len(values) == 1, f"tilde dead path: expected exactly one --settings, got {values}", failures)
     expect("~/missing-settings.json" not in values, f"tilde dead path: still forwarded: {real_argv}", failures)
+
+
+def test_interactive_launch_keeps_failing_closed_on_an_unreadable_settings_file(
+    failures: list[str],
+) -> None:
+    """An ordinary launch must NOT silently start without the policy the user named.
+
+    A settings file can carry permission rules and hooks. Dropping it because of a
+    typo, a permission change, or an unmounted volume would turn an invalid
+    configuration into a quietly less-restricted session, so only a cmux-owned
+    restore replay may drop one.
+    """
+    code, real_argv, stderr, _, _ = run_wrapper(["--settings", DEAD_SETTINGS_PATH, "hi"])
+    values = settings_values(real_argv)
+    expect(
+        DEAD_SETTINGS_PATH in values,
+        f"interactive: unreadable --settings was silently dropped: {real_argv}",
+        failures,
+    )
+    expect(
+        code != 0,
+        f"interactive: claude started anyway without the named settings (stderr: {stderr!r})",
+        failures,
+    )
 
 
 def test_existing_user_settings_file_is_still_merged(failures: list[str]) -> None:
@@ -333,6 +372,7 @@ def test_dead_path_without_node_still_launches_with_cmux_hooks(failures: list[st
     code, real_argv, stderr, captured, documents = run_wrapper(
         ["--resume", SESSION_ID, "--settings", DEAD_SETTINGS_PATH],
         with_node=False,
+        restore_of=SESSION_ID,
     )
     assert_single_cmux_hook_settings("no node", code, real_argv, stderr, documents, failures)
     expect(
@@ -351,6 +391,7 @@ def main() -> int:
     test_dead_settings_equals_form_is_dropped(failures)
     test_dead_path_keeps_other_user_settings(failures)
     test_tilde_dead_path_is_dropped(failures)
+    test_interactive_launch_keeps_failing_closed_on_an_unreadable_settings_file(failures)
     test_existing_user_settings_file_is_still_merged(failures)
     test_dead_path_without_node_still_launches_with_cmux_hooks(failures)
     if failures:
