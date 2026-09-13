@@ -219,6 +219,28 @@ export function maxMemoryMbForPlan(
   ));
 }
 
+/** Disk ceiling follows the plan's machine tier. */
+export function maxDiskMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
+  return raw?.trim()
+    ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))
+    : fallback;
+}
+
+/** vCPU ceiling is derived from the plan's memory tier. */
+export function maxVcpusForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / 4096));
+}
+
 /**
  * Ladder sizes above a plan's ceiling, and the plan that sells them. Clients
  * render these as locked rows with an upgrade action instead of hiding them.
