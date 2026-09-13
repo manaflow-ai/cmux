@@ -442,8 +442,10 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        clearCloudMaterializationFailure(surfaceID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -509,12 +511,11 @@ extension Workspace {
                         preservesTerminalForTransfer
                 )
         }
-        untrackRemoteTerminalSurface(panelId)
-        if closePanel {
-            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
-        }
-        discardRemoteDirectoryTrustState(panelId: panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        retireRemoteTerminalLifecycle(
+            panelId: panelId,
+            preservesRemoteTerminalTracking: preservesRemoteTerminalTracking,
+            closesPanel: closePanel
+        )
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)

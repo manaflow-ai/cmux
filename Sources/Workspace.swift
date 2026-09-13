@@ -824,6 +824,8 @@ extension Workspace {
             return nil
         case .accountSignIn:
             return nil
+        case .cloudVPNSetup:
+            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -2325,6 +2327,8 @@ extension Workspace {
             return nil
         case .accountSignIn:
             return nil
+        case .cloudVPNSetup:
+            return nil
         }
     }
 
@@ -3166,6 +3170,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var pendingRemoteDisconnectReplacementsBySurfaceId: [UUID: PendingRemoteDisconnectReplacement] = [:]
     let remoteDisconnectPreparationService = RemoteDisconnectPreparationService()
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
+    /// A restored Cloud terminal can fail before its mirror session exists.
+    /// Keep that failure on the placeholder panel so it cannot remain blank.
+    private var cloudMaterializationFailures: [UUID: (detail: String, reference: String?)] = [:]
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -4704,7 +4711,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         }
     }
-    private func configureNewTerminalPanel(
+    func configureNewTerminalPanel(
         _ terminalPanel: TerminalPanel,
         allowTextBoxFocusDefault: Bool = true
     ) {
@@ -6722,7 +6729,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
-            case .cloudVMLoading, .mobilePairing, .accountSignIn:
+            case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
                 true
             default:
                 false
@@ -7543,12 +7550,47 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        CloudTerminalReconnectOverlayPolicy.presentation(
+        if let failure = cloudMaterializationFailures[surfaceId] {
+            return Self.cloudMaterializationFailurePresentation(
+                detail: failure.detail,
+                reference: failure.reference
+            )
+        }
+        if let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.connectionPresentation
+        }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
             connectionState: remoteConnectionState,
             detail: remoteConnectionDetail
         )
+    }
+
+    nonisolated static func cloudMaterializationFailurePresentation(
+        detail: String,
+        reference: String?
+    ) -> CloudTerminalReconnectOverlayPolicy.Presentation {
+        var presentation = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: String(localized: "cloud.overlay.materializationFailed.title", defaultValue: "Cloud terminal could not start"),
+            detail: detail,
+            showsProgress: false,
+            showsReconnectButton: false
+        )
+        presentation.diagnosticReference = reference
+        return presentation
+    }
+
+    func setCloudMaterializationFailure(surfaceID: UUID, detail: String, reference: String?) {
+        cloudMaterializationFailures[surfaceID] = (detail: detail, reference: reference)
+        postRemoteConnectionPresentationDidChange()
+    }
+
+    func clearCloudMaterializationFailure(surfaceID: UUID) {
+        guard cloudMaterializationFailures.removeValue(forKey: surfaceID) != nil else { return }
+        postRemoteConnectionPresentationDidChange()
     }
 
     func postRemoteConnectionPresentationDidChange() {
@@ -8283,7 +8325,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
-    private func resolvedTerminalStartupWorkingDirectory(
+    func resolvedTerminalStartupWorkingDirectory(
         requestedWorkingDirectory: String?,
         sourcePanelId: UUID?
     ) -> String? {
@@ -8483,7 +8525,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ).first
     }
 
-    private func inheritedTerminalConfig(
+    func inheritedTerminalConfig(
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> CmuxSurfaceConfigTemplate? {
@@ -9523,156 +9565,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelId: pair.key,
             reason: "cloudVMReady"
         )
-        scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
-        return replacementPanel
-    }
-
-    /// Replace the terminal process behind an existing surface while preserving its pane and tab identity.
-    /// Passing `nil` for `command` starts the same default shell as a newly created terminal.
-    @discardableResult
-    func respawnTerminalSurface(
-        panelId: UUID,
-        command: String?,
-        workingDirectory: String? = nil,
-        tmuxStartCommand: String? = nil,
-        focus: Bool? = nil,
-        waitAfterCommand: Bool? = nil,
-        replayScrollback: String? = nil,
-        replayFileURL: URL? = nil,
-        allowTextBoxFocusDefault: Bool = true
-    ) -> TerminalPanel? {
-        guard !isRetiredFromOwningTabManager,
-              let oldPanel = terminalPanel(for: panelId),
-              let tabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId) else {
-            return nil
-        }
-
-        let trimmedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if command != nil, trimmedCommand?.isEmpty != false { return nil }
-
-        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-        var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-        respawnConfig.waitAfterCommand = waitAfterCommand ?? oldPanel.surface.debugWaitAfterCommand()
-        inheritedConfig = respawnConfig
-        let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
-            requestedWorkingDirectory: workingDirectory,
-            sourcePanelId: panelId
-        )
-        let selectedInPane = bonsplitController.selectedTab(inPane: paneId)?.id == tabId
-        let paneWasFocused = bonsplitController.focusedPaneId == paneId
-        let shouldFocus = focus ?? (selectedInPane && paneWasFocused)
-        let customTitle = panelCustomTitles[panelId]
-        let customTitleSource = panelCustomTitleSources[panelId]
-        let wasPinned = pinnedPanelIds.contains(panelId)
-        let startCommand = tmuxStartCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let replacementTmuxStartCommand = (startCommand?.isEmpty == false) ? startCommand : trimmedCommand
-        let focusPlacement = oldPanel.surface.focusPlacement
-        let launchContext = oldPanel.surface.launchContext
-        // Drop env this surface inherited from its (possibly previous) workspace,
-        // then re-fold the current workspace's env below, so a terminal moved
-        // between workspaces respawns with the destination's variables rather than
-        // the source's (#5995). Only entries whose value still equals the seeded
-        // workspace value are dropped, so an explicit per-surface override that
-        // shares a workspace key keeps its value. configureNewTerminalPanel
-        // re-records the seeded env for the replacement panel against the current
-        // workspace.
-        let oldSeededWorkspaceEnvironment = oldPanel.seededWorkspaceEnvironment
-        let initialEnvironmentOverrides = oldPanel.surface.respawnInitialEnvironmentOverrides
-            .filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
-        var additionalEnvironment = startupEnvironmentMergingWorkspaceEnvironment(
-            oldPanel.surface.respawnAdditionalEnvironment.filter { oldSeededWorkspaceEnvironment[$0.key] != $0.value }
-        )
-        let effectiveReplayFileURL = replayFileURL ?? SessionScrollbackReplayStore.replayFileURL(for: replayScrollback)
-        for (key, value) in SessionScrollbackReplayStore.replayEnvironment(forFileURL: effectiveReplayFileURL) {
-            additionalEnvironment[key] = value
-        }
-
-        oldPanel.unfocus()
-        oldPanel.hostedView.setVisibleInUI(false)
-        TerminalWindowPortalRegistry.detach(hostedView: oldPanel.hostedView)
-        oldPanel.surface.beginPortalCloseLifecycle(reason: "terminal.respawn")
-
-        discardClosedPanelLifecycleState(
-            panelId: panelId,
-            tabId: tabId,
-            paneId: paneId,
-            panel: oldPanel,
-            origin: "terminal_respawn",
-            closePanel: false,
-            publishSurfaceClosedEvent: false,
-            clearSurfaceNotifications: false,
-            requestTransferredRemoteCleanup: true,
-            discardAgentHibernationTracking: false,
-            cleanupControllerSurfaceState: false
-        )
-        oldPanel.removeOwnedSessionScrollbackReplayArtifact()
-        oldPanel.surface.teardownSurface()
-
-        let replacementPanel = TerminalPanel(
-            id: panelId,
-            workspaceId: id,
-            context: launchContext,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: trimmedCommand,
-            tmuxStartCommand: replacementTmuxStartCommand,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
-            focusPlacement: focusPlacement
-        )
-        replacementPanel.adoptOwnedSessionScrollbackReplayArtifact(effectiveReplayFileURL)
-        // Respawn replaces the panel object but keeps the logical tab identity.
-        replacementPanel.adoptStableSurfaceId(oldPanel.stableSurfaceId)
-        configureNewTerminalPanel(
-            replacementPanel,
-            allowTextBoxFocusDefault: shouldFocus && allowTextBoxFocusDefault
-        )
-        panels[panelId] = replacementPanel
-        panelTitles[panelId] = replacementPanel.displayTitle
-        if let customTitle {
-            panelCustomTitles[panelId] = customTitle
-            panelCustomTitleSources[panelId] = customTitleSource ?? .user
-        }
-        if wasPinned {
-            pinnedPanelIds.insert(panelId)
-        }
-        bindSurface(tabId, toPanelId: panelId)
-        let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedTitle,
-            icon: .some(replacementPanel.displayIcon),
-            iconImageData: .some(nil),
-            iconAsset: .some(nil),
-            kind: .some(SurfaceKind.terminal.rawValue),
-            hasCustomTitle: customTitle != nil,
-            isDirty: replacementPanel.isDirty,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isPinned: wasPinned
-        )
-
-        if shouldFocus {
-            bonsplitController.focusPane(paneId)
-            bonsplitController.selectTab(tabId)
-            focusPanel(panelId)
-        } else if selectedInPane {
-            bonsplitController.selectTab(tabId)
-            applyTabSelection(tabId: tabId, inPane: paneId)
-        } else {
-            replacementPanel.unfocus()
-        }
-        rememberTerminalConfigInheritanceSource(replacementPanel)
-
-        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: id,
-            panelId: panelId,
-            reason: "terminalRespawn"
-        )
-        markRemoteTerminalSessionLaunching(surfaceId: panelId)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
         return replacementPanel

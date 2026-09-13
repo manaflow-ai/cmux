@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -127,6 +127,38 @@ describe("devbox image template", () => {
     expect(devboxGhosttyVersion()).toMatch(/^\d+\.\d+\.\d+$/);
     expect(devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty_1.2.3-0.ppa2_amd64_24.04.deb\n")).toBe("1.2.3");
     expect(() => devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty.deb\n")).toThrow(/ghostty_<x.y.z>/);
+  });
+
+  test("agent-config.sh carries the cmux workspace and terminal ids as usage headers", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
+    try {
+      const run = (extraEnv: Record<string, string>) =>
+        spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+          encoding: "utf8",
+          env: {
+            NODE_ENV: "test",
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+            HOME: home,
+            OPENAI_BASE_URL: "https://coderouter.cmux.test/v1",
+            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+            CMUX_CODEROUTER_URL: "https://coderouter.cmux.test",
+            ...extraEnv,
+          },
+        });
+      expect(run({}).stdout).toBe("");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc" }).stdout).toBe("x-cmux-workspace-id: ws_abc");
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", CMUX_SURFACE_ID: "sf_1" }).stdout).toBe(
+        "x-cmux-workspace-id: ws_abc\nx-cmux-surface-id: sf_1",
+      );
+      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" }).stdout).toBe("x-mine: 1");
+      const codexConfig = readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
+      expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
+      expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
+      expect(codexConfig).toContain('"x-cmux-surface-id" = "CMUX_SURFACE_ID"');
+      expect(codexConfig.indexOf("[model_providers.cmux.env_http_headers]")).toBeLessThan(codexConfig.indexOf("[history]"));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("every shell file parses", () => {
@@ -699,6 +731,83 @@ describe("devbox image template", () => {
         { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: "/tmp/mine.crt" } },
       );
       expect(kept.stdout.toString()).toBe("/tmp/mine.crt");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("agent config generator adds the codex provider around hook trust state another writer left first", () => {
+    // The bake runs `cmux-tui agent hook install codex` before any shell has
+    // seen a boot env, so ~/.codex/config.toml already exists with only the
+    // hook trust table. The provider block goes in around it: bare key on
+    // top, tables at the end, trust state untouched, one TOML document.
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-merge-"));
+    try {
+      mkdirSync(path.join(home, ".codex"), { recursive: true });
+      const hooks = [
+        "[hooks]",
+        "",
+        '[hooks.state."/home/cmux/.codex/hooks.json:Stop:0:0"]',
+        'trusted_hash = "3f0c"',
+        "",
+      ].join("\n");
+      writeFileSync(path.join(home, ".codex/config.toml"), hooks);
+      const env = {
+        ...process.env,
+        HOME: home,
+        OPENAI_BASE_URL: "https://example.invalid/v1",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        CMUX_CODEROUTER_URL: "https://example.invalid",
+      };
+      expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
+      const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+      expect(parsed.model_provider).toBe("cmux");
+      expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
+      expect(parsed.model_providers).toEqual({
+        cmux: {
+          name: "cmux",
+          base_url: "https://example.invalid/v1",
+          env_key: "OPENAI_API_KEY",
+          wire_api: "responses",
+          requires_openai_auth: false,
+          supports_websockets: false,
+          env_http_headers: {
+            "x-cmux-surface-id": "CMUX_SURFACE_ID",
+            "x-cmux-workspace-id": "CMUX_WORKSPACE_ID",
+          },
+        },
+      });
+      expect(parsed.history).toEqual({ persistence: "save-all" });
+      // The bare key precedes the first table header, or TOML would file it under [hooks].
+      expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
+      expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
+      // Idempotent: a second login sees the provider and rewrites nothing.
+      expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
+      // A config that already names a provider is the user's, even without
+      // ours, however the key is spaced (TOML allows none around "=").
+      for (const theirs of [
+        'model_provider = "openai"\n',
+        'model_provider="openai"\n',
+        '  model_provider\t=  "openai"\n',
+        '"model_provider" = "openai"\n',
+        "'model_provider' = \"openai\"\n",
+        '"model\\u005fprovider" = "openai"\n',
+        '[ model_providers . cmux ]\nname = "x"\n',
+        '[ "model_providers" . "cmux" ]\nname = "x"\n',
+        "[ 'model_providers' . 'cmux' ]\nname = \"x\"\n",
+        'model_providers.cmux.name = "x"\n',
+        ' [history]\npersistence = "none"\n',
+        ' [ "history" ]\npersistence = "none"\n',
+        "['history']\npersistence = \"none\"\n",
+        'history = { persistence = "none" }\n',
+        'model_provider = "unterminated\n',
+      ]) {
+        writeFileSync(path.join(home, ".codex/config.toml"), theirs);
+        expect(spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+        expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
+      }
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

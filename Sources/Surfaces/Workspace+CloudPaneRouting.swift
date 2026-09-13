@@ -117,6 +117,7 @@ extension Workspace {
         alert.informativeText = CloudMachineLink.errorText(error)
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
         alert.runModal()
     }
 }
@@ -181,7 +182,7 @@ final class CloudWorkspaceRenameService {
             if let explicit = projection.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !explicit.isEmpty {
                 remoteID = explicit
-            } else if resource.remoteWorkspaces.isEmpty {
+            } else if resource.remoteWorkspaces.isEmpty || (resource.kind == .display && projection.remoteTabID == nil) {
                 // A cloud display, port browser, or pool terminal may be projected
                 // without a daemon-workspace placement. It cannot establish a target,
                 // but it also cannot contradict an exact terminal/workspace anchor.

@@ -37,6 +37,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "../vms/drivers";
 import { reserveManagedPublication, type ManagedPublicationInput } from "./managedRepository";
+import { tracePublicationAuthOperation } from "./requestTelemetry";
 
 export type CloudVmDomainRow = typeof cloudVmDomains.$inferSelect;
 export type CloudVmPublicationRow = typeof cloudVmPublications.$inferSelect;
@@ -55,6 +56,11 @@ export type CloudVmPublicationTarget = {
   readonly publication: CloudVmPublicationRow;
   readonly domain: CloudVmDomainRow | null;
   readonly vm: typeof cloudVms.$inferSelect;
+};
+
+/** Current routing and session state read from the same database snapshot. */
+export type CloudVmPublicationRequestContext = CloudVmPublicationTarget & {
+  readonly session: CloudVmPublicationSessionRow | null;
 };
 
 export type CloudVmPublicationAuthTransaction = {
@@ -397,6 +403,12 @@ export type CloudVmPublicationRepositoryShape = {
     PublicationDatabaseError
   >;
 
+  readonly findRequestContext: (input: {
+    readonly providerTlsRuleId: string;
+    readonly sessionTokenHash: string | null;
+    readonly now: Date;
+  }) => Effect.Effect<CloudVmPublicationRequestContext | null, PublicationDatabaseError>;
+
   readonly createAuthTransaction: (input: {
     readonly publicationId: string;
     readonly transactionHash: string;
@@ -487,7 +499,7 @@ function repositoryEffect<A>(
   run: () => Promise<A>,
 ): Effect.Effect<A, RepositoryError> {
   return Effect.tryPromise({
-    try: run,
+    try: () => tracePublicationAuthOperation(`database.${operation}`, run),
     catch: (cause) =>
       isRepositoryDomainError(cause)
         ? cause
@@ -500,7 +512,7 @@ function databaseEffect<A>(
   run: () => Promise<A>,
 ): Effect.Effect<A, PublicationDatabaseError> {
   return Effect.tryPromise({
-    try: run,
+    try: () => tracePublicationAuthOperation(`database.${operation}`, run),
     catch: (cause) => new PublicationDatabaseError({ operation, cause }),
   });
 }
@@ -733,9 +745,8 @@ async function requirePublicationRevision(
   return publication;
 }
 
-export const CloudVmPublicationRepositoryLive = Layer.succeed(
-  CloudVmPublicationRepository,
-  {
+export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVmPublicationRepositoryShape {
+  return {
     claimProviderForwardAuth: (input) =>
       repositoryEffect("claimProviderForwardAuth", async () => {
         if (input.leaseExpiresAt <= input.now) {
@@ -743,7 +754,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             reason: "forward_auth_bootstrap_lost",
           });
         }
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           await tx
             .insert(cloudVmPublicationProviderConfigs)
             .values({
@@ -800,7 +811,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     completeProviderForwardAuth: (input) =>
       repositoryEffect("completeProviderForwardAuth", async () => {
-        const [config] = await cloudDb()
+        const [config] = await getDb()
           .update(cloudVmPublicationProviderConfigs)
           .set({
             providerForwardAuthId: input.providerForwardAuthId,
@@ -829,7 +840,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     releaseProviderForwardAuthClaim: (input) =>
       databaseEffect("releaseProviderForwardAuthClaim", async () => {
-        const released = await cloudDb()
+        const released = await getDb()
           .update(cloudVmPublicationProviderConfigs)
           .set({
             provisioningLeaseId: null,
@@ -852,7 +863,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     getProviderForwardAuth: (provider) =>
       databaseEffect("getProviderForwardAuth", async () => {
-        const [config] = await cloudDb()
+        const [config] = await getDb()
           .select()
           .from(cloudVmPublicationProviderConfigs)
           .where(eq(cloudVmPublicationProviderConfigs.provider, provider))
@@ -862,7 +873,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     replaceProviderForwardAuth: (input) =>
       repositoryEffect("replaceProviderForwardAuth", async () => {
-        const [config] = await cloudDb()
+        const [config] = await getDb()
           .update(cloudVmPublicationProviderConfigs)
           .set({
             providerForwardAuthId: input.providerForwardAuthId,
@@ -890,7 +901,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
     createDomain: (input) =>
       repositoryEffect("createDomain", async () => {
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             try {
               await assertAccountDeletionUserMutationAllowed(
                 tx,
@@ -934,7 +945,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
     updateDomainState: (input) =>
       repositoryEffect("updateDomainState", async () => {
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             const [current] = await tx
               .select()
               .from(cloudVmDomains)
@@ -1008,7 +1019,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findOwnedDomain: (input) =>
       databaseEffect("findOwnedDomain", async () => {
-        const [domain] = await cloudDb()
+        const [domain] = await getDb()
           .select()
           .from(cloudVmDomains)
           .where(
@@ -1023,7 +1034,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findOwnedDomainByHostname: (input) =>
       databaseEffect("findOwnedDomainByHostname", async () => {
-        const rows = await cloudDb()
+        const rows = await getDb()
           .select()
           .from(cloudVmDomains)
           .where(
@@ -1045,7 +1056,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
       databaseEffect(
         "listOwnedDomains",
         async () =>
-          await cloudDb()
+          await getDb()
             .select()
             .from(cloudVmDomains)
             .where(eq(cloudVmDomains.ownerUserId, ownerUserId))
@@ -1054,16 +1065,16 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     reserveManagedPublication: (input) => repositoryEffect("reserveManagedPublication", () => reserveManagedPublication(input).catch((cause) => { throw accountDeletionError(cause); })),
     listEmailGrants: (publicationId) => databaseEffect("listEmailGrants", async () =>
-      cloudDb().select().from(cloudVmPublicationEmailGrants).where(eq(cloudVmPublicationEmailGrants.publicationId, publicationId))),
+      getDb().select().from(cloudVmPublicationEmailGrants).where(eq(cloudVmPublicationEmailGrants.publicationId, publicationId))),
     hasEmailGrant: (input) => databaseEffect("hasEmailGrant", async () => {
-      const [grant] = await cloudDb().select({ id: cloudVmPublicationEmailGrants.id }).from(cloudVmPublicationEmailGrants).where(and(
+      const [grant] = await getDb().select({ id: cloudVmPublicationEmailGrants.id }).from(cloudVmPublicationEmailGrants).where(and(
         eq(cloudVmPublicationEmailGrants.publicationId, input.publicationId), eq(cloudVmPublicationEmailGrants.email, input.email),
         or(isNull(cloudVmPublicationEmailGrants.expiresAt), gt(cloudVmPublicationEmailGrants.expiresAt, input.now)),
       )).limit(1);
       return !!grant;
     }),
     setEmailGrant: (input) => repositoryEffect("setEmailGrant", async () => {
-      await cloudDb().transaction(async (tx) => {
+      await getDb().transaction(async (tx) => {
         try { await assertAccountDeletionUserMutationAllowed(tx, input.ownerUserId); }
         catch (cause) { throw accountDeletionError(cause); }
         const [publication] = await tx.select().from(cloudVmPublications).where(and(
@@ -1086,7 +1097,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         const hostname = normalizedHostname(input.hostname);
         const vmScope = requireVmAccountScope(input);
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             try {
               await assertAccountDeletionUserMutationAllowed(
                 tx,
@@ -1185,7 +1196,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           throw new PublicationConflictError({ reason: "hostname_taken" });
         }
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             try {
               await assertAccountDeletionUserMutationAllowed(
                 tx,
@@ -1280,7 +1291,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
             reason: "publication_operation_lost",
           });
         }
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           try {
             await assertAccountDeletionUserMutationAllowed(
               tx,
@@ -1381,13 +1392,13 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     releaseVmPublicationOperation: (input) =>
       databaseEffect("releaseVmPublicationOperation", async () => {
-        const [publication] = await cloudDb()
+        const [publication] = await getDb()
           .select({ vmId: cloudVmPublications.vmId })
           .from(cloudVmPublications)
           .where(eq(cloudVmPublications.id, input.publicationId))
           .limit(1);
         if (!publication) return false;
-        const [released] = await cloudDb()
+        const [released] = await getDb()
           .update(cloudVmPublicationVmGuards)
           .set({
             operationLeaseId: null,
@@ -1406,7 +1417,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           });
         if (!released) return false;
         if (!released.teardownStartedAt) {
-          await cloudDb()
+          await getDb()
             .delete(cloudVmPublicationVmGuards)
             .where(
               and(
@@ -1429,7 +1440,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         ) {
           throw new PublicationNotFoundError({ resource: "vm" });
         }
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const [vm] = await tx
             .select()
             .from(cloudVms)
@@ -1535,7 +1546,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
     recordProvisioningTlsRule: (input) =>
       repositoryEffect("recordProvisioningTlsRule", async () => {
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             const publication = await requirePublicationRevision(tx, input);
             if (
               publication.state !== "provisioning" &&
@@ -1585,7 +1596,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
     activatePublication: (input) =>
       repositoryEffect("activatePublication", async () => {
         try {
-          return await cloudDb().transaction(async (tx) => {
+          return await getDb().transaction(async (tx) => {
             const publication = await requirePublicationRevision(tx, input);
             if (
               !(["provisioning", "unavailable"] as const).includes(
@@ -1634,7 +1645,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
     commitAccessPolicy: (input) =>
       repositoryEffect("commitAccessPolicy", async () => {
         const teamId = normalizedTeamId(input.accessMode, input.teamId);
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const publication = await requirePublicationRevision(tx, input);
           if (publication.state !== "active") {
             throw new PublicationConflictError({
@@ -1667,7 +1678,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     recordAppliedForwardAuth: (input) =>
       repositoryEffect("recordAppliedForwardAuth", async () => {
-        const [updated] = await cloudDb()
+        const [updated] = await getDb()
           .update(cloudVmPublications)
           .set({
             providerForwardAuthId: input.providerForwardAuthId,
@@ -1694,7 +1705,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     markPublicationUnavailable: (input) =>
       repositoryEffect("markPublicationUnavailable", async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const publication = await requirePublicationRevision(tx, input);
           if (
             publication.state === "disabled" ||
@@ -1721,7 +1732,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     beginDisablePublication: (input) =>
       repositoryEffect("beginDisablePublication", async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const [publication] = await tx
             .select()
             .from(cloudVmPublications)
@@ -1758,7 +1769,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     finishDisablePublication: (input) =>
       repositoryEffect("finishDisablePublication", async () => {
-        const [updated] = await cloudDb()
+        const [updated] = await getDb()
           .update(cloudVmPublications)
           .set({
             state: "disabled",
@@ -1782,7 +1793,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findOwnedPublication: (input) =>
       databaseEffect("findOwnedPublication", async () => {
-        const [target] = await cloudDb()
+        const [target] = await getDb()
           .select({
             publication: cloudVmPublications,
             domain: cloudVmDomains,
@@ -1806,7 +1817,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findOwnedPublicationByHostname: (input) =>
       databaseEffect("findOwnedPublicationByHostname", async () => {
-        const [target] = await cloudDb()
+        const [target] = await getDb()
           .select({
             publication: cloudVmPublications,
             domain: cloudVmDomains,
@@ -1832,7 +1843,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
       databaseEffect(
         "listOwnedPublications",
         async () =>
-          await cloudDb()
+          await getDb()
             .select({
               publication: cloudVmPublications,
               domain: cloudVmDomains,
@@ -1852,7 +1863,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
       databaseEffect(
         "listOwnedPublicationsForDomain",
         async () =>
-          await cloudDb()
+          await getDb()
             .select({
               publication: cloudVmPublications,
               domain: cloudVmDomains,
@@ -1876,7 +1887,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
       databaseEffect(
         "listPublicationsForAccountDeletion",
         async () =>
-          await cloudDb()
+          await getDb()
             .select({
               publicationId: cloudVmPublications.id,
               provider: cloudVms.provider,
@@ -1905,7 +1916,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findActivePublicationForRequest: (input) =>
       databaseEffect("findActivePublicationForRequest", async () => {
-        const [target] = await cloudDb()
+        const [target] = await getDb()
           .select({
             publication: cloudVmPublications,
             domain: cloudVmDomains,
@@ -1932,9 +1943,42 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
         return target ?? null;
       }),
 
+    findRequestContext: (input) =>
+      databaseEffect("findRequestContext", async () => {
+        const [context] = await getDb()
+          .select({
+            publication: cloudVmPublications,
+            domain: cloudVmDomains,
+            vm: cloudVms,
+            session: cloudVmPublicationSessions,
+          })
+          .from(cloudVmPublications)
+          .leftJoin(cloudVmDomains, eq(cloudVmPublications.domainId, cloudVmDomains.id))
+          .innerJoin(cloudVms, eq(cloudVmPublications.vmId, cloudVms.id))
+          // Invalid sessions remain a missing session on a valid publication;
+          // they must not hide the publication or bypass its current policy.
+          .leftJoin(cloudVmPublicationSessions, and(
+            input.sessionTokenHash === null
+              ? sql`false`
+              : eq(cloudVmPublicationSessions.tokenHash, input.sessionTokenHash),
+            eq(cloudVmPublicationSessions.publicationId, cloudVmPublications.id),
+            eq(cloudVmPublicationSessions.routingRevision, cloudVmPublications.routingRevision),
+            gt(cloudVmPublicationSessions.expiresAt, input.now),
+            isNull(cloudVmPublicationSessions.revokedAt),
+          ))
+          .where(and(
+            eq(cloudVmPublications.providerTlsRuleId, input.providerTlsRuleId),
+            eq(cloudVmPublications.state, "active"),
+            isNull(cloudVmPublications.disabledAt),
+            inArray(cloudVms.status, ["running", "paused"]),
+          ))
+          .limit(1);
+        return context ?? null;
+      }),
+
     createAuthTransaction: (input) =>
       repositoryEffect("createAuthTransaction", async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const [target] = await tx
             .select({
               publication: cloudVmPublications,
@@ -1985,7 +2029,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findPendingAuthTransaction: (input) =>
       databaseEffect("findPendingAuthTransaction", async () => {
-        const [target] = await cloudDb()
+        const [target] = await getDb()
           .select({
             transaction: cloudVmPublicationAuthTransactions,
             publication: cloudVmPublications,
@@ -2031,7 +2075,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     issueAuthCode: (input) =>
       repositoryEffect("issueAuthCode", async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           try {
             await assertAccountDeletionUserMutationAllowed(tx, input.userId);
           } catch (cause) {
@@ -2119,7 +2163,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     consumeAuthCodeAndCreateSession: (input) =>
       repositoryEffect("consumeAuthCodeAndCreateSession", async () => {
-        return await cloudDb().transaction(async (tx) => {
+        return await getDb().transaction(async (tx) => {
           const [candidate] = await tx
             .select({ userId: cloudVmPublicationAuthCodes.userId })
             .from(cloudVmPublicationAuthCodes)
@@ -2270,7 +2314,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     findValidSession: (input) =>
       databaseEffect("findValidSession", async () => {
-        const [principal] = await cloudDb()
+        const [principal] = await getDb()
           .select({
             session: cloudVmPublicationSessions,
             publication: cloudVmPublications,
@@ -2312,7 +2356,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
 
     revokePublicationSessions: (input) =>
       databaseEffect("revokePublicationSessions", async () => {
-        const revoked = await cloudDb()
+        const revoked = await getDb()
           .update(cloudVmPublicationSessions)
           .set({ revokedAt: input.now })
           .where(
@@ -2324,7 +2368,11 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
           .returning({ tokenHash: cloudVmPublicationSessions.tokenHash });
         return revoked.length;
       }),
-  },
+  };
+}
+
+export const CloudVmPublicationRepositoryLive = Layer.succeed(
+  CloudVmPublicationRepository, makeCloudVmPublicationRepository(cloudDb),
 );
 
 export async function runCloudVmPublicationRepositoryEffect<A, E>(

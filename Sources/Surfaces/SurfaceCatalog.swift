@@ -748,6 +748,13 @@ final class SurfaceCatalog {
         }) {
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
+            if resource.kind != .terminal,
+               let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,
+               let browser = SurfacePaneFactory.browserPanel(panelID: resolved.panelID, in: resolved.workspaceID),
+               (browser.cloudAccess.model == nil || browser.cloudAccess.model?.phase == .closed),
+               let raw = resource.url, let url = URL(string: raw) {
+                provider.configureBrowser(browser, url: url)
+            }
             if focus { focusProjection?(resolved) }
             return (resolved, true)
         }
@@ -1177,7 +1184,7 @@ final class SurfaceCatalog {
     /// Record a pane that shows a resource (materialized by a provider, or adopted from an
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
-        insertSupersedingLocalPlaceholder(projection)
+        insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         notifyChange()
     }
@@ -1273,13 +1280,13 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    /// A pane moved to another workspace (tab transfer / drag between windows).
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
         guard !moved.isEmpty else { return }
         projections.subtract(moved)
         for var projection in moved {
             projection.workspaceID = workspaceID
+            projection = cloudPlacementCoordinator.projectionInCurrentWorkspace(projection)
             projections.insert(projection)
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
@@ -1368,6 +1375,10 @@ final class SurfaceCatalog {
 
     func resource(forPanel panelID: UUID) -> SurfaceResource? {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
+    }
+
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
     }
 
     // MARK: Restore

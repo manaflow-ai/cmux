@@ -72,6 +72,8 @@ struct PanelContentView: View {
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
                     onTriggerFlash: onTriggerFlash
                 )
+            } else {
+                TerminalPanelUnavailableView(appearance: appearance)
             }
         case .browser:
             if let browserPanel = panel as? BrowserPanel {
@@ -229,6 +231,14 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .cloudVPNSetup:
+            if let vpnPanel = panel as? CloudVPNSetupPanel {
+                CloudVPNSetupPanelView(
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus,
+                    model: vpnPanel.model
+                )
+            }
         }
     }
 
@@ -246,13 +256,15 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
             return true
         case .terminal, .browser:
             return false
         }
     }
 }
+
+
 
 private struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel

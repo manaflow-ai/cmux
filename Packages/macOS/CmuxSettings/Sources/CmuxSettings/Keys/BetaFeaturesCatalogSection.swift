@@ -68,13 +68,20 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
 
     /// Cloud Machines: the Cloud tab in the right sidebar plus every other
     /// Cloud VM surface (Settings section, palette commands), and the gate
-    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Defaults
-    /// off on every build; this toggle is the only way in.
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
+    /// builds default on for dogfood; release builds stay opt-in. An explicit
+    /// setting still wins on either build.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
-        defaultValue: false,
+        defaultValue: Self.cloudMachinesDefault,
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
+
+    #if DEBUG
+    private static let cloudMachinesDefault = true
+    #else
+    private static let cloudMachinesDefault = false
+    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
