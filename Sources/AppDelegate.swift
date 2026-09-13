@@ -2546,9 +2546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             coordinator?.authenticatedSessionIdentity
         })
         self.cloudOperations = cloudOperations
-        // Construct the Cloud surface registry only after the shared recorder exists.
-        // The registry owns its link manager for the life of the app; creating it first
-        // permanently dropped manual-mirror terminal spans from Axiom.
         let cloudTunnel = makeCloudTunnelCoordinator()
         cloudTunnelCoordinator = cloudTunnel
         CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
