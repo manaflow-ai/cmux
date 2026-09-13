@@ -24,10 +24,9 @@ enum BrowserLocalFileTextEncoding {
     /// the navigation's critical path.
     static let sniffedByteCount = 64 * 1024
 
-    /// A UTF-8 scalar is at most four bytes, so a prefix can end at most three
-    /// bytes into one. Retry the decode after dropping those trailing bytes
-    /// before calling the file non-UTF-8.
-    private static let maximumTruncatedScalarBytes = 3
+    /// A UTF-8 scalar is at most four bytes, so a cut scalar carries at most
+    /// three of them before its lead byte.
+    private static let maximumTruncatedScalarContinuationBytes = 3
 
     private static let setDefaultTextEncodingNameSelector = NSSelectorFromString(
         "_setDefaultTextEncodingName:"
@@ -66,16 +65,58 @@ enum BrowserLocalFileTextEncoding {
         guard let url, url.isFileURL else { return false }
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        guard var prefix = try? handle.read(upToCount: sniffedByteCount),
+        guard let prefix = try? handle.read(upToCount: sniffedByteCount),
               !prefix.isEmpty else {
             return false
         }
+        if String(data: prefix, encoding: .utf8) != nil { return true }
 
-        for _ in 0...maximumTruncatedScalarBytes {
-            if String(data: prefix, encoding: .utf8) != nil { return true }
-            guard prefix.count > 1 else { return false }
-            prefix = prefix.dropLast()
+        // A prefix that filled the window has more file behind it, so its last
+        // scalar can be cut in half. Decode again without that scalar — but
+        // only when the tail really is a cut scalar. Bytes that no scalar could
+        // ever start mean the file is not UTF-8, and dropping them would hand a
+        // legacy file the UTF-8 fallback it must not get.
+        guard prefix.count == sniffedByteCount,
+              let cutScalarByteCount = cutTrailingScalarByteCount(in: prefix) else {
+            return false
         }
-        return false
+        return String(data: prefix.dropLast(cutScalarByteCount), encoding: .utf8) != nil
+    }
+
+    /// The length of a trailing scalar the prefix cut short, or `nil` when the
+    /// tail is a whole scalar or is not UTF-8 at all.
+    private static func cutTrailingScalarByteCount(in prefix: Data) -> Int? {
+        var continuationByteCount = 0
+        for byte in prefix.reversed() {
+            if byte & 0b1100_0000 == 0b1000_0000 {
+                continuationByteCount += 1
+                guard continuationByteCount <= maximumTruncatedScalarContinuationBytes else {
+                    return nil
+                }
+                continue
+            }
+
+            guard let scalarByteCount = scalarByteCount(forLeadByte: byte) else { return nil }
+            let presentByteCount = continuationByteCount + 1
+            return presentByteCount < scalarByteCount ? presentByteCount : nil
+        }
+        return nil
+    }
+
+    /// How many bytes the scalar starting with `byte` occupies, or `nil` when
+    /// no UTF-8 scalar can start with it.
+    private static func scalarByteCount(forLeadByte byte: UInt8) -> Int? {
+        switch byte {
+        case 0x00...0x7F:
+            return 1
+        case 0xC2...0xDF:
+            return 2
+        case 0xE0...0xEF:
+            return 3
+        case 0xF0...0xF4:
+            return 4
+        default:
+            return nil
+        }
     }
 }
