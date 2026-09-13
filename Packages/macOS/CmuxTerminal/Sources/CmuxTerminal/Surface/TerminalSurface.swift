@@ -93,7 +93,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+    /// Current renderer health; the direct callback below is the observation seam for hosts.
+    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
         didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
     }
     var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
