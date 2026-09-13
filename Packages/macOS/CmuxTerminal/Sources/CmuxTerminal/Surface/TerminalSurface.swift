@@ -102,7 +102,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Monotonic count of tokened native presentation callbacks for this
     /// surface. It is the frame authority for hosts whose backing layer is an
     /// IOSurfaceLayer rather than ``GhosttyMetalLayer``.
-    public private(set) var rendererPresentedFrameSequence: UInt64 = 0
+    public internal(set) var rendererPresentedFrameSequence: UInt64 = 0
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
