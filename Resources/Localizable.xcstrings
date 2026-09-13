@@ -109783,6 +109783,20 @@
         }
       }
     },
+    "cli.socket.error.failedToWriteWithErrno": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Failed to write to socket (%1$@, errno %2$d)"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schreiben auf den Socket fehlgeschlagen (%1$@, errno %2$d)"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Échec de l’écriture sur le socket (%1$@, errno %2$d)"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فشلت الكتابة إلى المقبس (%1$@، errno %2$d)"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Error al escribir en el socket (%1$@, errno %2$d)"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法寫入至 Socket（%1$@，errno %2$d）"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "写入套接字失败（%1$@，errno %2$d）"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "소켓 쓰기에 실패했습니다(%1$@, errno %2$d)"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ソケットへの書き込みに失敗しました（%1$@、errno %2$d）"}}
+      }
+    },
     "cli.socket.error.invalidUTF8Response": {
       "extractionState": "manual",
       "localizations": {

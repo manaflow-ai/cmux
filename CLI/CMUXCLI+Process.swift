@@ -199,7 +199,7 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
                     return false
                 }
                 continue
-            case EPIPE:
+            case EPIPE, EBADF, ECONNRESET:
                 switch onBrokenPipe {
                 case .exit(let code):
                     Darwin._exit(code)
