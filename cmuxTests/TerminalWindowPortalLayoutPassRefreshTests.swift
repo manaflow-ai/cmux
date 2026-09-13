@@ -19,7 +19,57 @@ private final class LayoutSyncingAnchorView: NSView {
     }
 }
 
+private final class LayoutCountingHostingView: NSHostingView<EmptyView> {
+    var layoutPassCount = 0
+
+    override func layout() {
+        layoutPassCount += 1
+        super.layout()
+    }
+}
+
 extension TerminalWindowPortalLifecycleTests {
+
+    /// External geometry notifications can arrive while SwiftUI is committing
+    /// a view-graph transaction. The portal must consume the committed frame
+    /// without synchronously forcing the hosting hierarchy through another
+    /// layout pass from that notification path.
+    @MainActor
+    func testExternalGeometrySyncDoesNotSynchronouslyRelayoutHostingHierarchy() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
+        )
+        let hostingView = LayoutCountingHostingView(rootView: EmptyView())
+        hostingView.frame = NSRect(x: 0, y: 0, width: 520, height: 340)
+        window.contentView = hostingView
+        defer {
+            hostingView.rootView = EmptyView()
+        }
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        hostingView.addSubview(anchor)
+        let portal = makeTrackedPortal(window: window)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        realizeWindowLayout(window)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        drainMainQueue()
+
+        hostingView.layoutPassCount = 0
+        anchor.frame.size.width = 280
+        hostingView.needsLayout = true
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+            for: window,
+            forceImmediate: true
+        )
+        drainMainQueue()
+
+        XCTAssertEqual(
+            hostingView.layoutPassCount,
+            0,
+            "External portal geometry sync must not synchronously re-enter the SwiftUI hosting hierarchy"
+        )
+    }
 
     /// A geometry sync that runs inside an AppKit layout pass must not force a
     /// synchronous surface redraw. displayIfNeeded there reaches ghostty's
