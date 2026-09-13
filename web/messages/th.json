@@ -1246,7 +1246,7 @@
       "plusButtonScreenshotAlt": "เมนูคลิกขวาของปุ่มบวกใน cmux แสดง Worktree Agents, New Terminal และ New Browser",
       "plusButtonScreenshotCaption": "เมนูคลิกขวาเรียงตามลำดับจาก ui.newWorkspace.contextMenu",
       "newWorkspaceButton": "แอ็กชันกำหนดเองของปุ่มบวก",
-      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator>",
+      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator> หากไม่ได้ตั้งค่า เมนูจะแสดง cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) พร้อมปุ่มลัดปัจจุบัน รายการคลาวด์จะแสดงเมื่อเปิดใช้งาน Cloud Machines เท่านั้น",
       "newWorkspaceWorktreeNote": "ตัวอย่างนี้ทำให้การคลิกปุ่มบวกตามปกติรัน action <action>worktree-agents</action> คำสั่ง workspace จาก <commands>commands</commands> ใช้ terminal setup ที่มองเห็นได้เพื่อสร้าง Git <worktree>worktree</worktree> ก่อน Codex และ Claude เริ่มพร้อมกัน รอไฟล์ state เฉพาะ workspace แล้ว cd เข้า directory ที่สร้างขึ้นก่อน exec",
       "simpleCommands": "คำสั่งแบบง่าย",
       "simpleCommandsDesc": "คำสั่งแบบง่ายรันคำสั่ง shell ในเทอร์มินัลที่กำลังโฟกัสอยู่:",

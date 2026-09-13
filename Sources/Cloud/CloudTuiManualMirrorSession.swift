@@ -1,6 +1,9 @@
 import CmuxTerminal
 import CmuxCore
 import Foundation
+import os
+
+private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
 
 /// Owns one native cloud-terminal attachment.
 ///
@@ -42,7 +45,6 @@ final class CloudTuiManualMirrorSession {
     private var attachResponseReceived = false
     private var claimInFlight = false
     private var geometryClaimed = false
-    private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
     /// continue sending it instead of being wedged behind a failed claim.
@@ -57,29 +59,24 @@ final class CloudTuiManualMirrorSession {
     private var lastRemoteGrid: CloudTuiManualIOGrid?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
-            // Every transport failure calls `transitionToDisconnected(error:)`
-            // explicitly. Surface rebinds can therefore end a stream without
-            // creating a false network error.
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
                 finishDiagnostics(error: CloudDiagnosticFailure.network)
             }
             if phase == .stopped { finishDiagnostics(error: CancellationError()) }
             if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
+            manualMirrorLogger.notice("phase terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) phase=\(String(describing: self.phase), privacy: .public) replay=\(self.diagnosticReplayReceived)")
+            surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
             surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }
     }
 
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
-        let state: WorkspaceRemoteConnectionState
-        switch phase {
-        case .idle, .connecting: state = .connecting
-        case .attached: state = diagnosticReplayReceived ? .connected : .connecting
-        case .disconnected: state = .error
-        case .stopped: return nil
-        }
+        guard let state = CloudManualMirrorPresentation(
+            phase: phase, replayReceived: diagnosticReplayReceived
+        ).connectionState else { return nil }
         var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-            connectionState: state, detail: diagnosticFailure?.label ?? CloudOperationPhase.ready.label
+            connectionState: state, detail: diagnosticFailure?.label
         )
         presentation?.diagnosticReference = diagnosticReference
         return presentation
@@ -88,8 +85,10 @@ final class CloudTuiManualMirrorSession {
     @discardableResult
     func retryConnection() -> Bool {
         guard phase != .stopped else { return false }
-        if let socketPath { reconnect(socketPath: socketPath) }
-        else { onNeedsReconnect() }
+        // Explicit recovery must pass through the provider's fresh resolution,
+        // including when the current socket is still attached or connecting.
+        fenceAttachment(error: CancellationError())
+        onNeedsReconnect()
         return true
     }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
@@ -98,7 +97,6 @@ final class CloudTuiManualMirrorSession {
         machineID: String,
         terminalID: String,
         remoteSurfaceID: UInt64,
-        initiallyClaimsGeometry: Bool = true,
         operations: CloudOperationRecorder? = nil,
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         onNeedsReconnect: @escaping @MainActor () -> Void
@@ -107,7 +105,6 @@ final class CloudTuiManualMirrorSession {
         self.machineID = machineID
         self.terminalID = terminalID
         self.remoteSurfaceID = remoteSurfaceID
-        geometryClaimEligible = initiallyClaimsGeometry
         self.onNeedsReconnect = onNeedsReconnect
         self.commandBuilder = commandBuilder
         inputRouter = CloudTuiManualIOInputRouter(
@@ -127,7 +124,17 @@ final class CloudTuiManualMirrorSession {
     /// before inserting the panel, so a runtime-ready signal cannot be missed;
     /// assigning them here also makes rebinding after restore safe.
     func bind(surface: TerminalSurface) {
+        if let previous = self.surface, previous !== surface,
+           previous.hostedView.cloudTerminalOverlay.session === self {
+            previous.onManualSizeApplied = nil
+            previous.onRuntimeReady = nil
+            previous.onManualWindowAttached = nil
+            previous.onManualVisibilityChanged = nil
+            previous.hostedView.cloudTerminalOverlay.unbindSession(self)
+        }
         self.surface = surface
+        surface.hostedView.cloudTerminalOverlay.session = self
+        manualMirrorLogger.info("bind terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID)")
         // A color sidecar that arrived before any surface existed reaches this
         // one now. The stored sidecar is the remote truth, and the next
         // identical sidecar would produce an empty delta and leave the pane on
@@ -152,12 +159,11 @@ final class CloudTuiManualMirrorSession {
         runtimeReady()
     }
 
-    /// Re-samples a pane when it becomes visible without a frame-size delta.
-    /// A hidden projection never claims geometry; a visible projection can
-    /// reclaim it on the normal focus edge.
+    /// Re-samples on reveal even without a frame-size delta. A valid grid in
+    /// the visible, real pane makes sizing eligible; initial focus is irrelevant.
     func visibilityChanged(_ visible: Bool) {
-        guard phase != .stopped,
-              surface?.isNativeViewInRealWindow == true else { return }
+        guard phase != .stopped else { return }
+        manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
         if !visible {
             // Do not let a hidden portal continue to resize a shared remote
             // PTY. The release is connection-scoped and idempotent; closing
@@ -177,7 +183,6 @@ final class CloudTuiManualMirrorSession {
                     )
                 }
             }
-            geometryClaimEligible = false
             geometryClaimed = false
             claimUnsupported = false
             claimInFlight = false
@@ -185,6 +190,7 @@ final class CloudTuiManualMirrorSession {
             resizeScheduler.resetForReconnect()
             return
         }
+        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
         runtimeReady()
     }
 
@@ -228,7 +234,12 @@ final class CloudTuiManualMirrorSession {
     /// a reused numeric id route output or input to another terminal; the
     /// provider will reconnect only after a later authoritative resolution.
     func markSurfaceResolutionUnavailable() {
-        guard phase != .stopped else { return }
+        guard phase != .stopped, phase != .disconnected else { return }
+        fenceAttachment(error: CloudDiagnosticFailure.notFound)
+        onNeedsReconnect()
+    }
+
+    private func fenceAttachment(error: Error) {
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
         }
@@ -246,7 +257,8 @@ final class CloudTuiManualMirrorSession {
         serverCapabilities.removeAll(keepingCapacity: true)
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
-        finishDiagnostics(error: CancellationError())
+        diagnosticReplayReceived = false
+        finishDiagnostics(error: error)
         phase = .disconnected
     }
 
@@ -371,7 +383,7 @@ final class CloudTuiManualMirrorSession {
               let surface,
               surface.isNativeViewInRealWindow,
               surface.isRendererPortalVisible,
-              let grid = usableGrid(from: sample, validatePanePixels: validatePanePixels) else {
+              let grid = CloudTuiManualIOGrid(sample: sample, validatePanePixels: validatePanePixels) else {
             return
         }
         let canSend = attachResponseReceived && !claimInFlight
@@ -388,7 +400,6 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
-        geometryClaimEligible = true
         // Another local projection may have claimed the shared terminal since
         // our last report. Treat an explicit focus/input edge as a fresh claim
         // opportunity instead of trusting the stale local flag.
@@ -428,7 +439,8 @@ final class CloudTuiManualMirrorSession {
         connection?.close()
         connection = nil
         pendingRequests.removeAll(keepingCapacity: false)
-        if let surface {
+        if let surface, surface.hostedView.cloudTerminalOverlay.session === self {
+            surface.hostedView.cloudTerminalOverlay.unbindSession(self)
             surface.onManualSizeApplied = nil
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
@@ -436,7 +448,6 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = nil
     }
-
 
     private func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
@@ -578,6 +589,7 @@ final class CloudTuiManualMirrorSession {
         error: String?
     ) {
         guard let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:
             guard ok else {
@@ -614,7 +626,8 @@ final class CloudTuiManualMirrorSession {
                 // A lease-capable peer must return the connection-owned token.
                 // Never downgrade this stream to surface-wide sizing, because
                 // a delayed command could otherwise resize a replacement view.
-                transitionToDisconnected()
+                manualMirrorLogger.error("attach terminal=\(self.terminalID, privacy: .private(mask: .hash)) decision=missing-lease")
+                transitionToDisconnected(error: CloudDiagnosticFailure.protocol)
                 return
             }
             attachResponseReceived = true
@@ -772,12 +785,13 @@ final class CloudTuiManualMirrorSession {
     private func sendClaimIfNeeded() {
         guard attachResponseReceived,
               surface?.isRendererPortalVisible == true,
-              geometryClaimEligible,
+              surface?.isNativeViewInRealWindow == true,
               !geometryClaimed,
               !claimUnsupported,
               !claimInFlight,
               resizeScheduler.inFlight != nil || resizeScheduler.lastAcknowledged != nil,
               let connection else { return }
+        manualMirrorLogger.info("geometry terminal=\(self.terminalID, privacy: .private(mask: .hash)) decision=claim")
         claimInFlight = true
         let requestID = takeRequestID()
         pendingRequests[requestID] = .claim
@@ -799,41 +813,6 @@ final class CloudTuiManualMirrorSession {
         if let retry = resizeScheduler.force(desired) {
             sendResize(retry)
         }
-    }
-
-    /// Rejects a stale bootstrap sample. A runtime surface can be created in
-    /// the hidden 800×600 startup window before AppKit lays out the real pane;
-    /// checking the reported pixel size against the attached view keeps that
-    /// transient grid from becoming the remote PTY's authority.
-    private func usableGrid(
-        from sample: TerminalSurfaceRawSizingSample,
-        validatePanePixels: Bool
-    ) -> CloudTuiManualIOGrid? {
-        guard let grid = CloudTuiManualIOGrid(columns: sample.columns, rows: sample.rows),
-              sample.cellWidthPx > 0,
-              sample.cellHeightPx > 0,
-              sample.surfaceWidthPx > 0,
-              sample.surfaceHeightPx > 0 else {
-            return nil
-        }
-        guard validatePanePixels else { return grid }
-        guard let bounds = sample.viewBoundsPt,
-              let scale = sample.backingScale,
-              bounds.width > 2,
-              bounds.height > 2,
-              bounds.width.isFinite,
-              bounds.height.isFinite,
-              scale.isFinite,
-              scale > 0 else { return nil }
-        let expectedWidth = max(1, Int(floor(bounds.width * scale)))
-        let expectedHeight = max(1, Int(floor(bounds.height * scale)))
-        let widthTolerance = max(4, max(1, sample.cellWidthPx) * 2)
-        let heightTolerance = max(4, max(1, sample.cellHeightPx) * 2)
-        guard abs(sample.surfaceWidthPx - expectedWidth) <= widthTolerance,
-              abs(sample.surfaceHeightPx - expectedHeight) <= heightTolerance else {
-            return nil
-        }
-        return grid
     }
 
     private func takeRequestID() -> UInt64 {

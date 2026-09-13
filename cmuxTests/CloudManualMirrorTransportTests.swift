@@ -663,7 +663,7 @@ struct CloudManualMirrorTransportTests {
 
 /// One command a fixture read from the session, reduced to the fields the
 /// handshake tests assert on.
-private struct CloudManualMirrorFixtureCommand: Sendable {
+struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
     let id: UInt64
     let surface: UInt64?
@@ -685,7 +685,7 @@ private struct CloudManualMirrorFixtureCommand: Sendable {
 /// daemon's responses, so handshake ordering is observable as behavior rather
 /// than as source text.
 // @unchecked Sendable: every mutable field is guarded by `lock`.
-private final class CloudManualMirrorSocketFixture: @unchecked Sendable {
+final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     let socketPath: String
     private let listenerFD: Int32
     private let lock = NSLock()

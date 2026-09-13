@@ -1244,7 +1244,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents, New Terminal, New Browser를 보여 주는 cmux 플러스 버튼 오른쪽 클릭 메뉴",
       "plusButtonScreenshotCaption": "오른쪽 클릭 메뉴는 ui.newWorkspace.contextMenu의 순서를 따릅니다.",
       "newWorkspaceButton": "플러스 버튼 사용자 지정 액션",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다.",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다.",
       "newWorkspaceWorktreeNote": "이 예시는 일반 플러스 클릭이 <action>worktree-agents</action> 액션을 실행하게 합니다. <commands>commands</commands>의 워크스페이스 명령은 보이는 설정 터미널을 사용해 먼저 Git <worktree>worktree</worktree>를 만듭니다. Codex와 Claude는 동시에 시작해 워크스페이스별 상태 파일을 기다린 다음, exec 전에 생성된 디렉터리로 이동합니다.",
       "simpleCommands": "단순 명령어",
       "simpleCommandsDesc": "단순 명령어는 현재 포커스된 터미널에서 셸 명령어를 실행합니다:",

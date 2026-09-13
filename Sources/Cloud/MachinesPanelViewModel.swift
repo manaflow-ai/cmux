@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import Foundation
 import SwiftUI
 
@@ -54,6 +55,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
+    /// True when this is the machine used by the quick cloud-workspace shortcut.
+    var isDefault: Bool = false
 
     /// The label when set, else the generated name, else the machine id.
     var displayName: String {
@@ -420,6 +423,16 @@ final class MachinesPanelViewModel: ObservableObject {
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
+
+    func setDefaultMachine(id: String) {
+        guard machines.contains(where: { $0.id == id }) else { return }
+        defaultMachineStore?.machineID = id
+        machines = machines.map { machine in
+            var next = machine
+            next.isDefault = machine.id == id
+            return next
+        }
+    }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
     var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
@@ -465,7 +478,10 @@ final class MachinesPanelViewModel: ObservableObject {
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator? = nil) {
+    let defaultMachineStore: DefaultCloudMachineStore?
+
+    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil) {
+        self.defaultMachineStore = defaultMachineStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
@@ -779,6 +795,7 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         do {
             let page = try await client.listPage()
+            try Task.checkCancellation()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -790,6 +807,15 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            let defaultMachineID = defaultMachineStore?.resolveMachineID(
+                from: snapshots.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.isDesktop) },
+                isComplete: true
+            )
+            snapshots = snapshots.map { snapshot in
+                var next = snapshot
+                next.isDefault = snapshot.id == defaultMachineID
+                return next
+            }
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
