@@ -215,7 +215,6 @@ final class CloudTuiManualMirrorSession {
         runtimeReady()
     }
 
-    /// Rebinds the public terminal to a fresh process-local numeric surface ID.
     func updateRemoteSurfaceID(_ surfaceID: UInt64) {
         guard surfaceID != remoteSurfaceID else { return }
         remoteSurfaceID = surfaceID
@@ -227,10 +226,6 @@ final class CloudTuiManualMirrorSession {
         }
     }
 
-    /// Drops an attachment whose numeric surface could not be resolved for
-    /// the current daemon generation. Keeping the old stream alive would let
-    /// a reused numeric id route output or input to another terminal; the
-    /// provider will reconnect only after a later authoritative resolution.
     func markSurfaceResolutionUnavailable(
         reason: CloudTerminalAttachmentInterruption = .unresolved("awaiting an authoritative resolution")
     ) {
@@ -288,6 +283,9 @@ final class CloudTuiManualMirrorSession {
     /// Starts or rebinds the byte attachment.
     func reconnect(socketPath: String) {
         guard phase != .stopped, remoteSurfaceID != 0 else { return }
+        if presentationReadiness.phase == .ended {
+            presentationReadiness.rearm()
+        }
         startupTrace?.mark("attach-start", surfaceID: remoteSurfaceID)
         if self.socketPath == socketPath,
            (connection != nil || connectTask != nil) {

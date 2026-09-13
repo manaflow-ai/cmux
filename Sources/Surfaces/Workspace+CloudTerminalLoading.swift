@@ -25,7 +25,10 @@ extension Workspace {
         }
         panel.cloudStartupReadiness.begin(
             surface: panel.surface,
-            condition: { true },
+            condition: {
+                guard let attachment = panel.cloudAttachment else { return true }
+                return attachment.state == .attached
+            },
             onReady: { setLoading(false) },
             onEnded: { setLoading(false) },
             onTimedOut: { [weak self, weak panel] in
