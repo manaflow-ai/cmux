@@ -55,14 +55,10 @@ struct CloudTreeDeviceRowContent: View {
     }
 
     private var avatar: some View {
-        ZStack {
-            Circle()
-                .fill(Color.accentColor.opacity(row.isOnline ? 0.85 : 0.35))
-                .frame(width: 28, height: 28)
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-        }
+        Image(systemName: "desktopcomputer")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: CloudTreeRowGrid.dotSlot, height: 20, alignment: .center)
         .accessibilityHidden(true)
     }
 
