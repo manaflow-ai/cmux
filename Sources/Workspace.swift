@@ -291,7 +291,16 @@ extension Workspace {
         // survive an app restart) inherits it through `newTerminalSurface`.
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
-        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let cloudProjectedPanelIDs = Set(
+            (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
+        )
+        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
+            var panel = panel
+            if cloudProjectedPanelIDs.contains(panel.id), panel.directoryIsTrustedRemoteReport != true {
+                panel.directoryRequiresRemoteTrust = true
+            }
+            return (panel.id, panel)
+        })
         let restorableAgentIndex = restoreAgentIndex(for: snapshot.panels)
         let shouldRestoreSingleDefaultCloudTerminal =
             isDefaultFreestyleSSHDRemoteWorkspace &&
@@ -349,7 +358,10 @@ extension Workspace {
             clearProxyOnlyRemoteSidebarArtifacts()
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
-        gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
+        let hasCloudProvenance = cloudVMBinding != nil || (snapshot.surfaceProjections ?? []).contains { !$0.resource.machine.isLocal }
+        gitBranch = hasCloudProvenance
+            ? nil
+            : snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
         recomputeListeningPorts()
 
@@ -491,6 +503,9 @@ extension Workspace {
             ? (panelCustomTitleSources[panelId] ?? .user)
             : nil
         let directory: String? = {
+            if cloudDirectoryProvenanceRequired(panelId: panelId) {
+                return reportedPanelDirectory(panelId: panelId)
+            }
             if let directory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
                !directory.isEmpty {
                 return directory
@@ -1553,9 +1568,10 @@ extension Workspace {
             snapshot,
             workspaceId: snapshotWorkspaceId ?? id
         )
-        let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
-            (snapshot.directoryRequiresRemoteTrust == true ||
-                restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
+        let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||
+            (snapshot.directoryIsTrustedRemoteReport != true &&
+                (snapshot.directoryRequiresRemoteTrust == true ||
+                    restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
             let localTmuxStartCommand = sessionRestorePolicy
@@ -1726,7 +1742,7 @@ extension Workspace {
                 ?? (restoresUntrustedSavedDirectory ? nil : restorableAgent?.workingDirectory)
                 ?? (restoresUntrustedSavedDirectory ? nil : snapshot.directory)
             let workingDirectory = savedWorkingDirectory
-                ?? currentDirectory
+                ?? (restoresUntrustedSavedDirectory ? nil : currentDirectory)
             // A persisted terminal cwd can already be the stray fallback cwd
             // from a prior auto-resume restore; the transient rescue/guard must
             // remember where the resume launcher actually sends the agent.
@@ -2275,6 +2291,7 @@ extension Workspace {
         case .rightSidebarTool:
             guard let mode = snapshot.rightSidebarTool?.mode,
                   mode.canOpenAsPane,
+                  mode.isAvailable(),
                   let toolPanel = newRightSidebarToolSurface(
                     inPane: paneId,
                     mode: mode,
@@ -2331,7 +2348,6 @@ extension Workspace {
             return nil
         }
     }
-
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
@@ -2339,7 +2355,7 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user)
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
@@ -2388,7 +2404,8 @@ extension Workspace {
 
         if restoredDirectoryRequiresRemoteTrust {
             clearPanelGitBranch(panelId: panelId)
-        } else if let branch = snapshot.gitBranch {
+        } else if let branch = snapshot.gitBranch,
+                  !cloudDirectoryProvenanceRequired(panelId: panelId) {
             panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty)
         } else {
             panelGitBranches.removeValue(forKey: panelId)
@@ -2566,8 +2583,6 @@ extension Workspace {
     }
 
 }
-
-
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
@@ -3077,8 +3092,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// not replayed on restore, only the binding is.
     var cloudVMBinding: WorkspaceCloudVMBinding? {
         get { cloudBindingState.binding }
-        set { cloudBindingState.binding = newValue }
+        set {
+            let previous = cloudBindingState.binding
+            cloudBindingState.binding = newValue
+            guard previous != newValue else { return }
+            (owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id))?
+                .sidebarGitMetadataService
+                .clearWorkspaceGitProbes(workspaceId: id)
+            clearSidebarGitMetadata()
+            // A binding transition invalidates the previous machine's cwd report.
+            // Local PTY state can be used again only after the binding is removed.
+            panelDirectories.removeAll()
+            panelDirectoryDisplayLabels.removeAll()
+            remoteDirectoryReportPanelIds.removeAll()
+            remoteDirectoryTrustRequiredPanelIds.removeAll()
+            notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
+        }
     }
+    /// The workspace-owned state for the latest failed cloud terminal creation request.
+    @MainActor let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -4536,6 +4568,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
     private let layoutFollowUpTimeoutScheduler = MainActorDeferredActionScheduler()
+    private let geometryNotificationScheduler = MainActorDeferredActionScheduler()
     private var layoutFollowUpReason: String?
     private var layoutFollowUpTerminalFocusPanelId: UUID?
     private var layoutFollowUpBrowserPanelId: UUID?
@@ -5441,96 +5474,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return max(rawTarget, pinnedCount)
     }
 
-    /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
-    ///
-    /// `.auto` writes are rejected when a user or remote title exists, and
-    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
-    /// may replace a local title. Returns whether the write landed.
-    @discardableResult
-    func setPanelCustomTitle(
-        panelId: UUID,
-        title: String?,
-        source: CustomTitleSource = .user,
-        propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
-    ) -> Bool {
-        guard panels[panelId] != nil else { return false }
-        let previousWorkspaceTitle = self.title
-        defer {
-            if self.title != previousWorkspaceTitle {
-                owningTabManager?.panelCustomTitleDidReconcileWorkspaceTitle(self)
-            }
-        }
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let previous = panelCustomTitles[panelId]
-        if source == .auto {
-            guard !trimmed.isEmpty, cloudProjectedResource(forPanel: panelId) == nil else { return false }
-            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
-        }
-        var sameText = false
-        // Clearing a cloud terminal tab is a remote mutation even when this
-        // client has no local override. Resolve the projection before the
-        // empty-title guard so that the daemon can clear its canonical name.
-        let cloudResourceForPropagation: SurfaceResource? = {
-            guard propagateToCloud, source == .user else { return nil }
-            return cloudProjectedResource(forPanel: panelId)
-        }()
-        if trimmed.isEmpty {
-            let canClearRemoteName = cloudResourceForPropagation?.kind == .terminal
-            guard previous != nil || canClearRemoteName else { return false }
-            if previous != nil {
-                panelCustomTitles.removeValue(forKey: panelId)
-                panelCustomTitleSources.removeValue(forKey: panelId)
-            }
-        } else {
-            if previous == trimmed {
-                // Same text still updates provenance. A remote observation must
-                // be able to turn a just-confirmed local intent into settled
-                // daemon-owned state without changing the visible tab twice.
-                panelCustomTitleSources[panelId] = source
-                sameText = true
-            } else {
-                panelCustomTitles[panelId] = trimmed
-                panelCustomTitleSources[panelId] = source
-            }
-        }
-
-        applyFocusedPanelTitle(panelId: panelId)
-
-        // A repeated remote or automatic observation only changes provenance.
-        // A repeated USER edit remains an idempotent intent and must still reach
-        // the daemon, because the earlier request may have failed or been lost.
-        if sameText, source != .user { return true }
-
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
-        // A remote tmux mirror tab rename propagates to `rename-window`.
-        if propagateToRemoteTmux, isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
-                workspaceId: id, panelId: panelId, title: trimmed
-            )
-        }
-        // A pane projecting a cloud terminal writes a USER rename or clear through
-        // to the machine's daemon tab name (`tab rename`): persisted there,
-        // broadcast, and shown by every attached client (tree rows, other Macs,
-        // TUI tab bars).
-        if let resource = cloudResourceForPropagation, resource.kind == .terminal {
-            SurfaceCatalog.shared.propagateCloudTerminalRename(
-                workspace: self,
-                panelID: panelId,
-                resource: resource,
-                name: trimmed,
-                previousCustomTitle: previous
-            )
-        }
-        return true
-    }
-
     func isPanelPinned(_ panelId: UUID) -> Bool {
         pinnedPanelIds.contains(panelId)
     }
@@ -5933,7 +5876,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let previousPresentedDirectory = presentedCurrentDirectory
         let isRemoteTerminalReport = isRemoteTerminalSurface(panelId)
-        if source == .liveReport, remoteDirectoryTrustRequiredPanelIds.contains(panelId) { return false }
+        if source == .liveReport &&
+            (cloudDirectoryProvenanceRequired(panelId: panelId) ||
+                remoteDirectoryTrustRequiredPanelIds.contains(panelId)) {
+            return false
+        }
         let routedRemoteReport = source == .remoteReport && !allowsLocalDirectoryFallback(panelId: panelId)
         let establishesRemoteProvenance = source == .trustedRestoredRemoteSnapshotMetadata ||
             (source.establishesRemoteProvenance &&
@@ -6335,7 +6282,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return panel.isDirty
     }
 
+    /// Applies sidebar Git branch state unless the panel belongs to a Cloud machine.
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
+        if cloudDirectoryProvenanceRequired(panelId: panelId) {
+            clearPanelGitBranch(panelId: panelId)
+            return
+        }
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
         let branchChanged = existing?.branch != nil && existing?.branch != branch
@@ -6372,6 +6324,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Applies sidebar pull-request state unless the panel belongs to a Cloud machine.
     func updatePanelPullRequest(
         panelId: UUID,
         number: Int,
@@ -6381,6 +6334,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         branch: String? = nil,
         isStale: Bool = false
     ) {
+        if cloudDirectoryProvenanceRequired(panelId: panelId) {
+            clearPanelPullRequest(panelId: panelId)
+            return
+        }
         let existing = panelPullRequests[panelId]
         let normalizedBranch = branch?.normalizedSidebarBranchName
         let currentPanelBranch = panelGitBranches[panelId]?.branch.normalizedSidebarBranchName
@@ -6416,6 +6373,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Removes pull-request metadata for one panel.
     func clearPanelPullRequest(panelId: UUID) {
         if panelPullRequests[panelId] != nil {
             panelPullRequests.removeValue(forKey: panelId)
@@ -6425,6 +6383,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Removes all sidebar pull-request metadata.
     func clearSidebarPullRequestMetadata() {
         if !panelPullRequests.isEmpty {
             panelPullRequests.removeAll()
@@ -6434,6 +6393,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Removes all sidebar Git and pull-request metadata.
     func clearSidebarGitMetadata() {
         if !panelGitBranches.isEmpty {
             panelGitBranches.removeAll()
@@ -6441,6 +6401,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         clearSidebarPullRequestMetadata()
         if gitBranch != nil {
             gitBranch = nil
+        }
+    }
+
+    /// Removes remote directory state and any metadata derived from it.
+    func clearRemotePanelDirectory(panelId: UUID) {
+        let previousPresentedDirectory = presentedCurrentDirectory
+        panelDirectories.removeValue(forKey: panelId)
+        panelDirectoryDisplayLabels.removeValue(forKey: panelId)
+        discardRemoteDirectoryTrustState(panelId: panelId)
+        clearPanelGitBranch(panelId: panelId)
+        if usesRemoteDirectoryProvenance {
+            notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: true)
         }
     }
 
@@ -6624,6 +6596,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         let validPanelPullRequests = panelPullRequests.filter { panelId, state in
+            guard !cloudDirectoryProvenanceRequired(panelId: panelId) else { return false }
             if usesRemoteDirectoryProvenance, effectivePanelDirectory(panelId: panelId) == nil {
                 return false
             }
@@ -9544,7 +9517,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
             showsNotificationBadge: false,
-            isLoading: false,
+            isLoading: true,
             isPinned: false
         )
         publishCmuxSurfaceCreated(pair.key, paneId: paneId, kind: SurfaceKind.terminal.rawValue, origin: "cloud_vm_ready", focused: focus)
@@ -9564,9 +9537,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
+        beginCloudTerminalStartupLoading(panel: replacementPanel, tabID: tabId)
         return replacementPanel
     }
-
     private func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
@@ -10304,7 +10277,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
                   toolPanel.mode == mode else {
@@ -10326,7 +10299,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        guard mode.canOpenAsPane else { return nil }
+        guard mode.canOpenAsPane, mode.isAvailable() else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -13170,7 +13143,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 }
 
 // MARK: - BonsplitDelegate
-
 // MARK: - PaneTreeHosting (legacy @Published observer hooks)
 
 extension Workspace: PaneTreeHosting {
@@ -14803,27 +14775,22 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
-        tmuxLayoutSnapshot = snapshot
-        _ = surfaceList.registerGeometryChange()
-        let topologyChanged = surfaceList.lastGeometryChangeChangedMembership
-        NotificationCenter.default.post(
-            name: .workspacePaneGeometryDidChange,
-            object: self,
-            userInfo: [
-                GhosttyNotificationKey.tabId: id,
-                GhosttyNotificationKey.topologyChanged: topologyChanged,
-            ]
-        )
-        // Every order/membership mutation (same-pane reorder, cross-pane move,
-        // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
-        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
-        // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
-        scheduleTerminalGeometryReconcile()
-        if !isDetachingCloseTransaction {
-            scheduleFocusReconcile()
+        geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
+            guard let self else { return }
+            self.tmuxLayoutSnapshot = snapshot
+            _ = self.surfaceList.registerGeometryChange()
+            let topologyChanged = self.surfaceList.lastGeometryChangeChangedMembership
+            NotificationCenter.default.post(
+                name: .workspacePaneGeometryDidChange,
+                object: self,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: self.id,
+                    GhosttyNotificationKey.topologyChanged: topologyChanged,
+                ]
+            )
+            self.scheduleTerminalGeometryReconcile()
         }
+        if !isDetachingCloseTransaction { scheduleFocusReconcile() }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.

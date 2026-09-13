@@ -14,7 +14,6 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
-
 struct WindowInfo {
     let index: Int
     let id: String
@@ -22,7 +21,6 @@ struct WindowInfo {
     let selectedWorkspaceId: String?
     let workspaceCount: Int
 }
-
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -34,7 +32,6 @@ struct NotificationInfo {
     let createdAt: String?
     let tabTitle: String?
 }
-
 struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
@@ -45,14 +42,12 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
     let title: String?
 }
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
 }
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -63,7 +58,6 @@ private func agentHookDebugLog(
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
     guard let data = line.data(using: .utf8) else { return }
-
     if let handle = FileHandle(forWritingAtPath: logPath) {
         defer { try? handle.close() }
         guard (try? handle.seekToEnd()) != nil else { return }
@@ -72,7 +66,6 @@ private func agentHookDebugLog(
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
 }
-
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
@@ -3812,12 +3805,12 @@ final class SocketClient {
                     close()
                     throw CLIError(message: timeoutMessage)
                 }
-                let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
-                if descriptor.revents & terminalEvents != 0 {
+                if descriptor.revents & Int16(POLLNVAL) != 0 {
                     close()
-                    throw CLIError(message: failureMessage)
+                    let message = String(format: String(localized: "cli.socket.error.failedToWriteWithErrno", defaultValue: "Failed to write to socket (%1$@, errno %2$d)"), String(cString: strerror(EBADF)), EBADF); throw CLIError(message: message)
                 }
-                guard descriptor.revents & Int16(POLLOUT) != 0 else {
+                // Let a protected write resolve HUP/ERR to errno for telemetry.
+                guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR) != 0 else {
                     continue
                 }
 
@@ -5041,6 +5034,9 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
+            return
+        }
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -5861,7 +5857,7 @@ struct CMUXCLI {
                     print(prompt)
                 }
                 if let skillPath = response["skill_path"] as? String {
-                    FileHandle.standardError.write(Data("skill: \(skillPath)\n".utf8))
+                    cliWriteStderr("skill: \(skillPath)\n")
                 }
 
             case "stats", "top":
@@ -14228,7 +14224,7 @@ struct CMUXCLI {
                 ),
                 attempt
             )
-            FileHandle.standardError.write(Data("\r\n\(reconnectingLine)\r\n".utf8))
+            cliWriteStderr("\r\n\(reconnectingLine)\r\n")
             Thread.sleep(forTimeInterval: min(pow(2.0, Double(attempt - 1)), 15))
             do {
                 config = try mintVMPtyReconnectConfig(
@@ -18421,6 +18417,7 @@ struct CMUXCLI {
             and can require one macOS approval. Missing tunnel support fails closed.
 
             Subcommands:
+              guide | --skill           \(Self.guideDescription)
               ls                        List your cloud VMs.
               domains                   \(domainsDescription)
               workspace new <machine> [--name <name>] [--reuse]
@@ -41295,6 +41292,8 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
+          cmux guide | cmux --skill
+          cmux cloud guide | cmux cloud --skill
           Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
           Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
@@ -41302,6 +41301,7 @@ export default CMUXSessionRestore;
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
+          guide | --skill
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
