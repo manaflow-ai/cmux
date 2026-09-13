@@ -532,20 +532,20 @@ struct CmuxTuiSnapshotParser: Sendable {
             switch resourceID.kind {
             case .terminal:
                 guard let terminal = state.lookupIndex.terminal(id: resourceID.key) else { continue }
+                let lifecycle = SurfaceLifecycle(rawValue: terminal.lifecycle)
+                    ?? (terminal.running == true ? .running : .exited)
+                // A retained tab is exit history, not a process that can be opened.
+                // Excluding it here also closes attached panes on an exit delta.
+                guard lifecycle != .exited else { continue }
                 // `tabs[].content_id` is the authoritative reverse edge. The
                 // terminal row may expose only one legacy `tab_id`, so use it
                 // only as a fallback when a matching tab row is present.
                 let viewTabs = terminalTabs(terminal, index: state.lookupIndex)
-                let declaredTabIDs = uniquePreservingOrder(terminal.tabIDs)
-                if terminal.lifecycle == SurfaceLifecycle.exited.rawValue,
-                   viewTabs.isEmpty,
-                   declaredTabIDs.isEmpty { continue }
                 var resource = SurfaceResource(
                     id: resourceID,
                     title: terminal.title,
                     detail: terminal.cwd,
-                    lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
-                        ?? (terminal.running == true ? .running : .exited),
+                    lifecycle: lifecycle,
                     agent: state.lookupIndex.agent(terminalID: terminal.id).map {
                         SurfaceAgentBadge(state: $0.state, source: $0.source)
                     },
@@ -1444,6 +1444,10 @@ struct CmuxTuiSnapshotParser: Sendable {
             let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
             if let resourceIDs, !resourceIDs.contains(resourceID) { continue }
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
+            // The daemon retains exit records and may retain their tabs. Neither
+            // can accept input, so they must not become openable Cloud resources.
+            // Keep the complete record in CloudVMState for exit/output queries.
+            guard terminal.lifecycle != .exited else { continue }
             let declaredTabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
                 + ((raw["tab_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }.map { [$0] } ?? [])
             let graphTabIDs: [String] = orderedTabsRaw.compactMap { tab in
@@ -1453,11 +1457,6 @@ struct CmuxTuiSnapshotParser: Sendable {
                 return tabID
             }
             let tabIDs = uniquePreservingOrder(graphTabIDs + declaredTabIDs)
-            // cmux-tui keeps a record of a terminal whose process exited after its tab is
-            // gone; nothing can open or close it any more (its selector no longer resolves),
-            // so it is not a surface. An exited terminal that still has a tab stays listed —
-            // that one can be closed.
-            if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
             // Keep the PTY-derived title on the shared resource. User names belong to
             // each SurfaceRemoteView, because one terminal can have different tab labels.
             terminal.remoteViews = tabIDs.compactMap { tabID in
