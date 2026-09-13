@@ -69,6 +69,16 @@ class AppHostTestOutputTests(unittest.TestCase):
         self.assertEqual(diagnosis["category"], "pre-test app-host failure")
         self.assertEqual(diagnosis["executed_tests"], 0)
 
+    def test_diagnoses_crash_before_tests_as_app_host_failure(self) -> None:
+        diagnosis = MODULE.diagnose(
+            "Fatal error: Initial workspace creation failed\n"
+            "*** Program crashed: Signal 5 ***\n",
+            exit_code=65,
+        )
+
+        self.assertEqual(diagnosis["category"], "pre-test app-host failure")
+        self.assertIn("Fatal error", diagnosis["first_causal_line"])
+
     def test_diagnoses_assertion_failure_after_tests(self) -> None:
         diagnosis = MODULE.diagnose(
             "✘ Test notification() recorded an issue\n"
