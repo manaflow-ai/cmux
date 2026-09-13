@@ -75,8 +75,7 @@ struct CloudTuiCreationCoordinator: Sendable {
                         deadline: .seconds(30)
                     )
                     if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object),
-                       created.workspaceID != nil || workspaceID != "current" {
+                       let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
                         return created
                     }
                     reconcile = true
