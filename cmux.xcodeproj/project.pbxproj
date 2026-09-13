@@ -768,6 +768,7 @@
 		084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */; };
 		BEDA293E177041CCBF7677A0 /* CloudSidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */; };
 		E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */; };
+		13F2E9FE2945455CA372CBFB /* CloudSidebarOrganizationGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */; };
 		EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */; };
 		3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */; };
 		DF3CB4E1EB244622B4300041 /* CloudSidebarOrganizationTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */; };
@@ -4487,6 +4488,7 @@
 		4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarNotificationTests.swift"; sourceTree = "<group>"; };
 		085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarOrderingTests.swift; sourceTree = "<group>"; };
 		57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationAction.swift"; sourceTree = "<group>"; };
+		2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationGroup.swift"; sourceTree = "<group>"; };
 		416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationState.swift"; sourceTree = "<group>"; };
 		4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationStore.swift"; sourceTree = "<group>"; };
 		EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationTree.swift"; sourceTree = "<group>"; };
@@ -7853,6 +7855,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */,
 				E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */,
 				FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */,
+				2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */,
 				B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */,
 				0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */,
 				A12357000000000000000001 /* CloudTreeTerminalNavigationCoordinator.swift */,
@@ -12096,6 +12099,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
 				1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */,
 				E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */,
+				13F2E9FE2945455CA372CBFB /* CloudSidebarOrganizationGroup.swift in Sources */,
 				EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */,
 				3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */,
 				DF3CB4E1EB244622B4300041 /* CloudSidebarOrganizationTree.swift in Sources */,

@@ -3,12 +3,7 @@ import Foundation
 /// Mac-local sidebar preferences. Membership and session topology always come
 /// from the catalog; these records only order stable identities within a parent.
 struct CloudSidebarOrganizationState: Codable, Equatable {
-    struct Group: Codable, Equatable {
-        var order: [String] = []
-        var pinned: Set<String> = []
-    }
-
-    var groups: [String: Group] = [:]
+    var groups: [String: CloudSidebarOrganizationGroup] = [:]
 
     func ordered(_ ids: [String], parent: String) -> [String] {
         guard let group = groups[parent] else { return ids }
@@ -25,7 +20,7 @@ struct CloudSidebarOrganizationState: Codable, Equatable {
 
     mutating func apply(_ action: CloudSidebarOrganizationAction, id: String, siblings: [String], parent: String) -> Bool {
         guard siblings.contains(id) else { return false }
-        var group = groups[parent] ?? Group()
+        var group = groups[parent] ?? CloudSidebarOrganizationGroup()
         var order = ordered(siblings, parent: parent)
         let wasPinned = group.pinned.contains(id)
         switch action {
