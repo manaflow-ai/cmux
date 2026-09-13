@@ -229,13 +229,10 @@ final class CloudWorkspaceRenameService {
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
+        let rename = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         Task { @MainActor [weak workspace, weak manager] in
             do {
-                try await catalog.renameRemoteWorkspace(
-                    on: target.machine,
-                    id: target.remoteWorkspaceID,
-                    name: name
-                )
+                try await rename.value
             } catch {
                 guard let workspace,
                       workspace.customTitle == expectedTitle,
@@ -290,9 +287,10 @@ final class CloudWorkspaceRenameService {
             return
         }
         guard catalog.provider(for: resource.machine) != nil else { return }
+        let rename = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
         Task { @MainActor [weak workspace] in
             do {
-                try await catalog.renameRemoteTab(on: resource.machine, id: tabID, name: name)
+                try await rename.value
             } catch {
                 guard let workspace,
                       workspace.panelCustomTitles[panelID] == expectedTitle else { return }

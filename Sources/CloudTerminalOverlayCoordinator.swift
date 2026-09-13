@@ -35,6 +35,11 @@ final class CloudTerminalOverlayCoordinator {
         self.dismissalStore = dismissalStore
     }
 
+    /// Creates a coordinator backed by the app's standard user defaults.
+    convenience init() {
+        self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
+    }
+
     /// A replaced representable may still emit layout and hide callbacks. Only
     /// the newest ownership epoch/host may move or hide this terminal's card.
     func updateAnchor(
