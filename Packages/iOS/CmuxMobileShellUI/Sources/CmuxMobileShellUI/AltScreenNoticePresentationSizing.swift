@@ -3,9 +3,12 @@ import SwiftUI
 /// Fits the native popover to content measured at its final wrapping width.
 /// The system can still clamp the proposal on compact-height screens, where
 /// `ViewThatFits` selects the scrollable fallback.
-struct AltScreenNoticePresentationSizing: PresentationSizing {
+struct AltScreenNoticePresentationSizing {
     static let maxWidth: CGFloat = 340
+}
 
+@available(iOS 18.0, *)
+extension AltScreenNoticePresentationSizing: PresentationSizing {
     func proposedSize(
         for root: PresentationSizingRoot,
         context _: PresentationSizingContext

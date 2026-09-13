@@ -897,7 +897,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("FixtureWorkspaceDetail")
-        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+        .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
     }
 }
 

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxMobileSimulatorStream",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         // macOS so the engine, mapping, and store logic unit-test locally;
         // the display view itself is UIKit-gated.
         .macOS(.v14),

@@ -176,7 +176,10 @@ extension TerminalArtifactFilesSheet {
                 let referenced = presentation.items(in: .referenced)
                 let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
                 ScrollViewReader { proxy in
-                    ScrollView {
+                    SessionGalleryScrollView(
+                        topTolerance: Self.sessionTopTolerance,
+                        onViewportChange: { sessionViewportIsAtTopOrFits = $0 }
+                    ) {
                         VStack(spacing: 0) {
                             Color.clear
                                 .frame(height: 0)
@@ -225,15 +228,6 @@ extension TerminalArtifactFilesSheet {
                             showsEagerFooter: usesCompleteSessionSnapshot
                         )
                     }
-                    }
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        let isAtTop = geometry.contentOffset.y
-                            <= geometry.contentInsets.top + Self.sessionTopTolerance
-                        let fits = geometry.contentSize.height
-                            <= geometry.containerSize.height + Self.sessionTopTolerance
-                        return isAtTop || fits
-                    } action: { _, isAtTopOrFits in
-                        sessionViewportIsAtTopOrFits = isAtTopOrFits
                     }
                     .overlay(alignment: .top) {
                         if liveRefreshState.pendingNewFileCount > 0 {

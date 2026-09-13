@@ -450,7 +450,7 @@ struct WorkspaceShellView: View {
                             createWorkspace: createWorkspaceInCompactStack,
                             canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
                 }
             }
             .onAppear {
@@ -792,7 +792,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one

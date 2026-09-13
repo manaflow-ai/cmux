@@ -72,9 +72,20 @@ struct MobilePrimaryTabScaffold<
                 }
             }
             .ignoresSafeArea(.container, edges: .bottom)
-        } else {
+        } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
                 primaryTabs
+            }
+            .accessibilityIdentifier("MobilePrimaryTabs")
+        } else {
+            TabView(selection: $selection) {
+                workspaces
+                    .tabItem { workspacesLabel }
+                    .tag(MobilePrimaryTab.workspaces)
+                notifications
+                    .tabItem { notificationsLabel }
+                    .tag(MobilePrimaryTab.notifications)
+                    .badge(notificationUnreadCount)
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
@@ -109,28 +120,37 @@ struct MobilePrimaryTabScaffold<
         )
     }
 
+    @available(iOS 18.0, *)
     @TabContentBuilder<MobilePrimaryTab>
     private var primaryTabs: some TabContent<MobilePrimaryTab> {
         Tab(value: MobilePrimaryTab.workspaces) {
             workspaces
         } label: {
-            Label(
-                L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                systemImage: "rectangle.stack"
-            )
-            .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+            workspacesLabel
         }
 
         Tab(value: MobilePrimaryTab.notifications) {
             notifications
         } label: {
-            Label(
-                L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
-                systemImage: "bell"
-            )
-            .accessibilityIdentifier("MobilePrimaryTabNotifications")
+            notificationsLabel
         }
         .badge(notificationUnreadCount)
+    }
+
+    private var workspacesLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+            systemImage: "rectangle.stack"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+    }
+
+    private var notificationsLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+            systemImage: "bell"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabNotifications")
     }
 }
 
