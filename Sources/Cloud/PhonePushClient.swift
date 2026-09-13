@@ -410,6 +410,7 @@ final class PhonePushClient {
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
         cancelInMemoryQueue()
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         schedulePersistence([])
     }
@@ -490,6 +491,7 @@ final class PhonePushClient {
     ) async {
         guard identity != activeIdentity else { return }
         cancelInMemoryQueue()
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         activeIdentity = identity
         await clearPersistedQueue()
@@ -510,7 +512,6 @@ final class PhonePushClient {
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
     }
-
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
             pendingPersistenceSnapshot = nil
@@ -528,7 +529,6 @@ final class PhonePushClient {
         }
         persistenceTask = nil
     }
-
     private func clearPersistedQueue() async {
         do {
             try await queueStore.clear()

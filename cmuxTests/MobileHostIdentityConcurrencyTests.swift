@@ -35,6 +35,13 @@ struct MobileHostIdentityConcurrencyTests {
         #expect(buffer.takePendingDismissals() == nil)
     }
 
+    @Test func sessionResetDropsBufferedDismissalsBeforeTheyCanFlush() throws {
+        let buffer = PhonePushIdentityPrewarm()
+        buffer.appendDismissals(ids: ["account-a"], badgeCount: 2)
+        buffer.reset()
+        #expect(buffer.takePendingDismissals() == nil)
+    }
+
     @Test func prewarmPublishesOneProcessStableSnapshotForConcurrentCallers() async {
         await MobileHostIdentity.prewarm()
         let expected = MobileHostIdentity.deviceIDIfReady()
