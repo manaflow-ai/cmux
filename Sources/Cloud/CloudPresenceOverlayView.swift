@@ -86,7 +86,9 @@ final class CloudPresenceOverlayView: NSView {
     private func scheduleFadeIfNeeded() {
         fadeTimer?.cancel()
         fadeTimer = nil
-        guard !entries.isEmpty else { return }
+        guard entries.contains(where: { entry in
+            entry.highlight?.mode == .laser || entry.pointer != nil
+        }) else { return }
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
         timer.setEventHandler { [weak self] in
@@ -128,7 +130,8 @@ final class CloudPresenceOverlayView: NSView {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        guard geometry.cellSize.width > 0, geometry.cellSize.height > 0, geometry.rows > 0 else { return }
+        guard geometry.cellSize.width > 0, geometry.cellSize.height > 0,
+              geometry.columns > 0, geometry.rows > 0 else { return }
         let now = Self.now()
         for entry in entries {
             let color = Self.palette[entry.color & 7]
@@ -150,7 +153,11 @@ final class CloudPresenceOverlayView: NSView {
             }
             if let pointer = entry.pointer, age < Self.pointerLifetime,
                let rect = cellRect(for: pointer) {
-                drawPointer(at: rect, color: color, label: entry.name ?? "client \(entry.client)")
+                drawPointer(
+                    at: rect,
+                    color: color,
+                    label: entry.name ?? String(localized: "cloud.presence.client", defaultValue: "client")
+                )
             }
         }
     }
@@ -170,22 +177,26 @@ final class CloudPresenceOverlayView: NSView {
     /// A cell range is drawn like a text selection: partial first and last
     /// rows, full rows between. Rows off screen are skipped.
     private func drawHighlight(_ highlight: CloudPresenceHighlight, color: NSColor) {
-        guard case let .cell(startRow, startCol, startOffset) = highlight.start,
-              case let .cell(endRow, endCol, endOffset) = highlight.end else { return }
+        guard case let .cell(_, startCol, _) = highlight.start,
+              case let .cell(_, endCol, _) = highlight.end,
+              let startRow = highlight.start.shiftedRow(viewerScrollOffset: geometry.scrollOffset),
+              let endRow = highlight.end.shiftedRow(viewerScrollOffset: geometry.scrollOffset) else { return }
         var first = (
-            row: Int64(startRow) + Int64(geometry.scrollOffset) - Int64(startOffset),
+            row: startRow,
             col: startCol
         )
         var last = (
-            row: Int64(endRow) + Int64(geometry.scrollOffset) - Int64(endOffset),
+            row: endRow,
             col: endCol
         )
         if first.row > last.row || (first.row == last.row && first.col > last.col) {
             swap(&first, &last)
         }
         color.setFill()
-        let rowRange = max(first.row, 0)...min(last.row, Int64(geometry.rows - 1))
-        guard rowRange.lowerBound <= rowRange.upperBound else { return }
+        let lowerRow = max(first.row, 0)
+        let upperRow = min(last.row, Int64(geometry.rows - 1))
+        guard lowerRow <= upperRow else { return }
+        let rowRange = lowerRow...upperRow
         for row in rowRange {
             let fromCol = row == first.row ? max(0, min(first.col, geometry.columns - 1)) : 0
             let toCol = row == last.row ? max(0, min(last.col, geometry.columns - 1)) : geometry.columns - 1

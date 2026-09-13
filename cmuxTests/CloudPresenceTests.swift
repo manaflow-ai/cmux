@@ -145,4 +145,17 @@ struct CloudPresenceTests {
         // Points never map to a terminal row.
         #expect(CloudPresenceAnchor.point(x: 1, y: 2).viewerRow(viewerScrollOffset: 0, rows: 24) == nil)
     }
+
+    @Test
+    func unrepresentableScrollOffsetsAreIgnored() throws {
+        let malformed = try Self.line([
+            "kind": "cell",
+            "row": 1,
+            "col": 1,
+            "scroll_offset": NSNumber(value: UInt64.max),
+        ])
+        #expect(CloudPresenceAnchor(json: try JSONSerialization.jsonObject(with: malformed)) == nil)
+        #expect(CloudPresenceAnchor.cell(row: 1, col: 1, scrollOffset: .max)
+            .viewerRow(viewerScrollOffset: 0, rows: 24) == nil)
+    }
 }
