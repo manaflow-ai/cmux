@@ -437,6 +437,17 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[key] = .nullableString(value)
         }
+
+        let widthKey = PaneChromeSettings.paneMinimumWidthKey
+        if root.keys.contains(widthKey) {
+            if let value = jsonDouble(root[widthKey]) {
+                snapshot.managedUserDefaults[widthKey] = .double(
+                    PaneChromeSettings.sanitizedPaneMinimumWidth(value)
+                )
+            } else {
+                logInvalid(widthKey, sourcePath: sourcePath)
+            }
+        }
     }
 
     private func parseAppSection(
@@ -1640,7 +1651,8 @@ final class CmuxSettingsFileStore {
                 }
 
                 if change.defaultsKey == PaneChromeSettings.paneBorderColorKey ||
-                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey {
+                    change.defaultsKey == PaneChromeSettings.activePaneBorderColorKey ||
+                    change.defaultsKey == PaneChromeSettings.paneMinimumWidthKey {
                     paneChromeDidChange = true
                 }
 
