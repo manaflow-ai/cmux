@@ -795,7 +795,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
-        )
+        ) + "\n\n" + cloudSidebarUsage
     }
 
     static var surfaceUsage: String {
@@ -965,6 +965,7 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "resize": return vmResizeUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage
@@ -1366,6 +1367,7 @@ extension CMUXCLI {
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--sidebar") { try runCloudSidebarCommand(rest: rest, client: client, jsonOutput: jsonOutput); return }
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmTreeUsage)
             return
@@ -1540,8 +1542,7 @@ extension CMUXCLI {
                     placements.append((workspace, view))
                 }
             } else if let workspace = resource["remote_workspace"] as? [String: Any] {
-                // Only pre-multi-view payloads fall back to this field. An
-                // explicit empty `remote_views` is authoritative.
+                // An explicit empty `remote_views` overrides this legacy field.
                 placements.append((workspace, nil))
             }
             for placement in placements {
@@ -1761,7 +1762,8 @@ extension CMUXCLI {
         }
         let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
         var cell = "\(glyph) \(displayKey)"
-        if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
+        let title = RemoteTerminalTitle(processTitle: terminal["title"] as? String ?? "", viewNames: (terminal["remote_views"] as? [[String: Any]])?.map { $0["name"] as? String } ?? []).poolTitle
+        if !title.isEmpty { cell += "  \(title)" }
         if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
             let source = (agent["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1965,7 +1967,6 @@ extension CMUXCLI {
 
     // MARK: - cmux surface ls|open|new-terminal
 
-    /// `cmux surface <sub>` for the catalog verbs. `resume` stays in cmux.swift.
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.surfaceUsage)

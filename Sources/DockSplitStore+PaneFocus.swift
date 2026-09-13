@@ -20,7 +20,27 @@ extension DockSplitStore {
 
     /// Whether a panel id is present in the Dock tree.
     func containsPanel(_ panelId: UUID) -> Bool {
-        panels[panelId] != nil
+        panelID(forTerminalLinkSourceID: panelId) != nil
+    }
+
+    /// Resolves a terminal callback identity to the owning Dock panel.
+    ///
+    /// Ghostty callbacks identify the terminal surface, while Dock ownership
+    /// is indexed by panel IDs and Bonsplit tab IDs. Most terminals use the
+    /// same UUID for both, but restored and aliased control surfaces can carry
+    /// a different tab identity. Keep this normalization at the Dock boundary
+    /// so every terminal-link operation uses one ownership lookup.
+    func panelID(forTerminalLinkSourceID sourceID: UUID) -> UUID? {
+        if panels[sourceID] != nil {
+            return sourceID
+        }
+        if let mappedPanelID = surfaceIdToPanelId[TabID(uuid: sourceID)],
+           panels[mappedPanelID] != nil {
+            return mappedPanelID
+        }
+        return panels.first { _, panel in
+            (panel as? TerminalPanel)?.surface.id == sourceID
+        }?.key
     }
 
     /// Whether a pane id is present in the Dock tree.

@@ -28,13 +28,13 @@ describe("publication authorization capacity", () => {
     });
     await ready;
     try {
-      const timeoutSignal = AbortSignal.timeout(1000);
-      const completed = await Promise.race([
-        publicationDatabaseRuntime().then(runtime => runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`)))).then(() => true),
-        new Promise<boolean>(resolve => {
-          timeoutSignal.addEventListener("abort", () => resolve(false), { once: true });
-        }),
-      ]);
+      const runtime = await publicationDatabaseRuntime();
+      const completed = await runtime.runPromise(
+        Effect.flatMap(Database, db => db.execute(sql`select 1`)).pipe(
+          Effect.as(true),
+          Effect.timeout("1 second"),
+        ),
+      );
       expect(completed).toBe(true);
     } finally {
       release();

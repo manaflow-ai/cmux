@@ -57,6 +57,16 @@ public struct PreferredEditorService: FileOpening {
     }
 
     public func open(_ url: URL) {
+        open(url, line: nil, column: nil)
+    }
+
+    /// Opens a file at an optional source location in the configured editor.
+    ///
+    /// The location is passed as one shell-quoted argument (`path:line` or
+    /// `path:line:column`), which is understood by common editor CLIs such as
+    /// VS Code and Cursor. System-default fallback remains a plain file URL
+    /// because Finder-style openers do not consume source locations.
+    public func open(_ url: URL, line: Int?, column: Int?) {
         if capture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
             line: url.path
@@ -71,7 +81,8 @@ public struct PreferredEditorService: FileOpening {
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(url.path.posixShellSingleQuoted)"]
+        let editorArgument = editorArgument(path: url.path, line: line, column: column)
+        process.arguments = ["-c", "\(command) \(editorArgument.posixShellSingleQuoted)"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
@@ -90,5 +101,14 @@ public struct PreferredEditorService: FileOpening {
         } catch {
             systemOpener.openWithSystemDefault(url)
         }
+    }
+
+    /// Formats the configured editor's single file argument.
+    private func editorArgument(path: String, line: Int?, column: Int?) -> String {
+        guard let line else { return path }
+        if let column {
+            return "\(path):\(line):\(column)"
+        }
+        return "\(path):\(line)"
     }
 }

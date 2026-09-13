@@ -58,7 +58,9 @@ describe("Freestyle private network readiness", () => {
     };
     const vm = {
       exec: async ({ command }: { command: string }) => {
-        events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-preparation");
+        // Adapter, reporter, and hook preparation can add probes. This test
+        // guards publication/rollback ordering, not the number of setup execs.
+        if (command.startsWith("python3 -c ")) events.push("guest-network");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
       fs: {
@@ -79,19 +81,13 @@ describe("Freestyle private network readiness", () => {
     const allocation = operation === "create"
       ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
-    // Readiness gates publication regardless of how many shim, daemon, or hook
-    // preparation commands a create or restore needs.
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events.filter((event) => event !== "guest-preparation"))
-        .toEqual(["allocated", "guest-network", "published"]);
-      expect(events.slice(-2)).toEqual(["guest-network", "published"]);
+      expect(events).toEqual(["allocated", "guest-network", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
-      expect(events.filter((event) => event !== "guest-preparation"))
-        .toEqual(["allocated", "delete"]);
-      expect(events.at(-1)).toBe("delete");
+      expect(events).toEqual(["allocated", "delete"]);
     }
   });
 

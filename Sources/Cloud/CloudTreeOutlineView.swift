@@ -20,6 +20,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    var organizationStore: CloudSidebarOrganizationStore? = nil
+    var organizationState = CloudSidebarOrganizationState()
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -42,7 +44,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         Coordinator(
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organization: organizationStore,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -77,9 +79,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
-        private var nodes: [CloudTreeNode] = []
+        var nodes: [CloudTreeNode] = []
+        let organization: CloudSidebarOrganizationStore
+        private(set) var vpnEmptyPortsNodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
-        private var contentSignature: [String] = []
+        private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -97,7 +101,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
-        private var deferredNodes: [CloudTreeNode]?
+        var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
         var showsCloudVPNWarning = false {
@@ -111,11 +115,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
+            organization: CloudSidebarOrganizationStore? = nil,
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
+            self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -236,6 +242,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 deferredNodes = nodes
                 return
             }
+            let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG
@@ -246,21 +253,24 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cmuxDebugLog("cloudTree.apply structureChanged=\(nextStructure != structureSignature) contentChanged=\(nextContent != contentSignature) unreadRows=\(unreadRows) rows=\(outlineView?.numberOfRows ?? -1)")
             #endif
             guard nextStructure != structureSignature || nextContent != contentSignature else { return }
+            let update = CloudTreeRowUpdate(previous: contentSignature, next: nextContent)
             contentSignature = nextContent
             if nextStructure == structureSignature, !self.nodes.isEmpty {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
-                guard let outlineView, outlineView.numberOfRows > 0 else { return }
+                vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
+                guard let outlineView else { return }
+                let changedRows = update.rowIndexes(in: outlineView)
+                guard !changedRows.isEmpty else { return }
                 withProgrammaticUpdate {
-                    outlineView.reloadData(
-                        forRowIndexes: IndexSet(integersIn: 0..<outlineView.numberOfRows),
-                        columnIndexes: IndexSet(integer: 0)
-                    )
+                    outlineView.reloadData(forRowIndexes: changedRows, columnIndexes: IndexSet(integer: 0))
+                    outlineView.noteHeightOfRows(withIndexesChanged: changedRows)
                 }
                 return
             }
             self.nodes = nodes
+            vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -352,18 +362,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
-            switch node.kind {
-            case .machine(let machine, _):
-                let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                // Same rule as usageLine (nil for empty totals), without formatting text per row.
-                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
-            case .localMachine, .pendingMachine:
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
-            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
-                return GlobalFontMagnification.scaledSize(style.rowHeight)
-            }
+            CloudTreeRowHeight(style: style, showsVPNWarning: showsCloudVPNWarning).height(of: item, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -422,6 +421,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// and the asleep placeholder still wakes, because those rows advertise
         /// exactly that).
         func open(_ node: CloudTreeNode) {
+            if showsCloudVPNWarning && node.isPortsEmptyPlaceholder {
+                machineActions.setupVPN(outlineView?.window)
+                return
+            }
             switch node.kind {
             case .machine(let machine, _):
                 if machine.freeAccess == .expired {
@@ -464,13 +467,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
-                } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(row.resource.id, .tab, true)
-                }
+                openTerminalRow(node, row: row)
             case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
@@ -588,7 +585,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
-            for item in menuItems(for: node) {
+            for item in organizationMenuItems(for: node) + menuItems(for: node) {
                 menu.addItem(item)
             }
             if let error = node.errorCopyText {
@@ -709,10 +706,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup, .portsGroup:
-                return [
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .browsersGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .portsGroup: return portsGroupMenuItems()
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
@@ -807,6 +803,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
             }
+            if machine.freeAccess != .expired, machine.capabilities.sizing {
+                items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
+            }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
@@ -850,7 +849,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        private func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
+        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title, action: action)
             item.target = item
             return item
@@ -859,10 +858,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            // Only terminals and displays leave the tree by drag (lawrence,
-            // 2026-08-27). Workspaces are containers (their drag becomes the D2
-            // mirror later); browsers and ports open in place.
-            guard let node = item as? CloudTreeNode, node.isDragSource,
+            guard let node = item as? CloudTreeNode, node.isDragSource || node.canOrganize,
                   let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
             // Do not mutate the outline while AppKit is asking for this
@@ -880,7 +876,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 registration: registration,
                 sourceView: outlineView,
                 coordinator: self,
-                provisionalToken: dragWriterOwnership.makeToken()
+                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil,
+                exposesProjection: node.isDragSource
             )
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
                 dragID: dragID,
@@ -1031,39 +1028,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     }
 }
 
-/// Menu item carrying its own closure; the outline's context menu is rebuilt
-/// per click from the clicked node, so items never outlive their target.
-final class CloudTreeMenuItem: NSMenuItem {
-    private let runAction: @MainActor () -> Void
-
-    init(title: String, action: @escaping @MainActor () -> Void) {
-        runAction = action
-        // The selector is deliberately NOT named `perform(_:)`: that compiles
-        // to `perform:`, which collides with NSObject's perform machinery and
-        // the click never reached the method. `execute` mirrors the sidebar's
-        // SidebarRowMenuActionItem, the proven shape.
-        super.init(title: title, action: #selector(execute), keyEquivalent: "")
-        target = self
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc @MainActor private func execute() {
-        #if DEBUG
-        cmuxDebugLog("cloudTree.menu.execute title=\(title)")
-        #endif
-        runAction()
-    }
-}
-
 /// Scroll view + outline host for the Cloud tree.
 final class CloudTreeContainerView: NSView {
     private let scrollView = NSScrollView()
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
+    private let layoutMetrics = CloudTreeLayoutMetrics()
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
         self.coordinator = coordinator
@@ -1073,9 +1043,6 @@ final class CloudTreeContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .custom
-        // One slot per level (style-sized): the disclosure chevron lives in the
-        // last slot before a row's content, and leaves keep the slot so glyphs
-        // form a column. `apply(style:)` keeps this in step with the preset.
         outlineView.indentationPerLevel = CloudTreeStyleStore.current.indentPerLevel
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = true
@@ -1089,21 +1056,14 @@ final class CloudTreeContainerView: NSView {
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
-        // The one column's width is derived from the live bounds on EVERY layout
-        // pass (see `layout()`), never left to resize notifications: a width set
-        // only during live-resize events is exactly the "row content is wrong
-        // until I drag the divider" class of bug.
         outlineView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        // D9: one click opens, on every row. The single-click handler ignores
-        // the extra clicks of a double-click, so a habitual double-click acts
-        // once and never opens twice. No doubleAction: nothing is double-click
-        // only anymore.
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
+        outlineView.registerForDraggedTypes([.cloudSidebarRow])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }
@@ -1132,6 +1092,9 @@ final class CloudTreeContainerView: NSView {
         scrollView.documentView = outlineView
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
+        outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
+        outlineView.frame = scrollView.contentView.bounds
+        outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -1145,11 +1108,18 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Width is a pure function of the current bounds, recomputed on every layout
-    /// pass. Rows are correct on first display, on sidebar show, and on any
-    /// programmatic resize — not only after a live divider drag.
     override func layout() {
         super.layout()
+        let viewportWidth = scrollView.contentView.bounds.width
+        let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
+        let contentHeight = outlineView.numberOfRows > 0
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + scrollView.contentInsets.bottom
+            : 0
+        let documentHeight = layoutMetrics.documentHeight(
+            viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
+        if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
+            outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
+        }
         outlineView.sizeLastColumnToFit()
     }
 }

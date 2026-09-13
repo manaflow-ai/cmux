@@ -81,51 +81,10 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if tunnelStatus.status?.state != .up {
-            Button {
-                openCloudVPNSetup()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "network")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(tunnelStatus.status?.state == .up
-                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                            .cmuxFont(size: 12, weight: .medium)
-                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        }
-        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel,
-           !bannerDismissals.isDismissed(id: "machines.tunnel", signature: banner.dismissalSignature) {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            } onDismiss: {
-                bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
-            }
-        }
-        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText,
-           !bannerDismissals.isDismissed(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature) {
-            MachinesFreeAccessBanner(
-                text: text,
-                isExpired: plan.freeAccessBanner == .expired,
-                windowDays: plan.freeAccessWindowDays,
-                backgroundColor: chromeBackgroundColor,
-                onDismiss: {
-                    bannerDismissals.dismiss(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature)
-                }
-            )
-        }
+        MachinesPanelBanners(
+            tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
+            bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
+        )
         content
     }
     /// Clears the tunnel banner and opens the Cloud VPN setup flow.
@@ -472,8 +431,17 @@ struct MachinesPanelView: View {
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
+            onDidMutate: { [weak viewModel] in
+                viewModel?.endOperation()
+                viewModel?.refresh(tree: true)
+            }
         )
+        // The list endpoint is authoritative for the caller's plan-sized
+        // memory ladder. Feed it into the menu so Pro users do not select a
+        // Max-only size and wait for a server rejection.
+        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
+        machineActions.resizeMemoryOptionsGiB = planMemoryGiB
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
         machineActions.setupVPN = { window in
             openCloudVPNSetup(preferredWindow: window)
         }
@@ -500,10 +468,10 @@ struct MachinesPanelView: View {
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            showsCloudVPNWarning: CloudPortsVPNWarning.projection(tunnelState: tunnelStatus.status?.state) != nil
+            showsCloudVPNWarning: CloudPortsVPNWarning.projection(status: tunnelStatus.status) != nil
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -667,7 +635,7 @@ private struct MachinePlanMeter: View {
     }
 }
 
-private struct MachinesFreeAccessBanner: View {
+struct MachinesFreeAccessBanner: View {
     let text: String
     let isExpired: Bool
     let windowDays: Int
@@ -764,6 +732,13 @@ struct MachineRowActions {
     let runCommand: @MainActor (String, [String]) -> Void
     let confirmDelete: @MainActor (String) -> Void
     let promptRename: @MainActor (String, String?) -> Void
+    /// Grow the machine through the shared `cmux vm resize` command.
+    let resizeDisk: @MainActor (String, Int) -> Void
+    var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
+    var resizeMemory: @MainActor (String, Int) -> Void = { _, _ in }
+    /// Plan-advertised targets. Empty means use the provider's conservative ladder.
+    var resizeCPUOptions: [Int] = []
+    var resizeMemoryOptionsGiB: [Int] = []
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
@@ -808,6 +783,20 @@ struct MachineRowActions {
             promptRename: { id, currentLabel in
                 presentRenamePrompt(id: id, currentLabel: currentLabel, onWillMutate: onWillMutate, onDidMutate: onDidMutate)
             },
+            resizeDisk: { id, gib in
+                onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
+                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
+                    onDidMutate()
+                }
+            },
+            resizeCPU: { id, cpu in
+                onWillMutate(String(format: String(localized: "machines.operation.resize", defaultValue: "Resizing %@…"), id))
+                if !launch(arguments: ["vm", "resize", id, "--cpu", "\(cpu)"], onDidMutate: onDidMutate) { onDidMutate() }
+            },
+            resizeMemory: { id, gib in
+                onWillMutate(String(format: String(localized: "machines.operation.resize", defaultValue: "Resizing %@…"), id))
+                if !launch(arguments: ["vm", "resize", id, "--memory", "\(gib)G"], onDidMutate: onDidMutate) { onDidMutate() }
+            },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
             }
@@ -826,6 +815,9 @@ struct MachineRowActions {
         if verb.contains("snapshot") {
             return (String(localized: "command.cloudVM.snapshot.result.title", defaultValue: "Cloud VM Checkpoint"), true)
         }
+        if verb.contains("resize") {
+            return (String(localized: "command.cloudVM.resize.result.title", defaultValue: "Cloud VM Resized"), true)
+        }
         if verb.contains("fork") {
             return (String(localized: "command.cloudVM.fork.result.title", defaultValue: "Cloud VM Forked"), false)
         }
@@ -836,6 +828,8 @@ struct MachineRowActions {
         let format: String
         if verb.contains("snapshot") {
             format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
+        } else if verb.contains("resize") {
+            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@\u{2026}")
         } else if verb.contains("fork") {
             format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
         } else if verb.contains("status") {

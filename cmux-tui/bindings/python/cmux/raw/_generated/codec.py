@@ -97,6 +97,7 @@ MODEL_BY_PATH = {
     'types/Size': models.Size,
     'types/SurfaceResult': models.SurfaceResult,
     'types/Tab': models.Tab,
+    'types/TerminalColorOverrides': models.TerminalColorOverrides,
     'types/TerminalColors': models.TerminalColors,
     'types/TerminalEventsResult': models.TerminalEventsResult,
     'types/TerminalExit': models.TerminalExit,

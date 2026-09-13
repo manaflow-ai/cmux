@@ -137,7 +137,7 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        for code in ["invalid_params", "not_found", "protected"] {
+        for code in ["invalid_params", "not_found", "protected", "tab_manager_unavailable"] {
             let probePath = root.appendingPathComponent("\(code)-probe.txt").path
             let result = try runStructuredErrorProbe(
                 code: code,
@@ -364,7 +364,7 @@ private final class CMUXCLISentryTelemetryBundleToken {}
                 "ok": false,
                 "error": [
                     "code": code,
-                    "message": "TabManager not available"
+                    "message": code == "tab_manager_unavailable" ? "Unable to access the target workspace." : "TabManager not available"
                 ]
             ]
             return try? String(
