@@ -106,6 +106,26 @@ mod download_ledger_tests {
         assert!(ledger.records[0].path.is_none());
         let _ = std::fs::remove_dir_all(directory);
     }
+
+    #[test]
+    fn browser_scoped_event_fails_closed_when_frame_id_is_ambiguous() {
+        let mut ledger = DownloadLedger {
+            directory: None,
+            records: VecDeque::new(),
+            frame_sessions: HashMap::new(),
+        };
+        ledger.remember_frame("reused-frame", "session-a");
+        ledger.remember_frame("reused-frame", "session-b");
+        ledger.begin(DownloadWillBegin {
+            session_id: None,
+            frame_id: Some("reused-frame".into()),
+            guid: "guid".into(),
+            url: String::new(),
+            suggested_filename: "file.txt".into(),
+        });
+        assert!(ledger.for_session("session-a").is_empty());
+        assert!(ledger.for_session("session-b").is_empty());
+    }
 }
 
 impl BrowserSource {
@@ -692,7 +712,7 @@ struct DownloadRecord {
 struct DownloadLedger {
     directory: Option<PathBuf>,
     records: VecDeque<DownloadRecord>,
-    frame_sessions: HashMap<String, String>,
+    frame_sessions: HashMap<String, Option<String>>,
 }
 
 impl DownloadLedger {
@@ -718,9 +738,21 @@ impl DownloadLedger {
                 }
             }
             // CDP frame ids are target-scoped and may be reused after a
-            // provider target is recreated. The newest lifecycle event owns
-            // the mapping for subsequent browser-scoped download events.
-            self.frame_sessions.insert(frame_id.to_string(), session_id.to_string());
+            // provider target is recreated. A collision is marked ambiguous
+            // because Browser-domain events omit sessionId.
+            match self.frame_sessions.entry(frame_id.to_string()) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(Some(session_id.to_string()));
+                }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    if entry.get().as_deref() != Some(session_id) {
+                        // Browser-domain events omit sessionId. Once a frame
+                        // id is observed in two targets, fail closed instead
+                        // of attributing that event to the wrong browser.
+                        entry.insert(None);
+                    }
+                }
+            }
         }
     }
 
@@ -729,7 +761,10 @@ impl DownloadLedger {
             return;
         }
         let session_id = event.session_id.or_else(|| {
-            event.frame_id.as_deref().and_then(|frame| self.frame_sessions.get(frame).cloned())
+            event
+                .frame_id
+                .as_deref()
+                .and_then(|frame| self.frame_sessions.get(frame).cloned().flatten())
         });
         let filename = PathBuf::from(&event.suggested_filename)
             .file_name()
