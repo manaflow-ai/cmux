@@ -2206,6 +2206,28 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("rejects commands larger than the Freestyle provider limit before workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const response = await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: "x".repeat(64 * 1024 + 1) }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(413);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_command_too_large",
+      details: { maxCommandBytes: 64 * 1024 },
+    });
+    expect(payload.action).toContain("upload a script");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("does not echo unsupported VM service override values", async () => {
     getUser.mockResolvedValue(authedStackUser());
 

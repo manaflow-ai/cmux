@@ -42,7 +42,8 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
-            "feed.jump", "feed.push", "agent.restore.admit", "agent.restore.release",
+            "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
+            "agent.restore.admit", "agent.restore.release",
             "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
