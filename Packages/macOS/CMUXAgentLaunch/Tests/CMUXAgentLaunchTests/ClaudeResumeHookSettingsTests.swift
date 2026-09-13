@@ -52,15 +52,29 @@ struct ClaudeResumeHookSettingsTests {
         #expect(argv == ["claude", "--resume", "s", "--model", "opus"])
     }
 
-    @Test("A non-hook --settings is preserved and still routes through the wrapper")
-    func nonHookSettingsPreserved() {
-        let argv = AgentResumeArgv().builtInKind(
-            kind: "claude",
-            sessionId: "s",
-            executablePath: "/opt/homebrew/bin/claude",
-            arguments: ["/opt/homebrew/bin/claude", "--settings", "/home/me/settings.json"]
-        )
-        #expect(argv == ["claude", "--resume", "s", "--settings", "/home/me/settings.json"])
+    @Test("A non-hook --settings whose file still exists is preserved and routes through the wrapper")
+    func existingNonHookSettingsPreservedOnRestore() throws {
+        let settingsFile = try makeTemporarySettingsFile()
+        defer { try? FileManager.default.removeItem(at: settingsFile.deletingLastPathComponent()) }
+
+        let invocation = try #require(restoreInvocation(settingsPath: settingsFile.path))
+
+        #expect(invocation.arguments == ["claude", "--resume", "s", "--settings", settingsFile.path])
+    }
+
+    /// Launchers such as subrouter (`sr claude`) hand Claude an ephemeral
+    /// `$TMPDIR/subrouter-claude-settings-<rand>/settings.json` and delete it on
+    /// exit. The captured argv still names it, and Claude refuses to start on a
+    /// missing settings file ("Settings file not found"), so a restore plan must
+    /// not replay a `--settings` path that is gone.
+    @Test("A non-hook --settings whose file is gone is dropped from the restore plan")
+    func missingNonHookSettingsDroppedOnRestore() throws {
+        let settingsFile = try makeTemporarySettingsFile()
+        try FileManager.default.removeItem(at: settingsFile.deletingLastPathComponent())
+
+        let invocation = try #require(restoreInvocation(settingsPath: settingsFile.path))
+
+        #expect(invocation.arguments == ["claude", "--resume", "s"])
     }
 
     @Test("Merged hook --settings keeps user keys when resuming")
@@ -111,6 +125,37 @@ struct ClaudeResumeHookSettingsTests {
         )
 
         #expect(argv == ["claude", "--resume", "s", "--settings", userSettings])
+    }
+
+    private func restoreInvocation(settingsPath: String) -> AgentRestoreInvocation? {
+        AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: "claude",
+                checkpointID: "s",
+                source: "agent-hook",
+                workingDirectory: nil,
+                environment: [:],
+                launchCommand: AgentLaunchCommand(
+                    executablePath: "/opt/homebrew/bin/claude",
+                    arguments: ["/opt/homebrew/bin/claude", "--settings", settingsPath]
+                ),
+                preparedArguments: nil,
+                observedPermissionMode: nil
+            ),
+            ambientEnvironment: [:]
+        )
+    }
+
+    private func makeTemporarySettingsFile() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("subrouter-claude-settings-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("settings.json")
+        try #"{"effortLevel":"max"}"#.write(to: file, atomically: true, encoding: .utf8)
+        return file
     }
 
     private func assertUserSettingsJSON(_ settingsJSON: String) throws {
