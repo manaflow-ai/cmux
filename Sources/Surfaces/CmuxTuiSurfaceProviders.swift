@@ -872,7 +872,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    private func recordPendingRemoteRename(
+    func recordPendingRemoteRename(
         tabID: String,
         name: String,
         receipt: CloudVMCursor
@@ -1333,10 +1333,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
         }
 
-        // Do not spend a revision on a view that already has the requested name.
-        // This also reduces the window in which another client can race the
-        // compatibility fan-out.
-        let pendingTargets = targets.filter { $0.previousName != normalizedName }
+        // A same-text user rename must still claim an automatic name.
+        let pendingTargets = targets.filter {
+            $0.previousName != normalizedName || observed?.lookupIndex.tab(id: $0.tabID)?.nameAuthority?.source == .auto
+        }
         if pendingTargets.isEmpty { return }
 
         var lastCommitCursor = observedCursor
@@ -1450,7 +1450,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return receipt
     }
 
-    private func validatedReceipt(
+    func validatedReceipt(
         _ receipt: CloudVMCursor?,
         against expected: CloudVMCursor
     ) throws -> CloudVMCursor {

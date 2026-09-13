@@ -2339,7 +2339,7 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user)
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
@@ -5439,96 +5439,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         let rawTarget = min(anchorIndex + 1, tabs.count)
         return max(rawTarget, pinnedCount)
-    }
-
-    /// Sets, replaces, or clears (empty/nil `title`) a panel custom title.
-    ///
-    /// `.auto` writes are rejected when a user or remote title exists, and
-    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
-    /// may replace a local title. Returns whether the write landed.
-    @discardableResult
-    func setPanelCustomTitle(
-        panelId: UUID,
-        title: String?,
-        source: CustomTitleSource = .user,
-        propagateToRemoteTmux: Bool = true,
-        propagateToCloud: Bool = true
-    ) -> Bool {
-        guard panels[panelId] != nil else { return false }
-        let previousWorkspaceTitle = self.title
-        defer {
-            if self.title != previousWorkspaceTitle {
-                owningTabManager?.panelCustomTitleDidReconcileWorkspaceTitle(self)
-            }
-        }
-        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let previous = panelCustomTitles[panelId]
-        if source == .auto {
-            guard !trimmed.isEmpty, cloudProjectedResource(forPanel: panelId) == nil else { return false }
-            if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
-        }
-        var sameText = false
-        // Clearing a cloud terminal tab is a remote mutation even when this
-        // client has no local override. Resolve the projection before the
-        // empty-title guard so that the daemon can clear its canonical name.
-        let cloudResourceForPropagation: SurfaceResource? = {
-            guard propagateToCloud, source == .user else { return nil }
-            return cloudProjectedResource(forPanel: panelId)
-        }()
-        if trimmed.isEmpty {
-            let canClearRemoteName = cloudResourceForPropagation?.kind == .terminal
-            guard previous != nil || canClearRemoteName else { return false }
-            if previous != nil {
-                panelCustomTitles.removeValue(forKey: panelId)
-                panelCustomTitleSources.removeValue(forKey: panelId)
-            }
-        } else {
-            if previous == trimmed {
-                // Same text still updates provenance. A remote observation must
-                // be able to turn a just-confirmed local intent into settled
-                // daemon-owned state without changing the visible tab twice.
-                panelCustomTitleSources[panelId] = source
-                sameText = true
-            } else {
-                panelCustomTitles[panelId] = trimmed
-                panelCustomTitleSources[panelId] = source
-            }
-        }
-
-        applyFocusedPanelTitle(panelId: panelId)
-
-        // A repeated remote or automatic observation only changes provenance.
-        // A repeated USER edit remains an idempotent intent and must still reach
-        // the daemon, because the earlier request may have failed or been lost.
-        if sameText, source != .user { return true }
-
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
-        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
-        // A remote tmux mirror tab rename propagates to `rename-window`.
-        if propagateToRemoteTmux, isRemoteTmuxMirror {
-            AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
-                workspaceId: id, panelId: panelId, title: trimmed
-            )
-        }
-        // A pane projecting a cloud terminal writes a USER rename or clear through
-        // to the machine's daemon tab name (`tab rename`): persisted there,
-        // broadcast, and shown by every attached client (tree rows, other Macs,
-        // TUI tab bars).
-        if let resource = cloudResourceForPropagation, resource.kind == .terminal {
-            SurfaceCatalog.shared.propagateCloudTerminalRename(
-                workspace: self,
-                panelID: panelId,
-                resource: resource,
-                name: trimmed,
-                previousCustomTitle: previous
-            )
-        }
-        return true
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {

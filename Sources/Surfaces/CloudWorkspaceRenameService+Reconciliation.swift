@@ -47,7 +47,7 @@ extension CloudWorkspaceRenameService {
             )
             for workspace in environment.workspaces() {
                 guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
-                      let id = binding.remoteWorkspaceID else { continue }
+                      binding.remoteWorkspaceID != nil else { continue }
                 switch bindingReconciliation(
                     binding: binding,
                     machine: machine,
@@ -72,11 +72,10 @@ extension CloudWorkspaceRenameService {
                 guard let currentBinding = workspace.cloudVMBinding,
                       let id = currentBinding.remoteWorkspaceID,
                       let remote = state.lookupIndex.workspace(id: id) else { continue }
-                let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
-                if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != remote.name { continue }
-                if workspace.effectiveCustomTitleSource == .user { continue }
-                // Pending user edits are protected above. Confirmed names belong
-                // to the daemon; a generated prefix must not become a local alias.
+                if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { continue }
+                // Submission returns before local title setters run. Pending names
+                // are request metadata, not accepted UI values; both projections
+                // keep rendering this graph until the daemon acknowledges a write.
                 guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { continue }
                 let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
                 _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
@@ -93,9 +92,8 @@ extension CloudWorkspaceRenameService {
             }
             guard let tabID = remoteTabID(for: projection, resource: resource),
                   let tab = state.lookupIndex.tab(id: tabID) else { continue }
-            let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: key), pending != (tab.name ?? "") { continue }
-            if workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
+            if workspace.panelCustomTitles[projection.panelID] == tab.name,
+               workspace.panelCustomTitleSources[projection.panelID] == .user { continue }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name
                     || (tab.name != nil && workspace.panelCustomTitleSources[projection.panelID] != .remote) else { continue }
             _ = workspace.setPanelCustomTitle(panelId: projection.panelID, title: tab.name, source: .remote,
