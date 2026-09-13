@@ -1,23 +1,25 @@
 import AppKit
-import Combine
 import CmuxTerminal
 
 /// Owns one pane's render-health subscription and diagnostic overlay.
 @MainActor
 final class TerminalRenderHealthOverlayController {
     private weak var host: NSView?
+    private weak var surface: TerminalSurface?
     private var overlay: TerminalRenderHealthOverlayView?
-    private var cancellable: AnyCancellable?
 
     func attach(host: NSView, surface: TerminalSurface) {
         self.host = host
-        cancellable?.cancel()
-        cancellable = surface.$renderHealth.sink { [weak self] health in
-            Task { @MainActor [weak self] in
-                self?.apply(health)
-            }
+        self.surface?.onRenderHealthChanged = nil
+        self.surface = surface
+        surface.onRenderHealthChanged = { [weak self] health in
+            self?.apply(health)
         }
         apply(surface.renderHealth)
+    }
+
+    deinit {
+        surface?.onRenderHealthChanged = nil
     }
 
     func updateFrame(_ frame: NSRect) {
