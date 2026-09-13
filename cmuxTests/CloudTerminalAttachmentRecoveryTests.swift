@@ -204,7 +204,60 @@ import Testing
         #expect(reconnecting?.contains(CloudTerminalAttachmentInterruption.livenessTimedOut.localizedDescription) == true)
     }
 
+    /// The raw bridge wraps transport errors inside details.error on some daemons.
+    @Test(arguments: ["transport.timeout", "transport.closed"])
+    func nestedTransportFailuresRemainRetryable(code: String) {
+        let answer = CloudTuiDaemonAnswer(error: Self.daemonRejection(code))
+        #expect(answer == .transportFailure(code))
+        #expect(answer.isRetryable)
+        #expect(!answer.cannotServeTerminalID)
+    }
+
+    /// Daemon diagnostics may contain paths or commands and must stay out of UI copy.
+    @Test
+    func reconnectingReasonsDoNotDisplayDaemonDiagnostics() {
+        let diagnostic = "private-command /home/user/secret transport.timeout"
+        for reason in [CloudTerminalAttachmentInterruption.rejected(diagnostic), .unresolved(diagnostic)] {
+            #expect(reason.detail == diagnostic)
+            #expect(!reason.localizedDescription.contains(diagnostic))
+            #expect(!reason.localizedDescription.contains("cmux-tui"))
+        }
+    }
+
+    /// Simulated daemon latency must overlap across panes without an unbounded fan-out.
+    @Test
+    func batchResolutionOverlapsAtMostFourDaemonRequests() async {
+        let runner = DelayedResolutionRunner()
+        let resolver = CloudTerminalAttachmentResolver(commandRunner: runner, socketPath: Self.socketPath)
+        let ids = Set((0..<12).map { number in
+            let suffix = String(number, radix: 16)
+            return "term_" + String(repeating: "0", count: 32 - suffix.count) + suffix
+        })
+        let resolutions = await resolver.resolve(terminalIDs: ids)
+        #expect(resolutions.count == ids.count)
+        #expect(resolutions.values.allSatisfy { $0 == .resolved(17) })
+        #expect(await runner.maximumActive > 1)
+        #expect(await runner.maximumActive <= 4)
+        #expect(await runner.calls == ids.count)
+    }
+
     // MARK: - Fixtures
+
+    private actor DelayedResolutionRunner: CloudTuiCommandRunning {
+        private var active = 0
+        private(set) var maximumActive = 0
+        private(set) var calls = 0
+
+        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+            active += 1
+            calls += 1
+            maximumActive = max(maximumActive, active)
+            defer { active -= 1 }
+            // This is the fake transport's response latency, not a wait for test state.
+            try await Task.sleep(for: .milliseconds(50))
+            return Data(#"{"ok":true,"data":{"surface":17,"lifecycle":"running"}}"#.utf8)
+        }
+    }
 
     private static func daemonRejection(_ code: String) -> CloudMachineLink.LinkError {
         .exited(
