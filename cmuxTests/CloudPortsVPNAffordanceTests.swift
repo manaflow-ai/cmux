@@ -176,7 +176,7 @@ struct CloudPortsVPNAffordanceTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false,
             settings: UserDefaultsSettingsClient(defaults: defaults), closeTabWarningDefaults: defaults)
-        let machineWorkspace = manager.addWorkspace(eagerLoadTerminal: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false)
+        let machineWorkspace = try #require(manager.addWorkspaceIfActive(eagerLoadTerminal: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false))
         let originalPanelIDs = Set(machineWorkspace.panels.keys)
         let originalFocus = machineWorkspace.focusedPanelId
         let navigation = CloudVPNSetupNavigation(coordinator: nil)
