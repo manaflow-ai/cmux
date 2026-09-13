@@ -110,7 +110,7 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
             Cloud VM request failed (HTTP \(status)).
 
             What to do:
-              Retry the command. If it keeps failing, copy the response body and contact support.
+              Retry the command. If it keeps failing, copy the HTTP status and contact support.
 
             Response body:
               <unreadable response omitted>
