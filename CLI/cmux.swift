@@ -4050,12 +4050,37 @@ final class SocketClient {
         paneListCache.removeAll()
     }
 
+    /// Methods that cannot change which panes exist, where they sit, or which
+    /// one is active. Every other method drops the `pane.list` cache, so a
+    /// command that reads a pane list, mutates the workspace, then reads again
+    /// observes the mutation. Unknown methods invalidate.
+    private static let paneTopologyPreservingMethods: Set<String> = [
+        "pane.list",
+        "pane.surfaces",
+        "surface.list",
+        "surface.current",
+        "surface.read_text",
+        "surface.read_selection",
+        "workspace.list",
+        "workspace.current",
+        "window.list",
+        "window.current",
+        "window.displays",
+        "system.top",
+        "system.memory",
+        "system.tree",
+        "system.identify",
+    ]
+
     func sendV2(
         method: String,
         params: [String: Any] = [:],
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> [String: Any] {
+        if !Self.paneTopologyPreservingMethods.contains(method) {
+            paneListCache.removeAll()
+        }
         var tracedParams = params
         if method.hasPrefix("vm.") {
             for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),

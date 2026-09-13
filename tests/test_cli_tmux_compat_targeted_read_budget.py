@@ -11,9 +11,11 @@ connection, so its whole fan-out has to fit in that burst.
 resolve the target first, and that resolution re-reads the same workspace's
 pane list several times, which pushed the command past the burst.
 
-This test drives the real CLI against a fake control socket that applies the
-same token bucket, so it fails when the fan-out grows again rather than when a
-hand-maintained list of method names falls out of date.
+These tests drive the real CLI against a fake control socket that applies the
+same token bucket, so they fail when the fan-out grows again rather than when a
+hand-maintained list of method names falls out of date. They also cover the
+other side of reusing a pane list: a command that mutates pane topology has to
+see the result of its own mutation.
 """
 
 from __future__ import annotations
@@ -32,6 +34,8 @@ from claude_teams_test_utils import resolve_cmux_cli
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_ID = "44444444-4444-4444-8444-444444444444"
+NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
+NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTROL_SOCKET_SOURCES = (
@@ -41,6 +45,12 @@ RATE_LIMITER_SWIFT = CONTROL_SOCKET_SOURCES / "Server/ControlClientRateLimiter.s
 READ_PLANE_SWIFT = (
     CONTROL_SOCKET_SOURCES / "Wire/ControlCommandExecutionPolicy+ReadPlane.swift"
 )
+
+# These assertions are about how many reads a command issues, never about how
+# fast it runs, so the timeout only has to stop a hung process. Keep it far
+# above any plausible CLI latency on a loaded shared runner, and allow an
+# override for slower environments.
+CLI_TIMEOUT_SECONDS = float(os.environ.get("CMUX_CLI_TEST_TIMEOUT_SECONDS", "300"))
 
 
 def read_polling_burst() -> int:
@@ -74,6 +84,7 @@ class FakeCmuxState:
         self.polling_methods = polling_methods
         self.polling_calls: list[str] = []
         self.tokens = burst
+        self.split_created = False
 
     def reset_budget(self) -> None:
         self.polling_calls = []
@@ -117,40 +128,83 @@ class FakeCmuxState:
                 "surface_ref": "surface:1",
             }
         if method == "surface.list":
-            return {
-                "surfaces": [
+            surfaces = [
+                {
+                    "id": SURFACE_ID,
+                    "ref": "surface:1",
+                    "focused": not self.split_created,
+                    "pane_id": PANE_ID,
+                    "pane_ref": "pane:1",
+                    "title": "leader",
+                }
+            ]
+            if self.split_created:
+                surfaces.append(
                     {
-                        "id": SURFACE_ID,
-                        "ref": "surface:1",
+                        "id": NEW_SURFACE_ID,
+                        "ref": "surface:2",
                         "focused": True,
-                        "pane_id": PANE_ID,
-                        "pane_ref": "pane:1",
-                        "title": "leader",
+                        "pane_id": NEW_PANE_ID,
+                        "pane_ref": "pane:2",
+                        "title": "teammate",
                     }
-                ]
-            }
+                )
+            return {"surfaces": surfaces}
         if method == "pane.list":
+            panes = [
+                {
+                    "id": PANE_ID,
+                    "ref": "pane:1",
+                    "index": 0,
+                    "focused": not self.split_created,
+                    "columns": 94,
+                    "rows": 37,
+                    "selected_surface_id": SURFACE_ID,
+                    "selected_surface_ref": "surface:1",
+                    "surface_count": 1,
+                    "surface_ids": [SURFACE_ID],
+                    "surface_refs": ["surface:1"],
+                }
+            ]
+            if self.split_created:
+                panes.append(
+                    {
+                        "id": NEW_PANE_ID,
+                        "ref": "pane:2",
+                        "index": 1,
+                        "focused": True,
+                        "columns": 47,
+                        "rows": 37,
+                        "selected_surface_id": NEW_SURFACE_ID,
+                        "selected_surface_ref": "surface:2",
+                        "surface_count": 1,
+                        "surface_ids": [NEW_SURFACE_ID],
+                        "surface_refs": ["surface:2"],
+                    }
+                )
             return {
                 "workspace_id": WORKSPACE_ID,
                 "workspace_ref": "workspace:1",
                 "container_frame": {"width": 760, "height": 672},
-                "panes": [
-                    {
-                        "id": PANE_ID,
-                        "ref": "pane:1",
-                        "index": 0,
-                        "focused": True,
-                        "columns": 94,
-                        "rows": 37,
-                        "selected_surface_id": SURFACE_ID,
-                        "selected_surface_ref": "surface:1",
-                        "surface_count": 1,
-                        "surface_ids": [SURFACE_ID],
-                        "surface_refs": ["surface:1"],
-                    }
-                ],
+                "panes": panes,
             }
+        if method == "surface.split":
+            self.split_created = True
+            return {"surface_id": NEW_SURFACE_ID, "pane_id": NEW_PANE_ID}
+        if method in {"surface.send_text", "surface.select", "workspace.select"}:
+            return {"ok": True}
         if method == "pane.surfaces":
+            if self.split_created and params.get("pane_id") == NEW_PANE_ID:
+                return {
+                    "surfaces": [
+                        {
+                            "id": NEW_SURFACE_ID,
+                            "ref": "surface:2",
+                            "selected": True,
+                            "title": "teammate",
+                        }
+                    ]
+                }
             return {
                 "surfaces": [
                     {
@@ -241,7 +295,7 @@ def run_cli(
         text=True,
         check=False,
         env=env,
-        timeout=30,
+        timeout=CLI_TIMEOUT_SECONDS,
     )
 
 
@@ -298,6 +352,62 @@ def assert_fits_in_one_burst(
         raise AssertionError(f"{label} produced unexpected output\n{detail}")
 
 
+def assert_split_reports_the_new_pane(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+    state: FakeCmuxState,
+    handle: str,
+) -> None:
+    """`split-window -P` must describe the pane the split just created.
+
+    Target resolution reads the pane list before `surface.split` runs, and the
+    `-P` format context reads it again afterwards. The second read has to see
+    the new pane.
+    """
+    state.reset_budget()
+    state.split_created = False
+    proc = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "split-window",
+            "-h",
+            "-t",
+            handle,
+            "-P",
+            "-F",
+            "#{pane_id} #{pane_index} #{pane_active}",
+        ],
+        tmux_pane=handle,
+    )
+    detail = (
+        f"  stdout={proc.stdout.strip()}\n"
+        f"  stderr={proc.stderr.strip()}\n"
+        f"  order={' -> '.join(state.polling_calls)}"
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"split-window -P returned non-zero\n{detail}")
+    fields = proc.stdout.strip().split(" ")
+    if len(fields) != 3:
+        raise AssertionError(
+            "split-window -P reported a stale pane list: the format context "
+            "resolved the new pane's id but not its position, so "
+            f"`#{{pane_index}}`/`#{{pane_active}}` came back empty\n{detail}"
+        )
+    pane_id, pane_index, pane_active = fields
+    if pane_id == handle:
+        raise AssertionError(f"split-window -P named the target pane\n{detail}")
+    if (pane_index, pane_active) != ("1", "1"):
+        raise AssertionError(
+            "split-window -P described the new pane with the pre-split layout: "
+            f"expected index 1 and active 1, got {pane_index!r}/{pane_active!r}"
+            f"\n{detail}"
+        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -342,6 +452,9 @@ def main() -> int:
                     ["__tmux-compat", "display-message", "-t", handle, "-p", fmt],
                     tmux_pane=handle,
                 )
+                assert_split_reports_the_new_pane(
+                    cli_path, socket_path, fake_home, state, handle
+                )
             finally:
                 server.shutdown()
                 server.server_close()
@@ -350,7 +463,10 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    print("PASS: targeted tmux-compat reads fit in one read-plane burst")
+    print(
+        "PASS: targeted tmux-compat reads fit in one read-plane burst "
+        "and stay fresh across a split"
+    )
     return 0
 
 
