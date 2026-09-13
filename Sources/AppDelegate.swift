@@ -9407,8 +9407,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             destination: CloudWorkspaceGroupDestination(
                 tabManager: context.tabManager,
                 groupId: workspaceGroupTarget?.groupId,
-                placement: workspaceGroupTarget?.placement ?? groupPlacement,
-                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId ?? anchorId,
+                placement: workspaceGroupTarget?.placement ?? .afterCurrent,
+                referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId,
                 initialWorkspaceId: initialWorkspaceId
             )
         )
