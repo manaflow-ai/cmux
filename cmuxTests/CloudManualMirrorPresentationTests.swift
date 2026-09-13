@@ -45,6 +45,22 @@ struct CloudManualMirrorPresentationTests {
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
     }
 
+    @Test
+    func firstPresentedFrameDismissesTheReconnectPresentation() {
+        let state = CloudManualMirrorPresentation(
+            phase: .attached,
+            replayReceived: true,
+            firstFramePresented: true
+        ).connectionState
+        #expect(state == .connected)
+        #expect(CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: true,
+            connectionState: .connected,
+            detail: nil
+        ) == nil)
+    }
+
     @Test @MainActor
     func replayAloneKeepsTheCardUntilAVisibleFrame() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
