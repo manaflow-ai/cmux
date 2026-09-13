@@ -996,7 +996,7 @@ struct WorkspaceShellView: View {
         // Keep the sidebar's navigation container opaque through the status
         // bar. A plain view background only paints the list's content bounds,
         // leaving the top safe area to the split view's default system color.
-        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        .mobileNavigationContainerBackground(Color(uiColor: .systemGroupedBackground))
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
