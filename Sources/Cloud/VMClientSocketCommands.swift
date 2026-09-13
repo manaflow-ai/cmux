@@ -279,6 +279,44 @@ extension TerminalController {
                 payload["disk_used_mb"] = stats.diskUsedMb
                 return payload.compactMapValues { $0 }
             }
+        case "vm.resize":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.resize.idRequired",
+                        defaultValue: "vm.resize requires `id`. Run `cmux vm ls` to find one."
+                    )
+                )
+            }
+            let diskMb = Self.socketWorkerInt(params["storage_mb"]) ?? Self.socketWorkerInt(params["disk_mb"])
+            let cpu = Self.socketWorkerInt(params["cpu"])
+            let memoryMb = Self.socketWorkerInt(params["memory_mb"]) ?? Self.socketWorkerInt(params["memoryMb"])
+            guard diskMb != nil || cpu != nil || memoryMb != nil,
+                  [diskMb, cpu, memoryMb].compactMap({ $0 }).allSatisfy({ $0 > 0 }) else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.cloudVM.resize.diskRequired",
+                        defaultValue: "vm.resize requires a positive cpu, memory_mb, or storage_mb value."
+                    )
+                )
+            }
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 130) {
+                let stats = try await VMClient.shared.resize(id: vmId, cpu: cpu, memoryMb: memoryMb, diskMb: diskMb)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                if let cpus = stats.cpus { payload["cpus"] = cpus }
+                if let memoryTotalMb = stats.memoryTotalMb { payload["memory_total_mb"] = memoryTotalMb }
+                if let diskTotalMb = stats.diskTotalMb { payload["disk_total_mb"] = diskTotalMb }
+                if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
+                return payload
+            }
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
@@ -721,7 +759,12 @@ extension TerminalController {
                 "snapshot": vm.capabilities.snapshot,
                 "restore": vm.capabilities.restore,
                 "fork": vm.capabilities.fork,
+                "exec": vm.capabilities.exec,
+                "stats": vm.capabilities.stats,
                 "ports": vm.capabilities.ports,
+                "desktop": vm.capabilities.desktop,
+                "sizing": vm.capabilities.sizing,
+                "persistentHome": vm.capabilities.persistentHome,
             ],
             "status": vm.status,
             "createdAt": vm.createdAt,

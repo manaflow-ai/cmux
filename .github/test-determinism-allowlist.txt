@@ -9,3 +9,4 @@ cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	gran
 tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline
 Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTests.swift	sleep-then-assert	virtual-clock injection makes these large delays non-blocking and deterministic
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTerminalLaneCoordinatorTests.swift	sleep-then-assert	upstream coordinator readiness timing assertion
+web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
