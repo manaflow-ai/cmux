@@ -38,6 +38,96 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
+    func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("cwd-\(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: "/remote/project-a")
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-project", name: "project", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell",
+            // The public snapshot cwd is the spawn directory. The provider's live
+            // process query below is deliberately different.
+            detail: "/remote/home",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-source", workspace: remoteWorkspace)],
+            port: nil,
+            url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-source"
+        ))
+
+        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        for _ in 0..<20 where provider.createdWorkingDirectory == nil {
+            await Task.yield()
+        }
+        #expect(provider.createdWorkingDirectory == "/remote/project-a")
+        #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
+    }
+
+    @MainActor
+    private final class CloudCreationProvider: SurfaceProvider {
+        let machine: SurfaceMachineID
+        let info: SurfaceMachineInfo
+        let workingDirectory: String?
+        private(set) var createdWorkingDirectory: String?
+        private(set) var createdRemoteWorkspaceID: String?
+
+        init(machine: SurfaceMachineID, workingDirectory: String?) {
+            self.machine = machine
+            self.workingDirectory = workingDirectory
+            info = SurfaceMachineInfo(
+                id: machine, name: machine.rawValue, status: "running", image: nil,
+                hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }
+
+        func refresh() async {}
+
+        func currentWorkingDirectory(of _: SurfaceResource) async -> String? {
+            workingDirectory
+        }
+
+        func createTerminal(command _: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+            createdWorkingDirectory = cwd
+            createdRemoteWorkspaceID = remoteWorkspaceID
+            return SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-created"),
+                title: name ?? "shell",
+                detail: cwd,
+                lifecycle: .launching,
+                agent: nil,
+                remoteWorkspace: nil,
+                port: nil,
+                url: nil
+            )
+        }
+
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
+            SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        }
+
+        func projectionDidEnd(_: SurfaceProjection) {}
+    }
+
     @Test func unfocusedTabStaysBehindTheCurrentOne() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
