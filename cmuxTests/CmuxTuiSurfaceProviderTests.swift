@@ -871,6 +871,64 @@ import Testing
         #expect(decoded == .display)
     }
 
+    @Test(arguments: [true, false])
+    func exitedTerminalWithATabIsNotAnOpenableResource(explicitLifecycle: Bool) throws {
+        var snapshot = Self.sessionSnapshot
+        if !explicitLifecycle {
+            var terminals = try #require(snapshot["terminals"] as? [[String: Any]])
+            let index = try #require(terminals.firstIndex { $0["id"] as? String == "term_shell" })
+            terminals[index].removeValue(forKey: "lifecycle")
+            snapshot["terminals"] = terminals
+        }
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        let exitedID = SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_shell")
+        let legacy = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let full = CmuxTuiSnapshotParser.resources(from: state)
+        let targeted = CmuxTuiSnapshotParser.resources(from: state, matching: [exitedID])
+        for resources in [legacy, full, targeted] {
+            #expect(!resources.contains { $0.id == exitedID })
+        }
+        #expect(full.contains { $0.id.key == "term_build" })
+        #expect(full.contains { $0.id.key == "term_detached" })
+        #expect(state.lookupIndex.terminal(id: "term_shell") != nil, "retain the exit record for inspection")
+        #expect(state.lookupIndex.tab(id: "tab_2") != nil, "the stale tab must not make the process live")
+    }
+
+    @Test func terminalExitClosesItsPaneBeforeTheRemoteTabDisappears() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["cursor"] = ["generation": "daemon-a", "revision": "7"]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        var exited = try #require((snapshot["terminals"] as? [[String: Any]])?.first {
+            $0["id"] as? String == "term_build"
+        })
+        exited["lifecycle"] = "exited"
+        exited["running"] = false
+        let delta: [String: Any] = [
+            "kind": "delta", "previous_revision": "7", "revision": "8",
+            "changes": [["kind": "upsert", "resource": "terminal", "id": "term_build", "value": exited]]
+        ]
+        let next = try #require(CmuxTuiSnapshotParser.applying(
+            deltaPayload: JSONSerialization.data(withJSONObject: delta),
+            cursor: CloudVMCursor(generation: "daemon-a", revision: 8),
+            to: state
+        ))
+        let resources = CmuxTuiSnapshotParser.resources(from: next)
+        let pane = UUID()
+        let liveKeys = Set(resources.filter { $0.kind == .terminal }.map(\.id.key))
+        #expect(next.lookupIndex.tab(id: "tab_1") != nil)
+        #expect(next.lookupIndex.tab(id: "tab_4") != nil)
+        #expect(CloudTerminalPaneClosure.panelsToClose(
+            boundTerminals: [pane: "term_build"], liveTerminalKeys: liveKeys, freshness: .current
+        ) == [pane])
+        #expect(CloudTerminalPaneClosure.panelsToClose(
+            boundTerminals: [pane: "term_build"], liveTerminalKeys: liveKeys, freshness: .stale
+        ).isEmpty)
+        #expect(CmuxTuiSnapshotParser.resources(
+            from: next,
+            matching: [SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_build")]
+        ).isEmpty)
+    }
+
     @Test func exitedTerminalWithoutATabIsNotASurface() {
         // cmux-tui keeps the record of a terminal whose process exited after its tab went
         // away; its selector no longer resolves, so nothing could open or close it.
