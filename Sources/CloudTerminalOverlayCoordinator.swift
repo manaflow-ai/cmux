@@ -26,7 +26,11 @@ final class CloudTerminalOverlayCoordinator {
     /// Creates a coordinator backed by the app's signature dismissal store.
     ///
     /// - Parameter dismissalStore: Repository shared by this native surface owner.
-    init(dismissalStore: CloudBannerDismissalStore = CloudBannerDismissalStore(defaults: .standard)) {
+    init() {
+        dismissalStore = CloudBannerDismissalStore(defaults: .standard)
+    }
+
+    init(dismissalStore: CloudBannerDismissalStore) {
         self.dismissalStore = dismissalStore
     }
 
