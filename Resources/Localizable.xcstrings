@@ -148037,7 +148037,7 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Cloud 作为窗格打开" } },
         "de": { "stringUnit": { "state": "translated", "value": "Cloud als Teilfenster öffnen" } },
         "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir Cloud en tant que volet" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "فتح Cloud كجزء" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فتح Cloud كلوحة" } },
         "es": { "stringUnit": { "state": "translated", "value": "Abrir Cloud como panel" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟 Cloud 為窗格" } },
         "ko": { "stringUnit": { "state": "translated", "value": "Cloud를 분할 창으로 열기" } }
@@ -519341,6 +519341,131 @@
         }
       }
     },
+    "cloud.imagePaste.tooManyImages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select up to eight images at a time."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle jeweils bis zu acht Bilder aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez au maximum huit images à la fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد ما يصل إلى ثماني صور في كل مرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona como máximo ocho imágenes a la vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次最多選取八張圖片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次最多选择八张图片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번에 최대 8개의 이미지를 선택하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度に選択できる画像は8枚までです."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite najviše osam slika odjednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg højst otte billeder ad gangen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona al massimo otto immagini alla volta."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមជ្រើសរើសរូបភាពយ៉ាងច្រើនប្រាំបីក្នុងមួយដង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg opptil åtte bilder om gangen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz jednocześnie najwyżej osiem obrazów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione no máximo oito imagens por vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выбирайте не более восьми изображений за раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือกภาพได้ไม่เกินแปดภาพต่อครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aynı anda en fazla sekiz görüntü seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вибирайте не більше восьми зображень одночасно."
+          }
+        }
+      }
+    },
     "cloud.imagePaste.unavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -519830,7 +519955,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud görüntü yapıştırma PNG, JPEG, GIF ve WebP biçimlerini destekler. Desteklenen bir görüntü kopyalayıp tekrar deneyin."
+            "value": "Cloud görüntü yapıştırma PNG, JPEG, GIF ve WebP biçimlerini destekler. Desteklenen bir görüntüyü kopyalayıp tekrar deneyin."
           }
         },
         "uk": {
@@ -520330,7 +520455,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Görüntü yapıştırma onaylanmadan bağlantı kapandı. Yeniden yapıştırmadan önce ajanda ek olup olmadığını kontrol edin."
+            "value": "Görüntü yapıştırma onaylanmadan bağlantı kapandı. Yeniden yapıştırmadan önce ajanın bir ek alıp almadığını kontrol edin."
           }
         },
         "uk": {

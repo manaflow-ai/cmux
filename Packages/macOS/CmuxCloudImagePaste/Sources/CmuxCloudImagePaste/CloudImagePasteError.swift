@@ -10,6 +10,8 @@ public enum CloudImagePasteError: Error, Equatable, Sendable {
     case unsupportedType
     /// The daemon's temporary image quota is exhausted.
     case capacity
+    /// The clipboard selection contains more images than one operation accepts.
+    case tooManyImages
     /// The daemon could not safely persist the image.
     case storage
     /// The bounded transaction deadline elapsed.

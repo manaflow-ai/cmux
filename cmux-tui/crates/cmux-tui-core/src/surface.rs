@@ -406,6 +406,7 @@ fn is_targeted_host_response(kind: MessageKind) -> bool {
     matches!(
         kind,
         MessageKind::Capability
+            | MessageKind::ResizeAck
             | MessageKind::CellPixelSizeAck
             | MessageKind::KittyGraphicsLimitsAck
             | MessageKind::ClearHistoryAck

@@ -25,7 +25,8 @@ extension TerminalSurface {
                 throw ManagedFileTransferPolicy.refusalError()
             }
             try session.imagePaste.requireAvailable()
-            guard !urls.isEmpty, urls.count <= 8 else { throw CloudImagePasteError.capacity }
+            guard !urls.isEmpty else { throw CloudImagePasteError.tooManyImages }
+            guard urls.count <= 8 else { throw CloudImagePasteError.tooManyImages }
             let reader = CloudClipboardImageReader()
             for url in urls {
                 let image = try await reader.read(url)

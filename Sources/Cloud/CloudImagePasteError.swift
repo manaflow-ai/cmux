@@ -14,6 +14,8 @@ extension CloudImagePasteError: LocalizedError {
             return String(localized: "cloud.imagePaste.unsupportedType", defaultValue: "Cloud image paste accepts PNG, JPEG, GIF, and WebP files. Copy a supported image and try again.")
         case .capacity:
             return String(localized: "cloud.imagePaste.capacity", defaultValue: "Cloud temporary image storage is full. Wait ten minutes for previous images to expire, then try again.")
+        case .tooManyImages:
+            return String(localized: "cloud.imagePaste.tooManyImages", defaultValue: "Select up to eight images at a time.")
         case .storage:
             return String(localized: "cloud.imagePaste.storage", defaultValue: "The image could not be stored. Check the machine’s available disk space and copy the image again.")
         case .timedOut:
