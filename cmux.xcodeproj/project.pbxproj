@@ -740,6 +740,7 @@
 		AF4D952CE6254D3D8D886EBC /* CloudNameAuthorityFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */; };
 		EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */; };
 		BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */; };
+		C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */; };
 		4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */; };
 		8B79FDC5C0ADF0CE973B31F2 /* CloudNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */; };
 		A12481400000000000000001 /* CloudNotificationSyncPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */; };
@@ -4567,6 +4568,7 @@
 		F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityFixture.swift"; sourceTree = "<group>"; };
 		20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTestProvider.swift"; sourceTree = "<group>"; };
 		10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTests.swift"; sourceTree = "<group>"; };
+		C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInitialWorkspaceNamingTests.swift"; sourceTree = "<group>"; };
 		5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNativeLayoutProjectionTests.swift"; sourceTree = "<group>"; };
 		FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSync.swift; sourceTree = "<group>"; };
 		A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncPersistence.swift; sourceTree = "<group>"; };
@@ -10703,6 +10705,7 @@
 				E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */,
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
 				10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */,
+				C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */,
 				20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */,
 				F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */,
 				7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */,
@@ -14859,6 +14862,7 @@
 				AF4D952CE6254D3D8D886EBC /* CloudNameAuthorityFixture.swift in Sources */,
 				EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */,
 				BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */,
+				C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */,
 				4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */,
 				A12481600000000000000001 /* CloudNotificationSyncStoreTests.swift in Sources */,
 				B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */,
