@@ -56,8 +56,8 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: nightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: legacyStableMin),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: legacyStableMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: legacyStableMin, nightly: nightly),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: legacyStableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: legacyStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
@@ -69,8 +69,8 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 nightly: nightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
-                    MobileBuildType.beta.token: Requirement(stableMinVersion: irohStableMin),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: irohStableMin, nightly: nightly),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: irohStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
@@ -82,7 +82,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
                     MobileBuildType.beta.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
-                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: stableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: stableMin, nightly: nightly),
                 ]
@@ -126,14 +126,6 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         guard let tier = tier(forIOSVersion: iosVersion) else { return nil }
         let requirement = tier.buildKinds[buildType.token]
             ?? Requirement(stableMinVersion: tier.stableMinVersion, nightly: tier.nightly)
-        let requirementDisplay: String
-        switch channel {
-        case .stable:
-            requirementDisplay = requirement.stableMinVersion.description
-        case .nightly:
-            guard let nightly = requirement.nightly else { return nil }
-            requirementDisplay = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
-        }
         let result = MobileMacVersionCompatibility(
             appVersion: macAppVersion,
             releaseTrack: channel == .nightly ? "nightly" : "stable",
@@ -147,7 +139,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         return Violation(
             channel: channel,
             macAppVersion: reported?.isEmpty == false ? reported : nil,
-            requiredVersionDisplay: result.requiredVersionDisplay ?? requirementDisplay
+            requiredVersionDisplay: result.requiredVersionDisplay
         )
     }
 

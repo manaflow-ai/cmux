@@ -52,10 +52,8 @@ struct CloudTreeNodeActions {
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
-    /// Copy a link that works from any app on this Mac for a machine port: the
-    /// loopback forward over the user-space hub, started if needed. The private
-    /// address is only reachable with `cmux vpn up`, so it is not what "Copy
-    /// Link" hands out.
+    /// Copy the machine port's private URL without changing network state.
+    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
@@ -75,7 +73,11 @@ struct CloudTreeNodeActions {
             onWillMutate(label)
             Task { @MainActor in
                 do {
-                    try await operation(catalog())
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
                 } catch {
                     // Human wording first: the panel now shows this text inline, and a
                     // raw enum dump ("noProvider(cloud(\"m\"))") explains nothing there.

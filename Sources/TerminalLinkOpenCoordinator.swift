@@ -105,15 +105,18 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
-        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(target.url, reason: "cmux browser disabled")
+        let cloudURL = request.sourcePanelId.flatMap {
+            container?.cloudTerminalLinkTarget(url: target.url, sourcePanelId: $0)?.url
         }
-
+        let destinationURL = cloudURL ?? target.url
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+            return openExternally(destinationURL, reason: "cmux browser disabled")
+        }
         switch target {
-        case .external(let url):
-            return openExternally(url, reason: "external target")
-        case .embeddedBrowser(let url):
-            return openEmbeddedBrowserURL(url, request: request, container: container)
+        case .external:
+            return openExternally(destinationURL, reason: "external target")
+        case .embeddedBrowser:
+            return openEmbeddedBrowserURL(destinationURL, request: request, container: container)
         }
     }
 
@@ -244,24 +247,12 @@ struct TerminalLinkOpenCoordinator {
         )
 
         deferOperation { [self] in
-            let currentContainer = self.containerResolver(
-                request.sourceWorkspaceId,
-                sourcePanelId
-            )
+            let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(
-                    url: url,
-                    sourcePanelId: sourcePanelId
-                ) == true
+                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
             if openedInBrowser { return }
-
-            self.log(
-                "link.openURL embedded open failed, opening externally " +
-                "host=\(host) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            if !self.externalOpen(url) {
-                NSSound.beep()
-            }
+            self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
+            if !self.externalOpen(url) { NSSound.beep() }
         }
         return true
     }

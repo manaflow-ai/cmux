@@ -297,12 +297,9 @@ extension TerminalController {
                 reuseExisting: false
             )
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
-            // `url` is what the pane loads and what works from any app on this
-            // Mac: the loopback forward over the user-space hub, or, for a
-            // machine without a private address, the control plane's preview
-            // URL. A route that cannot be made is an error for the caller,
-            // never a silent fall-back to an address only `cmux vpn up` can
-            // reach; that address stays available as `private_url`.
+            // Browser and clipboard use the same private URL. The browser
+            // shows connection controls until VPN access is ready; this read
+            // never creates a forward or requests a public preview.
             let privateURL = await catalog.resources[resource]?.url
             guard let provider = await catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
                 throw SurfaceCatalogError.unsupported(SurfaceCatalog.portPreviewUnavailableMessage(machineID: resource.machine.rawValue))

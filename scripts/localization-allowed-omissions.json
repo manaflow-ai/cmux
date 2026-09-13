@@ -3016,42 +3016,19 @@
       }
     }
   },
-  "cloudTree.device.build.dev": {
-    "source": "DEV",
-    "class": "technical"
-  },
-  "cloudTree.device.build.nightly": {
-    "source": "Nightly",
-    "class": "technical"
-  },
-  "cloudTree.device.build.rc": {
-    "source": "RC",
-    "class": "technical"
-  },
-  "cloudTree.device.build.staging": {
-    "source": "Staging",
-    "class": "technical"
-  },
-  "cloudTree.device.build.tagged": {
-    "source": "%1$@ · %2$@",
-    "class": "technical"
-  },
-  "settings.computers.offline": {
-    "source": "Offline",
+  "cloud.ports.title": {
+    "source": "Ports",
     "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "fr": "Standard technical UI term with the same spelling in this language."
     }
   },
-  "cloudTree.device.presence.offline": {
-    "source": "Offline",
+  "cloud.ports.status": {
+    "source": "Status",
     "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
-    }
-  },
-  "cloudTree.device.presence.online": {
-    "source": "Online",
-    "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "da": "Standard technical UI term with the same spelling in this language.",
+      "nb": "Standard technical UI term with the same spelling in this language."
     }
   },
   "cloudTree.device.status.offline": {
@@ -3060,8 +3037,46 @@
       "de": "Established German technical status term; translated entry is required."
     }
   },
+  "cloudTree.device.build.dev": {
+    "source": "DEV",
+    "class": "technical"
+  },
+  "cloudTree.device.build.staging": {
+    "source": "Staging",
+    "class": "technical"
+  },
+  "cloudTree.device.build.rc": {
+    "source": "RC",
+    "class": "technical"
+  },
+  "cloudTree.device.presence.online": {
+    "source": "Online",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
   "cloudTree.device.status.online": {
     "source": "Online",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.build.nightly": {
+    "source": "Nightly",
+    "class": "technical"
+  },
+  "cloudTree.device.presence.offline": {
+    "source": "Offline",
+    "identityLocales": {
+      "de": "Established German technical status term; translated entry is required."
+    }
+  },
+  "cloudTree.device.build.tagged": {
+    "source": "%1$@ · %2$@",
+    "class": "technical"
+  },
+  "settings.computers.offline": {
+    "source": "Offline",
     "identityLocales": {
       "de": "Established German technical status term; translated entry is required."
     }

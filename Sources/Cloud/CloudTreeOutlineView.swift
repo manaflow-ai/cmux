@@ -404,6 +404,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             true
         }
+
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
             selectedNodeID = outlineView.selectedRow >= 0
@@ -625,6 +626,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for item in menuItems(for: node) {
                 menu.addItem(item)
             }
+            if let error = node.errorCopyText {
+                if !menu.items.isEmpty { menu.addItem(.separator()) }
+                menu.addItem(item(CloudErrorCopy.title) { CloudErrorCopy.copy(error) })
+            }
             #if DEBUG
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif
@@ -810,13 +815,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
-                // The link that works from any app on this Mac is the loopback
-                // forward; the private address needs `cmux vpn up`.
-                items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                if let portURL {
-                    items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
-                    items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
-                }
+                // Copying a port URL does not start a forward. The browser's
+                // explicit Ports table owns local forwarding addresses.
+                items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
+                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {

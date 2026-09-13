@@ -282,6 +282,7 @@ public protocol SettingsHostActions: AnyObject {
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
 
     /// Reveals the right-sidebar Machines panel in the active main window.
+    func openCloudVPNSetup()
     func openCloudMachinesPanel()
 
     /// Opens the host's plan management / upgrade flow.
@@ -359,6 +360,7 @@ public extension SettingsHostActions {
     /// unavailable, no plan, no-op actions.
     var isCloudMachinesAvailable: Bool { false }
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
+    func openCloudVPNSetup() {}
     func openCloudMachinesPanel() {}
     func openCloudMachinesBilling() {}
 
