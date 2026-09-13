@@ -122,6 +122,8 @@ final class SurfaceCatalog {
     /// while cancellation is unresolved. This prevents one unhealthy machine from blocking
     /// unrelated machines while also bounding repeated provider replacements.
     nonisolated static let defaultMaximumTrackedMaterializations = 16
+    /// Bound create receipts while a machine's graph is unavailable or stale.
+    nonisolated static let defaultMaximumPendingCloudWorkspaces = 64
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -470,6 +472,9 @@ final class SurfaceCatalog {
                 pending[index] = created
             } else {
                 pending.append(created)
+            }
+            if pending.count > Self.defaultMaximumPendingCloudWorkspaces {
+                pending.removeFirst(pending.count - Self.defaultMaximumPendingCloudWorkspaces)
             }
             pendingCloudWorkspaces[info.id] = pending
         }

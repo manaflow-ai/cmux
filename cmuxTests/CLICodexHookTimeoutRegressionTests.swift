@@ -699,6 +699,12 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(currentPrompt.status == 0, Comment(rawValue: currentPrompt.stderr))
         #expect(currentPrompt.stdout == "{}\n")
+        #expect(waitForConditionBlocking(timeout: 2) {
+            AgentJournalAppendCapture.captures(in: commands.snapshot()).contains {
+                $0.kind == "agent.turn.started"
+                    && ($0.draft["attention"] as? [String: Any])?["turnIdentity"] as? String == "current-turn"
+            }
+        })
 
         let staleStop = runCodexHookProcess(
             executablePath: "/bin/sh",
@@ -928,8 +934,9 @@ struct CLICodexHookTimeoutRegressionTests {
             ],
         ]
         let rolloutData = try JSONSerialization.data(withJSONObject: rollout, options: [.sortedKeys])
+        let transcriptURL = rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl")
         try rolloutData.write(
-            to: rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl"),
+            to: transcriptURL,
             options: .atomic
         )
         defer {

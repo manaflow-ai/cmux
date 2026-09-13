@@ -126,7 +126,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
