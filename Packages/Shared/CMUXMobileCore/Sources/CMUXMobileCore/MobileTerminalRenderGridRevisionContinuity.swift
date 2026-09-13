@@ -59,18 +59,18 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         delivered: Self?
     ) -> Bool {
         guard !frame.full, let base = frame.deltaBaseRenderRevision else { return true }
-        guard !frame.renderEpoch.isEmpty else { return true }
         guard frame.renderRevision > base else { return false }
         guard let delivered else { return false }
-        guard delivered.renderEpoch == frame.renderEpoch,
-              delivered.renderRevision == base else { return false }
         // A delta with an unknown shape cannot be admitted safely. Without
         // both dimensions, a valid revision chain could still patch absolute
         // spans into a grid that changed size during a resize.
-        guard let deliveredColumns = delivered.columns,
-              let deliveredRows = delivered.rows else { return false }
-        guard deliveredColumns == frame.columns,
-              deliveredRows == frame.rows else { return false }
+        guard delivered.columns == frame.columns,
+              delivered.rows == frame.rows else { return false }
+        // Legacy producers may omit the epoch, but their revision and shape
+        // still have to match the delivered baseline before patching.
+        guard !frame.renderEpoch.isEmpty else { return true }
+        guard delivered.renderEpoch == frame.renderEpoch,
+              delivered.renderRevision == base else { return false }
         return true
     }
 }

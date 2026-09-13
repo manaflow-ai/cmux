@@ -518,13 +518,18 @@ extension MobileShellComposite {
     /// Whether a chunk must apply through the verified freeze/replay/verify/
     /// reveal pipeline. Full render-grid replacements and alternate-screen
     /// deltas use this path because they establish or patch a baseline that
-    /// cannot be recovered from primary-screen scrollback. Primary-screen
-    /// streaming deltas stay on the direct queue so sustained output does not
-    /// wait on a GPU fence.
+    /// cannot be recovered from primary-screen scrollback. Screen-anchored
+    /// primary deltas may use the direct queue when that capability is active,
+    /// so sustained output does not wait on a GPU fence.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
-        guard supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
+        guard terminalOutputTransport == .renderGrid,
+              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
               let frame = delivery.sourceRenderGridFrame else { return false }
-        return frame.full || frame.activeScreen == .alternate
+        guard !frame.full,
+              usesScreenAnchoredRenderGrid,
+              frame.anchor == .screen,
+              frame.activeScreen == .primary else { return true }
+        return false
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.
