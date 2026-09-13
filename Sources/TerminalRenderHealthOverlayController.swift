@@ -11,9 +11,9 @@ final class TerminalRenderHealthOverlayController {
 
     func attach(host: NSView, surface: TerminalSurface) {
         self.host = host
-        self.surface?.onRenderHealthChanged = nil
+        self.surface?.setRenderHealthChangeHandler(nil)
         self.surface = surface
-        surface.onRenderHealthChanged = { [weak self] health in
+        surface.setRenderHealthChangeHandler { [weak self] health in
             Task { @MainActor [weak self] in
                 self?.apply(health)
             }
@@ -22,7 +22,7 @@ final class TerminalRenderHealthOverlayController {
     }
 
     deinit {
-        surface?.onRenderHealthChanged = nil
+        surface?.setRenderHealthChangeHandler(nil)
     }
 
     func updateFrame(_ frame: NSRect) {
