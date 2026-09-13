@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 
 /// Fits the native popover to content measured at its final wrapping width.
@@ -19,3 +20,4 @@ extension AltScreenNoticePresentationSizing: PresentationSizing {
         return ProposedViewSize(width: Self.maxWidth, height: contentSize.height)
     }
 }
+#endif

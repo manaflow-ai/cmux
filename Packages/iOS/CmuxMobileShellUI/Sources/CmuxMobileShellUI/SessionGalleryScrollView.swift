@@ -1,3 +1,4 @@
+#if os(iOS)
 import SwiftUI
 
 /// Keeps live gallery refreshes anchored while observing the viewport on each supported OS.
@@ -36,3 +37,4 @@ struct SessionGalleryScrollView<Content: View>: View {
         }
     }
 }
+#endif
