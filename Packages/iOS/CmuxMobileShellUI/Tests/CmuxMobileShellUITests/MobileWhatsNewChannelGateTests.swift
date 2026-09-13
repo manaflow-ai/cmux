@@ -125,6 +125,22 @@ import Testing
         #expect(official.unseenPages.isEmpty)
     }
 
+    @Test func staleServerCatalogKeepsCurrentNativePageAvailable() async {
+        let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
+        let center = makeCenter(buildType: .beta, payload: payload)
+        await center.refresh()
+        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2"])
+        #expect(center.archivePages.map(\.id) == ["connections.v2"])
+    }
+
+    @Test func explicitEmptyServerCatalogStillHidesNativePages() async {
+        let payload = #"{"visibleEntryIds":[],"announcements":[]}"#
+        let center = makeCenter(buildType: .beta, payload: payload)
+        await center.refresh()
+        #expect(center.visibleBinaryEntries.isEmpty)
+        #expect(center.archivePages.isEmpty)
+    }
+
     @Test func remoteEntryChannelsOptABinaryEntryIntoOfficial() async {
         let payload = #"""
         {
