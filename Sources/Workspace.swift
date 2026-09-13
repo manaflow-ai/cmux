@@ -4568,6 +4568,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
     private let layoutFollowUpTimeoutScheduler = MainActorDeferredActionScheduler()
+    private let geometryNotificationScheduler = MainActorDeferredActionScheduler()
     private var layoutFollowUpReason: String?
     private var layoutFollowUpTerminalFocusPanelId: UUID?
     private var layoutFollowUpBrowserPanelId: UUID?
@@ -14775,27 +14776,22 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
-        tmuxLayoutSnapshot = snapshot
-        _ = surfaceList.registerGeometryChange()
-        let topologyChanged = surfaceList.lastGeometryChangeChangedMembership
-        NotificationCenter.default.post(
-            name: .workspacePaneGeometryDidChange,
-            object: self,
-            userInfo: [
-                GhosttyNotificationKey.tabId: id,
-                GhosttyNotificationKey.topologyChanged: topologyChanged,
-            ]
-        )
-        // Every order/membership mutation (same-pane reorder, cross-pane move,
-        // split, close) routes through here. A pure reorder mutates only
-        // bonsplit's internal state, which is not `@Published`, so observers
-        // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
-        // sequence actually changed, so divider drags and selection-only events
-        // (also routed here) do not fire `objectWillChange` app-wide.
-        scheduleTerminalGeometryReconcile()
-        if !isDetachingCloseTransaction {
-            scheduleFocusReconcile()
+        geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
+            guard let self else { return }
+            self.tmuxLayoutSnapshot = snapshot
+            _ = self.surfaceList.registerGeometryChange()
+            let topologyChanged = self.surfaceList.lastGeometryChangeChangedMembership
+            NotificationCenter.default.post(
+                name: .workspacePaneGeometryDidChange,
+                object: self,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: self.id,
+                    GhosttyNotificationKey.topologyChanged: topologyChanged,
+                ]
+            )
+            self.scheduleTerminalGeometryReconcile()
         }
+        if !isDetachingCloseTransaction { scheduleFocusReconcile() }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
