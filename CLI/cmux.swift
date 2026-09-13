@@ -27850,7 +27850,6 @@ struct CMUXCLI {
                 let workspaceId = resolvedTarget.workspaceId
                 let resolvedSurface = resolvedTarget
                 let surfaceId = resolvedSurface.surfaceId
-                let claudePid = localClaudePID(mapped: mappedSession)
                 // Detected once (bounded process-ancestry walk) and reused for
                 // both the suppression gate and the notify payload's subagent
                 // tag, which stays accurate even when suppression is off.
@@ -39470,7 +39469,6 @@ export default CMUXSessionRestore;
         socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry
     ) throws {
-        let invocationStartedAt = ProcessInfo.processInfo.systemUptime
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
