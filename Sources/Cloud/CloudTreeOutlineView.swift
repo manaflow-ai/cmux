@@ -1058,6 +1058,7 @@ final class CloudTreeContainerView: NSView {
     private let scrollView = NSScrollView()
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
+    private let layoutMetrics = CloudTreeLayoutMetrics()
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
         self.coordinator = coordinator
@@ -1067,9 +1068,6 @@ final class CloudTreeContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .custom
-        // One slot per level (style-sized): the disclosure chevron lives in the
-        // last slot before a row's content, and leaves keep the slot so glyphs
-        // form a column. `apply(style:)` keeps this in step with the preset.
         outlineView.indentationPerLevel = CloudTreeStyleStore.current.indentPerLevel
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = true
@@ -1083,19 +1081,11 @@ final class CloudTreeContainerView: NSView {
         column.resizingMask = .autoresizingMask
         outlineView.addTableColumn(column)
         outlineView.outlineTableColumn = column
-        // The one column's width is derived from the live bounds on EVERY layout
-        // pass (see `layout()`), never left to resize notifications: a width set
-        // only during live-resize events is exactly the "row content is wrong
-        // until I drag the divider" class of bug.
         outlineView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        // D9: one click opens, on every row. The single-click handler ignores
-        // the extra clicks of a double-click, so a habitual double-click acts
-        // once and never opens twice. No doubleAction: nothing is double-click
-        // only anymore.
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
@@ -1126,6 +1116,9 @@ final class CloudTreeContainerView: NSView {
         scrollView.documentView = outlineView
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
+        outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
+        outlineView.frame = scrollView.contentView.bounds
+        outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -1139,11 +1132,18 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// Width is a pure function of the current bounds, recomputed on every layout
-    /// pass. Rows are correct on first display, on sidebar show, and on any
-    /// programmatic resize — not only after a live divider drag.
     override func layout() {
         super.layout()
+        let viewportWidth = scrollView.contentView.bounds.width
+        let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
+        let contentHeight = outlineView.numberOfRows > 0
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + scrollView.contentInsets.bottom
+            : 0
+        let documentHeight = layoutMetrics.documentHeight(
+            viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
+        if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
+            outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
+        }
         outlineView.sizeLastColumnToFit()
     }
 }

@@ -5041,6 +5041,9 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
+            return
+        }
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -18396,6 +18399,7 @@ struct CMUXCLI {
             and can require one macOS approval. Missing tunnel support fails closed.
 
             Subcommands:
+              guide | --skill           \(Self.guideDescription)
               ls                        List your cloud VMs.
               domains                   \(domainsDescription)
               workspace new <machine> [--name <name>] [--reuse]
@@ -21856,7 +21860,6 @@ struct CMUXCLI {
             }
             return urlByHandle
         }
-
         // Fallback for older servers that may not support browser.tab.list.
         var fallbackURLs: [String: String] = [:]
         for surface in surfaces {
@@ -21880,7 +21883,6 @@ struct CMUXCLI {
         }
         return fallbackURLs
     }
-
     private func treeBrowserURL(surface: [String: Any], urlsByHandle: [String: String]) -> String? {
         if let id = surface["id"] as? String, let url = urlsByHandle[id] {
             return url
@@ -21893,28 +21895,23 @@ struct CMUXCLI {
         }
         return nil
     }
-
     private func treeItemMatchesHandle(_ item: [String: Any], handle: String?) -> Bool {
         guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
             return false
         }
         return (item["id"] as? String) == handle || (item["ref"] as? String) == handle
     }
-
     private func renderTreeText(windows: [[String: Any]], idFormat: CLIIDFormat) -> String {
         guard !windows.isEmpty else { return "No windows" }
-
         var lines: [String] = []
         for window in windows {
             lines.append(treeWindowLabel(window, idFormat: idFormat))
-
             let workspaces = window["workspaces"] as? [[String: Any]] ?? []
             for (workspaceIndex, workspace) in workspaces.enumerated() {
                 let workspaceIsLast = workspaceIndex == workspaces.count - 1
                 let workspaceBranch = workspaceIsLast ? "└── " : "├── "
                 let workspaceIndent = workspaceIsLast ? "    " : "│   "
                 lines.append("\(workspaceBranch)\(treeWorkspaceLabel(workspace, idFormat: idFormat))")
-
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
                 for (paneIndex, pane) in panes.enumerated() {
                     let paneIsLast = paneIndex == panes.count - 1
@@ -41270,6 +41267,8 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
+          cmux guide | cmux --skill
+          cmux cloud guide | cmux cloud --skill
           Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
           Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
@@ -41277,6 +41276,7 @@ export default CMUXSessionRestore;
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
+          guide | --skill
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]

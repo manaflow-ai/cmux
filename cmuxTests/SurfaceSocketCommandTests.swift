@@ -49,6 +49,8 @@ struct SurfaceSocketCommandTests {
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_error")
         #expect((error["data"] as? [String: Any])?["http_status"] as? Int == 502)
+        #expect(response.contains("HTTP 502"))
+        #expect(response.contains("unreadable response omitted"))
         #expect(!response.contains("secret"))
         #expect(!response.contains("private.invalid"))
         #expect(!response.contains("response-body-private"))

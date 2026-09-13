@@ -113,7 +113,7 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
               Retry the command. If it keeps failing, copy the response body and contact support.
 
             Response body:
-              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+              <unreadable response omitted>
             """
     }
 

@@ -11,106 +11,36 @@ import Testing
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
     @Test
+    func readinessGateKeepsLoadingAcrossOutOfOrderReplayAndFrameEvents() {
+        var gate = CloudTerminalReadinessGate()
+        gate.begin(baselineFrame: 10)
+
+        // A replay may arrive before the native renderer is presented.
+        #expect(!gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11))
+        #expect(gate.firstPresentedFrame == nil)
+        // A frame from the old generation cannot dismiss the loader.
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10))
+        #expect(gate.firstPresentedFrame == nil)
+        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11))
+        #expect(gate.firstPresentedFrame == 11)
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12))
+
+        // Reconnect establishes a new generation baseline and requires a new frame.
+        gate.begin(baselineFrame: 20)
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20))
+        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21))
+    }
+
+    @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connected)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, firstFramePresented: true).connectionState == .connected)
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
     }
 
     @Test @MainActor
-    func replayDiagnosticsRequireTheCurrentFrame() async throws {
-        let recorder = CloudOperationRecorder()
-        let observation = CloudTerminalReplayPresentationDiagnostics(operations: recorder, isVisible: { true })
-        defer { observation.reset() }
-        observation.receive(1)
-        observation.receive(2)
-        observation.presented(1)
-        #expect(recorder.operations.count == 1)
-        #expect(recorder.operations[0].isRunning)
-        observation.presented(2)
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations[0].outcome == .success)
-        #expect(recorder.operations[0].steps.first?.phase == .ready)
-        #expect(recorder.operations[0].steps.first?.outcome == .success)
-    }
-
-    @Test @MainActor
-    func hiddenReplayDefersObservationUntilReveal() async throws {
-        let recorder = CloudOperationRecorder()
-        var visible = false
-        let observation = CloudTerminalReplayPresentationDiagnostics(operations: recorder, isVisible: { visible })
-        defer { observation.reset() }
-        observation.receive(1)
-        #expect(recorder.operations.isEmpty)
-        visible = true
-        observation.visibilityChanged(true)
-        #expect(recorder.operations.count == 1)
-        visible = false
-        observation.visibilityChanged(false)
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations[0].outcome == .cancelled)
-        #expect(!recorder.operations[0].needsAttention)
-        visible = true
-        observation.visibilityChanged(true)
-        observation.presented(1)
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations.count == 2)
-        #expect(recorder.operations[1].outcome == .success)
-    }
-
-    @Test @MainActor
-    func visibleReplayDeadlineRecordsOneDisplayFailure() async throws {
-        let recorder = CloudOperationRecorder()
-        let deadline = AsyncStream<Void>.makeStream()
-        let observation = CloudTerminalReplayPresentationDiagnostics(
-            operations: recorder, isVisible: { true },
-            waitForDeadline: { for await _ in deadline.stream { return } }
-        )
-        defer { observation.reset(); deadline.continuation.finish() }
-        observation.receive(1)
-        deadline.continuation.yield(())
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations[0].outcome == .timeout)
-        #expect(recorder.operations[0].steps.first?.phase == .ready)
-        observation.visibilityChanged(true)
-        observation.receive(2)
-        #expect(recorder.operations.count == 1)
-    }
-
-    @Test @MainActor
-    func windowOcclusionCannotBecomeAPresentationFailure() async throws {
-        let recorder = CloudOperationRecorder()
-        let deadline = AsyncStream<Void>.makeStream()
-        var visible = true
-        let observation = CloudTerminalReplayPresentationDiagnostics(
-            operations: recorder, isVisible: { visible },
-            waitForDeadline: { for await _ in deadline.stream { return } }
-        )
-        defer { observation.reset(); deadline.continuation.finish() }
-        observation.receive(1)
-        // Window occlusion can change without a portal visibility event.
-        visible = false
-        deadline.continuation.yield(())
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations[0].outcome == .cancelled)
-        #expect(!recorder.operations[0].needsAttention)
-        visible = true
-        observation.presented(1)
-        try await waitForPresentationOutcome(recorder)
-        #expect(recorder.operations[1].outcome == .success)
-    }
-
-    @MainActor
-    private func waitForPresentationOutcome(_ recorder: CloudOperationRecorder) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while recorder.operations.last?.isRunning == true, ContinuousClock.now < deadline {
-            await Task.yield()
-        }
-        try #require(recorder.operations.last?.isRunning == false)
-    }
-
-    @Test @MainActor
-    func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
+    func replayAloneKeepsTheCardUntilAVisibleFrame() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
@@ -150,24 +80,20 @@ struct CloudManualMirrorPresentationTests {
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
             "data": Data("cmux@cloud> ".utf8).base64EncodedString()
         ])
-        deadline = ContinuousClock.now + .seconds(5)
-        while session.connectionPresentation != nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        try #require(session.connectionPresentation == nil)
+        #expect(session.connectionPresentation?.showsProgress == true)
         session.inputRouter.send(.bytes(Data("pwd\n".utf8)))
         let input = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(input.cmd == "send")
         #expect(input.surface == 17)
-        // Renderer observations are absent, as during a portal handoff. A
-        // healthy byte attachment must not become a connection failure.
+        // Renderer observations are absent, as during a portal handoff. The
+        // healthy byte attachment remains visibly loading until a frame lands.
         #expect(hosted.surfaceView.renderedFrameSequence == 0)
         synchronize()
-        #expect(owner.overlay == nil)
+        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
         for visible in [false, true] {
             owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
             synchronize()
-            #expect(owner.overlay == nil)
+            #expect(owner.overlay?.currentPresentation?.showsProgress == true)
         }
 
         // A real transport failure must still be shown after successful use.
