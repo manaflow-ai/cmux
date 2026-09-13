@@ -326,6 +326,41 @@ public actor IrxPeerEngine {
         return nil
     }
 
+    /// Retires one exact admitted session for a planned owner handoff.
+    ///
+    /// The caller remains responsible for closing the matching connection
+    /// after this method returns. Clearing the engine first prevents the
+    /// termination watcher or keepalive callback from scheduling an automatic
+    /// replacement for a connection that the client intentionally retired.
+    @discardableResult
+    public func retire(
+        connection: IrxConnection,
+        code: IrxCloseCode = .explicitRedial
+    ) -> Bool {
+        guard let current = session, current.connection === connection else {
+            return false
+        }
+        session = nil
+        terminationWatcher?.cancel()
+        terminationWatcher = nil
+        redialTimer?.cancel()
+        redialTimer = nil
+        invalidateDial()
+        cooldownUntil = nil
+        lastDialError = nil
+        parkedCode = nil
+        backoff = config.initialBackoff
+        record(
+            "session-retired",
+            [
+                "session": current.admit.session,
+                "code": code.rawValue,
+            ]
+        )
+        setState(.closed(code: code.rawValue))
+        return true
+    }
+
     /// Tears the session down deliberately (sign-out, mode switch).
     public func stop(code: IrxCloseCode = .userRequested) async {
         redialTimer?.cancel()

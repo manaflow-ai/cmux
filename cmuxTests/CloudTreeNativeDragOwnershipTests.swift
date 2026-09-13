@@ -267,6 +267,7 @@ struct CloudTreeNativeDragOwnershipTests {
         runCommand: { _, _ in },
         confirmDelete: { _ in },
         promptRename: { _, _ in },
+        resizeDisk: { _, _ in },
         promptUpgrade: {}
     )
 

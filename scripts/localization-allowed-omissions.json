@@ -1440,7 +1440,18 @@
   },
   "machines.stats.cpu": {
     "class": "technical",
-    "source": "CPU"
+    "source": "CPU",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
   },
   "machines.stats.memory": {
     "source": "Mem",
@@ -3031,54 +3042,23 @@
       "nb": "Standard technical UI term with the same spelling in this language."
     }
   },
-  "cloudTree.device.status.offline": {
-    "source": "Offline",
+  "cloudTree.resources.missing": {
+    "source": "—",
+    "class": "format"
+  },
+  "cloudTree.resources.ram": {
+    "source": "RAM",
+    "class": "technical",
     "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
-    }
-  },
-  "cloudTree.device.build.dev": {
-    "source": "DEV",
-    "class": "technical"
-  },
-  "cloudTree.device.build.staging": {
-    "source": "Staging",
-    "class": "technical"
-  },
-  "cloudTree.device.build.rc": {
-    "source": "RC",
-    "class": "technical"
-  },
-  "cloudTree.device.presence.online": {
-    "source": "Online",
-    "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
-    }
-  },
-  "cloudTree.device.status.online": {
-    "source": "Online",
-    "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
-    }
-  },
-  "cloudTree.device.build.nightly": {
-    "source": "Nightly",
-    "class": "technical"
-  },
-  "cloudTree.device.presence.offline": {
-    "source": "Offline",
-    "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
-    }
-  },
-  "cloudTree.device.build.tagged": {
-    "source": "%1$@ · %2$@",
-    "class": "technical"
-  },
-  "settings.computers.offline": {
-    "source": "Offline",
-    "identityLocales": {
-      "de": "Established German technical status term; translated entry is required."
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
     }
   }
 }

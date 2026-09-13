@@ -26,6 +26,10 @@ protocol SurfaceProvider: AnyObject {
     /// Create a new terminal on this machine (remote providers create it in the cmux-tui
     /// session; the local provider spawns a shell) and return its resource.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
+    /// Read the live working directory of a terminal's foreground process. Remote
+    /// providers use this when a shortcut creates a sibling terminal; providers that
+    /// cannot inspect a process return nil and preserve their normal daemon fallback.
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String?
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
@@ -63,6 +67,10 @@ extension SurfaceProvider {
 
     func refresh(force: Bool) async {
         await refresh()
+    }
+
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
+        nil
     }
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

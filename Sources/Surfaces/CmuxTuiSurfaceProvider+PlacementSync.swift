@@ -79,15 +79,22 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
         while true {
             try Task.checkCancellation()
             let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            guard let snapshotObject = try? JSONSerialization.jsonObject(with: snapshot) as? [String: Any],
+                  CmuxTuiSnapshotParser.authoritativeGraphIsValid(snapshotObject) else {
+                throw ProviderError.invalidSnapshot(machineID)
+            }
+            if !CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshotObject).contains(where: { $0.id == remoteWorkspaceID }) {
+                throw ProviderError.remoteWorkspaceNotFound(remoteWorkspaceID)
+            }
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: remoteWorkspaceID),
                   destination.revision != nil else {
-                throw ProviderError.noWorkspaceOnMachine(machineID)
+                throw ProviderError.remotePlacementUnavailable(remoteWorkspaceID)
             }
             var existingTabID = tabID
             var command = arguments(connected.socketPath, destination.target, destination.revision, key)
             if let terminalID {
                 guard let current = await CmuxTuiSnapshotParser.terminalPlacement(from: snapshot, terminalID: terminalID) else {
-                    throw ProviderError.terminalNotCreated(terminalID)
+                    throw ProviderError.remoteTabNotFound(terminalID)
                 }
                 if let placement = current.placement {
                     if let retained = intent.retainedPlacement(placement, requestedWorkspaceID: remoteWorkspaceID) { return retained }
@@ -102,7 +109,15 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                 let response = try await link.run(arguments: command)
                 guard let placement = await CmuxTuiSnapshotParser.placedTab(
                     from: response, at: destination.target, tabID: existingTabID, terminalID: terminalID
-                ) else { throw ProviderError.terminalNotCreated(terminalID ?? tabID ?? remoteWorkspaceID) }
+                ) else {
+                    // The mutation had an idempotency key but no usable receipt.
+                    // Treat this as an ambiguous placement outcome so callers
+                    // refresh/reconcile the exact intent instead of claiming a
+                    // new terminal was never created.
+                    throw ProviderError.remotePlacementOutcomeUnknown(
+                        terminalID ?? tabID ?? remoteWorkspaceID
+                    )
+                }
                 return placement
             } catch {
                 guard !retried, destination.revision != nil, Self.isRevisionConflict(error) else { throw error }

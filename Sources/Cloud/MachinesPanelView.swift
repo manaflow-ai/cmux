@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxSettings
 import SwiftUI
 
@@ -29,7 +30,7 @@ enum CloudVMPanelAuthState: Equatable {
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
@@ -45,9 +46,15 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
 
-    init(chromeBackgroundColor: NSColor, devicesModel: DevicesPanelViewModel? = nil, tabManager: TabManager? = nil) {
+    init(
+        chromeBackgroundColor: NSColor,
+        defaultMachineStore: DefaultCloudMachineStore? = nil,
+        devicesModel: DevicesPanelViewModel? = nil,
+        tabManager: TabManager? = nil
+    ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(defaultMachineStore: defaultMachineStore))
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 

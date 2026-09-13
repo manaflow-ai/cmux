@@ -33,6 +33,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
+    private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -199,11 +200,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(railView)
         addSubview(contentContainer)
 
-        pinImageView.imageScaling = .scaleProportionallyDown
-        contentContainer.addSubview(pinImageView)
-        muteImageView.imageScaling = .scaleProportionallyDown
-        contentContainer.addSubview(muteImageView)
-        for view in [mediaAudioView, mediaMicView, mediaCameraView] {
+        for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
@@ -212,6 +209,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
         contentContainer.addSubview(titleView)
+        cloudImageView.setAccessibilityIdentifier("sidebarCloudBadge")
+        cloudImageView.setAccessibilityElement(false)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         contentContainer.addSubview(closeButton)
@@ -413,25 +412,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         // Title line
-        pinImageView.isHidden = !snapshot.isPinned
-        if snapshot.isPinned {
-            pinImageView.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: "pin.fill", pointSize: model.scaled(9), weight: .semibold
-            )
-            pinImageView.contentTintColor = palette.secondary(0.8)
-            pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
-        }
-        muteImageView.isHidden = !snapshot.isMuted
-        if snapshot.isMuted {
-            muteImageView.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: "bell.slash.fill", pointSize: model.scaled(9), weight: .semibold
-            )
-            muteImageView.contentTintColor = palette.secondary(0.8)
-            muteImageView.toolTip = String(
-                localized: "sidebar.mutedWorkspace.tooltip",
-                defaultValue: "Notifications muted for this workspace"
-            )
-        }
+        cloudImageView.configureSidebarWorkspaceAccessory(
+            symbol: "cloud", label: snapshot.cloudWorkspaceLabel,
+            pointSize: model.scaled(10), tint: palette.secondary(0.7), weight: .regular
+        )
+        pinImageView.configureSidebarWorkspaceAccessory(
+            symbol: "pin.fill", label: snapshot.isPinned
+                ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") : nil,
+            pointSize: model.scaled(9), tint: palette.secondary(0.8)
+        )
+        muteImageView.configureSidebarWorkspaceAccessory(
+            symbol: "bell.slash.fill", label: snapshot.isMuted
+                ? String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace") : nil,
+            pointSize: model.scaled(9), tint: palette.secondary(0.8)
+        )
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
         if media.isPlayingAudio {
@@ -606,9 +600,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
-        setAccessibilityLabel(String(
-            localized: "accessibility.workspacePosition",
-            defaultValue: "\(snapshot.title), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
+        setAccessibilityLabel(snapshot.accessibilityLabel(
+            index: model.index, workspaceCount: model.accessibilityWorkspaceCount
         ))
     }
 
@@ -1157,7 +1150,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let accessoryMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        let titleMaxX = cloudImageView.layoutSidebarWorkspaceAccessory(
+            maxX: accessoryMaxX, centerY: firstLineCenter, side: model.scaled(10) + 4, spacing: titleRowSpacing, apply: apply
+        )
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }

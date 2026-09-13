@@ -16,6 +16,10 @@ extension ShortcutAction {
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+        case .newCloudWorkspace:
+            return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
+        case .newCloudMachine:
+            return String(localized: "shortcut.newCloudMachine.label", defaultValue: "New Cloud Machine")
         case .saveLayoutTemplate:
             return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
         case .openFolder: return "Open Folder"

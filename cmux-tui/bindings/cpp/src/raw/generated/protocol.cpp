@@ -5894,6 +5894,79 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<TerminalColorOverrides>::encode(const TerminalColorOverrides& value) {
+    (void)value;
+    Json::Object object;
+    if (value.bg) {
+        auto encoded = encode_value(*value.bg);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("bg", std::move(encoded).value());
+    } else {
+        object.emplace("bg", Json(nullptr));
+    }
+    if (value.cursor) {
+        auto encoded = encode_value(*value.cursor);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cursor", std::move(encoded).value());
+    } else {
+        object.emplace("cursor", Json(nullptr));
+    }
+    if (value.fg) {
+        auto encoded = encode_value(*value.fg);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("fg", std::move(encoded).value());
+    } else {
+        object.emplace("fg", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalColorOverrides> Codec<TerminalColorOverrides>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalColorOverrides result{};
+    const Json* field_bg = value.find("bg");
+    if (!field_bg) {
+        return make_error(ErrorCode::decode, "missing required field 'bg'");
+    }
+    if (field_bg) {
+        if (field_bg->is_null()) {
+            result.bg.reset();
+        } else {
+            auto decoded = decode_value<ColorHex>(*field_bg);
+            if (!decoded) return std::move(decoded).error();
+            result.bg = std::move(decoded).value();
+        }
+    }
+    const Json* field_cursor = value.find("cursor");
+    if (!field_cursor) {
+        return make_error(ErrorCode::decode, "missing required field 'cursor'");
+    }
+    if (field_cursor) {
+        if (field_cursor->is_null()) {
+            result.cursor.reset();
+        } else {
+            auto decoded = decode_value<ColorHex>(*field_cursor);
+            if (!decoded) return std::move(decoded).error();
+            result.cursor = std::move(decoded).value();
+        }
+    }
+    const Json* field_fg = value.find("fg");
+    if (!field_fg) {
+        return make_error(ErrorCode::decode, "missing required field 'fg'");
+    }
+    if (field_fg) {
+        if (field_fg->is_null()) {
+            result.fg.reset();
+        } else {
+            auto decoded = decode_value<ColorHex>(*field_fg);
+            if (!decoded) return std::move(decoded).error();
+            result.fg = std::move(decoded).value();
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalColors>::encode(const TerminalColors& value) {
     (void)value;
     Json::Object object;
@@ -5925,6 +5998,11 @@ Result<Json> Codec<TerminalColors>::encode(const TerminalColors& value) {
         object.emplace("fg", std::move(encoded).value());
     } else {
         object.emplace("fg", Json(nullptr));
+    }
+    if (value.overrides) {
+        auto encoded = encode_value(*value.overrides);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("overrides", std::move(encoded).value());
     }
     if (value.palette) {
         auto encoded = encode_value(*value.palette);
@@ -6007,6 +6085,12 @@ Result<TerminalColors> Codec<TerminalColors>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.fg = std::move(decoded).value();
         }
+    }
+    const Json* field_overrides = value.find("overrides");
+    if (field_overrides) {
+        auto decoded = decode_value<TerminalColorOverrides>(*field_overrides);
+        if (!decoded) return std::move(decoded).error();
+        result.overrides = std::move(decoded).value();
     }
     const Json* field_palette = value.find("palette");
     if (field_palette) {
@@ -13751,6 +13835,11 @@ Result<Json> Codec<ColorsChangedEvent>::encode(const ColorsChangedEvent& value) 
     } else {
         object.emplace("fg", Json(nullptr));
     }
+    if (value.overrides) {
+        auto encoded = encode_value(*value.overrides);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("overrides", std::move(encoded).value());
+    }
     if (value.palette) {
         auto encoded = encode_value(*value.palette);
         if (!encoded) return std::move(encoded).error();
@@ -13837,6 +13926,12 @@ Result<ColorsChangedEvent> Codec<ColorsChangedEvent>::decode(const Json& value) 
             if (!decoded) return std::move(decoded).error();
             result.fg = std::move(decoded).value();
         }
+    }
+    const Json* field_overrides = value.find("overrides");
+    if (field_overrides) {
+        auto decoded = decode_value<TerminalColorOverrides>(*field_overrides);
+        if (!decoded) return std::move(decoded).error();
+        result.overrides = std::move(decoded).value();
     }
     const Json* field_palette = value.find("palette");
     if (field_palette) {
