@@ -25,7 +25,7 @@ extension CmuxTuiSurfaceProvider {
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
             link: link,
-            requiresExistingView: remoteTabID != nil,
+            remoteTabID: remoteTabID,
             preferredWorkspaceID: catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
                 forLocalWorkspace: destination.workspaceID, on: machine
             )
@@ -94,7 +94,7 @@ extension CmuxTuiSurfaceProvider {
         terminalID: String,
         socketPath: String,
         link: CloudMachineLink,
-        requiresExistingView: Bool,
+        remoteTabID: String?,
         preferredWorkspaceID: String? = nil
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
@@ -104,9 +104,13 @@ extension CmuxTuiSurfaceProvider {
         var placement: SurfaceRemotePlacement?
         while true {
             try Task.checkCancellation()
-            var resolution = await resolver.resolve(terminalID: terminalID)
+            var resolution: CloudTuiSurfaceIDResolution
+            if let remoteTabID {
+                resolution = await CloudTerminalViewResolver(commandRunner: link, socketPath: socketPath)
+                    .resolve(terminalByTab: [remoteTabID: terminalID])[remoteTabID] ?? .retryable("no view resolution")
+            } else { resolution = await resolver.resolve(terminalID: terminalID) }
             attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
-            if resolution == .noPlacement, !requiresExistingView, placement == nil {
+            if resolution == .noPlacement, remoteTabID == nil, placement == nil {
                 let projected = try await ensureRemoteTerminalView(
                     terminalID: terminalID,
                     socketPath: socketPath,
@@ -179,9 +183,12 @@ extension CmuxTuiSurfaceProvider {
         _ sessions: [CloudTuiManualMirrorSession],
         socketPath: String,
         link: CloudMachineLink
-    ) async -> [String: CloudTuiSurfaceIDResolution] {
+    ) async -> [ObjectIdentifier: CloudTuiSurfaceIDResolution] {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
-        let sessionsByTerminal = Dictionary(grouping: sessions, by: \.terminalID)
+        let sessionTabs = Dictionary(uniqueKeysWithValues: manualMirrorSessions.compactMap { panelID, session in
+            catalog.projection(forPanel: panelID)?.remoteTabID.map { (ObjectIdentifier(session), $0) }
+        })
+        let sessionsByTerminal = Dictionary(grouping: sessions.filter { sessionTabs[ObjectIdentifier($0)] == nil }, by: \.terminalID)
         var resolutions = await resolver.resolve(terminalIDs: Set(sessionsByTerminal.keys))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
@@ -213,7 +220,15 @@ extension CmuxTuiSurfaceProvider {
             }
             resolutions[terminalID] = await resolver.resolve(terminalID: terminalID)
         }
-        return resolutions
+        let terminalByTab = Dictionary(sessions.compactMap { session in
+            sessionTabs[ObjectIdentifier(session)].map { ($0, session.terminalID) }
+        }, uniquingKeysWith: { first, _ in first })
+        let views = await CloudTerminalViewResolver(commandRunner: link, socketPath: socketPath).resolve(terminalByTab: terminalByTab)
+        return Dictionary(uniqueKeysWithValues: sessions.map { session in
+            let id = ObjectIdentifier(session)
+            let resolution = sessionTabs[id].flatMap { views[$0] } ?? resolutions[session.terminalID] ?? .retryable("no resolution")
+            return (id, resolution)
+        })
     }
 
     /// Replaces a restored placeholder projection with a native manual pane.

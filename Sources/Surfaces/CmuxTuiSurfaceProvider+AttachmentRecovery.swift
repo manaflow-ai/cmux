@@ -33,7 +33,7 @@ extension CmuxTuiSurfaceProvider {
             var allSurfaceIDsResolved = true
             var exitedTerminalIDs: Set<String> = []
             for session in sessions {
-                let resolution = resolutions[session.terminalID] ?? .retryable("no resolution was produced")
+                let resolution = resolutions[ObjectIdentifier(session)] ?? .retryable("no resolution was produced")
                 attachmentLog.resolution(
                     machineID: machineID,
                     terminalID: session.terminalID,
