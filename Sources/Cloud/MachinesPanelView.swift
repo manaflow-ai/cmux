@@ -635,7 +635,7 @@ private struct MachinePlanMeter: View {
     }
 }
 
-private struct MachinesFreeAccessBanner: View {
+struct MachinesFreeAccessBanner: View {
     let text: String
     let isExpired: Bool
     let windowDays: Int
