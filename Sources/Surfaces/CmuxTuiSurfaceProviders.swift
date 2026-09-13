@@ -728,19 +728,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
-    /// command's output text.
-    static func isSelectorNotFound(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error)
-        return text.contains("selector.not_found") || text.contains("no terminal matches")
-    }
-
-    /// The resource CLI exposes optimistic-concurrency failures as either the
-    /// structured code or its human-readable text, depending on client version.
-    nonisolated static func isRevisionConflict(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error).lowercased()
-        return text.contains("revision conflict") || text.contains("revision.conflict")
-            || text.contains("revision_conflict") || text.contains("stale revision")
+    /// Retires pending creation metadata before the shared terminal-close command.
+    func prepareTerminalClose(_ id: SurfaceResourceID) -> String? {
+        pendingRemoteCreations.removeValue(forKey: id)
+        return tabByTerminal[id.key]
     }
 
     /// `terminal <id> close`; a terminal whose process already exited is gone from

@@ -7518,50 +7518,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return cloudVMBinding?.vmID
     }
 
-    func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        if let failure = cloudMaterializationFailures[surfaceId] {
-            return Self.cloudMaterializationFailurePresentation(
-                detail: failure.detail,
-                reference: failure.reference
-            )
-        }
-        if let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
-            return session.connectionPresentation
-        }
-        return CloudTerminalReconnectOverlayPolicy.presentation(
-            isManagedCloudWorkspace: isManagedCloudVMWorkspace,
-            isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
-            connectionState: remoteConnectionState,
-            detail: remoteConnectionDetail
-        )
-    }
-
-    nonisolated static func cloudMaterializationFailurePresentation(
-        detail: String,
-        reference: String?
-    ) -> CloudTerminalReconnectOverlayPolicy.Presentation {
-        var presentation = CloudTerminalReconnectOverlayPolicy.Presentation(
-            title: String(localized: "cloud.overlay.materializationFailed.title", defaultValue: "Cloud terminal could not start"),
-            detail: detail,
-            showsProgress: false,
-            showsReconnectButton: false
-        )
-        presentation.diagnosticReference = reference
-        return presentation
-    }
-
-    func setCloudMaterializationFailure(surfaceID: UUID, detail: String, reference: String?) {
-        cloudMaterializationFailures[surfaceID] = (detail: detail, reference: reference)
-        postRemoteConnectionPresentationDidChange()
-    }
-
-    func clearCloudMaterializationFailure(surfaceID: UUID) {
-        guard cloudMaterializationFailures.removeValue(forKey: surfaceID) != nil else { return }
-        postRemoteConnectionPresentationDidChange()
-    }
-
     func postRemoteConnectionPresentationDidChange() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }

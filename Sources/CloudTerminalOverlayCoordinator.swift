@@ -18,6 +18,7 @@ final class CloudTerminalOverlayCoordinator {
     private var anchorOwnership: (generation: UInt64, serial: UInt64)?
     private var anchorVisible = false
     private var lastDestination: Destination = .hidden
+    private var materializationUpdates: Task<Void, Never>?
 
     private enum Destination: String {
         case hidden, anchor, terminal
@@ -60,6 +61,7 @@ final class CloudTerminalOverlayCoordinator {
         legacyPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?,
         onReconnect: @escaping () -> Void
     ) {
+        observePendingMaterialization(hostedView, needed: session == nil && legacyPresentation != nil)
         let visible = anchor == nil ? hostedView.isVisibleInUI : anchorVisible
         let presented: Bool
         if let anchor {
@@ -94,6 +96,26 @@ final class CloudTerminalOverlayCoordinator {
         }
         lastDestination = next
     }
+
+    /// Before a session exists, discovery owns the presentation changes. Observe
+    /// only that interval; attached and ordinary local panes need no catalog feed.
+    private func observePendingMaterialization(_ hostedView: GhosttySurfaceScrollView, needed: Bool) {
+        guard needed else {
+            materializationUpdates?.cancel()
+            materializationUpdates = nil
+            return
+        }
+        guard materializationUpdates == nil else { return }
+        let updates = NotificationCenter.default.notifications(named: SurfaceCatalog.didChangeNotification).map { _ in () }
+        materializationUpdates = Task { @MainActor [weak hostedView] in
+            for await _ in updates {
+                guard !Task.isCancelled else { return }
+                hostedView?.synchronizeCloudTerminalReconnectOverlay()
+            }
+        }
+    }
+
+    deinit { materializationUpdates?.cancel() }
 
     /// A retired session cannot clear a replacement session's presentation.
     func unbindSession(_ expectedSession: CloudTuiManualMirrorSession) {

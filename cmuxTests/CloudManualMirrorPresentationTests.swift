@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Cloud manual mirror presentation")
+@Suite("Cloud manual mirror presentation", .serialized)
 struct CloudManualMirrorPresentationTests {
     @Test
     func readinessGateKeepsLoadingAcrossOutOfOrderReplayAndFrameEvents() {
@@ -16,19 +16,25 @@ struct CloudManualMirrorPresentationTests {
         gate.begin(baselineFrame: 10)
 
         // A replay may arrive before the native renderer is presented.
-        #expect(!gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11))
+        let replayBeforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
+        #expect(!replayBeforePresentation)
         #expect(gate.firstPresentedFrame == nil)
         // A frame from the old generation cannot dismiss the loader.
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10))
+        let staleFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10)
+        #expect(!staleFrame)
         #expect(gate.firstPresentedFrame == nil)
-        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11))
+        let firstCurrentFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
+        #expect(firstCurrentFrame)
         #expect(gate.firstPresentedFrame == 11)
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12))
+        let duplicateCurrentFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
+        #expect(!duplicateCurrentFrame)
 
         // Reconnect establishes a new generation baseline and requires a new frame.
         gate.begin(baselineFrame: 20)
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20))
-        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21))
+        let reconnectBaseline = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
+        #expect(!reconnectBaseline)
+        let reconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
+        #expect(reconnectFrame)
     }
 
     @Test
@@ -93,7 +99,11 @@ struct CloudManualMirrorPresentationTests {
         for visible in [false, true] {
             owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
             synchronize()
-            #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+            if visible {
+                #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+            } else {
+                #expect(owner.overlay == nil)
+            }
         }
 
         // A real transport failure must still be shown after successful use.
@@ -122,12 +132,14 @@ struct CloudManualMirrorPresentationTests {
         defer { session.stop() }
         session.markSurfaceResolutionUnavailable()
         session.markSurfaceResolutionUnavailable()
-        #expect(reconnectRequests == 1)
+        // Resolution fencing leaves the retry request to the provider's refresh
+        // scheduler; an explicit retry is the first callback from the session.
+        #expect(reconnectRequests == 0)
         #expect(session.connectionPresentation?.showsReconnectButton == true)
         #expect(session.retryConnection())
-        #expect(reconnectRequests == 2)
+        #expect(reconnectRequests == 1)
         session.visibilityChanged(true)
-        #expect(reconnectRequests == 3)
+        #expect(reconnectRequests == 2)
         session.stop()
         #expect(!session.retryConnection())
     }
