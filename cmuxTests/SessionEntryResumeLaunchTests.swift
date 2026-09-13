@@ -12,6 +12,56 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SessionEntryResumeLaunchTests {
+    @Test("Vault copy and structured resume omit the default Claude config directory", arguments: [false, true])
+    func claudeResumeConfigDirectoryPreservesAuth(custom: Bool) throws {
+        let configDirectory = NSHomeDirectory() + (custom ? "/.claude-work" : "/.claude")
+        let entry = SessionEntry(
+            id: "claude:default-config-session",
+            agent: .claude,
+            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4",
+            title: "Claude session",
+            cwd: "/tmp",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_000),
+            fileURL: nil,
+            specifics: .claude(
+                model: "sonnet",
+                permissionMode: "default",
+                configDirectoryForResume: configDirectory
+            )
+        )
+        let command = try #require(entry.copyResumeCommand)
+        #expect(command.contains("CLAUDE_CONFIG_DIR=") == custom)
+        #expect(command.contains("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=") == custom)
+        #expect(command.contains("CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=") == custom)
+        #expect(command.contains("--resume \(entry.sessionId)"))
+        #expect(command.contains("--model sonnet"))
+        #expect(command.contains("--permission-mode default"))
+
+        let launch = try #require(entry.resumeLaunch)
+        #expect(launch.strategy == .restoreVerb)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "claude",
+            checkpointID: snapshot.sessionId,
+            source: "vault",
+            workingDirectory: snapshot.workingDirectory,
+            environment: [:],
+            launchCommand: snapshot.launchCommand,
+            preparedArguments: nil,
+            observedPermissionMode: snapshot.permissionMode
+        )
+        let invocation = try #require(AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+            for: request,
+            ambientEnvironment: [:]
+        ))
+        #expect(invocation.environment["CLAUDE_CONFIG_DIR"] == (custom ? configDirectory : nil))
+        #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] == (custom ? "1" : nil))
+        #expect(invocation.environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] == (custom ? "CLAUDE_CONFIG_DIR" : nil))
+    }
+
     @Test("Vault resume plans the short restore verb with structured Codex settings")
     func vaultResumeUsesShortRestoreVerb() throws {
         let entry = SessionEntry(
