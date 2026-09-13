@@ -106,9 +106,9 @@ extension CmuxTuiSurfaceProvider {
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
-        var projectedPlacement: SurfaceRemotePlacement?
         while true {
             try Task.checkCancellation()
+            var placement: SurfaceRemotePlacement?
             var resolution = await resolver.resolve(terminalID: terminalID)
             attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
             if resolution == .noPlacement {
@@ -119,7 +119,7 @@ extension CmuxTuiSurfaceProvider {
                     link: link,
                     preferredWorkspaceID: preferredWorkspaceID
                 )
-                projectedPlacement = projected
+                placement = projected
                 attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
                 resolution = await resolver.resolve(terminalID: terminalID)
                 attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
@@ -127,7 +127,7 @@ extension CmuxTuiSurfaceProvider {
             // Initial and post-projection answers share the same lifecycle/error handling.
             switch resolution {
             case let .resolved(surfaceID):
-                return (surfaceID, projectedPlacement)
+                return (surfaceID, placement)
             case .exited:
                 // The remote shell already ended, including during projection.
                 throw ProviderError.terminalExited(terminalID)

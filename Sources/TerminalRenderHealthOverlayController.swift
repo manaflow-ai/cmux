@@ -7,6 +7,7 @@ final class TerminalRenderHealthOverlayController {
     private weak var host: NSView?
     private weak var surface: TerminalSurface?
     private var overlay: TerminalRenderHealthOverlayView?
+    private var latestFrame: NSRect?
 
     func attach(host: NSView, surface: TerminalSurface) {
         self.host = host
@@ -23,6 +24,7 @@ final class TerminalRenderHealthOverlayController {
     }
 
     func updateFrame(_ frame: NSRect) {
+        latestFrame = frame
         overlay?.frame = frame
     }
 
@@ -41,7 +43,7 @@ final class TerminalRenderHealthOverlayController {
             self.overlay = overlay
             host.addSubview(overlay, positioned: .above, relativeTo: nil)
         }
-        overlay.frame = host.bounds
+        overlay.frame = latestFrame ?? host.bounds
         overlay.apply(health)
     }
 }

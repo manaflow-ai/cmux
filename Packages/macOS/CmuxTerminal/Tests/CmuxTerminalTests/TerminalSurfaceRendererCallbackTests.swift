@@ -89,6 +89,17 @@ import Testing
         #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
         #expect(surface.renderHealth == .shellExited)
         #expect(surface.isRendererPresented)
+
+        surface.retryRendererPresentationAfterActivity(presentationReady: true)
+        #expect(surface.renderHealth == .shellExited)
+        surface.setRendererWindowVisible(false)
+        #expect(surface.releaseRenderer())
+        surface.setRendererWindowVisible(true)
+        #expect(cmux_test_ghostty_renderer_fail(
+            fixture.runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
+        #expect(surface.renderHealth == .shellExited)
     }
 
     private func installCallbackContext(
