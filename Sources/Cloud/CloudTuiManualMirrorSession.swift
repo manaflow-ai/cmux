@@ -212,6 +212,7 @@ final class CloudTuiManualMirrorSession {
         }
         if phase == .disconnected || phase == .idle { onNeedsReconnect() }
         runtimeReady()
+        presentationReadiness.resumeDeadline()
         presentationReadiness.check()
     }
 

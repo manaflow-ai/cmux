@@ -62,6 +62,7 @@ final class CloudTerminalReadiness {
     ) {
         let previousOnReady = phase == .waiting ? self.onReady : nil
         let previousOnEnded = phase == .waiting ? self.onEnded : nil
+        let previousOnTimedOut = phase == .waiting ? self.onTimedOut : nil
         let previousCondition = phase == .waiting ? self.condition : nil
         finishEnd(notify: false)
         self.surface = surface
@@ -71,7 +72,7 @@ final class CloudTerminalReadiness {
         } ?? condition
         self.onReady = Self.composed(previousOnReady, onReady)
         self.onEnded = Self.composed(previousOnEnded, onEnded)
-        self.onTimedOut = onTimedOut
+        self.onTimedOut = Self.composed(previousOnTimedOut, onTimedOut)
         phase = .waiting
         cloudTerminalReadinessLogger.info(
             "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(self.gate.baselineFrame)"
@@ -79,17 +80,26 @@ final class CloudTerminalReadiness {
         let view = surface.hostedView.surfaceView
         releaseFrameDemand = view.retainLocalRenderedFrameNotifications()
         installObservers(surface: surface, view: view)
+        armDeadline()
+        check()
+    }
+
+    func resumeDeadline() {
+        guard phase == .waiting, deadlineTask == nil else { return }
+        armDeadline()
+    }
+
+    private func armDeadline() {
         deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
             do { try await clock.sleep(for: deadline) } catch { return }
             guard let self, self.phase == .waiting else { return }
             if self.surface?.isRendererEffectivelyVisible == false {
-                self.rearm()
+                self.deadlineTask = nil
                 return
             }
             self.onTimedOut?()
             self.end()
         }
-        check()
     }
 
     /// Rearms the same surface after a reconnect without creating another
@@ -103,16 +113,7 @@ final class CloudTerminalReadiness {
             installObservers(surface: surface, view: surface.hostedView.surfaceView)
         }
         deadlineTask?.cancel()
-        deadlineTask = Task { @MainActor [weak self, clock = self.clock, deadline = self.deadline] in
-            do { try await clock.sleep(for: deadline) } catch { return }
-            guard let self, self.phase == .waiting else { return }
-            if self.surface?.isRendererEffectivelyVisible == false {
-                self.rearm()
-                return
-            }
-            self.onTimedOut?()
-            self.end()
-        }
+        armDeadline()
         check()
     }
 
