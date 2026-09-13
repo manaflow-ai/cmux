@@ -82,6 +82,21 @@ import Testing
         #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
     }
 
+    @Test("Cloud process cwd parsing ignores the recorded spawn directory")
+    func cloudProcessCwdParsingIgnoresSpawnDirectory() {
+        #expect(CloudTuiCommandLine.processInfoArguments(socketPath: "/tmp/cloud.sock", terminalID: "term-source") == [
+            "--socket", "/tmp/cloud.sock", "--json", "terminal", "term-source", "process", "show"
+        ])
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "cwd": "/remote/home",
+            "foreground_cwd": "/remote/project-a"
+        ]) == "/remote/project-a")
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "cwd": "/remote/home",
+            "foreground_cwd": ""
+        ]) == nil)
+    }
+
     @MainActor
     private final class CloudCreationProvider: SurfaceProvider {
         let machine: SurfaceMachineID
