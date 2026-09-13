@@ -30,7 +30,7 @@ import Testing
 
     /// Sends a request through the asynchronous socket dispatcher used by
     /// real control-socket connections.
-    private func callAsync(method: String, params: [String: Any]) async throws -> [String: Any] {
+    func callAsync(method: String, params: [String: Any]) async throws -> [String: Any] {
         let request: [String: Any] = ["id": method, "method": method, "params": params]
         let requestData = try JSONSerialization.data(withJSONObject: request)
         let requestLine = try #require(String(data: requestData, encoding: .utf8))
@@ -98,7 +98,7 @@ import Testing
     }
 
     /// Runs an asynchronous test body with an isolated active tab manager.
-    private func withManagerAsync<T>(
+    func withManagerAsync<T>(
         _ body: @MainActor (TabManager, Workspace) async throws -> T
     ) async throws -> T {
         let manager = TabManager(autoWelcomeIfNeeded: false)

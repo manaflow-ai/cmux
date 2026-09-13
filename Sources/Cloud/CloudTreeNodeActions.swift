@@ -41,14 +41,13 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
-    /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
-    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -364,6 +363,7 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
         let navigation = CloudTreeTerminalNavigationCoordinator(

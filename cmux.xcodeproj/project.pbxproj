@@ -772,7 +772,20 @@
 		C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */; };
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
 		B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438020000000000000002 /* CloudRenameCoordinator.swift */; };
+		5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
+		1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */; };
+		084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */; };
+		BEDA293E177041CCBF7677A0 /* CloudSidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */; };
+		E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */; };
+		13F2E9FE2945455CA372CBFB /* CloudSidebarOrganizationGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */; };
+		EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */; };
+		3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */; };
+		DF3CB4E1EB244622B4300041 /* CloudSidebarOrganizationTree.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */; };
+		EA9F42A5F5EF461CBDB53012 /* CloudSidebarRenameFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */; };
+		4610710A93DA483CA04C8C25 /* CloudSidebarRenameReconciliationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FBF296FE6654DB6BE033698 /* CloudSidebarRenameReconciliationTests.swift */; };
+		B656E460C0904C4D96D87C9B /* CloudSidebarRowDecoration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5DCB7412E584AB1AAA90BA5 /* CloudSidebarRowDecoration.swift */; };
+		375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */; };
 		A12481000000000000000001 /* CloudSidebarScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481000000000000000002 /* CloudSidebarScaleTests.swift */; };
 		4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */; };
 		E2B852A520D64882866D700C /* CloudTabNameAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD1C27A86AE4440C848A1B61 /* CloudTabNameAuthority.swift */; };
@@ -813,15 +826,19 @@
 		67C1325431BC42F58AC69F1C /* CloudTreeMachineResourcesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E4C8CD1419E452C8ACB72E5 /* CloudTreeMachineResourcesTests.swift */; };
 		BE46EFA44C6E4699B64FE62E /* CloudTreeMachineResourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF43F26D03DC4827B4AC3E48 /* CloudTreeMachineResourceView.swift */; };
 		239CDE3EB72D4EFBBBD92783 /* CloudTreeMachineRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB09B103918144A9A420D765 /* CloudTreeMachineRowContent.swift */; };
+		20238C1C975B4325BC8D112C /* CloudTreeMenuItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17BB85E050B74EE2B4A3B749 /* CloudTreeMenuItem.swift */; };
 		C986A0030000000000000001 /* CloudTreeNativeDragOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */; };
 		494BF5E2F1B8BF0369D2DEBC /* CloudTreeNode+ErrorCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FD541FCCB10442050052A1C /* CloudTreeNode+ErrorCopy.swift */; };
+		BCB8AE909A714847ACCD6845 /* CloudTreeNode+Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0796747B163A4DEE92E2D8BD /* CloudTreeNode+Organization.swift */; };
 		2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */; };
 		C12469AA0000000000000017 /* CloudTreeNodeActions+Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */; };
 		7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */; };
 		CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */; };
+		2B54959C9FCE4581A68D5B5E /* CloudTreeNodeBuilder+Signatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86177F3038E34E67921D97AC /* CloudTreeNodeBuilder+Signatures.swift */; };
 		A12481100000000000000001 /* CloudTreeNodeContentSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481100000000000000002 /* CloudTreeNodeContentSnapshot.swift */; };
 		722B1E308414B078A24CB62A /* CloudTreeNSOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */; };
 		45F29E8BB64E4EE4BF204AC7 /* CloudTreeOneMachineManyWorkspacesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99BEA5821E46487A94B4E8B8 /* CloudTreeOneMachineManyWorkspacesTests.swift */; };
+		FB6DB41BCE7B4EC987BF2F0B /* CloudTreeOutlineView+Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A6150D65B1F43F683253998 /* CloudTreeOutlineView+Organization.swift */; };
 		669EEED531127C99F4EF6B7D /* CloudTreeOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */; };
 		C986A00B0000000000000001 /* CloudTreePendingDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A00A0000000000000001 /* CloudTreePendingDrag.swift */; };
 		FE1EC2963BB87449593B5474 /* CloudTreePendingMachineRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */; };
@@ -933,6 +950,8 @@
 		D59CC3EA15344B47915B3779 /* CloudWorkspaceProjectionEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */; };
 		CD3F805069CA4CE1B3987C05 /* CloudWorkspaceProjectionPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1660E446B91349C08725BFFF /* CloudWorkspaceProjectionPlan.swift */; };
 		2E5A89D8BBDB410B8BC59557 /* CloudWorkspaceProjectionTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A5D0FC63C854C90B2974F39 /* CloudWorkspaceProjectionTask.swift */; };
+		687E95C177DB42F2AC52887C /* CloudWorkspaceRenameService+Admission.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCFF3D22A9E647C0BA2B77F5 /* CloudWorkspaceRenameService+Admission.swift */; };
+		F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */; };
 		ED654029AEB34F08A9420402 /* CloudWorkspaceRenameService+Reconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFEB2668D80B41349D7CA539 /* CloudWorkspaceRenameService+Reconciliation.swift */; };
 		B12438010000000000000001 /* CloudWorkspaceRestoreNamesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
@@ -1013,6 +1032,7 @@
 		C72280000000000000000002 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */; };
 		2DA8D48D99FB520EB179B015 /* CMUXCLI+ClaudePushNotificationHook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */; };
 		C10D0A100000000000000001 /* CMUXCLI+CloudDomains.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */; };
+		8998766EE75E446999264351 /* CMUXCLI+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */; };
 		C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */; };
 		C0DE60C0000000000000A034 /* CMUXCLI+CoderouterPassthrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */; };
 		C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */; };
@@ -1298,6 +1318,7 @@
 		7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */; };
 		ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */; };
 		A4E17A019B254CA1AC30620A /* CmuxTuiSurfaceProvider+Refresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */; };
+		5655A7DFE0224AC69D74EE1A /* CmuxTuiSurfaceProvider+TabRename.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39B27028EBC44AB1A897A8D8 /* CmuxTuiSurfaceProvider+TabRename.swift */; };
 		FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */; };
 		D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */; };
 		A1B2C3D4E5F6071827364961 /* CmuxTuiSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */; };
@@ -2177,6 +2198,7 @@
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
 		4EA21505A40D88F1B597B3BD /* NotificationTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */; };
 		CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */; };
+		C7F02E58014C4D1B8D0A720E /* NSPasteboard+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */; };
 		C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */; };
 		2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
@@ -2603,6 +2625,7 @@
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */; };
+		077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
 		D10000000000000000A00012 /* SettingsAppBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */; };
@@ -2926,6 +2949,8 @@
 		7E02669974964356A46288EB /* SurfaceCatalog+CloudWorkspaceProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */; };
 		DD3A13AD76F5196C5FC8C52A /* SurfaceCatalog+Groups.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660286CE22B478E887361407 /* SurfaceCatalog+Groups.swift */; };
 		C2DF9D7B62A64277A656C356 /* SurfaceCatalog+NameAuthority.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798894FD4FBD473BAA1D9DF6 /* SurfaceCatalog+NameAuthority.swift */; };
+		35BB92D76E0B4235A4A30803 /* SurfaceCatalog+PendingRename.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38D46618823F4CD681A454C3 /* SurfaceCatalog+PendingRename.swift */; };
+		A00556106BC44BBCA98B00AC /* SurfaceCatalog+SidebarOrganization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB38209A13D4676972174E4 /* SurfaceCatalog+SidebarOrganization.swift */; };
 		00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */; };
 		F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */; };
 		31B62CAEA63AA5B0F737F227 /* SurfaceCatalogModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CA02CE5FE3E9DC871AD810 /* SurfaceCatalogModel.swift */; };
@@ -2945,6 +2970,7 @@
 		A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */; };
 		EE1DE3F7E67DF1366F214AC7 /* SurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAED489C1C23533995AF55EA /* SurfaceProvider.swift */; };
 		58FE3B39F41CF68A632CA083 /* SurfaceRemotePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */; };
+		733F8CFB9036496EB237A178 /* SurfaceResource+CatalogOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */; };
 		91007F48E782474596D8FB7D /* SurfaceResource+CloudTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E2A1163D9B452EA3D55B5D /* SurfaceResource+CloudTitle.swift */; };
 		F96CAE8A14774122A5F8613B /* SurfaceResourceDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */; };
 		3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */; };
@@ -2996,6 +3022,7 @@
 		804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */; };
 		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
+		2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000016 /* TabManager+DockSessionRestore.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
@@ -3061,6 +3088,7 @@
 		D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */; };
 		CAFE00000000000000000004 /* TerminalController+Caffeine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAFE00000000000000000003 /* TerminalController+Caffeine.swift */; };
 		89842C7C379A8D850E90B3A4 /* TerminalController+CloudDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67E1C76D41B156E54A3C6075 /* TerminalController+CloudDiagnostics.swift */; };
+		7A7BA5FDAFA74986B5B764ED /* TerminalController+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */; };
 		3C8B1FADA2B94237ADBE70B9 /* TerminalController+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C422AAD63384578846BC05E /* TerminalController+CloudTerminalCreation.swift */; };
 		CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */; };
 		C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */; };
@@ -3200,12 +3228,14 @@
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
 		AD3485A5EE95A94C7580A3ED /* TerminalNotificationPolicyAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C08BD36B31E50A48F5EFE9 /* TerminalNotificationPolicyAgentContext.swift */; };
 		468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */; };
+		1CC6B030BF1C4E4CA3AAC04E /* TerminalNotificationPolicyEffects+Sidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BD2617AD964005879F911E /* TerminalNotificationPolicyEffects+Sidebar.swift */; };
 		79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */; };
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
 		A5A5A503A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */; };
 		A5001098 /* TerminalNotificationScrollPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001099 /* TerminalNotificationScrollPosition.swift */; };
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
 		11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */; };
+		C24797972E784006841CC0A0 /* TerminalNotificationStore+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967FB1138CEB42A88FD2B008 /* TerminalNotificationStore+CloudSidebar.swift */; };
 		9F5E3982C7D6FF23B855E6A9 /* TerminalNotificationStore+FocusState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */; };
 		468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */; };
 		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
@@ -3470,7 +3500,6 @@
 		CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */; };
 		4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */; };
 		C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323020000000000000001 /* Workspace+CloudManualMirror.swift */; };
-		F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */; };
 		65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */; };
 		74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */; };
 		05944A51F29C4C628EA7107B /* Workspace+CloudRenameFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4321A9DE80444085D19939 /* Workspace+CloudRenameFailure.swift */; };
@@ -3493,6 +3522,7 @@
 		C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */; };
 		9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */; };
 		8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */; };
+		1828BDC4C9B442F8A327FBFA /* Workspace+PanelCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA836A743294BF0A7154177 /* Workspace+PanelCustomTitle.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		6E105774324C4357B85DA653 /* Workspace+PanelTitleOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D51D04837340F896573F0B /* Workspace+PanelTitleOwnership.swift */; };
 		797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */; };
@@ -4533,7 +4563,20 @@
 		C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRemoteColorOwnershipTests.swift; sourceTree = "<group>"; };
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
 		B12438020000000000000002 /* CloudRenameCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudRenameCoordinator.swift; sourceTree = "<group>"; };
+		5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAttentionLayoutTests.swift"; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
+		E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarNotificationCoordinator.swift"; sourceTree = "<group>"; };
+		4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarNotificationTests.swift"; sourceTree = "<group>"; };
+		085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarOrderingTests.swift; sourceTree = "<group>"; };
+		57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationAction.swift"; sourceTree = "<group>"; };
+		2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationGroup.swift"; sourceTree = "<group>"; };
+		416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationState.swift"; sourceTree = "<group>"; };
+		4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationStore.swift"; sourceTree = "<group>"; };
+		EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationTree.swift"; sourceTree = "<group>"; };
+		0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarRenameFixture.swift"; sourceTree = "<group>"; };
+		4FBF296FE6654DB6BE033698 /* CloudSidebarRenameReconciliationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarRenameReconciliationTests.swift"; sourceTree = "<group>"; };
+		F5DCB7412E584AB1AAA90BA5 /* CloudSidebarRowDecoration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarRowDecoration.swift"; sourceTree = "<group>"; };
+		7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarRowSnapshot.swift"; sourceTree = "<group>"; };
 		A12481000000000000000002 /* CloudSidebarScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarScaleTests.swift; sourceTree = "<group>"; };
 		F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarSurfaceRegressionTests.swift; sourceTree = "<group>"; };
 		BD1C27A86AE4440C848A1B61 /* CloudTabNameAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTabNameAuthority.swift"; sourceTree = "<group>"; };
@@ -4574,15 +4617,19 @@
 		4E4C8CD1419E452C8ACB72E5 /* CloudTreeMachineResourcesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineResourcesTests.swift; sourceTree = "<group>"; };
 		CF43F26D03DC4827B4AC3E48 /* CloudTreeMachineResourceView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineResourceView.swift; sourceTree = "<group>"; };
 		FB09B103918144A9A420D765 /* CloudTreeMachineRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineRowContent.swift; sourceTree = "<group>"; };
+		17BB85E050B74EE2B4A3B749 /* CloudTreeMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeMenuItem.swift"; sourceTree = "<group>"; };
 		C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeNativeDragOwnershipTests.swift; sourceTree = "<group>"; };
 		7FD541FCCB10442050052A1C /* CloudTreeNode+ErrorCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeNode+ErrorCopy.swift"; sourceTree = "<group>"; };
+		0796747B163A4DEE92E2D8BD /* CloudTreeNode+Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeNode+Organization.swift"; sourceTree = "<group>"; };
 		1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNode.swift; sourceTree = "<group>"; };
 		C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeNodeActions+Destination.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudTreeNodeActions+Prompts.swift"; sourceTree = "<group>"; };
 		0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNodeActions.swift; sourceTree = "<group>"; };
+		86177F3038E34E67921D97AC /* CloudTreeNodeBuilder+Signatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeNodeBuilder+Signatures.swift"; sourceTree = "<group>"; };
 		A12481100000000000000002 /* CloudTreeNodeContentSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNodeContentSnapshot.swift; sourceTree = "<group>"; };
 		A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNSOutlineView.swift; sourceTree = "<group>"; };
 		99BEA5821E46487A94B4E8B8 /* CloudTreeOneMachineManyWorkspacesTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOneMachineManyWorkspacesTests.swift; sourceTree = "<group>"; };
+		5A6150D65B1F43F683253998 /* CloudTreeOutlineView+Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeOutlineView+Organization.swift"; sourceTree = "<group>"; };
 		1CACA5A7C96FFDF0B931E7AA /* CloudTreeOutlineView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeOutlineView.swift; sourceTree = "<group>"; };
 		C986A00A0000000000000001 /* CloudTreePendingDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreePendingDrag.swift; sourceTree = "<group>"; };
 		7492FFBAD4190E9582BB6863 /* CloudTreePendingMachineRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreePendingMachineRowContent.swift; sourceTree = "<group>"; };
@@ -4691,6 +4738,8 @@
 		0DFE35D27805468DBA885560 /* CloudWorkspaceProjectionEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionEnvironment.swift"; sourceTree = "<group>"; };
 		1660E446B91349C08725BFFF /* CloudWorkspaceProjectionPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionPlan.swift"; sourceTree = "<group>"; };
 		1A5D0FC63C854C90B2974F39 /* CloudWorkspaceProjectionTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceProjectionTask.swift"; sourceTree = "<group>"; };
+		DCFF3D22A9E647C0BA2B77F5 /* CloudWorkspaceRenameService+Admission.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Admission.swift"; sourceTree = "<group>"; };
+		F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Directory.swift"; sourceTree = "<group>"; };
 		BFEB2668D80B41349D7CA539 /* CloudWorkspaceRenameService+Reconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Reconciliation.swift"; sourceTree = "<group>"; };
 		B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceRestoreNamesTests.swift; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -4754,6 +4803,7 @@
 		C72280000000000000000001 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudeHookWorkspaceRouting.swift"; sourceTree = "<group>"; };
 		4CF59318F1D5B2195AC77C28 /* CMUXCLI+ClaudePushNotificationHook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ClaudePushNotificationHook.swift"; sourceTree = "<group>"; };
 		C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudDomains.swift"; sourceTree = "<group>"; };
+		7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CloudSidebar.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Coderouter.swift"; sourceTree = "<group>"; };
 		C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CoderouterPassthrough.swift"; sourceTree = "<group>"; };
 		C0D3F1F00000000000000102 /* CMUXCLI+CodexFireAndForgetHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+CodexFireAndForgetHooks.swift"; sourceTree = "<group>"; };
@@ -4963,6 +5013,7 @@
 		7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PortForward.swift"; sourceTree = "<group>"; };
 		F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ProjectionLayout.swift"; sourceTree = "<group>"; };
 		7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+Refresh.swift"; sourceTree = "<group>"; };
+		39B27028EBC44AB1A897A8D8 /* CmuxTuiSurfaceProvider+TabRename.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TabRename.swift"; sourceTree = "<group>"; };
 		4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalIO.swift"; sourceTree = "<group>"; };
 		D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderRegistry.swift; sourceTree = "<group>"; };
@@ -5830,6 +5881,7 @@
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
 		B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTextSanitizer.swift; sourceTree = "<group>"; };
 		21111C055F1D46288E928B8C /* NSImageView+SidebarWorkspaceAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSImageView+SidebarWorkspaceAccessory.swift"; sourceTree = "<group>"; };
+		DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/NSPasteboard+CloudSidebar.swift"; sourceTree = "<group>"; };
 		C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewTabWidth.swift"; sourceTree = "<group>"; };
 		719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+WindowPointHitTest.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
@@ -6251,6 +6303,7 @@
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWindowSnapshot+Scrollback.swift"; sourceTree = "<group>"; };
+		FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SetAutoTitleSocketTests+CloudSidebar.swift"; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00013 /* SettingsAppBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -6566,6 +6619,8 @@
 		AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudWorkspaceProjection.swift"; sourceTree = "<group>"; };
 		660286CE22B478E887361407 /* SurfaceCatalog+Groups.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+Groups.swift"; sourceTree = "<group>"; };
 		798894FD4FBD473BAA1D9DF6 /* SurfaceCatalog+NameAuthority.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+NameAuthority.swift"; sourceTree = "<group>"; };
+		38D46618823F4CD681A454C3 /* SurfaceCatalog+PendingRename.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+PendingRename.swift"; sourceTree = "<group>"; };
+		6BB38209A13D4676972174E4 /* SurfaceCatalog+SidebarOrganization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SurfaceCatalog+SidebarOrganization.swift"; sourceTree = "<group>"; };
 		0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalog.swift; sourceTree = "<group>"; };
 		66CA02CE5FE3E9DC871AD810 /* SurfaceCatalogModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogModel.swift; sourceTree = "<group>"; };
@@ -6585,6 +6640,7 @@
 		A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionMaterialization.swift; sourceTree = "<group>"; };
 		AAED489C1C23533995AF55EA /* SurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProvider.swift; sourceTree = "<group>"; };
 		CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceRemotePlacement.swift"; sourceTree = "<group>"; };
+		FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SurfaceResource+CatalogOrdering.swift"; sourceTree = "<group>"; };
 		A7E2A1163D9B452EA3D55B5D /* SurfaceResource+CloudTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResource+CloudTitle.swift"; sourceTree = "<group>"; };
 		48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceResourceDragPayload.swift; sourceTree = "<group>"; };
 		627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceResourceDragRegistry.swift; sourceTree = "<group>"; };
@@ -6637,6 +6693,7 @@
 		804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AdjacentWorkspaceReordering.swift"; sourceTree = "<group>"; };
 		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
+		C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudAgentTitle.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		D86840000000000000000016 /* TabManager+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
@@ -6702,6 +6759,7 @@
 		D35B00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+BrowserWorkerSupport.swift"; sourceTree = "<group>"; };
 		CAFE00000000000000000003 /* TerminalController+Caffeine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Caffeine.swift"; sourceTree = "<group>"; };
 		67E1C76D41B156E54A3C6075 /* TerminalController+CloudDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CloudDiagnostics.swift"; sourceTree = "<group>"; };
+		C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/TerminalController+CloudSidebar.swift"; sourceTree = "<group>"; };
 		2C422AAD63384578846BC05E /* TerminalController+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0004 /* TerminalController+CommentsCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+CommentsCommands.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ControlAppFocusContext.swift"; sourceTree = "<group>"; };
@@ -6841,12 +6899,14 @@
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
 		E2C08BD36B31E50A48F5EFE9 /* TerminalNotificationPolicyAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationPolicyAgentContext.swift"; sourceTree = "<group>"; };
 		468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyDeliveryIdentity.swift; sourceTree = "<group>"; };
+		86BD2617AD964005879F911E /* TerminalNotificationPolicyEffects+Sidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/TerminalNotificationPolicyEffects+Sidebar.swift"; sourceTree = "<group>"; };
 		79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyInFlightStore.swift; sourceTree = "<group>"; };
 		A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueue.swift; sourceTree = "<group>"; };
 		A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueueTests.swift; sourceTree = "<group>"; };
 		A5001099 /* TerminalNotificationScrollPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationScrollPosition.swift; sourceTree = "<group>"; };
 		A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketActionTests.swift; sourceTree = "<group>"; };
 		11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketAttributionTests.swift; sourceTree = "<group>"; };
+		967FB1138CEB42A88FD2B008 /* TerminalNotificationStore+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/TerminalNotificationStore+CloudSidebar.swift"; sourceTree = "<group>"; };
 		0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+FocusState.swift"; sourceTree = "<group>"; };
 		468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+HookResolution.swift"; sourceTree = "<group>"; };
 		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
@@ -7107,7 +7167,6 @@
 		CA52C0150000000000000000 /* Workspace+CanvasLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CanvasLayout.swift"; sourceTree = "<group>"; };
 		085BB53F552B4C6A8728941E /* Workspace+CloudLayoutProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudLayoutProjection.swift"; sourceTree = "<group>"; };
 		C11323020000000000000001 /* Workspace+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudManualMirror.swift"; sourceTree = "<group>"; };
-		F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameService+Directory.swift"; sourceTree = "<group>"; };
 		C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPaneRouting.swift"; sourceTree = "<group>"; };
 		2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPlacementFailure.swift"; sourceTree = "<group>"; };
 		FA4321A9DE80444085D19939 /* Workspace+CloudRenameFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudRenameFailure.swift"; sourceTree = "<group>"; };
@@ -7130,6 +7189,7 @@
 		C0DE1A050000000000000002 /* Workspace+LayoutCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+LayoutCapture.swift"; sourceTree = "<group>"; };
 		9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MovingTabSplit.swift"; sourceTree = "<group>"; };
 		688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+NotificationsPane.swift"; sourceTree = "<group>"; };
+		1DA836A743294BF0A7154177 /* Workspace+PanelCustomTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelCustomTitle.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		29D51D04837340F896573F0B /* Workspace+PanelTitleOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelTitleOwnership.swift"; sourceTree = "<group>"; };
 		797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PersistentRemotePTYReattach.swift"; sourceTree = "<group>"; };
@@ -7786,6 +7846,11 @@
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
 				F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */,
 				C5797FE9CD70513E4FFAC6EB /* Workspace+CloudPaneRouting.swift */,
+				39B27028EBC44AB1A897A8D8 /* CmuxTuiSurfaceProvider+TabRename.swift */,
+				DCFF3D22A9E647C0BA2B77F5 /* CloudWorkspaceRenameService+Admission.swift */,
+				38D46618823F4CD681A454C3 /* SurfaceCatalog+PendingRename.swift */,
+				C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */,
+				1DA836A743294BF0A7154177 /* Workspace+PanelCustomTitle.swift */,
 				FA4321A9DE80444085D19939 /* Workspace+CloudRenameFailure.swift */,
 				380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */,
 				1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */,
@@ -7944,6 +8009,24 @@
 				47E286761D314959F64AA002 /* CloudTreeCellView.swift */,
 				A12501000000000000000001 /* CloudTreeLayoutMetrics.swift */,
 				53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */,
+				DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */,
+				57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */,
+				416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */,
+				4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */,
+				EA34C8F7DABB44E193EF9294 /* CloudSidebarOrganizationTree.swift */,
+				F5DCB7412E584AB1AAA90BA5 /* CloudSidebarRowDecoration.swift */,
+				86BD2617AD964005879F911E /* TerminalNotificationPolicyEffects+Sidebar.swift */,
+				17BB85E050B74EE2B4A3B749 /* CloudTreeMenuItem.swift */,
+				0796747B163A4DEE92E2D8BD /* CloudTreeNode+Organization.swift */,
+				86177F3038E34E67921D97AC /* CloudTreeNodeBuilder+Signatures.swift */,
+				5A6150D65B1F43F683253998 /* CloudTreeOutlineView+Organization.swift */,
+				6BB38209A13D4676972174E4 /* SurfaceCatalog+SidebarOrganization.swift */,
+				C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */,
+				967FB1138CEB42A88FD2B008 /* TerminalNotificationStore+CloudSidebar.swift */,
+				7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */,
+				E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */,
+				FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */,
+				2944048C41DD48C99F11EC85 /* CloudSidebarOrganizationGroup.swift */,
 				FB09B103918144A9A420D765 /* CloudTreeMachineRowContent.swift */,
 				CF43F26D03DC4827B4AC3E48 /* CloudTreeMachineResourceView.swift */,
 				E7134CF3EB1C4101B13E787E /* CloudMachineResourcePresentation+MachineSnapshot.swift */,
@@ -10024,6 +10107,7 @@
 				C0DE10651000000000000017 /* CMUXCLI+LocalTmuxAttachment.swift */,
 				CC0033E15A1B2C3D4E5F0002 /* CMUXCLI+Comments.swift */,
 				74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */,
+				7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */,
 				CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */,
 				F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */,
 				25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */,
@@ -10693,6 +10777,10 @@
 				5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */,
 				4088DB52FA564E2A8E670921 /* CloudWorkspaceLiveProjectionTests.swift */,
 				B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */,
+				4FBF296FE6654DB6BE033698 /* CloudSidebarRenameReconciliationTests.swift */,
+				5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */,
+				FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */,
+				0804BE3246D64D49AD7C91C4 /* CloudSidebarRenameFixture.swift */,
 				A838AA211BDA47268C683502 /* CloudTuiManualIOConnectionTests.swift */,
 				BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */,
 				EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */,
@@ -11024,6 +11112,8 @@
 				FE002002 /* FileExplorerStoreTests.swift */,
 				9860F0039860F0039860F003 /* FileExplorerNativeDragOwnershipTests.swift */,
 				C986A0040000000000000001 /* CloudTreeNativeDragOwnershipTests.swift */,
+				4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */,
+				085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */,
 				ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */,
 				FE002010 /* FileExplorerDoubleClickActionTests.swift */,
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
@@ -12224,6 +12314,14 @@
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
+				1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */,
+				E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */,
+				13F2E9FE2945455CA372CBFB /* CloudSidebarOrganizationGroup.swift in Sources */,
+				EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */,
+				3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */,
+				DF3CB4E1EB244622B4300041 /* CloudSidebarOrganizationTree.swift in Sources */,
+				B656E460C0904C4D96D87C9B /* CloudSidebarRowDecoration.swift in Sources */,
+				375E0D1FDA464DC4A05359E1 /* CloudSidebarRowSnapshot.swift in Sources */,
 				E2B852A520D64882866D700C /* CloudTabNameAuthority.swift in Sources */,
 				1B425E2EA8D5475B94ED1BC1 /* CloudTabNameSource.swift in Sources */,
 				CCBC23BCB453E9A38F16DB2D /* CloudTelemetryClient.swift in Sources */,
@@ -12255,13 +12353,17 @@
 				A12501000000000000000002 /* CloudTreeLayoutMetrics.swift in Sources */,
 				BE46EFA44C6E4699B64FE62E /* CloudTreeMachineResourceView.swift in Sources */,
 				239CDE3EB72D4EFBBBD92783 /* CloudTreeMachineRowContent.swift in Sources */,
+				20238C1C975B4325BC8D112C /* CloudTreeMenuItem.swift in Sources */,
 				494BF5E2F1B8BF0369D2DEBC /* CloudTreeNode+ErrorCopy.swift in Sources */,
+				BCB8AE909A714847ACCD6845 /* CloudTreeNode+Organization.swift in Sources */,
 				2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */,
 				C12469AA0000000000000017 /* CloudTreeNodeActions+Destination.swift in Sources */,
 				7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */,
 				CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */,
+				2B54959C9FCE4581A68D5B5E /* CloudTreeNodeBuilder+Signatures.swift in Sources */,
 				A12481100000000000000001 /* CloudTreeNodeContentSnapshot.swift in Sources */,
 				722B1E308414B078A24CB62A /* CloudTreeNSOutlineView.swift in Sources */,
+				FB6DB41BCE7B4EC987BF2F0B /* CloudTreeOutlineView+Organization.swift in Sources */,
 				669EEED531127C99F4EF6B7D /* CloudTreeOutlineView.swift in Sources */,
 				C986A00B0000000000000001 /* CloudTreePendingDrag.swift in Sources */,
 				FE1EC2963BB87449593B5474 /* CloudTreePendingMachineRowContent.swift in Sources */,
@@ -12351,6 +12453,8 @@
 				D59CC3EA15344B47915B3779 /* CloudWorkspaceProjectionEnvironment.swift in Sources */,
 				CD3F805069CA4CE1B3987C05 /* CloudWorkspaceProjectionPlan.swift in Sources */,
 				2E5A89D8BBDB410B8BC59557 /* CloudWorkspaceProjectionTask.swift in Sources */,
+				687E95C177DB42F2AC52887C /* CloudWorkspaceRenameService+Admission.swift in Sources */,
+				F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */,
 				ED654029AEB34F08A9420402 /* CloudWorkspaceRenameService+Reconciliation.swift in Sources */,
 				A5001654 /* CmuxActionTrust.swift in Sources */,
 				C0DE43000000000000000001 /* CmuxAgentChatConfig.swift in Sources */,
@@ -12440,6 +12544,7 @@
 				7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */,
 				ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */,
 				A4E17A019B254CA1AC30620A /* CmuxTuiSurfaceProvider+Refresh.swift in Sources */,				A1B2C3D4E5F6071827364961 /* CmuxTuiSurfaceProviderRegistry.swift in Sources */,
+				5655A7DFE0224AC69D74EE1A /* CmuxTuiSurfaceProvider+TabRename.swift in Sources */,
 				FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */,
 				D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */,
 				036359ABDB1F58B489D378A4 /* CmuxTuiSurfaceProviders.swift in Sources */,
@@ -13027,6 +13132,7 @@
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
 				4EA21505A40D88F1B597B3BD /* NotificationTextSanitizer.swift in Sources */,
 				CF5D844BBCB1482280ABA319 /* NSImageView+SidebarWorkspaceAccessory.swift in Sources */,
+				C7F02E58014C4D1B8D0A720E /* NSPasteboard+CloudSidebar.swift in Sources */,
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,
 				2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
@@ -13511,6 +13617,8 @@
 				7E02669974964356A46288EB /* SurfaceCatalog+CloudWorkspaceProjection.swift in Sources */,
 				DD3A13AD76F5196C5FC8C52A /* SurfaceCatalog+Groups.swift in Sources */,
 				C2DF9D7B62A64277A656C356 /* SurfaceCatalog+NameAuthority.swift in Sources */,
+				35BB92D76E0B4235A4A30803 /* SurfaceCatalog+PendingRename.swift in Sources */,
+				A00556106BC44BBCA98B00AC /* SurfaceCatalog+SidebarOrganization.swift in Sources */,
 				00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */,
 				F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */,
 				31B62CAEA63AA5B0F737F227 /* SurfaceCatalogModel.swift in Sources */,
@@ -13527,6 +13635,7 @@
 				A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */,
 				EE1DE3F7E67DF1366F214AC7 /* SurfaceProvider.swift in Sources */,
 				58FE3B39F41CF68A632CA083 /* SurfaceRemotePlacement.swift in Sources */,
+				733F8CFB9036496EB237A178 /* SurfaceResource+CatalogOrdering.swift in Sources */,
 				91007F48E782474596D8FB7D /* SurfaceResource+CloudTitle.swift in Sources */,
 				F96CAE8A14774122A5F8613B /* SurfaceResourceDragPayload.swift in Sources */,
 				3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */,
@@ -13568,6 +13677,7 @@
 				804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */,
 				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
+				2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
@@ -13615,6 +13725,7 @@
 				D35A00000000000000000013 /* TerminalController+BrowserWorkerSupport.swift in Sources */,
 				CAFE00000000000000000004 /* TerminalController+Caffeine.swift in Sources */,
 				89842C7C379A8D850E90B3A4 /* TerminalController+CloudDiagnostics.swift in Sources */,
+				7A7BA5FDAFA74986B5B764ED /* TerminalController+CloudSidebar.swift in Sources */,
 				3C8B1FADA2B94237ADBE70B9 /* TerminalController+CloudTerminalCreation.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0003 /* TerminalController+CommentsCommands.swift in Sources */,
 				C0DE00000000000000000C42 /* TerminalController+ControlAppFocusContext.swift in Sources */,
@@ -13740,9 +13851,11 @@
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
 				AD3485A5EE95A94C7580A3ED /* TerminalNotificationPolicyAgentContext.swift in Sources */,
 				468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */,
+				1CC6B030BF1C4E4CA3AAC04E /* TerminalNotificationPolicyEffects+Sidebar.swift in Sources */,
 				79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */,
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
+				C24797972E784006841CC0A0 /* TerminalNotificationStore+CloudSidebar.swift in Sources */,
 				9F5E3982C7D6FF23B855E6A9 /* TerminalNotificationStore+FocusState.swift in Sources */,
 				468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */,
 				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
@@ -13936,7 +14049,6 @@
 				CA52B0150000000000000000 /* Workspace+CanvasLayout.swift in Sources */,
 				4F2E42F6D7164832B891F079 /* Workspace+CloudLayoutProjection.swift in Sources */,
 				C11323010000000000000001 /* Workspace+CloudManualMirror.swift in Sources */,
-				F3C1A7B40000000000000005 /* CloudWorkspaceRenameService+Directory.swift in Sources */,
 				65221C81A129236D52702D99 /* Workspace+CloudPaneRouting.swift in Sources */,
 				74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */,
 				05944A51F29C4C628EA7107B /* Workspace+CloudRenameFailure.swift in Sources */,
@@ -13959,6 +14071,7 @@
 				C0DE1A050000000000000001 /* Workspace+LayoutCapture.swift in Sources */,
 				9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */,
 				8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */,
+				1828BDC4C9B442F8A327FBFA /* Workspace+PanelCustomTitle.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				6E105774324C4357B85DA653 /* Workspace+PanelTitleOwnership.swift in Sources */,
 				797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */,
@@ -14150,6 +14263,7 @@
 				C72280000000000000000002 /* CMUXCLI+ClaudeHookWorkspaceRouting.swift in Sources */,
 				2DA8D48D99FB520EB179B015 /* CMUXCLI+ClaudePushNotificationHook.swift in Sources */,
 				C10D0A100000000000000001 /* CMUXCLI+CloudDomains.swift in Sources */,
+				8998766EE75E446999264351 /* CMUXCLI+CloudSidebar.swift in Sources */,
 					C0DE60C0000000000000A022 /* CMUXCLI+Coderouter.swift in Sources */,
 					C0DE60C0000000000000A034 /* CMUXCLI+CoderouterPassthrough.swift in Sources */,
 				C0D3F1F00000000000000101 /* CMUXCLI+CodexFireAndForgetHooks.swift in Sources */,
@@ -14620,7 +14734,12 @@
 				0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */,
 				AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */,
 				C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */,
+				5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */,
 				D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */,
+				084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */,
+				BEDA293E177041CCBF7677A0 /* CloudSidebarOrderingTests.swift in Sources */,
+				EA9F42A5F5EF461CBDB53012 /* CloudSidebarRenameFixture.swift in Sources */,
+				4610710A93DA483CA04C8C25 /* CloudSidebarRenameReconciliationTests.swift in Sources */,
 				A12481000000000000000001 /* CloudSidebarScaleTests.swift in Sources */,
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */,
@@ -15049,6 +15168,7 @@
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 				812600000000000000000003 /* SessionRemoteWorkspaceMoshRestoreTests.swift in Sources */,
 				806600000000000000000002 /* SessionRestorableAgentSnapshotPermissionModeTests.swift in Sources */,
+				077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */,
 				583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */,
 				A50019B2 /* SettingsSearchIndexTests.swift in Sources */,
 				D80100010000000000000001 /* SettingsWindowChromeTests.swift in Sources */,

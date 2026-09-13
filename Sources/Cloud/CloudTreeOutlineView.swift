@@ -20,6 +20,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    var organizationStore: CloudSidebarOrganizationStore? = nil
+    var organizationState = CloudSidebarOrganizationState()
     /// The visual preset the rows render in (the debug gallery pins one per
     /// column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -42,7 +44,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         Coordinator(
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organization: organizationStore,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -77,7 +79,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
-        private var nodes: [CloudTreeNode] = []
+        var nodes: [CloudTreeNode] = []
+        let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
@@ -97,7 +100,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
-        private var deferredNodes: [CloudTreeNode]?
+        var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
         var showsCloudVPNWarning = false {
@@ -111,11 +114,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
+            organization: CloudSidebarOrganizationStore? = nil,
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
+            self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -236,6 +241,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 deferredNodes = nodes
                 return
             }
+            let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG
@@ -579,7 +585,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
-            for item in menuItems(for: node) {
+            for item in organizationMenuItems(for: node) + menuItems(for: node) {
                 menu.addItem(item)
             }
             if let error = node.errorCopyText {
@@ -853,10 +859,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            // Only terminals and displays leave the tree by drag (lawrence,
-            // 2026-08-27). Workspaces are containers (their drag becomes the D2
-            // mirror later); browsers and ports open in place.
-            guard let node = item as? CloudTreeNode, node.isDragSource,
+            guard let node = item as? CloudTreeNode, node.isDragSource || node.canOrganize,
                   let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
             // Do not mutate the outline while AppKit is asking for this
@@ -874,7 +877,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 registration: registration,
                 sourceView: outlineView,
                 coordinator: self,
-                provisionalToken: dragWriterOwnership.makeToken()
+                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil,
+                exposesProjection: node.isDragSource
             )
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
                 dragID: dragID,
@@ -1025,34 +1029,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     }
 }
 
-/// Menu item carrying its own closure; the outline's context menu is rebuilt
-/// per click from the clicked node, so items never outlive their target.
-final class CloudTreeMenuItem: NSMenuItem {
-    private let runAction: @MainActor () -> Void
-
-    init(title: String, action: @escaping @MainActor () -> Void) {
-        runAction = action
-        // The selector is deliberately NOT named `perform(_:)`: that compiles
-        // to `perform:`, which collides with NSObject's perform machinery and
-        // the click never reached the method. `execute` mirrors the sidebar's
-        // SidebarRowMenuActionItem, the proven shape.
-        super.init(title: title, action: #selector(execute), keyEquivalent: "")
-        target = self
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @objc @MainActor private func execute() {
-        #if DEBUG
-        cmuxDebugLog("cloudTree.menu.execute title=\(title)")
-        #endif
-        runAction()
-    }
-}
-
 /// Scroll view + outline host for the Cloud tree.
 final class CloudTreeContainerView: NSView {
     private let scrollView = NSScrollView()
@@ -1088,6 +1064,7 @@ final class CloudTreeContainerView: NSView {
         outlineView.target = coordinator
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
+        outlineView.registerForDraggedTypes([.cloudSidebarRow])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }

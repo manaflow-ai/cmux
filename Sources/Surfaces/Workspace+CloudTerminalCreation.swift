@@ -12,8 +12,7 @@ import Foundation
 /// Installs the temporary panel used while a Cloud terminal split is materialized.
 extension Workspace {
     /// The cloud resource behind a panel, when the panel projects one.
-    func cloudProjectedResource(forPanel panelID: UUID) -> SurfaceResource? {
-        let catalog = SurfaceCatalog.shared
+    func cloudProjectedResource(forPanel panelID: UUID, catalog: SurfaceCatalog = .shared) -> SurfaceResource? {
         guard let projection = catalog.projection(forPanel: panelID),
               projection.workspaceID == id,
               !projection.resource.machine.isLocal else { return nil }

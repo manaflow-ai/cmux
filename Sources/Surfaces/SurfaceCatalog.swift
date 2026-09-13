@@ -22,7 +22,7 @@ final class SurfaceCatalog {
         var machine: SurfaceMachineID { resource.machine }
     }
 
-    static let shared = SurfaceCatalog()
+    static let shared = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: .standard))
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
     /// provider ignores task cancellation. The deadline starts only after the last caller
@@ -43,20 +43,24 @@ final class SurfaceCatalog {
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
     private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
-    private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
+    /// Resource IDs grouped by machine so providers can answer presence checks
+    /// without sorting the full catalog snapshot on every refresh.
+    private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
 
-    /// The last accepted, revisioned graph for each cloud machine. Resource rows
-    /// are derived from this state by the provider; keeping it here makes the
-    /// complete state available to socket and agent callers without another cache.
+    /// Accepted revisioned graphs shared by providers, socket, and agent callers.
     /// Whether each retained graph was observed on a live link. This is separate
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
-    /// The process-wide ordering owner for remote rename intents. A remote identity can
-    /// have projections in several local windows, so this cannot live in a TabManager.
+    /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
+    let sidebarOrganization: CloudSidebarOrganizationStore
+    @ObservationIgnored
+    lazy var sidebarNotifications = CloudSidebarNotificationCoordinator { [weak self] machine, resources in
+        self?.flushSidebarNotifications(on: machine, resources: resources)
+    }
     let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
@@ -95,6 +99,7 @@ final class SurfaceCatalog {
         materializationClock: any Clock<Duration> = ContinuousClock(),
         cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
         cloudPlacementCoordinator: CloudPlacementCoordinator? = nil,
+        sidebarOrganization: CloudSidebarOrganizationStore? = nil,
         cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
@@ -106,6 +111,7 @@ final class SurfaceCatalog {
         self.completedMaterializationRetention = completedMaterializationRetention
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
+        self.sidebarOrganization = sidebarOrganization ?? CloudSidebarOrganizationStore()
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
         self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
         self.cloudWorkspaceProjectionCoordinator = cloudWorkspaceProjectionCoordinator ?? CloudWorkspaceProjectionCoordinator(
@@ -1377,13 +1383,7 @@ final class SurfaceCatalog {
             if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        let orderedResources = resources.values.sorted { lhs, rhs in
-            if lhs.machine != rhs.machine { return lhs.machine.rawValue < rhs.machine.rawValue }
-            if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
-            let li = lhs.remoteWorkspace?.index ?? -1, ri = rhs.remoteWorkspace?.index ?? -1
-            if li != ri { return li < ri }
-            return lhs.id.key < rhs.id.key
-        }
+        let orderedResources = resources.values.sorted { $0.catalogPrecedes($1) }
         return SurfaceCatalogSnapshot(
             machines: orderedMachines,
             resources: orderedResources,

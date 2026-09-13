@@ -70,6 +70,7 @@ final class CloudTreeCellView: NSTableCellView {
         #endif
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         // An in-place row reload reuses this cell; the new content can be wider

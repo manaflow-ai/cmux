@@ -260,9 +260,6 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
-    /// Rows the target resolver could not place yet (no local workspace for
-    /// the machine). They stay undelivered, not consumed, so a later placement
-    /// still delivers them once.
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
@@ -295,6 +292,7 @@ final class CloudNotificationSync {
     /// Fold one accepted state. Called after every installed snapshot or
     /// delta; cheap when the rows did not change.
     func apply(rows incoming: [CloudVMNotificationRow]) {
+        guard !retired else { return }
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
@@ -329,6 +327,7 @@ final class CloudNotificationSync {
 
     /// Local reads of this machine's notifications, by daemon row id.
     func noteRead(notificationIDs: [String]) {
+        guard !retired else { return }
         let next = CloudNotificationSyncReducer.recordRead(
             ids: notificationIDs,
             rows: rows,
@@ -343,6 +342,7 @@ final class CloudNotificationSync {
 
     /// The link came back. Anything still pending is retried now.
     func linkDidConnect() {
+        guard !retired else { return }
         requestFlush()
     }
 

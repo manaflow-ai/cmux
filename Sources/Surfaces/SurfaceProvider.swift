@@ -48,6 +48,8 @@ protocol SurfaceProvider: AnyObject {
     /// Rename one remote tab placement. Tab names are placement-local even when several
     /// tabs point at the same terminal.
     func renameRemoteTab(id: String, name: String) async throws
+    /// Agent writes must not replace a label that changed while obtaining the current graph.
+    func renameRemoteTab(id: String, name: String, expectedName: String) async throws
     /// Compatibility operation that explicitly renames every tab placement of a terminal.
     /// New UI paths must use `renameRemoteTab` when they have a placement reference.
     func renameTerminal(_ id: SurfaceResourceID, name: String) async throws
@@ -89,6 +91,10 @@ extension SurfaceProvider {
     func renameRemoteWorkspace(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
+    func renameRemoteTab(id: String, name: String, expectedName: String) async throws {
+        try await renameRemoteTab(id: id, name: name)
+    }
+
     func renameRemoteTab(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("renaming tabs on \(machine)")
     }

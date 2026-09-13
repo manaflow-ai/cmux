@@ -150,15 +150,19 @@ jobs:
         if: ${{ !inputs.skip_unit_tests }}
         env:
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
+          TEST_RESULTS_ROOT: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$TEST_RESULTS_ROOT"
           run_unit_suite() {
+            local result_dir
+            result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" "$@" test 2>&1
+              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test 2>&1
           }
           run_unit_tests() {
             if [ -z "$UNIT_TEST_SUITES" ]; then
@@ -244,3 +248,12 @@ jobs:
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
             "$ONLY_TESTING" test
+
+      - name: Upload unit test results
+        if: ${{ always() && !inputs.skip_unit_tests }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7

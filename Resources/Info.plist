@@ -296,6 +296,14 @@
 	<false/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.cmux.cloud-sidebar-row</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeDescription</key>
+            <string>Cloud Sidebar Row</string>
+        </dict>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>

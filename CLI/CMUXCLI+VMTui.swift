@@ -795,7 +795,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
-        )
+        ) + "\n\n" + cloudSidebarUsage
     }
 
     static var surfaceUsage: String {
@@ -1367,6 +1367,7 @@ extension CMUXCLI {
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--sidebar") { try runCloudSidebarCommand(rest: rest, client: client, jsonOutput: jsonOutput); return }
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmTreeUsage)
             return
@@ -1966,7 +1967,6 @@ extension CMUXCLI {
 
     // MARK: - cmux surface ls|open|new-terminal
 
-    /// `cmux surface <sub>` for the catalog verbs. `resume` stays in cmux.swift.
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.surfaceUsage)
