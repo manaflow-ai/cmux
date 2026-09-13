@@ -8,11 +8,13 @@ import Foundation
 @MainActor
 final class CloudTerminalCreationCoordinator {
     typealias Create = @MainActor () async throws -> SurfaceResource
-    typealias Project = @MainActor (SurfaceResource) async throws -> Void
+    typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
+    typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
     private weak var panel: CloudTerminalPendingPanel?
     private let create: Create
     private let project: Project
+    private let discardProjection: DiscardProjection
     private let onSuccess: @MainActor () -> Void
     private var task: Task<Void, Never>?
     private var generation: UInt64 = 0
@@ -22,12 +24,14 @@ final class CloudTerminalCreationCoordinator {
         panel: CloudTerminalPendingPanel,
         create: @escaping Create,
         project: @escaping Project,
-        onSuccess: @escaping @MainActor () -> Void
+        onSuccess: @escaping @MainActor () -> Void,
+        discardProjection: @escaping DiscardProjection = { _ in }
     ) {
         self.panel = panel
         self.create = create
         self.project = project
         self.onSuccess = onSuccess
+        self.discardProjection = discardProjection
     }
 
     /// Begins creation or retries the last remote resource's local projection.
@@ -48,10 +52,15 @@ final class CloudTerminalCreationCoordinator {
                     self.createdResource = resource
                 }
                 try Task.checkCancellation()
-                try await self.project(resource)
+                let projectionResult = try await self.project(resource)
                 guard self.generation == operationGeneration,
                       !Task.isCancelled,
-                      self.panel === panel else { return }
+                      self.panel === panel else {
+                    if !projectionResult.reused {
+                        self.discardProjection(projectionResult.projection)
+                    }
+                    return
+                }
                 self.onSuccess()
             } catch is CancellationError {
                 return

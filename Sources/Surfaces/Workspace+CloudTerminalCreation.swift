@@ -146,7 +146,7 @@ extension Workspace {
                 }
             }
             defer { endProjectionMutation() }
-            _ = try await catalog.project(
+            return try await catalog.project(
                 created.id,
                 into: destination,
                 focus: focus,
@@ -166,6 +166,9 @@ extension Workspace {
                     pendingPanel.onCancel = nil
                     pendingPanel.onRetry = nil
                     _ = self.closePanel(pendingPanel.id, force: true)
+                },
+                discardProjection: { projection in
+                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
             )
             pendingPanel.onCancel = {
