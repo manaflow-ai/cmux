@@ -2945,7 +2945,11 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         defer { panel.close() }
         XCTAssertFalse(panel.shouldRenderWebView)
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            XCTFail("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         XCTAssertFalse(panel.shouldRenderWebView)
     }

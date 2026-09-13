@@ -22,7 +22,11 @@ struct BrowserWebContentTerminationLifecycleTests {
         defer { panel.close() }
 
         let originalWebView = panel.webView
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(originalWebView)
+        guard let navigationDelegate = originalWebView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(originalWebView)
 
         #expect(panel.webView === originalWebView)
         #expect(originalWebView.navigationDelegate == nil)
@@ -37,7 +41,11 @@ struct BrowserWebContentTerminationLifecycleTests {
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] == ["webcontent_recovery"])
@@ -53,7 +61,11 @@ struct BrowserWebContentTerminationLifecycleTests {
         defer { panel.close() }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.discardHiddenWebViewForSystemMemoryPressure(now: Date(timeIntervalSince1970: 10_000)))
@@ -74,7 +86,11 @@ struct BrowserWebContentTerminationLifecycleTests {
         container.addSubview(oldWebView)
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
         _ = try panel.setAutomationViewport(viewport).get()
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(oldWebView)
+        guard let navigationDelegate = oldWebView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(oldWebView)
 
         #expect(panel.webView === oldWebView)
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
@@ -97,7 +113,11 @@ struct BrowserWebContentTerminationLifecycleTests {
 
         let originalStore = panel.webView.configuration.websiteDataStore
         let oldWebView = panel.webView
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(oldWebView)
+        guard let navigationDelegate = oldWebView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(oldWebView)
         #expect(panel.webView === oldWebView)
         #expect(panel.recoverTerminatedWebContent(reason: "test"))
         #expect(panel.webView.configuration.websiteDataStore === originalStore)

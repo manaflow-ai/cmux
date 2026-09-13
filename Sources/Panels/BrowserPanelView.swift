@@ -1911,7 +1911,7 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay {
-            if panel.hasRecoverableWebContentTermination {
+            if panel.shouldRenderWebView, panel.hasRecoverableWebContentTermination {
                 webContentRecoveryOverlay
             }
         }

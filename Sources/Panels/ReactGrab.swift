@@ -165,9 +165,14 @@ enum ReactGrabBridgeMessage {
 }
 
 class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
+    private let isCurrent: @MainActor () -> Bool
     private let onMessage: @MainActor (ReactGrabBridgeMessage) -> Void
 
-    init(onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void) {
+    init(
+        isCurrent: @escaping @MainActor () -> Bool,
+        onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void
+    ) {
+        self.isCurrent = isCurrent
         self.onMessage = onMessage
     }
 
@@ -186,6 +191,7 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         }
         #endif
         Task { @MainActor in
+            guard isCurrent() else { return }
             #if DEBUG
             switch bridgeMessage {
             case .stateChange(let isActive):
@@ -219,7 +225,13 @@ extension BrowserPanel {
     }
 
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] message in
+        let observedGeneration = webViewObservationGeneration
+        let handler = ReactGrabMessageHandler(
+            isCurrent: { [weak self, weak webView] in
+                guard let self, let webView else { return false }
+                return self.webViewObservationGeneration == observedGeneration && self.webView === webView
+            }
+        ) { [weak self] message in
             self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler

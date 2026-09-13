@@ -1086,7 +1086,11 @@ struct BrowserWebContentProcessTests {
         #expect(oldWebView.superview == nil)
         #expect(oldWebView.cmuxBrowserViewportHostView === viewportHost)
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(panel.webView === oldWebView)
         #expect(panel.webViewInstanceID == oldInstanceID)
@@ -1112,7 +1116,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.reload()
@@ -1129,7 +1137,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.resetForWorkspaceContextChange(reason: "test")
@@ -1153,7 +1165,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         #expect(panel.switchToProfile(profile.id))
@@ -1167,10 +1183,15 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         #expect(!panel.shouldRenderWebView)
 
-        panel.webView.navigationDelegate?.webViewWebContentProcessDidTerminate?(panel.webView)
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(!panel.shouldRenderWebView)
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.webContentState == .terminated(recoveryURL: nil))
     }
 
     @Test

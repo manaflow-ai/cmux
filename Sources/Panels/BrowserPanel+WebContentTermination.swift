@@ -43,14 +43,11 @@ extension BrowserPanel {
         }
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
-        if wasRenderable, hasRecoveryTarget, let recoveryURL {
-            pendingWebContentRecoveryURL = recoveryURL
-            hasRecoverableWebContentTermination = true
+        webContentState = .terminated(recoveryURL: hasRecoveryTarget ? recoveryURL : nil)
+        detachTerminatedWebViewCallbacks(terminatedWebView)
+        if wasRenderable {
             closeBackgroundPreloadHost(reason: "webContentRecovery")
-            detachTerminatedWebViewCallbacks(terminatedWebView)
             hideBrowserPortalView(source: "webContentRecovery")
-        } else {
-            clearWebContentTerminationRecovery()
         }
         _ = resetMediaStateAfterWebContentTermination()
         refreshNavigationAvailability()
@@ -232,8 +229,7 @@ extension BrowserPanel {
     }
 
     func clearWebContentTerminationRecovery() {
-        pendingWebContentRecoveryURL = nil
-        hasRecoverableWebContentTermination = false
+        webContentState = .active
     }
 
 }

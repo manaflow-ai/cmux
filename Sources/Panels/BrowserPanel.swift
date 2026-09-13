@@ -2020,14 +2020,39 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
     @Published var webViewInstanceID: UUID = UUID()
-    var hasRecoverableWebContentTermination = false {
+    /// Owns the WebKit page's attachment phase after a WebContent crash.
+    /// A terminated view stays detached until an explicit recovery action creates
+    /// a new view, even when WebKit did not provide a URL to restore.
+    enum WebContentState: Equatable {
+        case active
+        case terminated(recoveryURL: URL?)
+
+        var isTerminated: Bool {
+            if case .terminated = self { return true }
+            return false
+        }
+
+        var recoveryURL: URL? {
+            if case .terminated(let recoveryURL) = self { return recoveryURL }
+            return nil
+        }
+    }
+
+    var webContentState: WebContentState = .active {
         willSet {
-            if newValue != hasRecoverableWebContentTermination {
+            if newValue != webContentState {
                 objectWillChange.send()
             }
         }
     }
-    var pendingWebContentRecoveryURL: URL?
+
+    var hasRecoverableWebContentTermination: Bool {
+        webContentState.isTerminated
+    }
+
+    var pendingWebContentRecoveryURL: URL? {
+        webContentState.recoveryURL
+    }
     /// Whether the failed WebContent view may be mounted in the portal.
     /// WebKit can still deliver process-swap IPC after its termination callback,
     /// so recovery owns the view until an explicit reload creates a fresh page.
@@ -2619,6 +2644,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let nextState: BrowserWebViewLifecycleState
         if isClosingWebViewLifecycle {
             nextState = .closing
+        } else if webContentState.isTerminated {
+            nextState = .recoverableTermination
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory && !shouldRenderWebView {
             nextState = .discarded
         } else if !shouldRenderWebView {
@@ -2634,6 +2661,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
         cancelHiddenWebViewDiscard()
+        webContentState = .active
         webViewLifecycleState = .newTab; pendingDiscardRestoreNavigation = nil; currentDiscardRestoreAttemptID = nil
         if resetVisibility {
             webViewLastVisibleAt = nil
