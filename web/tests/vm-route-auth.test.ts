@@ -35,7 +35,7 @@ async function withSmallImageDefaults(operation: () => Promise<void>): Promise<v
     // Keep the 4 GiB defaults so allowedKinds still describes both kinds,
     // but leave the normal 8 GiB plan without a large-enough default image.
     manifestJson.images = originalImages.filter((entry) =>
-      !entry.defaultForKind || !("size" in entry) || entry.size.memoryMb <= 4096
+      !entry.defaultForKind || (entry.size?.memoryMb ?? 0) <= 4096
     );
     await operation();
   } finally {
