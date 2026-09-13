@@ -21,7 +21,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    fileprivate weak var surface: TerminalSurface?
+    weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?

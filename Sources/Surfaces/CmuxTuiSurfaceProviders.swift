@@ -91,22 +91,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
-        var generationMismatchSince: Date?
     }
     var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
     /// Rename receipts are transient read-your-write fences. They are keyed by
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
     /// only source of remote values.
-    private enum PendingRemoteRenameKey: Hashable {
+    enum PendingRemoteRenameKey: Hashable {
         case workspace(String)
         case tab(String)
     }
-    private struct PendingRemoteRename {
+    struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
-    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
+    var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
@@ -682,7 +681,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
+    static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
@@ -751,13 +750,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
-        pendingRemoteCreations.removeValue(forKey: id)
         do {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
             guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
+        pendingRemoteCreations.removeValue(forKey: id)
         closeLocalPanes(showing: [id])
         catalog.remove(id, from: self)
         scheduleRefresh()
@@ -866,8 +865,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations[resource.id] = PendingRemoteCreation(
             resource: resource,
             receipt: created.cursor,
-            tabID: created.tabID,
-            generationMismatchSince: nil
+            tabID: created.tabID
         )
         catalog.upsert(resource, from: self)
         publishPendingMutationMetadata()
