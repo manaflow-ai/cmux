@@ -3973,6 +3973,37 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotEqual(restoredTab.title, "Terminal")
     }
 
+    /// Regression for ghost port badges after app relaunch: listening ports are
+    /// ephemeral runtime state, but `applySessionPanelMetadata` restored them from
+    /// the session snapshot verbatim for any non-hibernated panel. A restored panel
+    /// running a fullscreen agent never returns to a shell prompt, so no
+    /// `report_tty`/`ports_kick` ever re-registers it with `PortScanner` — the
+    /// resurrected dead ports (e.g. Claude Code's rotated sandbox proxies) stayed on
+    /// the workspace card forever. Live listeners re-badge within the first scan
+    /// burst, so restoring nothing is strictly more accurate.
+    func testRestoreDoesNotResurrectPersistedListeningPorts() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceIndex = try XCTUnwrap(snapshot.workspaces.firstIndex { $0.workspaceId == workspace.id })
+        let panelIndex = try XCTUnwrap(snapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == panelId })
+        snapshot.workspaces[workspaceIndex].panels[panelIndex].listeningPorts = [62181, 62191]
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        drainMainQueue()
+
+        let restoredWorkspace = try XCTUnwrap(restored.selectedWorkspace)
+        XCTAssertTrue(
+            restoredWorkspace.surfaceListeningPorts.values.flatMap(\.self).isEmpty,
+            "Persisted listening ports must not be resurrected on restore"
+        )
+        XCTAssertTrue(restoredWorkspace.listeningPorts.isEmpty)
+    }
+
     private static func persistentSSHWorkspaceSnapshot(
         panel: SessionPanelSnapshot,
         focusedPanelId: UUID
