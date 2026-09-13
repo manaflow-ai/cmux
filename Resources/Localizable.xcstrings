@@ -127335,7 +127335,8 @@
             "value": "작업 공간 이름은 비워 둘 수 없습니다."
           }
         }
-      },
+      }
+    },
     "cloudTree.error.remoteWorkspaceNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -127512,7 +127513,6 @@
           }
         }
       }
-    }
     },
     "cloudTree.error.renameWorkspaceNotFound": {
       "extractionState": "manual",
