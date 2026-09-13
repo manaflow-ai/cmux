@@ -94,7 +94,7 @@ struct RemoteTmuxNotificationLifecycleTests {
             connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 4))
         }
 
-        private func drainPendingCommands(paneRectLines: [String]) {
+        func drainPendingCommands(paneRectLines: [String]) {
             while let kind = connection.pendingCommandKindsForTesting.first {
                 let lines: [String]
                 if case .paneRects = kind {
@@ -322,9 +322,8 @@ struct RemoteTmuxNotificationLifecycleTests {
             $0.hasPrefix("select-pane ")
         }
         #expect(selectCommands.last?.contains("-t @2.%4") == true)
-        harness.connection.handleMessageForTesting(
-            .commandResult(commandNumber: 3, lines: [], isError: false)
-        )
+        harness.drainPendingCommands(paneRectLines: ["%4 0 0 80 24 1 off :0 \"host\""])
+
         harness.connection.handleMessageForTesting(
             .windowPaneChanged(windowId: 2, paneId: 4)
         )

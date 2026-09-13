@@ -110,12 +110,15 @@ struct WorkspaceDragSplitFocusSwiftTests {
     }
 
     @Test
-    func nonFocusSplitPreservesCursorAndHibernation() throws {
+    func nonFocusSplitPreservesCursorAndHibernationDuringSuspendedPresentation() throws {
         let originalAppDelegate = AppDelegate.shared
         AppDelegate.shared = nil
         defer { AppDelegate.shared = originalAppDelegate }
 
         let fixture = try makeFixture()
+        // Visibility auto-resume is covered separately. Suspend that policy so
+        // this transaction exercises only the explicit preserve-current intent.
+        fixture.workspace.setAgentHibernationAutoResumePresentationVisible(false)
         defer {
             fixture.window.orderOut(nil)
             fixture.previousKeyWindow?.makeKey()

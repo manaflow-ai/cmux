@@ -44,6 +44,9 @@ extension MobileHostService {
         "mobile.events.subscribe",
         "mobile.events.unsubscribe",
         "mobile.host.status",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.thumbnail",
         "mobile.rpc.methods",
         "mobile.simulator.device.select",
         "mobile.simulator.devices.list",
@@ -102,7 +105,7 @@ extension MobileHostService {
         "workspace.group.expand",
         "workspace.list",
         "workspace.move",
-    ]
+    ].sorted()
 #endif
     /// Mobile RPC methods that move file bytes between the phone and this
     /// Mac (attachment upload, artifact and changed-file fetch, image paste).

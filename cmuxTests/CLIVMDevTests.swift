@@ -152,6 +152,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         _ name: String,
         arguments: [String],
         home: URL,
+        expectsSocketConnection: Bool = true,
         respond: @escaping @Sendable (_ method: String, _ params: [String: Any]) -> [String: Any]?
     ) throws -> (result: ProcessRunResult, log: VMDevRequestLog) {
         let cliPath = try bundledCLIPath()
@@ -163,14 +164,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-        let serverHandled = startVMDevMock(listenerFD: listenerFD, state: state, log: log, respond: respond)
+        let serverHandled: XCTestExpectation?
+        if expectsSocketConnection {
+            serverHandled = startVMDevMock(listenerFD: listenerFD, state: state, log: log, respond: respond)
+        } else {
+            // Invalid input is rejected before connecting. Leave the socket
+            // listening so an accidental connection remains observable.
+            let flags = fcntl(listenerFD, F_GETFL)
+            XCTAssertGreaterThanOrEqual(flags, 0)
+            XCTAssertEqual(fcntl(listenerFD, F_SETFL, flags | O_NONBLOCK), 0)
+            serverHandled = nil
+        }
         let result = runProcess(
             executablePath: cliPath,
             arguments: arguments,
             environment: vmDevEnvironment(socketPath: socketPath, home: home),
             timeout: 60
         )
-        wait(for: [serverHandled], timeout: 60)
+        if let serverHandled {
+            wait(for: [serverHandled], timeout: 60)
+        } else {
+            let unexpectedClient = Darwin.accept(listenerFD, nil, nil)
+            let acceptError = errno
+            if unexpectedClient >= 0 {
+                Darwin.close(unexpectedClient)
+                XCTFail("Invalid vm dev input must not open a socket connection")
+            } else {
+                XCTAssertTrue(acceptError == EAGAIN || acceptError == EWOULDBLOCK)
+            }
+        }
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
     }
@@ -307,7 +329,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let environment = vmDevEnvironment(socketPath: makeSocketPath("vm-dev-dry-human"), home: fixture.home)
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--name", "frontend", "--remote", "/srv/web", "--dry-run"],
+            arguments: ["--password", "dry-run-fixture-password", "vm", "dev", "brave-otter", fixture.project.path, "--name", "frontend", "--remote", "/srv/web", "--dry-run"],
             environment: environment,
             timeout: 30
         )
@@ -351,12 +373,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             log.methods.description
         )
 
-        // New workspaces are created by the layout shim with --name; vm.workspace_new is not
-        // used because its --no-open contract intentionally creates a starter shell.
+        // The layout shim creates by name with atomic reuse, so simultaneous
+        // dev invocations cannot create duplicate workspaces or starter shells.
         let commands = log.execCommands()
         XCTAssertEqual(commands.count, 1, commands.description)
         let apply = commands[0]
-        XCTAssertTrue(apply.hasSuffix("| base64 -d | cmux layout apply --json --name app -"), apply)
+        XCTAssertTrue(apply.hasSuffix("| base64 -d | cmux layout apply --json --reuse --name app -"), apply)
         let document = try XCTUnwrap(Self.vmDevBase64Payload(inCommand: apply).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])
         XCTAssertEqual(document["name"] as? String, "app")
         XCTAssertEqual(document["cwd"] as? String, "work/app")
@@ -671,7 +693,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (invalidLayout, invalidLog) = try runVMDev(
             "vm-dev-bad-layout",
             arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--layout", badLayout],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertEqual(invalidLayout.status, 2, "stdout=\(invalidLayout.stdout) stderr=\(invalidLayout.stderr)")
         XCTAssertTrue(invalidLayout.stderr.contains("invalid layout document"), invalidLayout.stderr)
@@ -681,7 +704,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (missingFolder, missingLog) = try runVMDev(
             "vm-dev-missing-folder",
             arguments: ["vm", "dev", "brave-otter", fixture.project.appendingPathComponent("nope").path],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(missingFolder.status, 0)
         XCTAssertTrue(missingFolder.stderr.contains("no such folder"), missingFolder.stderr)
@@ -690,7 +714,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (badPort, badPortLog) = try runVMDev(
             "vm-dev-bad-port",
             arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--port", "http"],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(badPort.status, 0)
         XCTAssertTrue(badPort.stderr.contains("--port must be a port number"), badPort.stderr)
@@ -699,7 +724,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (noMachine, noMachineLog) = try runVMDev(
             "vm-dev-no-machine",
             arguments: ["vm", "dev"],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(noMachine.status, 0)
         XCTAssertTrue(noMachine.stderr.contains("Usage: cmux vm dev <machine>"), noMachine.stderr)

@@ -242,6 +242,7 @@ struct DockSocketLifecycleTests {
     @MainActor
     func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
+        requiresLiveWindow: Bool = false,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {
         let previousAppDelegate = AppDelegate.shared
@@ -258,11 +259,35 @@ struct DockSocketLifecycleTests {
             tabManager: manager,
             fileExplorerState: fileExplorerState
         )
+        let window: NSWindow?
+        if requiresLiveWindow {
+            let mainWindow = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            mainWindow.isReleasedWhenClosed = false
+            mainWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+            appDelegate.registerMainWindow(
+                mainWindow,
+                windowId: windowId,
+                tabManager: manager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: fileExplorerState
+            )
+            mainWindow.makeKeyAndOrderFront(nil)
+            window = mainWindow
+        } else {
+            window = nil
+        }
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
+            window?.orderOut(nil)
             AppDelegate.shared = previousAppDelegate
         }
 
@@ -350,7 +375,7 @@ struct DockSocketLifecycleTests {
             fileExplorerState.setVisible(false)
             fileExplorerState.mode = .files
 
-            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, windowId in
+            try withSocketAppContext(fileExplorerState: fileExplorerState, requiresLiveWindow: true) { _, workspace, windowId in
                 let result = try v2Result(
                     method: "surface.create",
                     params: ["placement": "dock", "type": "terminal", "focus": true]
@@ -377,7 +402,7 @@ struct DockSocketLifecycleTests {
             fileExplorerState.setVisible(false)
             fileExplorerState.mode = .files
 
-            try withSocketAppContext(fileExplorerState: fileExplorerState) { _, workspace, windowId in
+            try withSocketAppContext(fileExplorerState: fileExplorerState, requiresLiveWindow: true) { _, workspace, windowId in
                 let result = try v2Result(
                     method: "pane.create",
                     params: ["placement": "dock", "direction": "right", "type": "terminal", "focus": true]
@@ -581,6 +606,10 @@ struct DockSocketLifecycleTests {
     @Test("Window Dock browser surfaces resolve browser commands")
     @MainActor
     func windowDockBrowserSurfacesResolveBrowserCommands() async throws {
+        let navigationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dock-navigation-\(UUID().uuidString).html")
+        try "<!doctype html><title>Dock navigation</title>".write(to: navigationURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: navigationURL) }
         try await withDockEnabled {
             try await withBrowserEnabled {
                 try await withSocketAppContext { _, workspace, windowId in
@@ -607,14 +636,15 @@ struct DockSocketLifecycleTests {
                     #expect(urlResult["workspace_id"] as? String == windowId.uuidString)
                     #expect(urlResult["surface_id"] as? String == dockSurfaceId.uuidString)
 
-                    await #expect(throws: (any Error).self) {
-                        try await v2ResultOnSocketWorker(method: "browser.navigate", params: [
-                            "workspace_id": windowId.uuidString,
-                            "surface_id": dockSurfaceId.uuidString,
-                            "url": "about:blank",
-                            "expected_url": "https://stale.invalid",
-                        ])
-                    }
+                    let staleNavigation = try await v2EnvelopeOnSocketWorker(method: "browser.navigate", params: [
+                        "workspace_id": windowId.uuidString,
+                        "surface_id": dockSurfaceId.uuidString,
+                        "url": "about:blank",
+                        "expected_url": "https://stale.invalid",
+                    ])
+                    #expect(staleNavigation["ok"] as? Bool == false)
+                    let staleError = try #require(staleNavigation["error"] as? [String: Any])
+                    #expect(staleError["code"] as? String == "stale_state")
 
                     let appDelegate = try #require(AppDelegate.shared)
                     let secondManager = TabManager(autoWelcomeIfNeeded: false)
@@ -635,7 +665,7 @@ struct DockSocketLifecycleTests {
                         method: "browser.navigate",
                         params: [
                             "surface_id": secondDockBrowserId.uuidString,
-                            "url": "about:blank",
+                            "url": navigationURL.absoluteString,
                         ]
                     )
                     #expect(crossWindowNavigate["workspace_id"] as? String == secondWindowId.uuidString)
@@ -668,6 +698,10 @@ struct DockSocketLifecycleTests {
     @Test("Workspace Dock browser surfaces resolve programmatic browser commands")
     @MainActor
     func workspaceDockBrowserSurfacesResolveBrowserCommands() async throws {
+        let navigationURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workspace-dock-navigation-\(UUID().uuidString).html")
+        try "<!doctype html><title>Workspace Dock navigation</title>".write(to: navigationURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: navigationURL) }
         try await withBrowserEnabled {
             try await withSocketAppContext { _, workspace, windowId in
                 let dock = try #require(workspace.dockSplit)
@@ -702,7 +736,7 @@ struct DockSocketLifecycleTests {
                 #expect(urlResult["url"] as? String == "about:blank")
 
                 var navigateParams = routing
-                navigateParams["url"] = "about:blank"
+                navigateParams["url"] = navigationURL.absoluteString
                 let navigateResult = try await v2ResultOnSocketWorker(
                     method: "browser.navigate",
                     params: navigateParams

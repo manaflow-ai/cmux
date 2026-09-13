@@ -1,3 +1,4 @@
+import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
@@ -126,6 +127,35 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        _ = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        defer {
+            window.delegate = nil
+            window.close()
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            AppDelegate.shared = previousAppDelegate
+        }
+        try #require(appDelegate.listMainWindowSummaries().contains { $0.windowId == windowID })
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let registry = MobileHostConnectionRegistry.shared
@@ -283,6 +313,11 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
+        let clock = ContinuousClock()
+        let readinessDeadline = clock.now.advanced(by: .seconds(5))
+        while Self.retainedUsableSessionEvents().isEmpty, clock.now < readinessDeadline {
+            await Task.yield()
+        }
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]

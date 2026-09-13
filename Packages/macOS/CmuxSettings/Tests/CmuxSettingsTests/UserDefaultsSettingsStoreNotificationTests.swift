@@ -48,6 +48,8 @@ struct UserDefaultsSettingsStoreNotificationTests {
         )
         let task = Task {
             let stream = await store.valueEvents(for: key)
+            // The initial value and source echo may precede the overwrite.
+            // Keep recording until the test cancels after observing its event.
             for await event in stream {
                 await recorder.append(event)
             }

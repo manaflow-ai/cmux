@@ -1611,7 +1611,7 @@ import Testing
     /// settles, and the first settled pass consumes it.
     @Test func parkedReadingSurvivesALiveResizingWindowBound() throws {
         let window = LiveResizeProbeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 360),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
@@ -1675,7 +1675,7 @@ import Testing
         // The resize ends and the window grows past the reading; the first
         // settled pass consumes it.
         window.liveResizeActive = false
-        window.setContentSize(NSSize(width: 1140, height: 940))
+        window.setContentSize(NSSize(width: 740, height: 560))
         contentView.layoutSubtreeIfNeeded()
         let settled = try #require(mirror.visibleHostingContext()?.contentSize)
         #expect(settled.width >= postResize.width && settled.height >= postResize.height)

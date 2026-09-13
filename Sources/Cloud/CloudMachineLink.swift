@@ -125,6 +125,7 @@ actor CloudMachineLink {
     let machineID: String
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let deviceName: String?
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
@@ -175,12 +176,14 @@ actor CloudMachineLink {
         machineID: String,
         clientURL: URL,
         paths: CloudTuiClientPaths,
+        deviceName: String? = nil,
         eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
     ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.deviceName = deviceName
         self.eventsRecoveryClock = eventsRecoveryClock
         self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -215,7 +218,7 @@ actor CloudMachineLink {
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
-            deviceName: CloudTuiClientPaths.deviceName(),
+            deviceName: deviceName ?? CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
             carrier: carrier,
             wireguardHubSocket: wireguardHubSocket
@@ -286,6 +289,10 @@ actor CloudMachineLink {
                     throw LinkError.timedOut
                 }
             }
+            // The first-line waiter can resolve as `.ended` when cancellation closes
+            // stdout at the same time as the child is terminated. Cancellation wins
+            // that race over reporting the termination status as a link failure.
+            try Task.checkCancellation()
             guard process.isRunning else {
                 throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
@@ -298,6 +305,9 @@ actor CloudMachineLink {
                 self.processExit = nil
             }
             await releaseHubLeaseOnce()
+            // Child termination and hub-lease cleanup are complete before cancellation
+            // is surfaced, preserving the process lifecycle contract for callers.
+            try Task.checkCancellation()
             throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)

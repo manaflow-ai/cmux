@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 
 export type GuestPromptIdentity = {
@@ -24,8 +25,8 @@ export function vmPromptIdentity(row: {
   };
 }
 
-const bashrc = readFileSync(new URL("./images/devbox/cmux-bashrc", import.meta.url), "utf8");
-const prompt = readFileSync(new URL("./images/devbox/cmux-prompt.bash", import.meta.url), "utf8");
+const bashrc = readFileSync(fileURLToPath(new URL("./images/devbox/cmux-bashrc", import.meta.url)), "utf8");
+const prompt = readFileSync(fileURLToPath(new URL("./images/devbox/cmux-prompt.bash", import.meta.url)), "utf8");
 
 // Runs on lifecycle operations, never during shell startup or prompt drawing.
 // A lock serializes competing attaches/renames. Atomic replacement gives every

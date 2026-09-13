@@ -268,13 +268,15 @@ final class RestoredAgentLifecycleCoordinator {
         armedStartupInputResendPanelIds.removeAll(keepingCapacity: false)
     }
 
-    /// Shell integration has observed the restored launch enter its command
-    /// phase and has not subsequently reported the prompt returning.
+    /// Shell integration has advanced a cmux-authored restore into its command
+    /// phase without returning to the prompt. An observed command can instead
+    /// be unrelated shell activity, so it still requires matching process evidence.
     func confirmsRunningRestoredCommand(panelId: UUID) -> Bool {
         switch resumeStatesByPanelId[panelId] {
-        case .autoResumeCommandRunning, .observedAgentCommandRunning:
+        case .autoResumeCommandRunning:
             true
-        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .observedAgentCommandRunning,
+             .completedAgentExit, nil:
             false
         }
     }

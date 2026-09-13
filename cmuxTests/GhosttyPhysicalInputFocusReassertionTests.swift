@@ -183,6 +183,9 @@ struct GhosttyPhysicalInputFocusReassertionTests {
         #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         #expect(terminal.hostedView.isSurfaceViewFirstResponder())
+        // This standalone surface has no panel onFocus callback to record
+        // model focus when the test host has not created a native surface.
+        terminal.surface.setFocus(true)
         #expect(
             terminal.surface.debugDesiredFocusState(),
             "Focused terminal should start with desired Ghostty focus"

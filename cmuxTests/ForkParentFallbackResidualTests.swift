@@ -113,14 +113,14 @@ struct ForkParentFallbackResidualTests {
         )
         #expect(CachedAgentProcessIdentityValidator().currentProcess(
             CmuxTopProcessArguments(
-                arguments: ["/usr/local/bin/cmux", "codex-teams", "fork", codexTeamsSnapshot.sessionId],
+                arguments: ["/usr/local/bin/cmux", "codex-teams", "resume", codexTeamsSnapshot.sessionId],
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "codexTeams"]
             ),
             matches: codexTeamsSnapshot
         ))
         #expect(CachedAgentProcessIdentityValidator().currentProcess(
             CmuxTopProcessArguments(
-                arguments: ["/usr/local/bin/cmux", "codex-teams", "fork", claudeTeamsSnapshot.sessionId],
+                arguments: ["/usr/local/bin/cmux", "codex-teams", "resume", claudeTeamsSnapshot.sessionId],
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "codexTeams"]
             ),
             matches: claudeTeamsSnapshot
@@ -420,6 +420,19 @@ struct ForkParentFallbackResidualTests {
     }
 
     private func writeStore(root: URL, filename: String, sessions: [String: [String: Any]]) throws {
+        if filename == "codex-hook-sessions.json" {
+            for (sessionId, record) in sessions {
+                let launch = record["launchCommand"] as? [String: Any]
+                let environment = launch?["environment"] as? [String: String]
+                let codexHome = environment?["CODEX_HOME"].map {
+                    URL(fileURLWithPath: $0, isDirectory: true)
+                } ?? root.appendingPathComponent(".codex", isDirectory: true)
+                let cwd = record["cwd"] as? String
+                    ?? launch?["workingDirectory"] as? String
+                    ?? root.appendingPathComponent("repo", isDirectory: true).path
+                try writeCodexStateDB(codexHome: codexHome, sessionId: sessionId, cwd: cwd)
+            }
+        }
         let stateDir = root.appendingPathComponent(".cmuxterm", isDirectory: true)
         try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: ["version": 1, "sessions": sessions], options: [.prettyPrinted])
@@ -427,16 +440,25 @@ struct ForkParentFallbackResidualTests {
     }
 
     private func writeCodexStateDB(codexHome: URL, sessionId: String, cwd: String) throws {
+        let rollout = codexHome.appendingPathComponent("sessions/rollout-\(sessionId).jsonl")
+        try FileManager.default.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionId, "cwd": cwd, "source": "cli", "originator": "codex_cli_rs"],
+        ]
+        var data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        data.append(0x0a)
+        try data.write(to: rollout, options: .atomic)
         let dbPath = codexHome.appendingPathComponent("state_5.sqlite", isDirectory: false).path
         var db: OpaquePointer?
         guard sqlite3_open(dbPath, &db) == SQLITE_OK, let db else {
             throw testFailure()
         }
         defer { sqlite3_close(db) }
-        guard sqlite3_exec(db, "CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT, archived INTEGER)", nil, nil, nil) == SQLITE_OK else {
+        guard sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS threads (id TEXT PRIMARY KEY, cwd TEXT, archived INTEGER, rollout_path TEXT, source TEXT)", nil, nil, nil) == SQLITE_OK else {
             throw testFailure()
         }
-        let sql = "INSERT INTO threads (id, cwd, archived) VALUES (?, ?, 0)"
+        let sql = "INSERT OR REPLACE INTO threads (id, cwd, archived, rollout_path, source) VALUES (?, ?, 0, ?, 'cli')"
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             throw testFailure()
@@ -445,6 +467,7 @@ struct ForkParentFallbackResidualTests {
         let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
         sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
         sqlite3_bind_text(stmt, 2, cwd, -1, SQLITE_TRANSIENT_FN)
+        sqlite3_bind_text(stmt, 3, rollout.path, -1, SQLITE_TRANSIENT_FN)
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw testFailure()
         }

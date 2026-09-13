@@ -16,6 +16,7 @@ import CmuxUpdater
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
 import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.BetaFeaturesCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
@@ -881,6 +882,14 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+        }
         let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
 
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
@@ -2062,10 +2071,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 
     func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
-        let resolved = UpdateFeedResolver().resolve(
+        let resolved = UpdateFeedResolver(hostArchitecture: .arm64).resolve(
             infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
-        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
+        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast-arm64.xml")
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }

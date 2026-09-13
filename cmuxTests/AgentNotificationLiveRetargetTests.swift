@@ -33,12 +33,14 @@ extension AgentNotificationRegressionTests {
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
 
         let claimedWorkspace = manager.addWorkspace(select: false)
@@ -54,6 +56,7 @@ extension AgentNotificationRegressionTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(originalControllerTabManager)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
         return LiveRetargetFixture(

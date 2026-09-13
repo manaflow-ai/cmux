@@ -1177,11 +1177,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
+    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1191,17 +1190,48 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let previousManager = appDelegate.tabManager
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let panelId = panel.id
+        let windowId = UUID()
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+            appDelegate.tabManager = previousManager
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+        }
+
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1216,7 +1246,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
 
         XCTAssertTrue(window.makeFirstResponder(webView))
@@ -1241,11 +1271,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
+    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1255,17 +1284,48 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let previousManager = appDelegate.tabManager
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let panelId = panel.id
+        let windowId = UUID()
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+            appDelegate.tabManager = previousManager
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+        }
+
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1280,7 +1340,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
         window.testFieldEditor.reportsMarkedText = true
 
@@ -1457,6 +1517,9 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     @MainActor
     func testCmdFDoesNotPreflightIntoPageWhenWebInspectorResponderIsFocused() {
         _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer { AppDelegate.shared = previousAppDelegate }
         installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
 
         let spy = ActionSpy()
@@ -2073,9 +2136,12 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 
-    func testInsecureHTTPPromptFallsBackToRunModalWithoutWindow() {
+    func testInsecureHTTPPromptWaitsForAnInteractiveWindow() {
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.resetInsecureHTTPAlertHooksForTesting() }
+        defer {
+            panel.resetInsecureHTTPAlertHooksForTesting()
+            panel.close()
+        }
 
         let alertSpy = BrowserInsecureHTTPAlertSpy()
         panel.configureInsecureHTTPAlertHooksForTesting(
@@ -2085,7 +2151,24 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
-        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        window.contentView = panel.webView
+        window.orderFront(nil)
+        panel.noteWebViewVisibility(true, reason: "test.interactiveHost")
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 
     func testInsecureHTTPPromptDefersWhileBackgroundPreloadHasNoInteractiveHost() {

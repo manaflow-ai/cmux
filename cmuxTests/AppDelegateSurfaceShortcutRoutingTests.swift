@@ -150,6 +150,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     @Test func keyboardCopyModeKeyClearsTerminalUnread() async throws {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousNotificationStore = appDelegate.notificationStore
+            defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -170,8 +172,10 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             window.displayIfNeeded()
             terminalPanel.hostedView.setVisibleInUI(true)
             terminalPanel.hostedView.setActive(true)
-            #expect(window.makeFirstResponder(surfaceView))
             await startAndWaitForLiveSurface(terminalPanel.surface)
+            try #require(await appDelegate.focusTerminalForTesting(
+                terminalPanel, workspace: workspace, in: window
+            ))
             #expect(surfaceView.prepareSurfaceForPaste(
                 reason: "test.keyboardCopyModeKey"
             ))
@@ -182,6 +186,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 }
             }
 
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             workspace.markPanelUnread(panelId)
             #expect(workspace.manualUnreadPanelIds.contains(panelId))
 
@@ -194,6 +199,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
     @Test func workspaceFontSizeShortcutPreservesBackgroundTerminalUnread() async throws {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousNotificationStore = appDelegate.notificationStore
+            defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -225,8 +232,10 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             #expect(foregroundPanel.surface.hasLiveSurface)
             #expect(backgroundPanel.surface.hasLiveSurface)
 
-            workspace.focusPanel(foregroundPanelId)
-            #expect(window.makeFirstResponder(foregroundPanel.hostedView.surfaceView))
+            try #require(await appDelegate.focusTerminalForTesting(
+                foregroundPanel, workspace: workspace, in: window
+            ))
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             workspace.markPanelUnread(foregroundPanelId)
             workspace.markPanelUnread(backgroundPanel.id)
             #expect(workspace.manualUnreadPanelIds.contains(foregroundPanelId))

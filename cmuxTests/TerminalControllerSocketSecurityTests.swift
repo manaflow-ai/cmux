@@ -650,7 +650,7 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    @Test func testRemoteConfigureUsesLastForwardAgentOption() throws {
+    @Test func testRemoteConfigureUsesFirstForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -690,9 +690,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
-        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
-        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
     @Test func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
@@ -1292,8 +1292,9 @@ final class TerminalControllerSocketSecurityTests {
         )
         let windowDock = appDelegate.windowDock(forWindowId: windowID)
         let dockPaneID = try #require(windowDock.bonsplitController.allPaneIds.first)
+        let ownedConfiguration = try #require(sourceWorkspace.remoteConfiguration)
         let transfer = try #require(sourceWorkspace.detachSurface(panelId: surfaceID))
-        #expect(transfer.remoteCleanupConfiguration == configuration)
+        #expect(transfer.remoteCleanupConfiguration == ownedConfiguration)
         #expect(
             windowDock.attachDetachedSurface(transfer, inPane: dockPaneID, focus: false)
                 == surfaceID

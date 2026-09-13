@@ -285,13 +285,14 @@ final class ExternalApplicationWindowTracker {
         processIdentifier: pid_t,
         primaryScreenMaxY: CGFloat
     ) -> Snapshot? {
-        // CGWindowListCreateDescriptionFromArray returns an empty result for a
-        // valid external window on macOS 26. The including-window query uses
-        // the same public metadata and returns the requested record reliably.
-        guard let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow, .excludeDesktopElements],
-            windowID
-        ) as? [[String: Any]] else {
+        guard windowID != kCGNullWindowID else { return nil }
+        // Quartz expects unboxed window IDs in pointer-sized CFArray slots,
+        // not NSNumber objects. Nil callbacks keep the raw ID from being
+        // retained or released as an object. This queries only the tracked
+        // window, including while it is ordered offscreen.
+        var rawWindowID = UnsafeRawPointer(bitPattern: UInt(windowID))
+        guard let windowIDs = CFArrayCreate(kCFAllocatorDefault, &rawWindowID, 1, nil),
+              let windowInfo = CGWindowListCreateDescriptionFromArray(windowIDs) as? [[String: Any]] else {
             return nil
         }
         return windowInfo.compactMap {
@@ -333,7 +334,7 @@ final class ExternalApplicationWindowTracker {
                 width: quartzFrame.width,
                 height: quartzFrame.height
             ),
-            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? true
+            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
         )
     }
 }
