@@ -111,6 +111,19 @@ iPhone build; do not mint a shared tag or rebuild the phone for that.
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
 
+## GitHub issue lifecycle
+
+For issue work, use `scripts/issue-status.sh` before editing code. Post
+`taking-a-look` as the first issue action, then post exactly one end-state
+comment: `needs-detail`, `deferred`, or `resolved`. Do not claim `resolved`
+until the linked PR is merged. If the issue cannot be reproduced or is outside
+current scope, comment and stop instead of opening speculative work.
+
+For issue-linked agent PRs, complete the Issue lifecycle, Impact map, and
+Mergeability sections in the PR body. Record the source of truth, direct
+callers and sibling entrypoints inspected, cross-surface effects, tests, exact
+base and head SHAs, and the fresh conflict-check result.
+
 ## First pass, then dogfood
 
 A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.

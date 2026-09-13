@@ -17,7 +17,6 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 ## Review Trigger (Copy/Paste as PR comment)
 
 ```text
-@codex review
 @coderabbitai review
 @greptile-apps review
 @cubic-dev-ai review
@@ -28,6 +27,29 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] I tested the change locally
 - [ ] I added or updated tests for behavior changes
 - [ ] I updated docs/changelog if needed
-- [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
+- [ ] I requested non-Codex bot reviews after my latest commit (copy/paste block above or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
+
+## Issue lifecycle
+
+For issue-linked or agent-created PRs:
+
+- Issue URL:
+- Pickup comment URL:
+- Resolution comment: pending until merge / <full-comment-url>
+
+## Impact map
+
+- Source of truth and owner:
+- Direct callers and sibling entrypoints inspected:
+- Persistence, API, platform, localization, docs, or release effects:
+- Tests and evidence:
+- Residual risk:
+
+## Mergeability
+
+- Base SHA:
+- Head SHA:
+- Conflict-only gate result:
+- Required checks:
