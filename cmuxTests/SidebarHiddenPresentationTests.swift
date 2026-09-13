@@ -202,9 +202,9 @@ struct SidebarHiddenPresentationTests {
         )
         featureFlags.setOverride(true, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
         for _ in 0..<3 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         }
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
@@ -271,7 +271,8 @@ struct SidebarHiddenPresentationTests {
             focusedPanel.ownedFocusIntent(for: responderAfterHide, in: window) != nil,
             "Hiding the sidebar must return keyboard focus to the selected main panel."
         )
-        tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        // Change hidden row membership without changing the panel whose focus this test tracks.
+        tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
         await drainMainRunLoop(for: window)
         #expect(
             initialContainer.tableView.numberOfRows == initialRowCount,
@@ -345,11 +346,12 @@ struct SidebarHiddenPresentationTests {
         window.contentView?.addSubview(foreignField)
         defer { foreignField.removeFromSuperview() }
         #expect(window.makeFirstResponder(foreignField))
-        #expect(window.firstResponder === foreignField)
+        let foreignEditor = try #require(foreignField.currentEditor())
+        #expect(window.firstResponder === foreignEditor)
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         #expect(
-            window.firstResponder === foreignField,
+            window.firstResponder === foreignEditor && foreignField.currentEditor() === foreignEditor,
             "Hiding the sidebar must preserve focus owned by non-sidebar main content."
         )
     }
