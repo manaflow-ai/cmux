@@ -1995,7 +1995,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var historyStore: BrowserHistoryStore
 
     /// The underlying web view
-    private(set) var webView: WKWebView
+    var webView: WKWebView
     private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
@@ -2019,8 +2019,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
-    @Published private(set) var webViewInstanceID: UUID = UUID()
-    private(set) var hasRecoverableWebContentTermination = false {
+    @Published var webViewInstanceID: UUID = UUID()
+    var hasRecoverableWebContentTermination = false {
         willSet {
             if newValue != hasRecoverableWebContentTermination {
                 objectWillChange.send()
@@ -2199,7 +2199,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var isMainFrameProvisionalNavigationActive: Bool = false
 
     /// Published estimated progress (0.0 - 1.0)
-    @Published private(set) var estimatedProgress: Double = 0.0 {
+    @Published var estimatedProgress: Double = 0.0 {
         didSet {
             guard oldValue != estimatedProgress else { return }
             mobileBrowserStreamStateDidChange()
@@ -3070,7 +3070,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    private func bindWebView(_ webView: CmuxWebView) {
+    func bindWebView(_ webView: CmuxWebView) {
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -4548,7 +4548,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// replaced, so a discarded/closed pane never shows a stale
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
     /// from the fresh web view.
-    private func detachWebViewObservers() {
+    func detachWebViewObservers() {
         webViewObservationGeneration &+= 1
         webViewObservers.removeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(
@@ -7823,7 +7823,7 @@ extension BrowserPanel {
         return nil
     }
 
-    private func resolvedCurrentSessionHistoryURL() -> URL? {
+    func resolvedCurrentSessionHistoryURL() -> URL? {
         if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
            Self.serializableSessionHistoryURLString(displayURL) != nil {
             return displayURL
