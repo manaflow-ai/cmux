@@ -32,6 +32,8 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         return true
     }
 
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
+
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
         false
     }
