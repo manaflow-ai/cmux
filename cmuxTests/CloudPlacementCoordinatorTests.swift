@@ -338,7 +338,7 @@ struct CloudPlacementCoordinatorTests {
             "cursor": ["generation": "g", "revision": "20"],
             "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
             "screens": [], "panes": [], "tabs": [],
-            "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": []
+            "terminals": [["id": "term_1", "lifecycle": "running", "tab_ids": []]], "browsers": [], "agents": []
         ], machine: Self.machine))
         provider.install(state, in: catalog)
         catalog.moveProjections(panelID: panel, to: bound)
