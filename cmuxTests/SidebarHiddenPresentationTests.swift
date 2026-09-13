@@ -328,15 +328,47 @@ struct SidebarHiddenPresentationTests {
             "The shared sidebar observation must also refresh a visible row when its Cloud binding is removed."
         )
 
-        let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))
-        window.contentView?.addSubview(sidebarField)
+        let contentView = try #require(window.contentView)
+        // ContentView mounts this host around the complete sidebar in both list modes.
+        let sidebarFocusHost = try #require(descendants(
+            of: SidebarPointerEventHostView.self,
+            in: contentView
+        ).first)
+        let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
+        let sidebarField = NSTextField(frame: NSRect(
+            x: sidebarFrame.midX - 60,
+            y: sidebarFrame.midY - 12,
+            width: 120,
+            height: 24
+        ))
+        contentView.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
+        let sidebarEditor = try #require(sidebarField.currentEditor() as? NSTextView)
+        #expect(window.firstResponder === sidebarEditor)
+        #expect(sidebarEditor.delegate as? NSTextField === sidebarField)
+        let sidebarBoundary = SidebarFocusBoundaryReference()
+        sidebarBoundary.attach(sidebarFocusHost)
+        let sidebarFocusGeometry =
+            "Sidebar: \(sidebarFocusHost.convert(sidebarFocusHost.bounds, to: nil)); " +
+            "field: \(sidebarField.convert(sidebarField.visibleRect, to: nil)); " +
+            "editor: \(sidebarEditor.convert(sidebarEditor.visibleRect, to: nil))."
+        #expect(
+            sidebarBoundary.contains(sidebarEditor, in: window),
+            "The focused fixture must belong to the sidebar before hiding. \(sidebarFocusGeometry)"
+        )
+        #expect(tabManager.selectedWorkspace === focusedWorkspace)
+        #expect(focusedWorkspace.focusedPanelId == focusedPanelId)
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
         let responderAfterSidebarFieldHide = try #require(window.firstResponder)
         #expect(
             focusedPanel.ownedFocusIntent(for: responderAfterSidebarFieldHide, in: window) != nil,
-            "Hiding must restore main-panel focus from controls anywhere in the sidebar boundary."
+            """
+            Hiding must restore main-panel focus from controls anywhere in the sidebar boundary.
+            \(sidebarFocusGeometry) Responder: \(responderAfterSidebarFieldHide);
+            selected workspace: \(String(describing: tabManager.selectedTabId));
+            selected panel: \(String(describing: focusedWorkspace.focusedPanelId)).
+            """
         )
         sidebarState.toggle()
         await drainMainRunLoop(for: window)
