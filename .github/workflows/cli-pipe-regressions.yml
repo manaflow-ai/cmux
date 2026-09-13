@@ -39,6 +39,25 @@ jobs:
           fi
           xcodebuild -version
 
+      - name: Initialize Ghostty and download its binary framework
+        run: |
+          set -euo pipefail
+          git submodule update --init --depth 1 ghostty
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install Rust toolchain
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Resolve Swift package dependencies
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$RUNNER_TEMP/cmux-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -resolvePackageDependencies
+
       - name: Build the standalone CLI
         run: |
           set -euo pipefail
@@ -49,6 +68,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
             -configuration Debug -destination 'platform=macOS' \
             -derivedDataPath "$CMUX_CLI_DERIVED" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/cmux-source-packages" \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/cli-build.log"
 
       - name: Exercise closed consumers and socket disconnects
