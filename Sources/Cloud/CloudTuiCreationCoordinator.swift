@@ -18,6 +18,8 @@ struct CloudTuiCreationCoordinator: Sendable {
         case unsupported
     }
 
+    typealias AttemptArguments = @Sendable (_ idempotencyKey: String) -> [String]
+
     let commandRunner: any CloudTuiCommandRunning
     let socketPath: String
     let workspaceID: String
@@ -25,6 +27,7 @@ struct CloudTuiCreationCoordinator: Sendable {
     let onExit: String?
     let correlationKey: String
     let initialIdempotencyKey: String
+    private let attemptArguments: AttemptArguments
     let clock: any Clock<Duration>
     let recoveryPolicy: CloudTuiCreationRecoveryPolicy
 
@@ -36,6 +39,7 @@ struct CloudTuiCreationCoordinator: Sendable {
         onExit: String?,
         correlationKey: String,
         idempotencyKey: String,
+        attemptArguments: AttemptArguments? = nil,
         clock: any Clock<Duration> = ContinuousClock(),
         recoveryPolicy: CloudTuiCreationRecoveryPolicy = .standard
     ) {
@@ -46,6 +50,16 @@ struct CloudTuiCreationCoordinator: Sendable {
         self.onExit = onExit
         self.correlationKey = correlationKey
         self.initialIdempotencyKey = idempotencyKey
+        self.attemptArguments = attemptArguments ?? { key in
+            CloudTuiCommandLine.runArguments(
+                socketPath: socketPath,
+                workspaceID: workspaceID,
+                command: command,
+                onExit: onExit,
+                idempotencyKey: key,
+                correlationKey: correlationKey
+            )
+        }
         self.clock = clock
         self.recoveryPolicy = recoveryPolicy
     }
@@ -60,14 +74,7 @@ struct CloudTuiCreationCoordinator: Sendable {
             if !reconcile {
                 do {
                     let data = try await commandRunner.runTuiCommand(
-                        arguments: CloudTuiCommandLine.runArguments(
-                            socketPath: socketPath,
-                            workspaceID: workspaceID,
-                            command: command,
-                            onExit: onExit,
-                            idempotencyKey: idempotencyKey,
-                            correlationKey: correlationKey
-                        ),
+                        arguments: attemptArguments(idempotencyKey),
                         deadline: .seconds(30)
                     )
                     if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],

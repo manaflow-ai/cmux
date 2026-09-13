@@ -11,6 +11,27 @@ import Testing
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
     @Test
+    func readinessGateKeepsLoadingAcrossOutOfOrderReplayAndFrameEvents() {
+        var gate = CloudTerminalReadinessGate()
+        gate.begin(baselineFrame: 10)
+
+        // A replay may arrive before the native renderer is presented.
+        #expect(!gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11))
+        #expect(gate.firstPresentedFrame == nil)
+        // A frame from the old generation cannot dismiss the loader.
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10))
+        #expect(gate.firstPresentedFrame == nil)
+        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11))
+        #expect(gate.firstPresentedFrame == 11)
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12))
+
+        // Reconnect establishes a new generation baseline and requires a new frame.
+        gate.begin(baselineFrame: 20)
+        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20))
+        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21))
+    }
+
+    @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)

@@ -8,6 +8,35 @@ private let cloudTerminalReadinessLogger = Logger(
     category: "CloudTerminalPresentation"
 )
 
+/// Pure ordering fence for one terminal presentation generation.
+///
+/// Replay and rendering can arrive in either order around reconnects. The gate
+/// only opens when attachment state is true, replay has been applied through the
+/// caller's condition, and a frame newer than the generation baseline has been
+/// presented. It is small enough to exercise without constructing Ghostty.
+struct CloudTerminalReadinessGate: Equatable, Sendable {
+    private(set) var baselineFrame: UInt64 = 0
+    private(set) var firstPresentedFrame: UInt64? = nil
+
+    mutating func begin(baselineFrame: UInt64) {
+        self.baselineFrame = baselineFrame
+        firstPresentedFrame = nil
+    }
+
+    mutating func check(
+        attachmentReady: Bool,
+        rendererPresented: Bool,
+        frameSequence: UInt64
+    ) -> Bool {
+        guard firstPresentedFrame == nil,
+              attachmentReady,
+              rendererPresented,
+              frameSequence > baselineFrame else { return false }
+        firstPresentedFrame = frameSequence
+        return true
+    }
+}
+
 /// Event-driven readiness for a Cloud terminal handoff.
 ///
 /// Readiness is established by the first presented frame that satisfies the
@@ -27,7 +56,7 @@ final class CloudTerminalReadiness {
     var isLoading: Bool { phase == .waiting }
 
     private weak var surface: TerminalSurface?
-    private var baselineFrame: UInt64 = 0
+    private var gate = CloudTerminalReadinessGate()
     private var condition: (@MainActor () -> Bool)?
     private var onReady: (@MainActor () -> Void)?
     private var frameObserver: NSObjectProtocol?
@@ -48,12 +77,12 @@ final class CloudTerminalReadiness {
     ) {
         end()
         self.surface = surface
-        baselineFrame = surface.hostedView.surfaceView.renderedFrameSequence
+        gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         self.condition = condition
         self.onReady = onReady
         phase = .waiting
         cloudTerminalReadinessLogger.info(
-            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(baselineFrame)"
+            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=waiting baseline=\(gate.baselineFrame)"
         )
         let view = surface.hostedView.surfaceView
         releaseFrameDemand = view.retainLocalRenderedFrameNotifications()
@@ -78,7 +107,7 @@ final class CloudTerminalReadiness {
     /// observer or retaining a second render-demand lease.
     func rearm() {
         guard phase != .ended, let surface else { return }
-        baselineFrame = surface.hostedView.surfaceView.renderedFrameSequence
+        gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         phase = .waiting
         check()
     }
@@ -86,16 +115,19 @@ final class CloudTerminalReadiness {
     /// Checks the current lifecycle and rendered-frame generation.
     func check() {
         guard phase == .waiting,
-              condition?() == true,
               let surface,
-              surface.hasLiveSurface,
-              surface.isRendererPresented,
-              surface.hostedView.surfaceView.renderedFrameSequence > baselineFrame else {
+              surface.hasLiveSurface else {
             return
         }
+        let frame = surface.hostedView.surfaceView.renderedFrameSequence
+        guard gate.check(
+            attachmentReady: condition?() == true,
+            rendererPresented: surface.isRendererPresented && surface.isRendererEffectivelyVisible,
+            frameSequence: frame
+        ) else { return }
         phase = .ready
         cloudTerminalReadinessLogger.info(
-            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=ready frame=\(surface.hostedView.surfaceView.renderedFrameSequence)"
+            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=ready frame=\(frame)"
         )
         let callback = onReady
         releaseObservers()

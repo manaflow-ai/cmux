@@ -7,7 +7,7 @@ extension Workspace {
     func beginCloudTerminalStartupLoading(panel: TerminalPanel, tabID: UUID) {
         panel.cloudStartupReadiness.begin(
             surface: panel.surface,
-            condition: { panel.surface.hasLiveSurface && panel.surface.isRendererPresented },
+            condition: { panel.surface.hasLiveSurface && panel.surface.isRendererEffectivelyVisible },
             onReady: { [weak self, weak panel] in
                 guard let self, let panel,
                       let current = self.panels[panel.id] as? TerminalPanel,

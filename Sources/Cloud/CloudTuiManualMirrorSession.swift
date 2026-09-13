@@ -295,7 +295,8 @@ final class CloudTuiManualMirrorSession {
 
     /// Starts or rebinds the byte attachment to the current link socket.
     func reconnect(socketPath: String) {
-        guard phase != .stopped else { return }
+        // Do not attach unresolved surface 0; recovery reconnects after resolution.
+        guard phase != .stopped, remoteSurfaceID != 0 else { return }
         if self.socketPath == socketPath,
            (connection != nil || connectTask != nil) {
             if phase == .attached {
