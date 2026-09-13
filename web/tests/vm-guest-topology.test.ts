@@ -231,6 +231,15 @@ test("workspace close normalizes selector-first and safe host-compatible forms",
 });
 
 for (const peer of [false, true]) describe(`guest workspace close contract (peer=${peer})`, () => {
+  test.each(["--focus", "--workspace"])("preserves option-like idempotency keys (%s)", async key => {
+    const f = await fixture(peer);
+    try {
+      const result = f.run(["workspace", "close", "ws_task", "--idempotency-key", key]);
+      expect(result.status).toBe(0);
+      expect(f.calls()).toEqual([[...f.route, "workspace", "ws_task", "close", "--idempotency-key", key]]);
+    } finally { await f.cleanup(); }
+  });
+
   test("preserves the existing revision and idempotency options", async () => {
     const f = await fixture(peer);
     try {
