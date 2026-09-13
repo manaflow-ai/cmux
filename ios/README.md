@@ -123,12 +123,14 @@ reinstall, or operators need to cut an internal-only build on the higher version
 automatic App Store Connect export has produced IPAs whose signed app
 entitlements omit `aps-environment=production`. That upload is intentionally
 blocked because TestFlight push would silently fail. Scheduled `main` uploads
-ship only to the internal TestFlight group. A manual run with
-`marketing_version_override` switches to the external beta bundle, installs its
-provisioning profile, and assigns the processed build to both the Founder's
-Edition and Pro groups. That external override reuses an already approved
-marketing version and auto-submits the first build when Apple reports that Beta
-App Review is required.
+keep the internal `dev.cmux.app.internal` app and external `dev.cmux.app.beta`
+app current independently. The external lane uses the checked-in beta
+marketing version, installs the beta provisioning profile, and assigns the
+processed build to both the Founder's Edition and Pro groups. The first
+external build of a new marketing version is auto-submitted when Apple reports
+that Beta App Review is required. A manual run with
+`marketing_version_override` remains available as a recovery path that reuses
+an already approved marketing version.
 
 Required GitHub secrets:
 

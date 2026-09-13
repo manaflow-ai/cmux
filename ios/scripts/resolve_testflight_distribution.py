@@ -21,29 +21,44 @@ class DistributionDecision(NamedTuple):
     review_note: str
 
 
+def _external_decision(
+    metadata_artifact: str,
+    upload_mode: str,
+) -> DistributionDecision:
+    return DistributionDecision(
+        bundle_id="dev.cmux.app.beta",
+        display_name="cmux BETA",
+        profile_type="beta",
+        expected_app_id="7WLXT3NR37.dev.cmux.app.beta",
+        assign_external_group=True,
+        assign_internal_group=False,
+        metadata_artifact=metadata_artifact,
+        upload_mode=upload_mode,
+        audience="external TestFlight testers",
+        review_note="Beta App Review may be required",
+    )
+
+
 def resolve_distribution(
     variant: str,
     marketing_version_override: str,
 ) -> DistributionDecision:
     override = marketing_version_override.strip()
-    if variant not in {"internal", "demo"}:
+    if variant not in {"internal", "external", "demo"}:
         raise ValueError(f"unsupported TestFlight variant: {variant}")
     if override and variant == "demo":
         raise ValueError(
-            "variant=demo cannot be combined with marketing_version_override"
+            "marketing_version_override cannot be used with variant=demo"
         )
     if override:
-        return DistributionDecision(
-            bundle_id="dev.cmux.app.beta",
-            display_name="cmux BETA",
-            profile_type="beta",
-            expected_app_id="7WLXT3NR37.dev.cmux.app.beta",
-            assign_external_group=True,
-            assign_internal_group=False,
+        return _external_decision(
             metadata_artifact="ios-testflight-build-metadata-override",
             upload_mode="marketing_version_override",
-            audience="external TestFlight testers",
-            review_note="Beta App Review may be required",
+        )
+    if variant == "external":
+        return _external_decision(
+            metadata_artifact="ios-testflight-build-metadata-external",
+            upload_mode="checked_in_version",
         )
     if variant == "demo":
         return DistributionDecision(
