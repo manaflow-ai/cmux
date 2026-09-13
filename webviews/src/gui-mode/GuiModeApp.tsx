@@ -82,7 +82,7 @@ export function GuiModeApp() {
   );
 }
 
-function GuiModeHomePage({ context }: { context: GuiModeContext }) {
+function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; taskPrompt?: string }) {
   const [prompt, setPrompt] = useState("");
   const [mode, setMode] = useState<GuiModeMode>("chat");
   const [selectedProviderId, setSelectedProviderId] = useState(context.selectedProviderId);
@@ -113,6 +113,12 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     ? selectedReasoningEffort
     : reasoningOptions.includes("extra-high") ? "extra-high" : reasoningOptions[0] ?? "default";
   const trimmedPrompt = prompt.trim();
+  const visibleTaskPrompt = taskPrompt?.trim() ?? "";
+  const currentFolderName = context.workingDirectory?.split("/").filter(Boolean).at(-1)
+    ?? context.copy.folderFallback
+    ?? "cmux";
+  const emptyTitle = (context.copy.emptyTitle ?? "What should we build in cmux?")
+    .replace(/\bcmux\b/i, currentFolderName);
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
   const submit = useCallback(() => {
     if (!canSubmit) return;
@@ -184,19 +190,24 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   }, [context.copy.cancellationUnconfirmed]);
 
   return h("section", {
-    className: "agent-shell gui-mode-home",
+    className: `agent-shell gui-mode-home${visibleTaskPrompt.length > 0 ? " gui-mode-task" : ""}`,
     "aria-label": context.copy.homeTitle,
     style: providerAccentStyle(selectedProvider),
   },
     h("div", {
       className: "agent-thread gui-mode-thread",
-      "data-empty": trimmedPrompt.length === 0 ? "true" : undefined,
+      "data-empty": visibleTaskPrompt.length === 0 && trimmedPrompt.length === 0 ? "true" : undefined,
       role: "log",
       "aria-live": "polite",
     },
-      trimmedPrompt.length === 0
+      visibleTaskPrompt.length > 0
+        ? h("div", { className: "gui-mode-task-prompt" },
+          h("div", { className: "gui-mode-task-prompt-label" }, context.copy.taskPromptLabel),
+          h("div", { className: "gui-mode-task-prompt-text" }, visibleTaskPrompt),
+        )
+        : visibleTaskPrompt.length === 0 && trimmedPrompt.length === 0
         ? h("div", { className: "gui-mode-empty-state" },
-          h("h1", { className: "gui-mode-empty-title" }, context.copy.emptyTitle ?? "What should we build in cmux?"),
+          h("h1", { className: "gui-mode-empty-title" }, emptyTitle),
           h("p", { className: "gui-mode-empty-subtitle" }, context.copy.emptySubtitle ?? "Describe an idea, fix a bug, or start with a command."),
           h("div", { className: "gui-mode-voice-card" },
             h("div", { className: "gui-mode-voice-icon", "aria-hidden": true }, guiModeMicIcon()),
@@ -211,21 +222,10 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
             }, context.copy.voiceAction ?? "Try voice"),
           ),
         )
-        : null,
+        : trimmedPrompt.length > 0 ? h(UserChatTurn, { text: prompt }) : null,
     ),
     h("div", { className: CODEX_COMPOSER_STACK },
       h("div", { className: "relative flex w-full flex-col gap-2" },
-        h("div", { className: "gui-mode-context-strip", "aria-label": context.copy.contextLabel ?? "Context" },
-          h("span", { className: "gui-mode-context-folder" }, guiModeFolderIcon(), context.workingDirectory?.split("/").filter(Boolean).at(-1) ?? context.copy.folderFallback ?? "Current folder"),
-          h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
-          h("span", null, context.copy.localLabel ?? "Local"),
-          context.gitBranch
-            ? h(React.Fragment, null,
-              h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
-              h("span", { className: "gui-mode-context-branch" }, guiModeBranchIcon(), context.gitBranch),
-            )
-            : null,
-        ),
         h("form", {
           className: "w-full min-w-0",
           onSubmit: (event: React.FormEvent) => {
@@ -350,43 +350,30 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
             ),
           ),
         ),
+        h("div", { className: "gui-mode-context-strip", "aria-label": context.copy.contextLabel ?? "Context" },
+          h("span", { className: "gui-mode-context-folder" }, guiModeFolderIcon(), context.workingDirectory?.split("/").filter(Boolean).at(-1) ?? context.copy.folderFallback ?? "Current folder"),
+          h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
+          h("span", null, context.copy.localLabel ?? "Local"),
+          context.gitBranch
+            ? h(React.Fragment, null,
+              h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
+              h("span", { className: "gui-mode-context-branch" }, guiModeBranchIcon(), context.gitBranch),
+            )
+            : null,
+        ),
       ),
     ),
   );
 }
 
 function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
-  const provider = providerForId(context.providers, context.selectedProviderId);
-  return h("section", {
-    "aria-label": context.copy.taskTitle,
-    className: "agent-shell gui-mode-task",
-    style: providerAccentStyle(provider),
-  },
-    h("div", { className: "agent-thread gui-mode-task-thread", role: "log" },
-      h("div", { className: "gui-mode-task-heading" },
-        h("div", { className: "gui-mode-title" }, context.copy.taskTitle),
-        h("div", { className: "gui-mode-runtime-pill" }, `${provider.displayName} · ${context.selectedModelId ?? "Default"}`),
-      ),
-      h(UserChatTurn, { label: context.copy.taskPromptLabel, text: context.prompt }),
-      h("div", { className: "gui-mode-task-status-card" },
-        h("div", { className: "gui-mode-task-status-title" },
-          h("span", { className: "gui-mode-chat-agent-name" }, provider.displayName),
-          h("span", { className: "gui-mode-chat-agent-support" }, provider.supportLabel),
-          h("span", { className: "gui-mode-task-status-detail" }, provider.detail),
-        ),
-        provider.capabilities.length > 0
-          ? h("div", { className: "gui-mode-task-chips" }, provider.capabilities.map((capability) => h("span", {
-            className: "gui-mode-task-chip",
-            key: capability,
-          }, capability)))
-          : null,
-        h("div", { className: "gui-mode-task-command-row" },
-          h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
-          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, provider.taskCommandPreview),
-        ),
-      ),
-    ),
-  );
+  return h(GuiModeHomePage, {
+    context: {
+      ...context,
+      page: "home",
+    },
+    taskPrompt: context.prompt,
+  });
 }
 
 function ModeToggle({

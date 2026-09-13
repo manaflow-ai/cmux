@@ -109,13 +109,17 @@
 
 .gui-mode-context-strip {
   display: flex;
-  width: min(100%, var(--thread-content-max-width));
+  width: calc(100% - 48px);
   align-items: center;
   gap: 7px;
-  margin: 0 auto 7px;
-  padding: 0 8px;
+  margin: -8px auto 0;
+  padding: 13px 8px 5px;
   overflow: hidden;
+  border: 1px solid var(--agent-border);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
   color: var(--agent-muted);
+  background: color-mix(in srgb, var(--agent-surface) 72%, transparent);
   font-size: var(--text-xs);
   white-space: nowrap;
 }
@@ -509,20 +513,34 @@
   line-height: 18px;
 }
 
-.gui-mode-task .codex-user-turn,
-.gui-mode-task .codex-assistant-turn {
+.gui-mode-task-prompt {
   max-width: min(100%, 48rem);
+  padding: 4px 2px 8px;
 }
 
-.gui-mode-task .gui-mode-chat-agent-name,
-.gui-mode-task .gui-mode-chat-agent-support {
+.gui-mode-task-prompt-label {
+  margin-bottom: 6px;
   color: var(--agent-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+}
+
+.gui-mode-task-prompt-text {
+  color: var(--agent-text);
+  font-size: var(--codex-chat-font-size);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.gui-mode-task .gui-mode-task-prompt {
+  margin: auto;
+  width: min(100%, 48rem);
 }
 
 .gui-mode-task-status-card {
   max-width: min(100%, 48rem);
-  padding: 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
   border: 1px solid var(--agent-border);
   border-radius: var(--radius-xl);
   background: color-mix(in srgb, var(--agent-surface) 72%, transparent);
@@ -538,6 +556,12 @@
 .gui-mode-task-status-detail {
   width: 100%;
   margin-top: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-sm);
+}
+
+.gui-mode-task .gui-mode-chat-agent-name,
+.gui-mode-task .gui-mode-chat-agent-support {
   color: var(--agent-muted);
   font-size: var(--text-sm);
 }

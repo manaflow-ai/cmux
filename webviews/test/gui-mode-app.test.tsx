@@ -77,10 +77,11 @@ test("native bootstrap renders the restored provider and localized task without 
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     flushSync(() => root.render(<GuiModeApp />));
-    expect(dom.window.document.querySelector(".gui-mode-title")?.textContent).toBe("保存したタスク");
+    expect(dom.window.document.querySelector(".gui-mode-task-prompt-text")?.textContent)
+      .toContain("Build with Qoder");
     expect(dom.window.document.querySelector("[data-gui-mode-provider=qoder]")).toBeTruthy();
-    expect(dom.window.document.querySelector(".gui-mode-home")).toBeNull();
-    expect(dom.window.document.querySelector(".gui-mode-submit")).toBeNull();
+    expect(dom.window.document.querySelector(".gui-mode-home")).toBeTruthy();
+    expect(dom.window.document.querySelector(".gui-mode-submit")).toBeTruthy();
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -507,7 +508,7 @@ test("GUI mode task page renders every provider from native context", async () =
         root.render(<GuiModeApp />);
       });
       try {
-        await waitFor(() => dom.window.document.querySelector(".gui-mode-task") !== null);
+        await waitFor(() => dom.window.document.querySelector(".gui-mode-home") !== null);
       } catch (error) {
         throw new Error(`Timed out waiting for ${provider.id}: ${dom.window.document.body.textContent}`, {
           cause: error,
@@ -519,17 +520,13 @@ test("GUI mode task page renders every provider from native context", async () =
       expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
       expect(rootElement.dataset.guiModeProvider).toBe(provider.id);
       expect(rootElement.dataset.guiModePromptLength).toBe(String(`Build with ${provider.displayName}`.length));
-      expect(dom.window.document.querySelector(".gui-mode-chat-agent-name")?.textContent)
-        .toBe(provider.displayName);
-      expect(dom.window.document.querySelector(".gui-mode-task-command")?.textContent)
-        .toBe(provider.taskCommandPreview);
-      expect(dom.window.document.querySelector(".gui-mode-chat-agent-support")?.textContent)
-        .toBe(provider.supportLabel);
-      expect(Array.from(dom.window.document.querySelectorAll(".gui-mode-task-chip")).map((element) => element.textContent))
-        .toEqual(provider.capabilities);
-      expect(dom.window.document.querySelector(".gui-mode-user-message")?.textContent)
+      expect(dom.window.document.querySelector(".gui-mode-task-prompt-text")?.textContent)
         .toContain(`Build with ${provider.displayName}`);
-      expect((dom.window.document.querySelector(".gui-mode-task") as HTMLElement)
+      expect(dom.window.document.querySelector(".gui-mode-editor")).toBeTruthy();
+      expect(dom.window.document.querySelector(".gui-mode-context-strip")).toBeTruthy();
+      expect(dom.window.document.querySelector(".gui-mode-task-status-card")).toBeNull();
+      expect(dom.window.document.querySelector(".codex-assistant-turn")).toBeNull();
+      expect((dom.window.document.querySelector(".gui-mode-home") as HTMLElement)
         .style.getPropertyValue("--gui-provider-accent")).toBe(provider.accentColor);
     } finally {
       flushSync(() => root.unmount());
@@ -563,14 +560,14 @@ test("GUI mode task context renders inside the TanStack route without self-navig
     flushSync(() => {
       root.render(<RouterProvider router={router} />);
     });
-    await waitFor(() => dom.window.document.querySelector(".gui-mode-task") !== null);
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-home") !== null);
 
     expect(dom.window.location.hash).toBe("#/gui-mode");
     const rootElement = dom.window.document.querySelector(".gui-mode-root") as HTMLElement;
     expect(rootElement.dataset.guiModePage).toBe("task-worktree-pr");
     expect(rootElement.dataset.guiModeProvider).toBe(context.selectedProviderId);
-    expect(dom.window.document.querySelector(".gui-mode-chat-agent-name")?.textContent)
-      .toBe("Qoder");
+    expect(dom.window.document.querySelector(".gui-mode-task-prompt-text")?.textContent)
+      .toContain("Build with Qoder");
   } finally {
     flushSync(() => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 0));
