@@ -30,7 +30,7 @@ final class CloudTerminalOverlayCoordinator {
         self.dismissalStore = dismissalStore
     }
 
-    /// Creates a coordinator backed by the standard user defaults store.
+    /// Creates a coordinator backed by the app's standard user defaults.
     convenience init() {
         self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
     }
