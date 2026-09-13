@@ -79,6 +79,15 @@ extension CMUXCLI {
 
         [cmux-cua](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-cua/SKILL.md#using-the-tools-agent-facing)
 
+        \(CMUXDiffViewerLocalization.string("cli.guide.overview.cloud", defaultValue: "## Use Cloud\n\nUse cmux Cloud when work needs a remote machine. List machines before choosing one. Use `exec` for a short command, `agent` for a coding agent, and `push` or `pull` for files. Use the Cloud guide for desktop, browser, port, and machine lifecycle methods."))
+
+        ```sh
+        cmux cloud ls --json
+        cmux cloud exec <machine> -- pwd
+        cmux cloud agent --help
+        cmux cloud guide
+        ```
+
         \(CMUXDiffViewerLocalization.string("cli.guide.overview.share", defaultValue: "## Show work and find more methods\n\nUse Markdown and diff views to show results. Use notifications and progress to report task state. Read the Cloud guide for remote machines. Settings and integration docs list their own methods."))
 
         `cmux markdown --help` · `cmux diff --help` · `cmux notify --help` · `cmux set-progress --help`

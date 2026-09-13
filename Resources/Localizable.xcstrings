@@ -355,6 +355,65 @@
         }
       }
     },
+    "cli.guide.overview.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Use Cloud\n\nUse cmux Cloud when work needs a remote machine. List machines before choosing one. Use `exec` for a short command, `agent` for a coding agent, and `push` or `pull` for files. Use the Cloud guide for desktop, browser, port, and machine lifecycle methods."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Cloud verwenden\n\nVerwenden Sie cmux Cloud, wenn die Arbeit einen entfernten Rechner benötigt. Listen Sie die Rechner auf, bevor Sie einen auswählen. Verwenden Sie `exec` für einen kurzen Befehl, `agent` für einen Coding-Agenten und `push` oder `pull` für Dateien. Die Cloud-Anleitung beschreibt Methoden für Desktop, Browser, Ports und den Rechnerlebenszyklus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Utiliser Cloud\n\nUtilisez cmux Cloud lorsque le travail nécessite une machine distante. Listez les machines avant d’en choisir une. Utilisez `exec` pour une commande courte, `agent` pour un agent de programmation et `push` ou `pull` pour les fichiers. Le guide Cloud décrit les méthodes du bureau, du navigateur, des ports et du cycle de vie des machines."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## استخدام Cloud\n\nاستخدم cmux Cloud عندما يحتاج العمل إلى جهاز بعيد. اعرض الأجهزة قبل اختيار أحدها. استخدم `exec` لأمر قصير، و`agent` لوكيل برمجة، و`push` أو `pull` للملفات. يشرح دليل Cloud طرق سطح المكتب والمتصفح والمنافذ ودورة حياة الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar Cloud\n\nUse cmux Cloud cuando el trabajo necesite una máquina remota. Enumere las máquinas antes de elegir una. Use `exec` para un comando breve, `agent` para un agente de programación y `push` o `pull` para archivos. La guía Cloud describe los métodos de escritorio, navegador, puertos y ciclo de vida de la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用 Cloud\n\n工作需要遠端機器時，請使用 cmux Cloud。選擇前先列出機器。使用 `exec` 執行短命令，使用 `agent` 啟動程式設計代理，並使用 `push` 或 `pull` 傳輸檔案。Cloud 指南說明桌面、瀏覽器、連接埠與機器生命週期的方法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用 Cloud\n\n工作需要远程机器时，请使用 cmux Cloud。选择前先列出机器。使用 `exec` 运行短命令，使用 `agent` 启动编程代理，并使用 `push` 或 `pull` 传输文件。Cloud 指南介绍桌面、浏览器、端口和机器生命周期的方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Cloud 사용\n\n원격 머신이 필요한 작업에는 cmux Cloud를 사용하세요. 머신을 선택하기 전에 목록을 확인하세요. 짧은 명령에는 `exec`, 코딩 에이전트에는 `agent`, 파일에는 `push` 또는 `pull`을 사용하세요. Cloud 가이드에서 데스크톱, 브라우저, 포트, 머신 수명 주기 방법을 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Cloud を使う\n\nリモートマシンが必要な作業には cmux Cloud を使います。選ぶ前にマシンを一覧表示してください。短いコマンドには `exec`、コーディングエージェントには `agent`、ファイルには `push` または `pull` を使います。デスクトップ、ブラウザ、ポート、マシンのライフサイクルについては Cloud ガイドを参照してください。"
+          }
+        }
+      }
+    },
     "cli.guide.overview.share": {
       "extractionState": "manual",
       "localizations": {

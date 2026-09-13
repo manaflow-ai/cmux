@@ -301,6 +301,8 @@ def check_guide_contract(cli_path: str) -> list[str]:
                         "topic": topic, "format": "markdown", "content": expected_content,
                     }:
                         raise ValueError(f"JSON guide differs from plain output: {result}")
+                if topic == "cmux" and "cmux cloud" not in plain.stdout:
+                    raise ValueError("local guide must include the Cloud entry point")
                 for suffix in (["unexpected"], ["--", "--help"]):
                     result = run_cli_args(cli_path, prefix + invocation + suffix)
                     if result.returncode != 2 or result.stdout or "Usage:" not in result.stderr:
