@@ -237,15 +237,15 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 onClosePanel: { [weak workspace] panelId in
                     _ = workspace?.closePanel(panelId)
                 },
-                tabContextMenu: { [weak workspace] panelId in
-                    guard let workspace else { return nil }
-                    workspace.focusPanel(panelId)
-                    return workspace.canvasTabContextMenu(for: panelId)
-                },
                 onLayoutChanged: { [weak workspace] in
                     guard let workspace else { return }
                     workspace.noteCanvasLayoutChanged()
                     workspace.syncCanvasBrowserPortalZOrder()
+                },
+                tabContextMenu: { [weak workspace] panelId in
+                    guard let workspace else { return nil }
+                    workspace.focusPanel(panelId)
+                    return workspace.canvasTabContextMenu(for: panelId)
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
                     // Window-portal-hosted content (browser webviews) tracks
