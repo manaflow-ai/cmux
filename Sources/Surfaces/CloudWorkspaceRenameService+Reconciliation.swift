@@ -7,8 +7,7 @@ extension CloudWorkspaceRenameService {
         state: CloudVMState,
         observation: CloudVMStateObservation,
         projections: [SurfaceProjection],
-        resources: [SurfaceResource],
-        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
+        resourcesByID: [SurfaceResourceID: SurfaceResource]
     ) -> BindingReconciliation {
         guard let remoteID = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !remoteID.isEmpty else { return .keep }
@@ -18,7 +17,6 @@ extension CloudWorkspaceRenameService {
         guard !state.workspaceIDs.contains(remoteID) else { return .keep }
         guard let target = inferredRemoteWorkspaceTarget(
             projections: projections,
-            resources: resources,
             resourcesByID: resourcesByID
         ), target.machine == machine,
         state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
@@ -54,7 +52,6 @@ extension CloudWorkspaceRenameService {
                     state: state,
                     observation: observation,
                     projections: projectionsByWorkspace[workspace.id] ?? [],
-                    resources: resources,
                     resourcesByID: resourcesByID
                 ) {
                 case .keep:

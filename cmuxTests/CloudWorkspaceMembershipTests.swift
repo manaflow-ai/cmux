@@ -91,7 +91,7 @@ struct CloudWorkspaceMembershipTests {
         #expect(CmuxTuiSurfaceProvider.defaultRemoteView(for: terminal)?.tabID == "tab_a")
         let rename = CloudWorkspaceRenameService()
         let projection = SurfaceProjection(resource: display.id, workspaceID: UUID(), panelID: UUID())
-        #expect(rename.inferredRemoteWorkspaceTarget(projections: [projection], resources: [display]) == nil)
+        #expect(rename.inferredRemoteWorkspaceTarget(projections: [projection], resourcesByID: [display.id: display]) == nil)
     }
 
     @Test("Refresh, reconnect and focus changes preserve exact display membership", arguments: ["display", "screen"])
