@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -5838,22 +5837,6 @@ private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {
