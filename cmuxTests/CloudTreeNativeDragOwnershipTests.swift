@@ -284,14 +284,14 @@ struct CloudTreeNativeDragOwnershipTests {
             id: resource, title: "Shell", detail: nil, lifecycle: .running, agent: nil,
             remoteWorkspace: remoteWorkspace, port: nil, url: nil
         )
-        let siblings = ["tab-1", "tab-2"].map { tabID in
+        let siblings = (1...30).map { "tab-\($0)" }.map { tabID in
             CloudTreeNode(id: tabID, kind: .terminal(CloudTreeTerminalRow(
                 resource: sharedResource, isOpen: true, viewBadge: nil,
                 remoteView: SurfaceRemoteView(tabID: tabID, workspace: remoteWorkspace)
             )))
         }
         let workspaceNode = CloudTreeNode(
-            id: "ws-2", kind: .workspace(machine: machine, remoteWorkspace, terminalCount: 2, hiddenTabCount: 0, openIn: nil),
+            id: "ws-2", kind: .workspace(machine: machine, remoteWorkspace, terminalCount: siblings.count, hiddenTabCount: 0, openIn: nil),
             children: siblings
         )
         let root = CloudTreeNode(
@@ -303,7 +303,7 @@ struct CloudTreeNativeDragOwnershipTests {
         #expect(outline.numberOfRows == 1)
         let projection = SurfaceProjection(
             resource: resource, workspaceID: UUID(), panelID: UUID(),
-            remoteWorkspaceID: "ws-2", remoteTabID: "tab-2"
+            remoteWorkspaceID: "ws-2", remoteTabID: "tab-30"
         )
         let target = try #require(CloudSidebarRevealTarget(
             projection: projection,
@@ -312,17 +312,19 @@ struct CloudTreeNativeDragOwnershipTests {
         ))
         let request = CloudSidebarNavigationState.Request(target: target)
         coordinator.reveal(request)
-        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-2")
+        container.layoutSubtreeIfNeeded()
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-30")
         #expect(outline.isItemExpanded(root))
         #expect(outline.isItemExpanded(workspaceNode))
         #expect(expansion.isExpanded(root))
+        #expect(outline.visibleRect.intersects(outline.rect(ofRow: outline.selectedRow)))
 
         // Catalog refreshes must not override a subsequent manual selection.
         outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         coordinator.reveal(request)
         #expect(outline.selectedRow == 0)
         coordinator.reveal(CloudSidebarNavigationState.Request(target: target))
-        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-2")
+        #expect((outline.item(atRow: outline.selectedRow) as? CloudTreeNode)?.id == "tab-30")
         withExtendedLifetime(container) {}
     }
 

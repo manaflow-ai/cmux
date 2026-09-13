@@ -323,6 +323,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func revealPendingRequest() {
             guard let request = pendingRevealRequest, request.id != lastRevealRequestID,
                   !isDragging, let outlineView, let window = outlineView.window,
+                  !outlineView.visibleRect.isEmpty,
                   let path = request.target.path(in: nodes), let node = path.last else { return }
             withProgrammaticUpdate {
                 for ancestor in path.dropLast() {
@@ -1186,5 +1187,6 @@ final class CloudTreeContainerView: NSView {
     override func layout() {
         super.layout()
         outlineView.sizeLastColumnToFit()
+        coordinator.revealPendingRequest()
     }
 }
