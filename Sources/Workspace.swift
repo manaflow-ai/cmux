@@ -9454,7 +9454,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
             showsNotificationBadge: false,
-            isLoading: false,
+            isLoading: true,
             isPinned: false
         )
         publishCmuxSurfaceCreated(pair.key, paneId: paneId, kind: SurfaceKind.terminal.rawValue, origin: "cloud_vm_ready", focused: focus)
@@ -9474,9 +9474,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
+        beginCloudTerminalStartupLoading(panel: replacementPanel, tabID: tabId)
         return replacementPanel
     }
-
     private func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil

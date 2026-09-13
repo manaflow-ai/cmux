@@ -1610,7 +1610,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace and first terminal a `workspace create` mutation made
     /// (`{value: {workspace_id, terminal_id, …}}`).
     static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
-        let path = (result["value"] as? [String: Any]) ?? result
+        let path = (result["value"] as? [String: Any]) ?? ((result["result"] as? [String: Any])?["value"] as? [String: Any]) ?? (result["result"] as? [String: Any]) ?? result
         guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
         return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
