@@ -87,20 +87,49 @@ enum BrowserLocalFileTextEncoding {
     /// tail is a whole scalar or is not UTF-8 at all.
     private static func cutTrailingScalarByteCount(in prefix: Data) -> Int? {
         var continuationByteCount = 0
+        var secondByte: UInt8?
         for byte in prefix.reversed() {
             if byte & 0b1100_0000 == 0b1000_0000 {
                 continuationByteCount += 1
                 guard continuationByteCount <= maximumTruncatedScalarContinuationBytes else {
                     return nil
                 }
+                // Walking backwards, the last continuation byte seen before the
+                // lead byte is the scalar's second byte.
+                secondByte = byte
                 continue
             }
 
             guard let scalarByteCount = scalarByteCount(forLeadByte: byte) else { return nil }
             let presentByteCount = continuationByteCount + 1
-            return presentByteCount < scalarByteCount ? presentByteCount : nil
+            guard presentByteCount < scalarByteCount else { return nil }
+            // A lead byte alone can still be completed by whatever follows the
+            // window, but once the second byte is present it has to be one the
+            // lead byte actually allows.
+            if let secondByte, !allowedSecondByteRange(forLeadByte: byte).contains(secondByte) {
+                return nil
+            }
+            return presentByteCount
         }
         return nil
+    }
+
+    /// The second bytes a scalar starting with `leadByte` allows. UTF-8 narrows
+    /// the range for four lead bytes to rule out overlong encodings (`0xE0`,
+    /// `0xF0`), surrogates (`0xED`), and scalars past U+10FFFF (`0xF4`).
+    private static func allowedSecondByteRange(forLeadByte leadByte: UInt8) -> ClosedRange<UInt8> {
+        switch leadByte {
+        case 0xE0:
+            return 0xA0...0xBF
+        case 0xED:
+            return 0x80...0x9F
+        case 0xF0:
+            return 0x90...0xBF
+        case 0xF4:
+            return 0x80...0x8F
+        default:
+            return 0x80...0xBF
+        }
     }
 
     /// How many bytes the scalar starting with `byte` occupies, or `nil` when

@@ -6169,6 +6169,60 @@ final class BrowserLocalFileTextEncodingTests: XCTestCase {
         XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
     }
 
+    /// UTF-8 constrains the second byte of some scalars, so `E0 80` and friends
+    /// are malformed rather than cut short, however much file follows them.
+    func testSniffRejectsWindowEndingInAMalformedScalarPrefix() throws {
+        let directory = try makeTemporaryDirectory()
+        let malformedTails: [[UInt8]] = [
+            [0xE0, 0x80],   // overlong three-byte scalar
+            [0xED, 0xA0],   // surrogate
+            [0xF0, 0x80],   // overlong four-byte scalar
+            [0xF4, 0x90],   // past U+10FFFF
+            [0xC0, 0x80]    // overlong two-byte scalar
+        ]
+
+        for tail in malformedTails {
+            let file = directory.appendingPathComponent("malformed-\(tail[0]).md")
+            try Self.windowFillingFile(endingIn: tail).write(to: file)
+            XCTAssertFalse(
+                BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file),
+                "\(tail) is not a scalar the window cut short"
+            )
+        }
+    }
+
+    /// A lead byte alone can still be completed by whatever follows the window,
+    /// and so can a lead byte plus a second byte it actually allows.
+    func testSniffAcceptsWindowEndingInACutScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let cutTails: [[UInt8]] = [
+            [0xE0], [0xED], [0xF4],                 // lead bytes with narrowed second bytes
+            [0xE0, 0xA0], [0xED, 0x80],             // second bytes at the edge of what
+            [0xF0, 0x90], [0xF4, 0x8F]              // each of those lead bytes allows
+        ]
+
+        for tail in cutTails {
+            let file = directory.appendingPathComponent("cut-\(tail.count)-\(tail[0]).md")
+            try Self.windowFillingFile(endingIn: tail).write(to: file)
+            XCTAssertTrue(
+                BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file),
+                "\(tail) is a scalar the window cut short"
+            )
+        }
+    }
+
+    /// Fills the sniff window with ASCII, ending it in `tail`, and leaves more
+    /// file behind the window so the tail really is cut short by it.
+    private static func windowFillingFile(endingIn tail: [UInt8]) -> Data {
+        var contents = Data(
+            repeating: UInt8(ascii: "a"),
+            count: BrowserLocalFileTextEncoding.sniffedByteCount - tail.count
+        )
+        contents.append(contentsOf: tail)
+        contents.append(Data(repeating: UInt8(ascii: "a"), count: 16))
+        return contents
+    }
+
     func testSniffRejectsEmptyMissingAndRemoteURLs() throws {
         let directory = try makeTemporaryDirectory()
         let empty = directory.appendingPathComponent("empty.md")
