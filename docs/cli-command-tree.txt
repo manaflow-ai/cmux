@@ -493,6 +493,8 @@ command  fork  aliases=-
   arg  arguments  kind=argument  completion=-
 command  get-url  aliases=-
   arg  arguments  kind=argument  completion=-
+command  guide  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  help  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
@@ -904,6 +906,8 @@ command  send-panel  aliases=-
   arg  --window  kind=option  completion=custom-deprecated
   arg  --workspace  kind=option  completion=custom-deprecated
   arg  text  kind=argument  completion=-
+command  sessions  aliases=-
+  arg  arguments  kind=argument  completion=list(list)
 command  set-app-focus  aliases=-
   arg  arguments  kind=argument  completion=-
 command  set-buffer  aliases=-

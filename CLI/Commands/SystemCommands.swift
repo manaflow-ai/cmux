@@ -131,6 +131,13 @@ struct RestoreSessionCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "restore-session", helpNames: [])
 }
 
+/// Dispatched before the legacy parser's command switch. Only the documented
+/// `list` verb is offered; the runner also accepts `debug` and `help`.
+struct SessionsCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized, completion: .list(["list"])) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "sessions", helpNames: [])
+}
+
 struct RPCCommand: SharedLegacyFacadeCommand {
     @Argument var method: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
