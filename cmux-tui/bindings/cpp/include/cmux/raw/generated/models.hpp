@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543";
+inline constexpr std::string_view kProtocolIrSha256 = "3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -76,6 +76,11 @@ struct Pane;
 enum class PaneDirection;
 struct PaneNeighborResult;
 struct PingResult;
+struct PresenceAnchor;
+struct PresenceEntry;
+struct PresenceHighlight;
+enum class PresenceHighlightMode;
+struct PresenceListResult;
 struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
@@ -195,6 +200,9 @@ struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PingRequest;
+struct PresenceClearRequest;
+struct PresenceListRequest;
+struct PresenceUpdateRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
 struct ReadScreenRequest;
@@ -265,6 +273,7 @@ struct PairingRequestedEvent;
 struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
+struct PresenceChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
@@ -300,6 +309,8 @@ enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
+struct PresenceAnchorCell;
+struct PresenceAnchorPoint;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
 enum class TabKind;
@@ -1784,6 +1795,83 @@ struct PingResult {
     friend bool operator==(const PingResult&, const PingResult&) = default;
 };
 
+struct PresenceAnchorCell {
+    std::uint32_t col{};
+    std::uint32_t row{};
+    std::optional<std::uint64_t> scroll_offset{};
+    friend bool operator==(const PresenceAnchorCell&, const PresenceAnchorCell&) = default;
+};
+
+struct PresenceAnchorPoint {
+    double x{};
+    double y{};
+    friend bool operator==(const PresenceAnchorPoint&, const PresenceAnchorPoint&) = default;
+};
+
+struct PresenceAnchor {
+    using Variant = std::variant<PresenceAnchorCell, PresenceAnchorPoint>;
+    Variant value{};
+    friend bool operator==(const PresenceAnchor&, const PresenceAnchor&) = default;
+};
+
+enum class PresenceHighlightMode {
+    laser,
+    pin,
+};
+
+struct PresenceHighlight {
+    PresenceAnchor end{};
+    PresenceHighlightMode mode{};
+    PresenceAnchor start{};
+    friend bool operator==(const PresenceHighlight&, const PresenceHighlight&) = default;
+};
+
+struct PresenceChangedEvent {
+    std::uint64_t client{};
+    std::uint64_t color{};
+    std::uint64_t generation{};
+    std::optional<PresenceHighlight> highlight{};
+    std::optional<std::string> kind{};
+    std::optional<std::string> name{};
+    std::optional<PresenceAnchor> pointer{};
+    std::optional<Id> surface{};
+    std::uint64_t updated_at_ms{};
+    friend bool operator==(const PresenceChangedEvent&, const PresenceChangedEvent&) = default;
+};
+
+struct PresenceClearRequest {
+    friend bool operator==(const PresenceClearRequest&, const PresenceClearRequest&) = default;
+};
+
+struct PresenceEntry {
+    std::uint64_t client{};
+    std::uint64_t color{};
+    std::uint64_t generation{};
+    std::optional<PresenceHighlight> highlight{};
+    std::optional<std::string> kind{};
+    std::optional<std::string> name{};
+    std::optional<PresenceAnchor> pointer{};
+    std::optional<Id> surface{};
+    std::uint64_t updated_at_ms{};
+    friend bool operator==(const PresenceEntry&, const PresenceEntry&) = default;
+};
+
+struct PresenceListRequest {
+    friend bool operator==(const PresenceListRequest&, const PresenceListRequest&) = default;
+};
+
+struct PresenceListResult {
+    std::vector<PresenceEntry> entries{};
+    friend bool operator==(const PresenceListResult&, const PresenceListResult&) = default;
+};
+
+struct PresenceUpdateRequest {
+    Field<PresenceHighlight> highlight{};
+    Field<PresenceAnchor> pointer{};
+    Id surface{};
+    friend bool operator==(const PresenceUpdateRequest&, const PresenceUpdateRequest&) = default;
+};
+
 struct ProcessInfoRequest {
     Id surface{};
     friend bool operator==(const ProcessInfoRequest&, const ProcessInfoRequest&) = default;
@@ -2408,6 +2496,7 @@ enum class SubscribeRequestTreeEvents {
 };
 
 struct SubscribeRequest {
+    Field<bool> presence_only{};
     Field<Id> surface{};
     Field<SubscribeRequestTreeEvents> tree_events{};
     friend bool operator==(const SubscribeRequest&, const SubscribeRequest&) = default;
@@ -3053,6 +3142,36 @@ template <>
 struct Codec<PingResult> {
     static Result<Json> encode(const PingResult& value);
     static Result<PingResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceAnchor> {
+    static Result<Json> encode(const PresenceAnchor& value);
+    static Result<PresenceAnchor> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceEntry> {
+    static Result<Json> encode(const PresenceEntry& value);
+    static Result<PresenceEntry> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceHighlight> {
+    static Result<Json> encode(const PresenceHighlight& value);
+    static Result<PresenceHighlight> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceHighlightMode> {
+    static Result<Json> encode(const PresenceHighlightMode& value);
+    static Result<PresenceHighlightMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceListResult> {
+    static Result<Json> encode(const PresenceListResult& value);
+    static Result<PresenceListResult> decode(const Json& value);
 };
 
 template <>
@@ -3770,6 +3889,24 @@ struct Codec<PingRequest> {
 };
 
 template <>
+struct Codec<PresenceClearRequest> {
+    static Result<Json> encode(const PresenceClearRequest& value);
+    static Result<PresenceClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceListRequest> {
+    static Result<Json> encode(const PresenceListRequest& value);
+    static Result<PresenceListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceUpdateRequest> {
+    static Result<Json> encode(const PresenceUpdateRequest& value);
+    static Result<PresenceUpdateRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ProcessInfoRequest> {
     static Result<Json> encode(const ProcessInfoRequest& value);
     static Result<ProcessInfoRequest> decode(const Json& value);
@@ -4190,6 +4327,12 @@ struct Codec<PaneClosedEvent> {
 };
 
 template <>
+struct Codec<PresenceChangedEvent> {
+    static Result<Json> encode(const PresenceChangedEvent& value);
+    static Result<PresenceChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenderDeltaEvent> {
     static Result<Json> encode(const RenderDeltaEvent& value);
     static Result<RenderDeltaEvent> decode(const Json& value);
@@ -4397,6 +4540,18 @@ template <>
 struct Codec<LayoutStack> {
     static Result<Json> encode(const LayoutStack& value);
     static Result<LayoutStack> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceAnchorCell> {
+    static Result<Json> encode(const PresenceAnchorCell& value);
+    static Result<PresenceAnchorCell> decode(const Json& value);
+};
+
+template <>
+struct Codec<PresenceAnchorPoint> {
+    static Result<Json> encode(const PresenceAnchorPoint& value);
+    static Result<PresenceAnchorPoint> decode(const Json& value);
 };
 
 template <>

@@ -472,6 +472,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID) }
             presentationReadiness.check()
+            presentationReadiness.markReadyIfPresented()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -491,6 +492,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID, outcome: "resized") }
             presentationReadiness.check()
+            presentationReadiness.markReadyIfPresented()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -503,7 +505,11 @@ final class CloudTuiManualMirrorSession {
         case let .overflow(surfaceID):
             guard surfaceID == nil || surfaceID == remoteSurfaceID else { return }
             transitionToDisconnected(reason: .transportClosed)
-        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error):
+        case .presence:
+            // Presence rides the per-machine CloudPresenceLink, never a pane
+            // attachment; this connection never subscribes.
+            return
+        case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, _):
             handleResponse(
                 requestID: requestID,
                 ok: ok,
@@ -661,6 +667,8 @@ final class CloudTuiManualMirrorSession {
             remoteLease = lease
             startupTrace?.mark("attach-ack", surfaceID: remoteSurfaceID, outcome: "accepted")
             transition(to: .attached)
+            presentationReadiness.check()
+            if diagnosticReplayReceived { presentationReadiness.markReadyIfPresented() }
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }

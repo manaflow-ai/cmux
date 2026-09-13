@@ -3744,6 +3744,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     nonisolated let selectionAccessibilitySignal = TerminalSelectionAccessibilitySignal()
     private var selectionAccessibilityNotifier: TerminalSelectionAccessibilityNotifier?
     var cellSize: CGSize = .zero
+    /// Cloud presence: the cell where a Cmd+Shift drag started, while it runs.
+    var cloudPresenceHighlightAnchor: CloudPresenceAnchor?
+    /// Cloud presence: the last highlight this pane published.
+    var cloudPresenceHighlight: CloudPresenceHighlight?
     private var lastKnownMousePointInView: NSPoint?
     private let commandClickReleaseRouter = TerminalCommandClickReleaseRouter()
     private var commandClickReleaseRoutingActive = false
@@ -7660,6 +7664,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         terminalPointerGesture.cancel()
+        if beginCloudPresenceHighlightIfRequested(event) { return }
         reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
             forceButtons: Set([.left])
@@ -7704,6 +7709,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
+        if finishCloudPresenceHighlight(event) { return }
         completePendingLeftMouseRelease(with: event)
     }
 
@@ -8863,6 +8869,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
+        publishCloudPresencePointer(at: eventPoint)
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -8908,9 +8915,88 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window.makeFirstResponder(self)
     }
 
+    // MARK: Cloud presence (pointer + Cmd+Shift-drag highlight)
+
+    /// Columns, rows, and cell size in points for anchor mapping. Nil until
+    /// the runtime has reported a cell size.
+    func cloudPresenceGrid() -> (columns: Int, rows: Int, cellSize: CGSize)? {
+        guard let surface, cellSize.width > 0, cellSize.height > 0 else { return nil }
+        let size = ghostty_surface_size(surface)
+        guard size.columns > 0, size.rows > 0 else { return nil }
+        return (Int(size.columns), Int(size.rows), cellSize)
+    }
+
+    /// The grid cell under a view point, as a daemon anchor. Mirrors the
+    /// centered-inset math the word-path resolver uses.
+    func cloudPresenceCell(at point: NSPoint) -> CloudPresenceAnchor? {
+        guard let grid = cloudPresenceGrid() else { return nil }
+        let xInset = max(0, (bounds.width - (CGFloat(grid.columns) * grid.cellSize.width)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(grid.rows) * grid.cellSize.height)) / 2)
+        let yFromTop = bounds.height - point.y
+        let row = Int((yFromTop - yInset) / grid.cellSize.height)
+        let col = Int((point.x - xInset) / grid.cellSize.width)
+        guard row >= 0, row < grid.rows, col >= 0, col < grid.columns else { return nil }
+        return .cell(row: row, col: col, scrollOffset: scrollbar?.rowsBelowViewport ?? 0)
+    }
+
+    private func cloudPresencePanelID() -> UUID? {
+        guard let panelID = terminalSurface?.id, CloudPresenceStore.shared.isPresencePane(panelID) else {
+            return nil
+        }
+        return panelID
+    }
+
+    private func publishCloudPresencePointer(at point: NSPoint) {
+        guard let panelID = cloudPresencePanelID(), cloudPresenceHighlightAnchor == nil else { return }
+        CloudPresenceStore.shared.publish(
+            panelID: panelID,
+            pointer: cloudPresenceCell(at: point),
+            highlight: cloudPresenceHighlight
+        )
+    }
+
+    private func beginCloudPresenceHighlightIfRequested(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains([.command, .shift]), !flags.contains(.option), !flags.contains(.control),
+              let panelID = cloudPresencePanelID() else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let cell = cloudPresenceCell(at: point) else { return false }
+        focusFromPointerDown()
+        cloudPresenceHighlightAnchor = cell
+        cloudPresenceHighlight = CloudPresenceHighlight(start: cell, end: cell, mode: .laser)
+        CloudPresenceStore.shared.publish(panelID: panelID, pointer: cell, highlight: cloudPresenceHighlight)
+        return true
+    }
+
+    private func continueCloudPresenceHighlight(_ event: NSEvent) -> Bool {
+        guard let anchor = cloudPresenceHighlightAnchor, let panelID = cloudPresencePanelID() else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        guard let cell = cloudPresenceCell(at: point) else { return true }
+        cloudPresenceHighlight = CloudPresenceHighlight(start: anchor, end: cell, mode: .laser)
+        CloudPresenceStore.shared.publish(panelID: panelID, pointer: cell, highlight: cloudPresenceHighlight)
+        return true
+    }
+
+    private func finishCloudPresenceHighlight(_ event: NSEvent) -> Bool {
+        guard cloudPresenceHighlightAnchor != nil else { return false }
+        cloudPresenceHighlightAnchor = nil
+        guard let panelID = cloudPresencePanelID() else { return true }
+        let point = convert(event.locationInWindow, from: nil)
+        CloudPresenceStore.shared.publish(
+            panelID: panelID,
+            pointer: cloudPresenceCell(at: point),
+            highlight: cloudPresenceHighlight
+        )
+        return true
+    }
+
     override func mouseExited(with event: NSEvent) {
         terminalPointerGesture.invalidateLinkActivation()
         if routeInputDuringClipboardRead(event) { return }
+        if let panelID = terminalSurface?.id, CloudPresenceStore.shared.isPresencePane(panelID),
+           cloudPresenceHighlightAnchor == nil {
+            CloudPresenceStore.shared.publish(panelID: panelID, pointer: nil, highlight: cloudPresenceHighlight)
+        }
         reconcileGhosttyMouseButtons(reason: "mouseExited")
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -8925,6 +9011,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        if continueCloudPresenceHighlight(event) { return }
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
@@ -9671,6 +9758,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
+    let cloudPresenceOverlayView: CloudPresenceOverlayView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
@@ -9916,6 +10004,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView = NSImageView(frame: .zero)
         keyboardCopyModeBadgeLabel = NSTextField(labelWithString: terminalKeyboardCopyModeIndicatorText)
         linkHoverIndicatorView = TerminalLinkHoverIndicatorView(frame: .zero)
+        cloudPresenceOverlayView = CloudPresenceOverlayView(frame: .zero)
         imageTransferIndicatorContainerView = NSView(frame: .zero)
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
@@ -10128,6 +10217,16 @@ final class GhosttySurfaceScrollView: NSView {
         linkHoverIndicatorView.frame = bounds
         linkHoverIndicatorView.autoresizingMask = [.width, .height]
         addSubview(linkHoverIndicatorView)
+        cloudPresenceOverlayView.frame = bounds
+        cloudPresenceOverlayView.isHidden = true
+        addSubview(cloudPresenceOverlayView, positioned: .below, relativeTo: linkHoverIndicatorView)
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .cloudPresenceDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.synchronizeCloudPresenceOverlay()
+        })
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -10447,6 +10546,11 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
+        _ = setFrameIfNeeded(cloudPresenceOverlayView, to: contentFrame)
+        synchronizeCloudPresenceGeometry()
+        if let cloudTerminalReconnectOverlayView {
+            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
+        }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
@@ -10515,6 +10619,30 @@ final class GhosttySurfaceScrollView: NSView {
             return nil
         }
         return workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: terminalSurface.id)
+    }
+
+    /// Re-reads teammates' pointers for this pane. Cheap: the store keeps the
+    /// latest entry per client and this pane filters by its remote surface.
+    private func synchronizeCloudPresenceOverlay() {
+        guard let panelID = surfaceView.terminalSurface?.id else { return }
+        let entries = CloudPresenceStore.shared.entries(forPane: panelID)
+        if !entries.isEmpty { synchronizeCloudPresenceGeometry() }
+        cloudPresenceOverlayView.apply(entries: entries)
+    }
+
+    private func synchronizeCloudPresenceGeometry() {
+        guard let grid = surfaceView.cloudPresenceGrid() else { return }
+        let size = cloudPresenceOverlayView.bounds.size
+        cloudPresenceOverlayView.geometry = CloudPresenceOverlayView.Geometry(
+            cellSize: grid.cellSize,
+            columns: grid.columns,
+            rows: grid.rows,
+            scrollOffset: surfaceView.scrollbar?.rowsBelowViewport ?? 0,
+            contentInset: CGPoint(
+                x: max(0, (size.width - CGFloat(grid.columns) * grid.cellSize.width) / 2),
+                y: max(0, (size.height - CGFloat(grid.rows) * grid.cellSize.height) / 2)
+            )
+        )
     }
 
     func synchronizeCloudTerminalReconnectOverlay() {
@@ -13132,6 +13260,7 @@ final class GhosttySurfaceScrollView: NSView {
         scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
         surfaceView.scrollbar = scrollbar
+        synchronizeCloudPresenceGeometry()
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent(

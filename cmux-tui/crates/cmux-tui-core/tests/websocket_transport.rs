@@ -612,3 +612,115 @@ fn websocket_non_loopback_bind_requires_and_accepts_explicit_insecure_opt_in() {
 
     mux.shutdown();
 }
+
+#[test]
+fn websocket_presence_pointer_fans_out_and_clears_on_disconnect() {
+    let mux = Mux::new("ws-presence", SurfaceOptions::default());
+    let surface = mux
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .unwrap()
+        .surface;
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(TEST_TOKEN.to_string()),
+        false,
+    )
+    .unwrap();
+
+    // Viewer: subscribes and only watches.
+    let mut viewer = authenticated_connect(server.local_addr());
+    send_json(&mut viewer, json!({"id": 1, "cmd": "identify"}));
+    let identify = read_until(&mut viewer, |value| value["id"] == 1);
+    assert!(
+        identify["data"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == server::PRESENCE_CAPABILITY),
+        "server must advertise presence-v1"
+    );
+    send_json(&mut viewer, json!({"id": 2, "cmd": "subscribe", "presence_only": true}));
+    assert_eq!(read_until(&mut viewer, |value| value["id"] == 2)["ok"], true);
+    // Presence-only subscribers never see tree traffic.
+    mux.emit(MuxEvent::TreeChanged);
+
+    // Pointer: names itself, then points at a cell with a laser highlight.
+    let mut pointer = authenticated_connect(server.local_addr());
+    send_json(
+        &mut pointer,
+        json!({"id": 3, "cmd": "set-client-info", "name": "ada", "kind": "mac"}),
+    );
+    assert_eq!(read_until(&mut pointer, |value| value["id"] == 3)["ok"], true);
+    send_json(
+        &mut pointer,
+        json!({
+            "id": 4,
+            "cmd": "presence-update",
+            "surface": surface,
+            "pointer": {"kind": "cell", "row": 3, "col": 12},
+            "highlight": {
+                "start": {"kind": "cell", "row": 3, "col": 0},
+                "end": {"kind": "cell", "row": 3, "col": 40},
+                "mode": "laser"
+            }
+        }),
+    );
+    assert_eq!(read_until(&mut pointer, |value| value["id"] == 4)["ok"], true);
+
+    let changed = loop {
+        let value = read_json(&mut viewer);
+        assert_ne!(value["event"], "tree-changed", "presence_only must filter tree events");
+        if value["event"] == "presence-changed" {
+            break value;
+        }
+    };
+    assert_eq!(changed["name"], "ada");
+    assert_eq!(changed["kind"], "mac");
+    assert_eq!(changed["surface"], surface);
+    assert_eq!(
+        changed["pointer"],
+        json!({"kind": "cell", "row": 3, "col": 12, "scroll_offset": 0})
+    );
+    assert_eq!(changed["highlight"]["mode"], "laser");
+    assert_eq!(changed["highlight"]["end"]["col"], 40);
+    assert!(changed["color"].as_u64().unwrap() < 8);
+    let pointer_client = changed["client"].as_u64().unwrap();
+    let generation = changed["generation"].as_u64().unwrap();
+
+    // A late joiner sees the same state through presence-list.
+    let mut late = authenticated_connect(server.local_addr());
+    send_json(&mut late, json!({"id": 5, "cmd": "presence-list"}));
+    let listed = read_until(&mut late, |value| value["id"] == 5);
+    let entries = listed["data"]["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["client"], pointer_client);
+    assert_eq!(entries[0]["pointer"]["row"], 3);
+
+    // Unknown surfaces are rejected before anything is stored.
+    send_json(
+        &mut pointer,
+        json!({"id": 6, "cmd": "presence-update", "surface": 999_999, "pointer": {"kind": "point", "x": 1.0, "y": 2.0}}),
+    );
+    let rejected = read_until(&mut pointer, |value| value["id"] == 6);
+    assert_eq!(rejected["ok"], false);
+    assert!(rejected["error"].as_str().unwrap().contains("unknown surface"));
+
+    // Dropping the pointer's socket clears its presence for everyone.
+    pointer.get_mut().shutdown(Shutdown::Both).unwrap();
+    drop(pointer);
+    let cleared = read_until(&mut viewer, |value| {
+        value["event"] == "presence-changed"
+            && value["client"] == pointer_client
+            && value["surface"].is_null()
+    });
+    assert!(cleared["generation"].as_u64().unwrap() > generation);
+    assert!(cleared["pointer"].is_null());
+    assert!(cleared["highlight"].is_null());
+
+    send_json(&mut late, json!({"id": 7, "cmd": "presence-list"}));
+    let listed = read_until(&mut late, |value| value["id"] == 7);
+    assert!(listed["data"]["entries"].as_array().unwrap().is_empty());
+
+    mux.shutdown();
+}

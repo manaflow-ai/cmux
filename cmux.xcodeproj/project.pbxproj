@@ -763,6 +763,11 @@
 		7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000071B /* CloudPortRoutePlan.swift */; };
 		7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */; };
 		D0F2A0000000000000000009 /* CloudPortsVPNWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */; };
+		C113273010000000000000001 /* CloudPresenceEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C113273020000000000000001 /* CloudPresenceEntry.swift */; };
+		C113273110000000000000001 /* CloudPresenceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = C113273120000000000000001 /* CloudPresenceLink.swift */; };
+		C113273310000000000000001 /* CloudPresenceOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C113273320000000000000001 /* CloudPresenceOverlayView.swift */; };
+		C113273210000000000000001 /* CloudPresenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C113273220000000000000001 /* CloudPresenceStore.swift */; };
+		C113273410000000000000001 /* CloudPresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C113273420000000000000001 /* CloudPresenceTests.swift */; };
 		7A0CE1000000000000000027 /* CloudPrivateNetworkGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000001 /* CloudPrivateNetworkGate.swift */; };
 		7A0CE1000000000000000504 /* CloudPrivateNetworkPurpose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000503 /* CloudPrivateNetworkPurpose.swift */; };
 		7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */; };
@@ -4524,6 +4529,11 @@
 		7A0CE100000000000000071B /* CloudPortRoutePlan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlan.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlanTests.swift; sourceTree = "<group>"; };
 		D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortsVPNWarning.swift; sourceTree = "<group>"; };
+		C113273020000000000000001 /* CloudPresenceEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPresenceEntry.swift; sourceTree = "<group>"; };
+		C113273120000000000000001 /* CloudPresenceLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPresenceLink.swift; sourceTree = "<group>"; };
+		C113273320000000000000001 /* CloudPresenceOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPresenceOverlayView.swift; sourceTree = "<group>"; };
+		C113273220000000000000001 /* CloudPresenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPresenceStore.swift; sourceTree = "<group>"; };
+		C113273420000000000000001 /* CloudPresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPresenceTests.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000001 /* CloudPrivateNetworkGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkGate.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000503 /* CloudPrivateNetworkPurpose.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkPurpose.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkUse.swift; sourceTree = "<group>"; };
@@ -7817,6 +7827,10 @@
 				C11324420000000000000001 /* CloudTuiManualIOFrame.swift */,
 				C11324440000000000000001 /* CloudTuiRemoteColors.swift */,
 				C11324020000000000000001 /* CloudTuiManualIOFrameDecoder.swift */,
+				C113273020000000000000001 /* CloudPresenceEntry.swift */,
+				C113273120000000000000001 /* CloudPresenceLink.swift */,
+				C113273220000000000000001 /* CloudPresenceStore.swift */,
+				C113273320000000000000001 /* CloudPresenceOverlayView.swift */,
 				C11324220000000000000001 /* CloudTuiManualIOGrid.swift */,
 				C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */,
 				C11322D20000000000000001 /* CloudTuiManualIOConnection.swift */,
@@ -10153,6 +10167,7 @@
 				C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */,
 				C12376020000000000000001 /* CloudManualMirrorPresentationTests.swift */,
 				80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */,
+				C113273420000000000000001 /* CloudPresenceTests.swift */,
 				9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
@@ -12218,6 +12233,10 @@
 				7A0CE1000000000000000712 /* CloudPortForwardTarget.swift in Sources */,
 				7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */,
 				D0F2A0000000000000000009 /* CloudPortsVPNWarning.swift in Sources */,
+				C113273010000000000000001 /* CloudPresenceEntry.swift in Sources */,
+				C113273110000000000000001 /* CloudPresenceLink.swift in Sources */,
+				C113273310000000000000001 /* CloudPresenceOverlayView.swift in Sources */,
+				C113273210000000000000001 /* CloudPresenceStore.swift in Sources */,
 				7A0CE1000000000000000027 /* CloudPrivateNetworkGate.swift in Sources */,
 				7A0CE1000000000000000504 /* CloudPrivateNetworkPurpose.swift in Sources */,
 				7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */,
@@ -14617,6 +14636,7 @@
 				602239E07C1B45F48EA589EC /* CloudPortForwardAddressReuseTests.swift in Sources */,
 				F11347000000000000000003 /* CloudPortOpenRegressionTests.swift in Sources */,
 				7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */,
+				C113273410000000000000001 /* CloudPresenceTests.swift in Sources */,
 				0C45DC8D9BE54DDEA2397892 /* CloudPrivateRouteSelectionTests.swift in Sources */,
 				AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */,
 				C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */,

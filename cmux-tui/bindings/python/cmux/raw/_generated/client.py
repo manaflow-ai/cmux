@@ -195,6 +195,15 @@ class GeneratedClientMixin:
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
 
+    def presence_clear(self) -> EmptyResult:
+        return self._invoke_command('presence-clear', PresenceClearRequest())
+
+    def presence_list(self) -> PresenceListResult:
+        return self._invoke_command('presence-list', PresenceListRequest())
+
+    def presence_update(self, surface: Id, *, highlight: Union[PresenceHighlight, None, MissingType] = MISSING, pointer: Union[PresenceAnchor, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('presence-update', PresenceUpdateRequest(surface=surface, highlight=highlight, pointer=pointer))
+
     def process_info(self, surface: Id) -> ProcessInfoResult:
         return self._invoke_command('process-info', ProcessInfoRequest(surface=surface))
 
@@ -306,8 +315,8 @@ class GeneratedClientMixin:
     def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, rows=rows))
 
-    def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
+    def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING, presence_only: Union[bool, None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events, presence_only=presence_only))
 
     def swap_pane(self, pane: Id, *, dir: Union[PaneDirection, None, MissingType] = MISSING, target: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('swap-pane', SwapPaneRequest(pane=pane, dir=dir, target=target))
@@ -392,6 +401,9 @@ GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
+GeneratedClientMixin.presence_clear.__cmux_command__ = COMMANDS['presence-clear']
+GeneratedClientMixin.presence_list.__cmux_command__ = COMMANDS['presence-list']
+GeneratedClientMixin.presence_update.__cmux_command__ = COMMANDS['presence-update']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
 GeneratedClientMixin.read_screen.__cmux_command__ = COMMANDS['read-screen']

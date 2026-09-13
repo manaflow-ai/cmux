@@ -125468,6 +125468,20 @@
         }
       }
     },
+    "cloud.presence.client": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "client" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Client" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "utilisateur" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "العميل" } },
+        "es": { "stringUnit": { "state": "translated", "value": "cliente" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用戶端" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "客户端" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라이언트" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クライアント" } }
+      }
+    },
     "cloudTree.browser.untitled": {
       "extractionState": "manual",
       "localizations": {

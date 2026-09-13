@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
+/* cmux-tui mux protocol 12, IR 3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313. */
 
 
 import type * as T from "./types.js";
@@ -554,6 +554,26 @@ export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
 }
 
+/** Protocol v12; authority: control. */
+export interface PresenceClearRequest extends CmuxRequestBase {
+  cmd: "presence-clear";
+}
+export type PresenceClearResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface PresenceListRequest extends CmuxRequestBase {
+  cmd: "presence-list";
+}
+
+/** Protocol v12; authority: control. */
+export interface PresenceUpdateRequest extends CmuxRequestBase {
+  cmd: "presence-update";
+  "highlight"?: (T.PresenceHighlight) | null;
+  "pointer"?: (T.PresenceAnchor) | null;
+  "surface": T.Id;
+}
+export type PresenceUpdateResult = T.EmptyResult;
+
 /** Protocol v6; authority: control. */
 export interface ProcessInfoRequest extends CmuxRequestBase {
   cmd: "process-info";
@@ -890,6 +910,7 @@ export type SplitResult = T.SurfaceResult;
 /** Protocol v5; authority: frontend. */
 export interface SubscribeRequest extends CmuxRequestBase {
   cmd: "subscribe";
+  "presence_only"?: (boolean) | null;
   "surface"?: (T.Id) | null;
   "tree_events"?: ("coarse" | "deltas") | null;
 }
@@ -1010,6 +1031,9 @@ export type CmuxRequest =
   | PairingResponseRequest
   | PaneNeighborRequest
   | PingRequest
+  | PresenceClearRequest
+  | PresenceListRequest
+  | PresenceUpdateRequest
   | ProcessInfoRequest
   | PutFrontendProjectionRequest
   | ReadScreenRequest
@@ -1544,6 +1568,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "presence-clear": {
+    request: PresenceClearRequest;
+    result: PresenceClearResult;
+    authority: "control";
+    since: 12;
+    capability: "presence-v1";
+    stream: null;
+  };
+  "presence-list": {
+    request: PresenceListRequest;
+    result: T.PresenceListResult;
+    authority: "control";
+    since: 12;
+    capability: "presence-v1";
+    stream: null;
+  };
+  "presence-update": {
+    request: PresenceUpdateRequest;
+    result: PresenceUpdateResult;
+    authority: "control";
+    since: 12;
+    capability: "presence-v1";
     stream: null;
   };
   "process-info": {

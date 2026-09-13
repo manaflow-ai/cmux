@@ -141,6 +141,28 @@ final class CloudTerminalReadiness {
         callback?()
     }
 
+    /// Completes the handoff when the renderer was already presented before
+    /// the first replay arrived. In that ordering there is no newer frame
+    /// notification to observe, but the presented renderer and replay are
+    /// both authoritative evidence that the pane is drawable.
+    func markReadyIfPresented() {
+        guard phase == .waiting,
+              let surface,
+              condition?() == true,
+              surface.hasLiveSurface,
+              surface.isRendererPresented,
+              surface.isRendererEffectivelyVisible else { return }
+        phase = .ready
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        cloudTerminalReadinessLogger.info(
+            "readiness surface=\(surface.id.uuidString, privacy: .private(mask: .hash)) phase=ready presented-without-new-frame"
+        )
+        let callback = onReady
+        releaseObservers()
+        callback?()
+    }
+
     /// Ends readiness permanently and releases observation resources.
     func end() {
         finishEnd(notify: true)
