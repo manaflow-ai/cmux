@@ -10,6 +10,11 @@ extension CmuxTuiSurfaceProvider {
         case remotePlacementUnavailable(String)
         case remoteTabNotFound(String)
         case terminalNotCreated(String)
+        /// The terminal's process already ended on the machine.
+        case terminalExited(String)
+        /// The daemon did not answer the resolver within the bounded retries.
+        /// The terminal may still be running; this is never "not created".
+        case terminalAttachTimedOut(terminalID: String, failure: CloudTuiSurfaceIDResolution.Failure)
         case invalidSnapshot(String)
         case snapshotOnly(String)
         case stateUnavailable(String)
@@ -53,6 +58,23 @@ extension CmuxTuiSurfaceProvider {
                 )
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
+            case .terminalExited(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalExited",
+                        defaultValue: "%@ already exited on the machine."
+                    ),
+                    id
+                )
+            case let .terminalAttachTimedOut(terminalID, failure):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalAttachTimedOut",
+                        defaultValue: "Could not attach %@ in time (%@). The terminal may still be running on the machine; try opening it again."
+                    ),
+                    terminalID,
+                    failure.localizedDescription
+                )
             case .invalidSnapshot(let id):
                 return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
             case .snapshotOnly(let id):
