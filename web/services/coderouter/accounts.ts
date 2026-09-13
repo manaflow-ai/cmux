@@ -19,13 +19,16 @@ import {
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
+import { verifyCodexCredential } from "./codexSignature";
 
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
   keys?: CredentialKeyService,
+  verify: typeof verifyCodexCredential = verifyCodexCredential,
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
   if (credential.provider === "codex") {
+    await verify(credential);
     credential = withCodexOwner(credential);
     await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys);
   }
