@@ -2989,6 +2989,16 @@ final class SocketClient {
         let relayToken: Data
     }
 
+    /// Cached `pane.list` payloads keyed by workspace id.
+    ///
+    /// The tmux compatibility layer resolves the same workspace's pane list
+    /// several times while resolving a single `-t` target (once inside
+    /// `tmuxResolvePaneTarget` to pick the workspace, again for the pane id,
+    /// and again for `canonicalCallerPane`). Pane topology cannot change
+    /// between those reads, so reuse the first response instead of spending
+    /// one read-plane token per call.
+    private var paneListCache: [String: [String: Any]] = [:]
+
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
@@ -4026,12 +4036,51 @@ final class SocketClient {
         return nil
     }
 
+    /// `pane.list` for a workspace, reusing the response for the lifetime of
+    /// this client. Callers that mutate pane topology must call
+    /// `invalidatePaneListCache()`.
+    func paneListSnapshot(workspaceId: String) throws -> [String: Any] {
+        if let cached = paneListCache[workspaceId] { return cached }
+        let payload = try sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        paneListCache[workspaceId] = payload
+        return payload
+    }
+
+    func invalidatePaneListCache() {
+        paneListCache.removeAll()
+    }
+
+    /// Methods that cannot change which panes exist, where they sit, or which
+    /// one is active. Every other method drops the `pane.list` cache, so a
+    /// command that reads a pane list, mutates the workspace, then reads again
+    /// observes the mutation. Unknown methods invalidate.
+    private static let paneTopologyPreservingMethods: Set<String> = [
+        "pane.list",
+        "pane.surfaces",
+        "surface.list",
+        "surface.current",
+        "surface.read_text",
+        "surface.read_selection",
+        "workspace.list",
+        "workspace.current",
+        "window.list",
+        "window.current",
+        "window.displays",
+        "system.top",
+        "system.memory",
+        "system.tree",
+        "system.identify",
+    ]
+
     func sendV2(
         method: String,
         params: [String: Any] = [:],
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> [String: Any] {
+        if !Self.paneTopologyPreservingMethods.contains(method) {
+            paneListCache.removeAll()
+        }
         var tracedParams = params
         if method.hasPrefix("vm.") {
             for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
@@ -23016,7 +23065,7 @@ struct CMUXCLI {
             return normalizedHandle
         }
 
-        let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
+        let payload = try client.paneListSnapshot(workspaceId: workspaceId)
         let panes = payload["panes"] as? [[String: Any]] ?? []
         for pane in panes {
             let id = pane["id"] as? String
@@ -23467,7 +23516,7 @@ struct CMUXCLI {
         if let resolvedPaneId {
             context["pane_id"] = "%\(tmuxStableNumericId(resolvedPaneId))"
             context["pane_uuid"] = resolvedPaneId
-            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": canonicalWorkspaceId])
+            let panePayload = try client.paneListSnapshot(workspaceId: canonicalWorkspaceId)
             let panes = panePayload["panes"] as? [[String: Any]] ?? []
             if let pane = panes.first(where: { ($0["id"] as? String) == resolvedPaneId }) {
                 if let index = intFromAny(pane["index"]) {
@@ -26646,7 +26695,7 @@ struct CMUXCLI {
                 client: client
             )
             // Enrich with geometry for format strings like #{pane_width},#{window_width}
-            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+            let panePayload = try client.paneListSnapshot(workspaceId: target.workspaceId)
             let panesList = panePayload["panes"] as? [[String: Any]] ?? []
             let containerFrame = panePayload["container_frame"] as? [String: Any]
             if let targetPaneId = target.paneId,
