@@ -3,18 +3,18 @@ import CmuxAppKitSupportUI
 
 /// Shows progress or a recoverable failure while a Cloud terminal pane is created.
 struct CloudTerminalPendingPanelView: View {
-    @ObservedObject var panel: CloudTerminalPendingPanel
+    let panel: CloudTerminalPendingPanel
 
     var body: some View {
         VStack(spacing: 14) {
-            switch panel.phase {
+            switch panel.state.phase {
             case .starting:
                 ProgressView()
                     .controlSize(.small)
                 Text(String(localized: "cloudTerminal.creation.starting", defaultValue: "Starting Cloud terminal"))
                     .cmuxFont(size: 14, weight: .semibold)
                     .foregroundStyle(.primary)
-                Text(String(localized: "cloudTerminal.creation.waiting", defaultValue: "Waiting for cmux-tui to accept the terminal."))
+                Text(String(localized: "cloudTerminal.creation.waiting", defaultValue: "Waiting for the Cloud service to accept the terminal."))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -46,15 +46,17 @@ struct CloudTerminalCreationCoordinatorTests {
         )
         panel.onRetry = { coordinator.retry() }
         coordinator.start()
-        await Self.yieldUntil { panel.phase == .failed("link restarting") }
+        await Self.yieldUntil {
+            if case .failed = panel.state.phase { return true }
+            return false
+        }
         #expect(createCount == 1)
         #expect(projectCount == 1)
-        #expect(panel.createdResource == resource)
 
         panel.retry()
         await Self.yieldUntil { projectCount == 2 }
         #expect(createCount == 1)
-        #expect(panel.phase == .starting)
+        #expect(panel.state.phase == .starting)
     }
 
     @Test @MainActor

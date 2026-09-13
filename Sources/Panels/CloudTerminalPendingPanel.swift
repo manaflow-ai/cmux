@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// A temporary panel that explains a Cloud terminal creation still in flight.
@@ -8,18 +7,12 @@ import Foundation
 /// never participates in Cloud VM startup.
 @MainActor
 final class CloudTerminalPendingPanel: Panel {
-    enum Phase: Equatable {
-        case starting
-        case failed(String)
-    }
-
     let id = UUID()
     let workspaceId: UUID
     let machine: SurfaceMachineID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
-    @Published private(set) var phase: Phase = .starting
-    private(set) var createdResource: SurfaceResource?
+    let state: CloudTerminalPendingState
     var onRetry: (() -> Void)?
     var onCancel: (() -> Void)?
 
@@ -32,6 +25,7 @@ final class CloudTerminalPendingPanel: Panel {
     init(workspaceId: UUID, machine: SurfaceMachineID) {
         self.workspaceId = workspaceId
         self.machine = machine
+        state = CloudTerminalPendingState()
     }
 
     func close() {
@@ -45,18 +39,11 @@ final class CloudTerminalPendingPanel: Panel {
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
 
     func resetForRetry() {
-        phase = .starting
+        state.resetForRetry()
     }
 
-    func setCreatedResource(_ resource: SurfaceResource) {
-        createdResource = resource
-    }
-
-    func showFailure(_ detail: String) {
-        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
-        phase = .failed(trimmed.isEmpty
-            ? String(localized: "cloudTerminal.creation.failed.detail", defaultValue: "cmux-tui did not accept the terminal request.")
-            : String(trimmed.prefix(600)))
+    func showFailure() {
+        state.showFailure()
     }
 
     func retry() {

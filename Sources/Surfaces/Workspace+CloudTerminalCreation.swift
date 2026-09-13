@@ -75,8 +75,13 @@ extension Workspace {
         let pendingPanel: CloudTerminalPendingPanel?
         if let pendingPane {
             guard let pending = installCloudTerminalPendingPanel(machine: machine, in: pendingPane) else {
-                // The new pane may have been closed or claimed by another action. Keep the
-                // request routed to Cloud so it cannot fall through to a local shell.
+                // The new pane may have been closed or claimed by another action. Remove an
+                // untouched pane that Bonsplit left behind so a handled Cloud request cannot
+                // strand an anonymous empty pane or fall through to a local shell.
+                if bonsplitController.allPaneIds.contains(pendingPane),
+                   bonsplitController.tabs(inPane: pendingPane).isEmpty {
+                    _ = bonsplitController.closePane(pendingPane)
+                }
                 return true
             }
             pendingPanel = pending
@@ -176,7 +181,10 @@ extension Workspace {
             ),
             machine.rawValue
         )
-        alert.informativeText = CloudMachineLink.errorText(error)
+        alert.informativeText = String(
+            localized: "cloudTerminal.creation.failed.detail",
+            defaultValue: "The Cloud service did not accept the terminal request."
+        )
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
         CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")

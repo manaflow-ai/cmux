@@ -46,7 +46,6 @@ final class CloudTerminalCreationCoordinator {
                     resource = try await self.create()
                     guard self.generation == operationGeneration else { return }
                     self.createdResource = resource
-                    panel.setCreatedResource(resource)
                 }
                 try Task.checkCancellation()
                 try await self.project(resource)
@@ -60,7 +59,7 @@ final class CloudTerminalCreationCoordinator {
                 guard self.generation == operationGeneration,
                       !Task.isCancelled,
                       self.panel === panel else { return }
-                panel.showFailure(Self.failureText(error))
+                panel.showFailure()
             }
         }
     }
@@ -75,10 +74,6 @@ final class CloudTerminalCreationCoordinator {
         generation &+= 1
         task?.cancel()
         task = nil
-    }
-
-    private func failureText(_ error: Error) -> String {
-        CloudMachineLink.errorText(error)
     }
 
     deinit {

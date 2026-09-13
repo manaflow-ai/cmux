@@ -2,7 +2,7 @@ import SwiftUI
 import CmuxAppKitSupportUI
 import CmuxFeedback
 
-private struct CloudVMLoadingPanelView: View {
+struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {

@@ -6524,55 +6524,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui did not accept the terminal request."
+            "value": "The Cloud service did not accept the terminal request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui がターミナル要求を受け付けませんでした。"
+            "value": "Cloud サービスがターミナル要求を受け付けませんでした。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui hat die Terminalanfrage nicht akzeptiert."
+            "value": "Der Cloud-Dienst hat die Terminalanfrage nicht akzeptiert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui n’a pas accepté la demande de terminal."
+            "value": "Le service Cloud n’a pas accepté la demande de terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يقبل cmux-tui طلب الطرفية."
+            "value": "لم تقبل خدمة Cloud طلب الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui no aceptó la solicitud del terminal."
+            "value": "El servicio Cloud no aceptó la solicitud del terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 未接受終端機要求。"
+            "value": "Cloud 服務未接受終端機要求。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui 未接受终端请求。"
+            "value": "Cloud 服务未接受终端请求。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui가 터미널 요청을 수락하지 않았습니다."
+            "value": "Cloud 서비스가 터미널 요청을 수락하지 않았습니다."
           }
         }
       }
@@ -6819,55 +6819,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for cmux-tui to accept the terminal."
+            "value": "Waiting for the Cloud service to accept the terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui がターミナルを受け付けるのを待機中です。"
+            "value": "Cloud サービスがターミナルを受け付けるのを待機中です。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Warten, bis cmux-tui das Terminal akzeptiert."
+            "value": "Warten, bis der Cloud-Dienst das Terminal akzeptiert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "En attente de l’acceptation du terminal par cmux-tui."
+            "value": "En attente de l’acceptation du terminal par le service Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "في انتظار قبول cmux-tui للطرفية."
+            "value": "في انتظار قبول خدمة Cloud للطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esperando a que cmux-tui acepte el terminal."
+            "value": "Esperando a que el servicio Cloud acepte el terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在等待 cmux-tui 接受終端機。"
+            "value": "正在等待 Cloud 服務接受終端機。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在等待 cmux-tui 接受终端。"
+            "value": "正在等待 Cloud 服务接受终端。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui가 터미널을 수락하기를 기다리는 중입니다."
+            "value": "Cloud 서비스가 터미널을 수락하기를 기다리는 중입니다."
           }
         }
       }
