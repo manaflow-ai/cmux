@@ -8410,7 +8410,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 // MARK: - UI Delegate
 
 @MainActor
-private final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
+final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     private let externalNavigationHandler: BrowserExternalNavigationHandler
     weak var owner: BrowserPanel?
     var openInNewTab: ((URL) -> Void)?
