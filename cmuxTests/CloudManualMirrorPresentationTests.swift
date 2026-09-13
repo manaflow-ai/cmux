@@ -39,6 +39,7 @@ struct CloudManualMirrorPresentationTests {
 
     @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
+        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, firstFramePresented: true).connectionState == .connected)
