@@ -24,6 +24,20 @@ struct GuiModePanelState: Codable, Equatable, Sendable {
         reasoningEffort: GuiModeModelCatalog.defaultReasoningEffort
     )
 
+    init(
+        page: GuiModePanelPage,
+        prompt: String?,
+        providerID: GuiModeProviderID,
+        modelID: String,
+        reasoningEffort: String
+    ) {
+        self.page = page
+        self.prompt = prompt
+        self.providerID = providerID
+        self.modelID = modelID
+        self.reasoningEffort = reasoningEffort
+    }
+
     static func taskWorktreePR(
         prompt: String,
         providerID: GuiModeProviderID,

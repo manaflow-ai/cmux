@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 extension SessionAgentSessionPanelSnapshot {
     init(agentPanel: AgentSessionPanel, workingDirectory: String?) {
         self.init(
