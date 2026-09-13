@@ -73,6 +73,52 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         )
     }
 
+    @Test func claudeOrdinarySessionStartPublishesResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-ordinary-session-start")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-ordinary-session-start-session"
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-ordinary-session-start",
+            ttySurfaceId: context.surfaceId
+        )
+
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
+        ]
+
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+
+        let request = try #require(
+            resumeBindingRequests(in: context).last,
+            "Expected ordinary Claude SessionStart to publish a resume binding, saw \(context.state.snapshot())"
+        )
+        #expect(request["checkpoint_id"] as? String == sessionId)
+        #expect(request["workspace_id"] as? String == context.workspaceId)
+        #expect(request["surface_id"] as? String == context.surfaceId)
+    }
+
     @Test func claudeSessionStartOverridesLeakedEnvWorkspaceAndSurfaceWithTTYBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-leaked-workspace")
         defer { context.cleanup() }
@@ -817,6 +863,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        // Process can finish while the test host is busy servicing another
+        // fixture. Observe termination directly instead of queueing a blocking
+        // waitUntilExit() on the shared global pool, where the waiter can be
+        // starved and report a successful child as a timeout.
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -828,16 +880,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

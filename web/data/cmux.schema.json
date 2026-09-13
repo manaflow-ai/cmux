@@ -1731,6 +1731,8 @@
               "toggleSidebar",
               "newTab",
               "newBrowserWorkspace",
+              "newCloudWorkspace",
+              "newCloudMachine",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",

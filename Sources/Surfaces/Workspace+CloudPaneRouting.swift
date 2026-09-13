@@ -45,9 +45,7 @@ extension Workspace {
         )
     }
 
-    /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
-    /// projects a cloud resource: the already-created empty pane receives the machine's
-    /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
+    /// Routes a bonsplit UI split whose source pane projects a cloud resource.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID) -> Bool {
         guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
         return routeCloudPaneTerminalCreate(
@@ -84,8 +82,9 @@ extension Workspace {
         let machine = resource.machine
         Task { @MainActor in
             do {
+                let workingDirectory = await provider.currentWorkingDirectory(of: resource)
                 let created = try await provider.createTerminal(
-                    command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
+                    command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
                 )
                 _ = try await catalog.project(
                     created.id,
@@ -117,6 +116,7 @@ extension Workspace {
         alert.informativeText = CloudMachineLink.errorText(error)
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
         alert.runModal()
     }
 }
@@ -349,13 +349,10 @@ final class CloudWorkspaceRenameService {
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
+        let rename = catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         Task { @MainActor [weak workspace, weak manager] in
             do {
-                try await catalog.renameRemoteWorkspace(
-                    on: target.machine,
-                    id: target.remoteWorkspaceID,
-                    name: name
-                )
+                try await rename.value
             } catch {
                 guard let workspace,
                       workspace.customTitle == expectedTitle,
@@ -410,9 +407,10 @@ final class CloudWorkspaceRenameService {
             return
         }
         guard catalog.provider(for: resource.machine) != nil else { return }
+        let rename = catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name)
         Task { @MainActor [weak workspace] in
             do {
-                try await catalog.renameRemoteTab(on: resource.machine, id: tabID, name: name)
+                try await rename.value
             } catch {
                 guard let workspace,
                       workspace.panelCustomTitles[panelID] == expectedTitle else { return }
