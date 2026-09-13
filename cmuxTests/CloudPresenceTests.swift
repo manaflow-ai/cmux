@@ -160,6 +160,101 @@ struct CloudPresenceTests {
     }
 }
 
-// Keep the semantic CI path exercised on presence target membership.
+@Suite(.serialized)
+@MainActor
+struct CloudPresenceDeliveryTests {
+    private func acceptHandshake(_ fixture: CloudManualMirrorSocketFixture) async throws -> UInt64 {
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(1)))
+        #expect(identify.cmd == "identify")
+        let info = try #require(await fixture.nextCommand(timeout: .seconds(1)))
+        #expect(info.cmd == "set-client-info")
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["presence-v1"]]])
+        let clients = try #require(await fixture.nextCommand(timeout: .seconds(1)))
+        #expect(clients.cmd == "list-clients")
+        fixture.send(["id": clients.id, "ok": true, "data": [["client": 41, "self": true]]])
+        let subscribe = try #require(await fixture.nextCommand(timeout: .seconds(1)))
+        #expect(subscribe.cmd == "subscribe")
+        return subscribe.id
+    }
 
-// Retrigger semantic CI after current-main compatibility fixes.
+    private func waitUntilReady(_ link: CloudPresenceLink) async throws {
+        let deadline = ContinuousClock.now + .seconds(1)
+        while link.phase != .ready, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(link.phase == .ready)
+    }
+
+    @Test
+    func pointerBurstSendsFinalCellWithoutAnotherMouseEvent() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        let link = CloudPresenceLink(machineID: "burst", socketPath: fixture.socketPath,
+                                     clientName: "Alice", onEntry: { _ in }, onPhaseChange: { _ in })
+        defer { link.stop(); fixture.close() }
+        let subscribe = try await acceptHandshake(fixture)
+        fixture.send(["id": subscribe, "ok": true, "data": [:]])
+        try await waitUntilReady(link)
+        link.publish(surfaceID: 7, pointer: .cell(row: 1, col: 2, scrollOffset: 0), highlight: nil)
+        link.publish(surfaceID: 7, pointer: .cell(row: 8, col: 2, scrollOffset: 0), highlight: nil)
+        let first = await fixture.nextCommand(timeout: .seconds(1))
+        #expect(first?.pointerRow == 1)
+        let final = await fixture.nextCommand(timeout: .milliseconds(250))
+        #expect(final?.pointerRow == 8, "The settled cell must be sent even when the mouse stops during throttling")
+    }
+
+    @Test
+    func subscriptionAcknowledgementGatesOutgoingPresence() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        let link = CloudPresenceLink(machineID: "handshake", socketPath: fixture.socketPath,
+                                     clientName: "Alice", onEntry: { _ in }, onPhaseChange: { _ in })
+        defer { link.stop(); fixture.close() }
+        let subscribe = try await acceptHandshake(fixture)
+        link.publish(surfaceID: 7, pointer: .cell(row: 4, col: 2, scrollOffset: 0), highlight: nil)
+        #expect(link.phase == .connecting)
+        #expect(await fixture.nextCommand(timeout: .milliseconds(100)) == nil)
+        fixture.send(["id": subscribe, "ok": true, "data": [:]])
+        try await waitUntilReady(link)
+        #expect(await fixture.nextCommand(timeout: .seconds(1))?.pointerRow == 4)
+    }
+
+    @Test
+    func paneRegistrationAndRemapNotifyExistingPresence() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        let store = CloudPresenceStore()
+        let machine = "existing-\(UUID().uuidString)"
+        let firstPane = UUID()
+        let laterPane = UUID()
+        store.registerPane(panelID: firstPane, machineID: machine, remoteSurfaceID: 7, socketPath: fixture.socketPath)
+        defer {
+            store.unregisterPane(panelID: firstPane)
+            store.unregisterPane(panelID: laterPane)
+            fixture.close()
+        }
+        let subscribe = try await acceptHandshake(fixture)
+        fixture.send(["id": subscribe, "ok": true, "data": [:]])
+        fixture.send(["event": "presence-changed", "client": 42, "color": 2, "surface": 7,
+                      "name": "Bob", "pointer": ["kind": "cell", "row": 2, "col": 3],
+                      "generation": 1, "updated_at_ms": 1])
+        let deadline = ContinuousClock.now + .seconds(1)
+        while store.entries(forPane: firstPane).isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(store.entries(forPane: firstPane).count == 1)
+        let counter = CloudPresenceNotificationCounter()
+        let observer = NotificationCenter.default.addObserver(forName: .cloudPresenceDidChange, object: nil, queue: nil) { note in
+            guard note.userInfo?[CloudPresenceStore.machineIDKey] as? String == machine else { return }
+            MainActor.assumeIsolated { counter.value += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        store.registerPane(panelID: laterPane, machineID: machine, remoteSurfaceID: 0, socketPath: fixture.socketPath)
+        #expect(counter.value == 1, "A newly created overlay must receive the current machine state")
+        store.updateRemoteSurfaceID(panelID: laterPane, remoteSurfaceID: 7)
+        #expect(counter.value == 2, "Resolving a pane must redraw existing peers without waiting for their next move")
+        #expect(store.entries(forPane: laterPane).first?.name == "Bob")
+    }
+}
+
+@MainActor
+private final class CloudPresenceNotificationCounter {
+    var value = 0
+}

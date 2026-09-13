@@ -9,6 +9,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     let surface: UInt64?
     let capabilities: [String]
     let hasInitialSize: Bool
+    let pointerRow: Int?
 
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
@@ -17,6 +18,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
         surface = (object["surface"] as? NSNumber)?.uint64Value
         capabilities = object["capabilities"] as? [String] ?? []
         hasInitialSize = object["cols"] != nil || object["rows"] != nil
+        pointerRow = (object["pointer"] as? [String: Any])?["row"] as? Int
     }
 }
 
