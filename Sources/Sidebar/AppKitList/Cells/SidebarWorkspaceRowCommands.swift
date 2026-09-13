@@ -325,10 +325,6 @@ struct SidebarWorkspaceRowMenuBuilder {
         addRenameAndDescriptionItems(to: menu, tabManager: tabManager)
         addRemoteSection(to: menu, tabManager: tabManager)
         addColorMenu(to: menu)
-        if !isMulti, let revealItem = tab.focusInCloudSidebarMenuItem() {
-            menu.addItem(.separator())
-            menu.addItem(revealItem)
-        }
         addSSHErrorItem(to: menu)
         menu.addItem(.separator())
         addMoveItems(to: menu, tabManager: tabManager)

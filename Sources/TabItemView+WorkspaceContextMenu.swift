@@ -196,13 +196,6 @@ extension TabItemView {
             }
         }
 
-        if !isMulti, CloudMachinesFeature.isEnabled, workspaceSnapshot.cloudWorkspaceLabel != nil {
-            Divider()
-            Button(String(localized: "contextMenu.focusInCloudSidebar", defaultValue: "Focus in Cloud Sidebar")) {
-                actions.focusInCloudSidebar()
-            }
-        }
-
         if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
             Divider()
 

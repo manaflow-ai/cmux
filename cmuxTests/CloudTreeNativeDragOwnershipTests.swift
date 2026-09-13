@@ -306,9 +306,7 @@ struct CloudTreeNativeDragOwnershipTests {
             remoteWorkspaceID: "ws-2", remoteTabID: "tab-30"
         )
         let target = try #require(CloudSidebarRevealTarget(
-            projection: projection,
-            binding: WorkspaceCloudVMBinding(vmID: "other-machine", isBase: false),
-            managedCloudVMID: nil
+            projection: projection
         ))
         let request = CloudSidebarNavigationState.Request(target: target)
         coordinator.reveal(request)
@@ -328,14 +326,14 @@ struct CloudTreeNativeDragOwnershipTests {
         withExtendedLifetime(container) {}
     }
 
-    @Test("Local panes have no Cloud target; a bound workspace falls back to its own row")
+    @Test("A local pane has no Cloud sidebar target; a projected tab resolves its row")
     func revealResolvesLocalAndBoundWorkspaces() throws {
-        #expect(CloudSidebarRevealTarget(projection: nil, binding: nil, managedCloudVMID: nil) == nil)
-        let target = try #require(CloudSidebarRevealTarget(
-            projection: nil,
-            binding: WorkspaceCloudVMBinding(vmID: "test-machine", isBase: false, remoteWorkspaceID: "ws-1"),
-            managedCloudVMID: "other-machine"
-        ))
+        #expect(CloudSidebarRevealTarget(projection: nil) == nil)
+        let projection = SurfaceProjection(
+            resource: SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "terminal"),
+            workspaceID: UUID(), panelID: UUID(), remoteWorkspaceID: "ws-1", remoteTabID: "tab-1"
+        )
+        let target = try #require(CloudSidebarRevealTarget(projection: projection))
         let node = CloudTreeNode(
             id: "ws-1",
             kind: .workspace(

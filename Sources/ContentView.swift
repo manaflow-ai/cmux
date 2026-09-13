@@ -15234,9 +15234,6 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             onPointerDragEligibilityChange: { [pointerInteractionMonitor] isEnabled in
                 pointerInteractionMonitor.setWorkspaceDragEnabled(isEnabled, for: rowId)
-            },
-            focusInCloudSidebar: {
-                _ = workspace()?.focusInCloudSidebar()
             }
         )
         }

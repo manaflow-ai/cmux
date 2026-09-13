@@ -55,7 +55,6 @@ struct SidebarWorkspaceRowActions {
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
     let onPointerDragEligibilityChange: (Bool) -> Void
-    var focusInCloudSidebar: () -> Void = {}
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.

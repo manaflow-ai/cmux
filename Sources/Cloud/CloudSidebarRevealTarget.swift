@@ -8,23 +8,13 @@ struct CloudSidebarRevealTarget: Equatable {
     let remoteTabID: String?
 
     init?(
-        projection: SurfaceProjection?,
-        binding: WorkspaceCloudVMBinding?,
-        managedCloudVMID: String?
+        projection: SurfaceProjection?
     ) {
-        if let projection, projection.resource.machine.cloudMachineID != nil {
-            machine = projection.resource.machine
-            remoteWorkspaceID = projection.remoteWorkspaceID
-            resource = projection.resource
-            remoteTabID = projection.remoteTabID
-        } else if let id = WorkspaceCloudVMBinding.normalizedVMID(binding?.vmID ?? managedCloudVMID) {
-            machine = .cloud(id)
-            remoteWorkspaceID = binding?.remoteWorkspaceID
-            resource = nil
-            remoteTabID = nil
-        } else {
-            return nil
-        }
+        guard let projection, projection.resource.machine.cloudMachineID != nil else { return nil }
+        machine = projection.resource.machine
+        remoteWorkspaceID = projection.remoteWorkspaceID
+        resource = projection.resource
+        remoteTabID = projection.remoteTabID
     }
 
     /// Prefer the exact daemon tab, then its workspace, then the machine.
