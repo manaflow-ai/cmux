@@ -255,36 +255,20 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
-    /// Foreground resume: retain a session that recently proved liveness, but
-    /// replace a native zombie whose closed flag stayed false during
-    /// suspension. This avoids age-based churn while preserving recovery.
+    /// Foreground resume retains every connection that native Iroh still owns.
+    /// The historical age argument is diagnostic only; suspension and pong age
+    /// cannot invalidate an otherwise usable connection.
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
             if let session = self.currentSessionForKick(),
-               await !session.connection.isConnectionClosed()
-            {
-                let recentlyAlive: Bool
-                if clockNow() - session.establishedAtMonotonic <= staleAfter {
-                    // A newly admitted session has not necessarily completed
-                    // its first keepalive round yet, but is still within the
-                    // bounded fresh-session grace period.
-                    recentlyAlive = true
-                } else {
-                    recentlyAlive = await session.connection.hasRecentKeepalive(
-                        within: staleAfter)
-                }
-                if recentlyAlive {
-                    self.record(
-                        "foreground-session-retained",
-                        [
-                            "session": session.admit.session,
-                            "stale_after": String(describing: staleAfter),
-                        ]
-                    )
-                    return
-                }
+               await !session.connection.isConnectionClosed() {
+                self.record(
+                    "foreground-session-retained",
+                    ["session": session.admit.session, "stale_after": String(describing: staleAfter)]
+                )
+                return
             }
-            _ = try? await self.ensureSession(explicit: true, trigger: "foreground")
+            _ = try? await self.ensureSession(trigger: "foreground")
         }
     }
 

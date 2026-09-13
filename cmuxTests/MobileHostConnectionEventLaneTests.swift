@@ -183,7 +183,7 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
-    @Test func testIndependentEventBackpressureClosesAtBoundedQueueCapacity() async throws {
+    @Test func testIndependentEventBackpressurePreservesOrderedEvents() async throws {
         let control = RecordingMobileHostByteTransport()
         let independent = TestMobileHostIndependentEventWriter(
             behavior: .blockAfterProbe
@@ -198,10 +198,7 @@ extension MobileHostAuthorizationTests {
             handleRequest: { _ in .ok([:]) },
             onClose: { _ in }
         )
-        // A non-droppable topic (state-sync deltas cannot be re-derived by the
-        // client) keeps the close-on-overflow contract; recoverable topics like
-        // terminal.render_grid are shed instead — see
-        // testStalledRenderGridSubscriberStaysOpenWithBoundedEventQueue.
+        // Ordered state changes remain queued while the event lane is busy.
         _ = await session.debugHandleSubscriptionRPCForTesting(
             MobileHostRPCRequest(
                 id: "subscribe",
@@ -232,15 +229,16 @@ extension MobileHostAuthorizationTests {
             )
         }
         #expect(
-            !(await session.sendEvent(
+            await session.sendEvent(
                 topic: "mobile.sync.delta",
                 payload: ["seq": 257]
-            ))
+            )
         )
 
-        #expect(await control.observedCloseCount() == 1)
-        #expect(await independent.observedCloseCount() == 1)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await control.observedCloseCount() == 0)
+        #expect(await independent.observedCloseCount() == 0)
+        #expect(await session.debugQueuedEventCountForTesting() == 257)
+        await session.close(reason: "test complete")
     }
 
     @Test func testIdempotentSubscriptionDoesNotReprobeHealthyIndependentLane() async throws {
@@ -333,11 +331,8 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
     }
 
-    /// Events that cannot be re-derived by the client (state-sync deltas and
-    /// other non-refresh topics) must keep the close-on-overflow contract: the
-    /// host may never silently drop them, so a subscriber that stops draining
-    /// is torn down at the bounded capacity instead of growing without bound.
-    @Test func testStalledSubscriberOverflowOnNonRecoverableTopicClosesConnection() async throws {
+    /// Ordered events must survive congestion without forcing a reconnect.
+    @Test func testStalledSubscriberPreservesOrderedEventsBeyondSheddingBudget() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let session = MobileHostConnection(
             id: UUID(),
@@ -359,9 +354,10 @@ extension MobileHostAuthorizationTests {
             }
         }
 
-        #expect(await transport.observedCloseCount() == 1)
-        #expect(admitted <= 258)
-        #expect(await session.debugQueuedEventCountForTesting() == 0)
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(admitted == 300)
+        #expect(await session.debugQueuedEventCountForTesting() >= 299)
+        await session.close(reason: "test complete")
     }
 
     /// End-to-end fan-out proof for issue #8842: sustained emission through the
@@ -460,18 +456,14 @@ extension MobileHostAuthorizationTests {
         ))
     }
 
-    /// A subscriber whose transport accepted a frame but never completes the
-    /// write (TCP zero-window peer) is torn down by the bounded event-send
-    /// stall deadline instead of pinning the connection's queue, tasks, and
-    /// socket forever.
-    @Test func testEventSendStallDeadlineClosesStalledConnection() async throws {
+    /// A stalled event write does not end the connection or interrupt framing.
+    @Test func testEventSendStallDoesNotCloseConnection() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let recorder = MobileHostConnectionCloseRecorder()
         let connectionID = UUID()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
-            eventSendStallTimeoutNanoseconds: 5_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -485,12 +477,12 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        for _ in 0..<2_000 {
-            if !(await recorder.recordedIDs().isEmpty) { break }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(await recorder.recordedIDs() == [connectionID])
-        #expect(await transport.observedCloseCount() == 1)
+        // Exercise an unresolved send across suspension before verifying
+        // that the connection has not been closed on the application's behalf.
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(await recorder.recordedIDs().isEmpty)
+        #expect(await transport.observedCloseCount() == 0)
+        await session.close(reason: "test complete")
     }
 
     // MARK: - Bounded event queue admission policy
@@ -518,7 +510,6 @@ extension MobileHostAuthorizationTests {
             isFullRenderGridFrame: false, frame: frame
         )
         #expect(!overflow.admitted)
-        #expect(!overflow.shouldClose)
         #expect(overflow.renderGridResyncSurfaceIDs == ["s1"])
         #expect(queue.count == 0)
         // While poisoned, deltas stay refused even though there is room.
@@ -540,7 +531,7 @@ extension MobileHostAuthorizationTests {
         #expect(queue.count == 2)
     }
 
-    @Test func testEventQueueOverflowOnNonDroppableTopicRequestsClose() {
+    @Test func testEventQueuePreservesOrderedEventsBeyondSheddingBudget() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 1,
             maximumByteCount: 1_000_000
@@ -555,8 +546,10 @@ extension MobileHostAuthorizationTests {
             topic: "mobile.sync.delta", coalesceKey: nil,
             isFullRenderGridFrame: false, frame: frame
         )
-        #expect(!overflow.admitted)
-        #expect(overflow.shouldClose)
+        #expect(overflow.admitted)
+        #expect(queue.count == 2)
+        #expect(queue.dequeue()?.frame == frame)
+        #expect(queue.dequeue()?.frame == frame)
     }
 
     @Test func testEventQueueEnforcesByteBudgetBySheddingOldestDroppable() {

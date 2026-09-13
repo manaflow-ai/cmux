@@ -722,7 +722,13 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentSimulatorStreamLaneCount == 2)
+        #expect(
+            MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount
+                == MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount
+                    + MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount
+                    + MobileHostIrohApplicationLaneRouter.maximumConcurrentSimulatorStreamLaneCount
+        )
 
         var quota = MobileHostIrohApplicationLaneQuota()
         let terminalIDs = (0..<5).map { _ in UUID() }
@@ -737,8 +743,18 @@ extension MobileHostAuthorizationTests {
         #expect(didReserveArtifact)
         let didReserveSecondArtifact = quota.reserve(UUID(), laneClass: .artifact)
         #expect(!didReserveSecondArtifact)
+        let simulatorStreamIDs = (0..<3).map { _ in UUID() }
+        for id in simulatorStreamIDs.prefix(2) {
+            let didReserve = quota.reserve(id, laneClass: .simulatorStream)
+            #expect(didReserve)
+        }
+        let didReserveThirdSimulatorStream = quota.reserve(
+            simulatorStreamIDs[2], laneClass: .simulatorStream
+        )
+        #expect(!didReserveThirdSimulatorStream)
         #expect(quota.terminalCount == 4)
         #expect(quota.artifactCount == 1)
+        #expect(quota.simulatorStreamCount == 2)
 
         quota.release(terminalIDs[0])
         let didReuseTerminalCredit = quota.reserve(terminalIDs[4], laneClass: .terminal)
@@ -746,6 +762,11 @@ extension MobileHostAuthorizationTests {
         quota.release(artifactID)
         let didReuseArtifactCredit = quota.reserve(UUID(), laneClass: .artifact)
         #expect(didReuseArtifactCredit)
+        quota.release(simulatorStreamIDs[0])
+        let didReuseSimulatorStreamCredit = quota.reserve(
+            simulatorStreamIDs[2], laneClass: .simulatorStream
+        )
+        #expect(didReuseSimulatorStreamCredit)
     }
 
     private func irohPeer(
