@@ -122,8 +122,6 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "index=\(indexURL.path)"
         )
 #endif
-        // This configuration owns only the renderer's document bootstrap scripts.
-        webView.configuration.userContentController.removeAllUserScripts()
         if rendererKind == .guiMode, let script = Self.guiModeBootstrapScript(state: guiModeState) {
             webView.configuration.userContentController.addUserScript(script)
         }
