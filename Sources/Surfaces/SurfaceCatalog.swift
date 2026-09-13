@@ -56,6 +56,7 @@ final class SurfaceCatalog {
     /// The process-wide ordering owner for remote rename intents. A remote identity can
     /// have projections in several local windows, so this cannot live in a TabManager.
     let cloudRenameCoordinator = CloudRenameCoordinator()
+    let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
     private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
@@ -92,7 +93,8 @@ final class SurfaceCatalog {
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock(),
         cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
-        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil
+        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil,
+        cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -105,14 +107,24 @@ final class SurfaceCatalog {
         self.materializationClock = materializationClock
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
         self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
+        self.cloudWorkspaceProjectionCoordinator = cloudWorkspaceProjectionCoordinator ?? CloudWorkspaceProjectionCoordinator(
+            environment: .init(workspaces: cloudWorkspaceRenameService.environment)
+        )
     }
 
     /// Installs the app-owned cloud rename service once the composition root can provide
     /// workspace and tab-manager lookups. The catalog retains ownership after install.
     func installCloudWorkspaceRenameService(_ service: CloudWorkspaceRenameService) {
         cloudWorkspaceRenameService = service
+        cloudWorkspaceProjectionCoordinator.environment = .init(workspaces: service.environment)
         cloudPlacementCoordinator = CloudPlacementCoordinator(
             binding: { service.environment.workspace($0)?.cloudVMBinding },
+            workspaceExists: { [weak self] machine, remoteWorkspaceID in
+                guard let self, let state = self.cloudStates[machine],
+                      (self.cloudStateObservations[machine] ?? .current).freshness == .current,
+                      state.cursor != nil, state.document.containsCollection("workspaces") else { return nil }
+                return state.workspaceIDs.contains(remoteWorkspaceID)
+            },
             reportFailure: { projection, error in
                 service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error)
             }
@@ -125,6 +137,7 @@ final class SurfaceCatalog {
             localWorkspaceID: localWorkspaceID,
             catalog: self
         )
+        requestCloudWorkspaceProjection(localWorkspaceID)
     }
 
     /// Propagates a local workspace title through the catalog's ordered remote lane.
@@ -159,16 +172,6 @@ final class SurfaceCatalog {
         )
     }
 
-    /// Applies an accepted daemon snapshot to all local projections with exact IDs.
-    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
-        cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
-        cloudWorkspaceRenameService.reconcileRemoteState(
-            machine: machine,
-            state: state,
-            catalog: self
-        )
-    }
-
     /// Persists the machine and remote workspace identity behind a local workspace.
     func bindCloudWorkspace(
         localWorkspaceID: UUID,
@@ -182,12 +185,14 @@ final class SurfaceCatalog {
             remoteWorkspaceID: remoteWorkspaceID,
             generatedTitle: generatedTitle
         )
+        requestCloudWorkspaceProjection(localWorkspaceID)
     }
 
     // MARK: Providers
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
                 cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
@@ -195,6 +200,9 @@ final class SurfaceCatalog {
         }
         providers[provider.machine] = provider
         machines[provider.machine] = machineInfoPreservingCanonicalCloudState(provider.info)
+        if cloudStates[provider.machine] != nil {
+            cloudWorkspaceProjectionCoordinator.request(machine: provider.machine, catalog: self)
+        }
         notifyChange()
     }
 
@@ -229,6 +237,7 @@ final class SurfaceCatalog {
         resourceIDsByMachine[machine] = nil
         let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
         for record in pending { pendingRestoredProjections[record] = nil }
+        cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
@@ -290,27 +299,8 @@ final class SurfaceCatalog {
         try await enqueueRemoteWorkspaceRename(on: machine, id: id, name: name).value
     }
 
-    /// Registers synchronous UI intent before returning to the event loop.
-    func enqueueRemoteWorkspaceRename(on machine: SurfaceMachineID, id: String, name: String) -> Task<Void, Error> {
-        let provider = providers[machine]
-        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
-        return cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            guard let provider else { throw SurfaceCatalogError.noProvider(machine) }
-            try await provider.renameRemoteWorkspace(id: id, name: name)
-        }
-    }
-
     func renameRemoteTab(on machine: SurfaceMachineID, id: String, name: String) async throws {
         try await enqueueRemoteTabRename(on: machine, id: id, name: name).value
-    }
-
-    func enqueueRemoteTabRename(on machine: SurfaceMachineID, id: String, name: String) -> Task<Void, Error> {
-        let provider = providers[machine]
-        let key = CloudRenameCoordinator.Key.tab(machine: machine, id: id)
-        return cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            guard let provider else { throw SurfaceCatalogError.noProvider(machine) }
-            try await provider.renameRemoteTab(id: id, name: name)
-        }
     }
 
     func renameTerminal(on machine: SurfaceMachineID, id: SurfaceResourceID, name: String) async throws {
@@ -610,13 +600,10 @@ final class SurfaceCatalog {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
         var seen = Set(canonical.map(\.id))
-        // Only resource overlays attest to a creation ahead of the graph.
-        // A machine summary has no mutation receipt and may contain deleted rows.
-        let pending = (resourceIDsByMachine[info.id] ?? [])
-            .compactMap { resources[$0] }
-            .flatMap(\.remoteWorkspaces)
-            .filter { seen.insert($0.id).inserted }
-            .sorted { ($0.index, $0.id) < ($1.index, $1.id) }
+        // A create response can expose a new empty workspace before the next
+        // journal snapshot. Keep such genuinely new rows, but never retain an
+        // incoming row whose id the accepted graph removed.
+        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }
@@ -633,6 +620,8 @@ final class SurfaceCatalog {
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        let scope = beginProjectionMutation(for: [id])
+        defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
         // Resolve the opaque tab id against the current graph before any async
         // provider work. A stale view must fail, never silently attach to a
@@ -712,6 +701,10 @@ final class SurfaceCatalog {
         }
 
         let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
+        guard !Task.isCancelled, providers[id.machine] === provider else {
+            provider.discardMaterialization(projection)
+            throw CancellationError()
+        }
         record(projection)
         cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
@@ -1101,11 +1094,11 @@ final class SurfaceCatalog {
         }
     }
 
-    /// Record a pane that shows a resource (materialized by a provider, or adopted from an
-    /// existing pane such as a local terminal the app created on its own).
+    /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
+        reconcileCloudProjection(projection)
         notifyChange()
     }
 

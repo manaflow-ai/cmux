@@ -139,14 +139,19 @@ Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `
 cmux vm resize <id> [--cpu <1|2|…|32>] [--memory <4|5|…|64>G] [--disk <4|8|…|256>G] [--json]
 ```
 
-Grows the machine's persistent disk; it never shrinks or recreates the VM. The
-value is GiB in 4 GiB steps, from 4 GiB through 256 GiB. The client validates
-that range before sending `pane.resize {id, storage_mb}`; the provider returns the
-post-resize `VMStats` payload. Text is `OK <id> disk=<n> GiB`; `--json` returns
-that stats object. A resize can take a provider minute and consumes plan
-storage, so confirm the target machine and desired size before running it; use
-`cmux vm stats <id>` afterward to verify the mounted capacity. Sidebar: machine
-row › Resize Disk… (the same action invokes this verb).
+Grows CPU, memory, and/or persistent disk on the existing machine. CPU accepts
+1–32 vCPUs; memory accepts 4–64 GiB in whole-GiB steps; disk accepts 4–256 GiB
+in 4 GiB steps. Supply at least one dimension. Omitted dimensions stay unchanged,
+and every requested dimension must be at least its current size. Plan limits
+can further restrict these ranges.
+
+Socket `vm.resize` accepts `{id, cpu?, memory_mb?, storage_mb?}` and returns the
+provider-confirmed `VMStats` object, including `cpus`, `memory_total_mb`, and
+`disk_total_mb`. Text is `OK <id> cpu=<n> memory=<n> GiB disk=<n> GiB`; `--json`
+returns the stats object. A resize can take a provider minute and consumes plan
+resources, so confirm the machine and desired sizes before running it, then use
+`cmux vm stats <id>` to verify the result. Sidebar: machine row › Resize machine
+› Increase CPU / Increase Memory / Increase Disk uses the same action path.
 
 ### `cmux vm wait`
 
@@ -627,6 +632,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.diagnostics` | `cmux rpc vm.diagnostics '{}'` returns the app's cloud-operation report; `{"show":true}` also opens the diagnostics window |
 | `vm.resize` | `vm resize <id> [--cpu …] [--memory …] [--disk …]`; machine row › Resize machine |
 | `vm.rename` | `vm new --name` and the router's `agent-pool` label; direct machine-label editing is currently a sidebar action |
 | `vm.tab_rename` | `vm tab rename` |
