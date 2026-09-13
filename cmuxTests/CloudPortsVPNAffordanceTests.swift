@@ -58,7 +58,7 @@ struct CloudPortsVPNAffordanceTests {
         let node = CloudTreeNode(id: "port", kind: .port(port, url: port.url, openIn: nil))
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: true)
-        #expect(descendants(of: cell).allSatisfy { !($0 is CloudPortsVPNEmptyStateContent) && !($0 is CloudVPNWarningButton) })
+        #expect(descendants(of: cell).allSatisfy { !($0 is CloudPortsVPNEmptyStateContent) && !($0 is CloudVPNSetupButton) })
         let outline = NSOutlineView()
         let withWarning = CloudTreeRowHeight(style: .defaultStyle, showsVPNWarning: true)
         let withoutWarning = CloudTreeRowHeight(style: .defaultStyle, showsVPNWarning: false)
@@ -71,7 +71,7 @@ struct CloudPortsVPNAffordanceTests {
         let node = CloudTreeNode(id: "ports", kind: .portsGroup(machine: .cloud("test")))
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: true)
         cell.layoutSubtreeIfNeeded()
-        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudVPNWarningButton }.first)
+        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudVPNSetupButton }.first)
         let event = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         cell.mouseExited(with: event)
         #expect(!button.isHidden && button.alphaValue == 1)
@@ -86,20 +86,39 @@ struct CloudPortsVPNAffordanceTests {
         #expect(button.isHidden)
     }
 
-    @Test("Question-mark help opens setup directly for pointer, keyboard, and accessibility activation")
-    func helpOpensSetupDirectly() throws {
+    @Test("Both VPN controls open setup directly and respect disabled state", arguments: [CloudVPNSetupButton.Presentation.text, .helpIcon])
+    func controlsOpenSetupDirectly(presentation: CloudVPNSetupButton.Presentation) throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
-        let button = CloudVPNWarningButton(frame: NSRect(x: 0, y: 0, width: 28, height: 24))
+        let button = CloudVPNSetupButton(frame: NSRect(x: 0, y: 0, width: 180, height: 28), presentation: presentation)
         window.contentView = button
         defer { window.contentView = nil }
         var routed: [NSWindow?] = []
         button.setup = { routed.append($0) }
         button.performClick(nil)
         #expect(button.accessibilityPerformPress())
-        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        button.keyDown(with: event)
-        #expect(routed.count == 3)
+        for keyCode in [UInt16(36), 76, 49] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: keyCode))
+            button.keyDown(with: event)
+        }
+        #expect(routed.count == 5)
         #expect(routed.allSatisfy { $0 === window })
+        #expect(button.accessibilityHelp() == CloudPortsVPNWarning().help)
+        if presentation == .text {
+            #expect(button.title == CloudPortsVPNWarning().setupTitle)
+            #expect(button.accessibilityIdentifier() == "CloudPortsVPNEmptyStateSetupButton")
+            #expect(button.bezelStyle == .rounded)
+        } else {
+            #expect(button.image != nil && button.imagePosition == .imageOnly)
+            #expect(button.accessibilityIdentifier() == "CloudPortsVPNWarningButton")
+            #expect(button.bezelStyle == .inline && button.contentTintColor == .secondaryLabelColor)
+        }
+        button.isEnabled = false
+        #expect(!button.acceptsFirstResponder)
+        #expect(!button.accessibilityPerformPress())
+        button.performClick(nil)
+        let disabledEvent = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
+        button.keyDown(with: disabledEvent)
+        #expect(routed.count == 5)
     }
 
     @Test("Callout content grows to fit a narrow sidebar", arguments: [140.0, 220.0, 360.0])
@@ -123,7 +142,7 @@ struct CloudPortsVPNAffordanceTests {
         defer { window.contentView = nil }
         var routed: [NSWindow?] = []
         cell.configure(node: emptyPorts(link: .connected), machineActions: machineActions { routed.append($0) }, nodeActions: nodeActions(), showsCloudVPNWarning: true)
-        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudTreeVPNSetupButton }.first)
+        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudVPNSetupButton }.first)
         #expect(button.accessibilityPerformPress())
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
         button.keyDown(with: event)
@@ -135,14 +154,14 @@ struct CloudPortsVPNAffordanceTests {
     func focusedControlOwnsReturn() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         let outline = CloudTreeNSOutlineView(frame: .zero)
-        let button = CloudTreeVPNSetupButton(frame: NSRect(x: 0, y: 0, width: 180, height: 28))
+        let button = CloudVPNSetupButton(frame: NSRect(x: 0, y: 0, width: 180, height: 28), presentation: .text)
         window.contentView = outline
         outline.addSubview(button)
         defer { window.contentView = nil }
         var rowOpens = 0
         var setups = 0
         outline.onOpenSelection = { rowOpens += 1 }
-        button.actionHandler = { setups += 1 }
+        button.setup = { _ in setups += 1 }
         #expect(window.makeFirstResponder(button))
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
         #expect(!outline.performKeyEquivalent(with: event))

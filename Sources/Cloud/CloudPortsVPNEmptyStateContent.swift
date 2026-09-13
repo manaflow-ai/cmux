@@ -4,7 +4,7 @@ import CmuxFoundation
 /// A fully wrapping, native callout. Its measured height also drives the outline row.
 @MainActor
 final class CloudPortsVPNEmptyStateContent: NSView {
-    let setupButton = CloudTreeVPNSetupButton(frame: .zero)
+    let setupButton = CloudVPNSetupButton(frame: .zero, presentation: .text)
     let explanationLabel = NSTextField(wrappingLabelWithString: "")
     private var style = CloudTreeStyle.defaultStyle
 
@@ -25,11 +25,7 @@ final class CloudPortsVPNEmptyStateContent: NSView {
 
     func configure(style: CloudTreeStyle, setup: @escaping @MainActor (NSWindow?) -> Void) {
         self.style = style
-        let warning = CloudPortsVPNWarning()
-        setupButton.title = warning.setupTitle
-        setupButton.setAccessibilityLabel(warning.setupTitle)
-        setupButton.toolTip = warning.help
-        setupButton.actionHandler = { [weak self] in setup(self?.window) }
+        setupButton.setup = setup
         setupButton.font = Self.font(style: style)
         explanationLabel.attributedStringValue = Self.explanation(style: style)
         needsLayout = true

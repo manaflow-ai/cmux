@@ -14,7 +14,7 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var vpnHelp: CloudVPNWarningButton?
+    private var vpnHelp: CloudVPNSetupButton?
     private var vpnCallout: CloudPortsVPNEmptyStateContent?
     private var vpnHelpConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
@@ -152,8 +152,8 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    private func makeVPNHelp() -> CloudVPNWarningButton {
-        let help = CloudVPNWarningButton(frame: .zero)
+    private func makeVPNHelp() -> CloudVPNSetupButton {
+        let help = CloudVPNSetupButton(frame: .zero, presentation: .helpIcon)
         help.translatesAutoresizingMaskIntoConstraints = false
         addSubview(help)
         NSLayoutConstraint.activate([

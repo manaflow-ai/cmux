@@ -523329,6 +523329,72 @@
             "state": "translated",
             "value": "cmux VPN を設定"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguriraj cmux VPN"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer cmux VPN"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura cmux VPN"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណត់រចនាសម្ព័ន្ធ cmux VPN"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurer cmux VPN"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skonfiguruj cmux VPN"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar cmux VPN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить cmux VPN"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำหนดค่า cmux VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux VPN’i yapılandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати cmux VPN"
+          }
         }
       }
     },
@@ -523387,6 +523453,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux のアプリ内ポート転送はシステム VPN なしで動作します。Cloud VPN を使うと、Safari、Chrome などのアプリから VM のプライベートポートを開けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosljeđivanje portova unutar cmux-a radi bez sistemskog VPN-a. Cloud VPN omogućava Safariju, Chromeu i drugim aplikacijama otvaranje privatnih portova virtuelnih mašina."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portvideresendelse i cmux fungerer uden en system-VPN. Med Cloud VPN kan Safari, Chrome og andre apps åbne private porte på virtuelle maskiner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’inoltro delle porte all’interno di cmux funziona senza una VPN di sistema. Cloud VPN consente a Safari, Chrome e ad altre app di aprire le porte private delle macchine virtuali."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ជូនបន្តច្រកនៅក្នុង cmux ដំណើរការដោយមិនត្រូវការ VPN របស់ប្រព័ន្ធ។ Cloud VPN អនុញ្ញាតឱ្យ Safari, Chrome និងកម្មវិធីផ្សេងទៀតបើកច្រកឯកជនរបស់ម៉ាស៊ីននិម្មិត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portvideresending i cmux fungerer uten en system-VPN. Cloud VPN lar Safari, Chrome og andre apper åpne private porter på virtuelle maskiner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekierowywanie portów w cmux działa bez systemowej sieci VPN. Cloud VPN pozwala Safari, Chrome i innym aplikacjom otwierać prywatne porty maszyn wirtualnych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O encaminhamento de portas dentro do cmux funciona sem uma VPN do sistema. O Cloud VPN permite que Safari, Chrome e outros apps abram portas privadas de máquinas virtuais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправление портов внутри cmux работает без системного VPN. Cloud VPN позволяет Safari, Chrome и другим приложениям открывать приватные порты виртуальных машин."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การส่งต่อพอร์ตภายใน cmux ทำงานได้โดยไม่ต้องใช้ VPN ของระบบ Cloud VPN ช่วยให้ Safari, Chrome และแอปอื่นๆ เปิดพอร์ตส่วนตัวของเครื่องเสมือนได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içindeki bağlantı noktası yönlendirme, sistem VPN’i olmadan çalışır. Cloud VPN, Safari, Chrome ve diğer uygulamaların sanal makinelerin özel bağlantı noktalarına erişmesini sağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенаправлення портів усередині cmux працює без системного VPN. Cloud VPN дає змогу Safari, Chrome та іншим застосункам відкривати приватні порти віртуальних машин."
           }
         }
       }

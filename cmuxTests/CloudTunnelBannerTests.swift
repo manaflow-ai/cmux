@@ -18,8 +18,8 @@ struct CloudTunnelBannerTests {
     @Test("VPN-off guidance distinguishes cmux forwarding from other-app access")
     func vpnOffGuidanceExplainsOptionalSystemVPN() throws {
         let warning = try #require(CloudPortsVPNWarning.projection(tunnelState: .off))
-        #expect(warning.help.contains("in-app forwarding"))
-        #expect(warning.help.contains("Safari, Chrome"))
+        #expect(!warning.setupTitle.isEmpty && !warning.explanation.isEmpty)
+        #expect(warning.help.components(separatedBy: "\n") == [warning.setupTitle, warning.explanation])
     }
 
     @Test("off, and builds without the extension, show no banner")

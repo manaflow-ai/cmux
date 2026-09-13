@@ -26,8 +26,11 @@ extension CloudTreeOutlineView.Coordinator {
     /// Re-measures wrapping Ports guidance for the resized outline.
     func updateCloudVPNRowHeights(in outlineView: NSOutlineView) {
         guard showsCloudVPNWarning else { return }
-        let rows = IndexSet((0..<outlineView.numberOfRows).filter {
-            (outlineView.item(atRow: $0) as? CloudTreeNode)?.isPortsEmptyPlaceholder == true
+        // Snapshot application keeps the retained AppKit item identities. Resolve
+        // current indexes here so collapse/expansion never leaves stale row numbers.
+        let rows = IndexSet(vpnEmptyPortsNodes.compactMap { node in
+            let row = outlineView.row(forItem: node)
+            return row >= 0 ? row : nil
         })
         if !rows.isEmpty { outlineView.noteHeightOfRows(withIndexesChanged: rows) }
     }
