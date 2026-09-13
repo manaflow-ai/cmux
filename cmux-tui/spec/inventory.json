@@ -1321,6 +1321,7 @@
         "LaunchFailed": 20,
         "TerminateAck": 21,
         "DetachAck": 22,
+        "InputAck": 23,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,

@@ -304,7 +304,16 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    defaultMachineStore: AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore
+                        ?? DefaultCloudMachineStore(defaults: .standard),
+                    tabManager: tabManager
+                )
+            }
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }

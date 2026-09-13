@@ -47,6 +47,7 @@ import {
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -965,7 +966,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm, vmId);
+            await this.installGuestCli(vm, vmId, options.promptIdentity);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
@@ -1384,16 +1385,17 @@ export class FreestyleProvider implements VMProvider {
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
+          const promptSetup = options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "";
           let bundleResult = await this.execResult(
             vm,
-            cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
+            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
             DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
           );
           let healed = false;
           if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
-            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+            bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
             // The healthy fast path skips the heal, so this is where a machine
@@ -1653,12 +1655,13 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string): Promise<void> {
+  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
+        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+          + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });
