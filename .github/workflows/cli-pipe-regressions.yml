@@ -1,0 +1,70 @@
+name: CLI pipe regressions
+
+on:
+  pull_request:
+    paths:
+      - 'CLI/**'
+      - 'tests/test_cli_broken_pipe_writes.py'
+      - 'tests/test_cli_socket_operation_deadline.py'
+      - 'cmux.xcodeproj/**'
+      - 'Packages/macOS/CmuxFoundation/**'
+      - '.github/workflows/cli-pipe-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-pipes-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-pipe-regressions:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 30
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Initialize local Swift package dependency
+        run: git submodule update --init --depth 1 vendor/bonsplit
+
+      - name: Select Xcode
+        run: |
+          if [ -n "${CMUX_CI_XCODE_APP:-}" ]; then
+            sudo xcode-select --switch "$CMUX_CI_XCODE_APP/Contents/Developer"
+          fi
+          xcodebuild -version
+
+      - name: Build the standalone CLI
+        run: |
+          set -euo pipefail
+          CMUX_CLI_TEST_TAG="$(printf '%s' "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" | tr -cs 'A-Za-z0-9._-' '-')"
+          CMUX_CLI_DERIVED="$RUNNER_TEMP/cmux-$CMUX_CLI_TEST_TAG"
+          echo "CMUX_CLI_DERIVED=$CMUX_CLI_DERIVED" >> "$GITHUB_ENV"
+          git rev-parse HEAD > "$RUNNER_TEMP/cli-revision.txt"
+          xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+            -configuration Debug -destination 'platform=macOS' \
+            -derivedDataPath "$CMUX_CLI_DERIVED" \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/cli-build.log"
+
+      - name: Exercise closed consumers and socket disconnects
+        run: |
+          set -euo pipefail
+          CMUX_CLI_PRODUCTS="$CMUX_CLI_DERIVED/Build/Products/Debug"
+          export CMUX_CLI_BIN="$CMUX_CLI_PRODUCTS/cmux"
+          export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
+          python3 tests/test_cli_broken_pipe_writes.py 2>&1 | tee "$RUNNER_TEMP/cli-pipes.log"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cli-pipe-regressions
+          path: |
+            ${{ runner.temp }}/cli-revision.txt
+            ${{ runner.temp }}/cli-build.log
+            ${{ runner.temp }}/cli-pipes.log
+          retention-days: 7
