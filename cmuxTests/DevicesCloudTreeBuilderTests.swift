@@ -407,6 +407,7 @@ struct DevicesCloudTreeBuilderTests {
         #expect(connectedWithoutPresence.statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         #expect(row(online: true, link: .connected).statusLabel(now: now) == String(localized: "cloudTree.device.status.online", defaultValue: "Online"))
         #expect(row(online: true, link: .error, error: "Handshake failed").statusLabel(now: now) == "Handshake failed")
+        #expect(row(online: true, link: .connecting, error: "Relay unavailable").statusLabel(now: now).contains("Relay unavailable"))
         #expect(row(online: true, link: .unavailable, trust: .otherAccount).statusLabel(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
         #expect(row(online: false, link: .offline).statusLabel(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
         #expect(row(online: false, link: .offline, seen: now.addingTimeInterval(-300)).statusLabel(now: now) == String(format: String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline \u{00B7} seen %@"), String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), 5)))

@@ -20,6 +20,31 @@ struct DevicesSidebarModeTests {
         return defaults
     }
 
+    @Test("The two device preferences work without a beta opt-in")
+    func independentPreferencesWithoutBeta() {
+        let defaults = makeDefaults()
+        let keys = DevicesCatalogSection()
+        defaults.set(false, forKey: "devices.beta.enabled")
+        defaults.set(true, forKey: keys.discoveryEnabled.userDefaultsKey)
+        defaults.set(false, forKey: keys.incomingAccessEnabled.userDefaultsKey)
+        #expect(DevicesFeature.isDiscoveryEnabled(defaults: defaults))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+
+        defaults.set(false, forKey: keys.discoveryEnabled.userDefaultsKey)
+        defaults.set(true, forKey: keys.incomingAccessEnabled.userDefaultsKey)
+        #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults))
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+    }
+
+    @Test("My Devices remains reachable while discovery and Cloud Machines are off")
+    func disabledDiscoveryKeepsItsControlsReachable() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        defaults.set(false, forKey: "devices.beta.enabled")
+        defaults.set(false, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
+        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
+    }
+
     @Test("Device aliases open the same Cloud sidebar")
     func cliArgument() {
         #expect(RightSidebarMode.from(cliArgument: "devices") == .machines)

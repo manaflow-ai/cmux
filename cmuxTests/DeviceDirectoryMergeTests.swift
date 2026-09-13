@@ -435,6 +435,8 @@ struct DeviceDirectoryMergeTests {
         #expect(state(phase: .connected).linkState == .connected)
         #expect(state(phase: .connecting(attempt: 1)).linkState == .connecting)
         #expect(state(phase: .waiting(attempt: 1, delay: .seconds(1))).linkState == .connecting)
+        #expect(state(phase: .waiting(attempt: 2, delay: .seconds(2)), lastFailure: "Relay unavailable").linkError == "Relay unavailable")
+        #expect(state(phase: .connecting(attempt: 3), lastFailure: "Relay unavailable").linkError == "Relay unavailable")
         let blocked = state(phase: .blocked(reason: "nope"))
         #expect(blocked.linkState == .error)
         #expect(blocked.linkError == "nope")
