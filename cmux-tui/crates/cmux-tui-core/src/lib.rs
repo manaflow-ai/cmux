@@ -20,6 +20,7 @@ mod journal_kernel;
 mod model;
 mod mux;
 mod pairing;
+mod presence;
 pub mod provider_management;
 pub mod resource;
 mod resource_api;
@@ -67,6 +68,11 @@ pub use mux::{
     WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use presence::{
+    PRESENCE_MAX_CLIENTS, PRESENCE_MAX_UPDATES_PER_SECOND, PRESENCE_PALETTE_SIZE,
+    PRESENCE_POINTER_TTL, PresenceAnchor, PresenceEntry, PresenceHighlight, PresenceHighlightMode,
+    PresenceHub, PresenceUpdate, PresenceUpdateError,
+};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;

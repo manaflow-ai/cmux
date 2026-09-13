@@ -2720,6 +2720,9 @@ impl Mux {
         }
         self.publish_resource_event();
         for surface in effects.removed {
+            for entry in self.presence.forget_surface(surface.id) {
+                self.emit(MuxEvent::PresenceChanged(entry));
+            }
             self.purge_surface_side_tables(surface.id);
             if surface.kind() == SurfaceKind::Browser {
                 surface.kill();

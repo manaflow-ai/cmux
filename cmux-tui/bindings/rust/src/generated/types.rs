@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543.
+// cmux-tui mux protocol 12, IR 3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -637,6 +637,61 @@ pub struct PingResult {
     pub ok: bool,
     pub protocol: u32,
     pub version: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum PresenceAnchor {
+    #[serde(rename = "cell")]
+    Cell {
+        col: u32,
+        row: u32,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        scroll_offset: Option<u64>,
+    },
+    #[serde(rename = "point")]
+    Point {
+        x: f64,
+        y: f64,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceEntry {
+    pub client: u64,
+    pub color: u64,
+    pub generation: u64,
+    pub highlight: Nullable<PresenceHighlight>,
+    pub kind: Nullable<String>,
+    pub name: Nullable<String>,
+    pub pointer: Nullable<PresenceAnchor>,
+    pub surface: Nullable<Id>,
+    pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceHighlight {
+    pub end: PresenceAnchor,
+    pub mode: PresenceHighlightMode,
+    pub start: PresenceAnchor,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PresenceHighlightMode {
+    #[serde(rename = "laser")]
+    Laser,
+    #[serde(rename = "pin")]
+    Pin,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceListResult {
+    pub entries: Vec<PresenceEntry>,
 }
 
 #[rustfmt::skip]

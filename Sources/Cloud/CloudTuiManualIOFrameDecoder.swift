@@ -27,11 +27,28 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
             capabilities: (responseData?["capabilities"] as? [String]) ?? [],
             outcome: responseData?["outcome"] as? String,
             accepted: responseData?["accepted"] as? Bool,
-            error: object["error"] as? String
+            error: object["error"] as? String,
+            selfClientID: Self.selfClientID(from: object["data"])
         )
     }
 
+    private static func selfClientID(from value: Any?) -> UInt64? {
+        guard let clients = value as? [Any] else { return nil }
+        for client in clients {
+            guard let object = client as? [String: Any],
+                  object["self"] as? Bool == true,
+                  let clientID = uint64(object["client"]) else { continue }
+            return clientID
+        }
+        return nil
+    }
+
     private func decodeEvent(_ event: String, object: [String: Any]) -> CloudTuiManualIOFrame? {
+        // Presence clears carry `surface: null`, so decode it before the
+        // positive-surface guard that every byte-attach event requires.
+        if event == "presence-changed" {
+            return CloudPresenceEntry(json: object).map(CloudTuiManualIOFrame.presence)
+        }
         guard let surfaceID = Self.positiveUInt64(object["surface"]) else {
             if event == "overflow" { return .overflow(surfaceID: nil) }
             return nil

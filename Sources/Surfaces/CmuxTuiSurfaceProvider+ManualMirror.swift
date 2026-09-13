@@ -15,7 +15,7 @@ extension CmuxTuiSurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> CloudManualMirrorMaterialization {
-        _ = try await links.connected(machineID: machineID)
+        let connected = try await links.connected(machineID: machineID)
         guard await links.link(machineID: machineID) != nil else {
             throw ProviderError.machineAsleep(machineID)
         }
@@ -82,6 +82,12 @@ extension CmuxTuiSurfaceProvider {
                 session?.claimGeometry()
             }
             manualMirrorSessions[created.panelID] = session
+            CloudPresenceStore.shared.registerPane(
+                panelID: created.panelID,
+                machineID: machineID,
+                remoteSurfaceID: 0,
+                socketPath: connected.socketPath
+            )
             startupTrace.mark("native-pane-allocated", surfaceID: 0)
             // A zero id is an intentional unresolved state. Starting an attach with it would
             // target an unrelated numeric surface on some old daemons. The next provider

@@ -2953,6 +2953,83 @@ Errors:
 | --- | --- |
 | `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
 
+### presence-update
+
+| Field | Value |
+| --- | --- |
+| name | `presence-update` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `presence-v1` |
+
+Publishes this connection's collaboration presence on one surface: an optional pointer and an optional highlight. Replaces the connection's whole presence state. Presence is ephemeral: it is never journaled, a daemon restart forgets it, and a disconnect or surface exit clears it for everyone. Frontends map anchors to pixels; the daemon only validates the surface, rate-limits, and fans out `presence-changed`. See [`presence.md`](presence.md).
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must be a live surface |
+| `pointer` | `PresenceAnchor` | default null | `{kind:"cell",row,col,scroll_offset?}` or `{kind:"point",x,y}` |
+| `highlight` | `PresenceHighlight` | default null | `{start:PresenceAnchor,end:PresenceAnchor,mode:"laser"\|"pin"}` |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface ...` | Surface is not alive |
+| `bad request: rate limited ...` | More than 240 updates in one second from this connection |
+| `bad request: too many presence clients ...` | 256 connections already hold presence |
+
+Example:
+
+```json
+{"id":4,"cmd":"presence-update","surface":7,"pointer":{"kind":"cell","row":3,"col":12},"highlight":{"start":{"kind":"cell","row":3,"col":0},"end":{"kind":"cell","row":3,"col":40},"mode":"laser"}}
+{"id":4,"ok":true,"data":{}}
+```
+
+### presence-clear
+
+| Field | Value |
+| --- | --- |
+| name | `presence-clear` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `presence-v1` |
+
+Withdraws this connection's presence. Emits `presence-changed` with `surface:null` when the connection had published anything.
+
+Params: none.
+
+Result:
+
+```text
+object{}
+```
+
+### presence-list
+
+| Field | Value |
+| --- | --- |
+| name | `presence-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `presence-v1` |
+
+Every connection that currently points somewhere, for late joiners. Pointers idle for 60 seconds are dropped unless their highlight mode is `pin`.
+
+Params: none.
+
+Result:
+
+```text
+object{entries:PresenceEntry[]}
+```
+
+`PresenceEntry` is the `presence-changed` payload without its `event` field.
+
 ### move-tab
 
 | Field | Value |
@@ -3124,6 +3201,7 @@ Example:
 | since | protocol 5 |
 | `tree_events` field | protocol 7 additive extension |
 | `surface` field | protocol 9 additive extension |
+| `presence_only` field | protocol 12 additive extension; capability `presence-v1` |
 
 Subscribes the connection to mux events. After this command, response lines and event lines may be interleaved on the same connection. `subscribe` does not send an initial tree snapshot; clients should call `list-workspaces` when they need state.
 
@@ -3139,6 +3217,7 @@ Params:
 | --- | --- | --- | --- |
 | `tree_events` | `string` | default `"coarse"` | Protocol 7: `"coarse"` or `"deltas"` |
 | `surface` | `Id` | optional | Protocol 9: existing surface to scope at the event source |
+| `presence_only` | `bool` | default false | Protocol 12, capability `presence-v1`: deliver only `presence-changed`; cannot be combined with `surface` |
 
 Result:
 
@@ -3151,7 +3230,7 @@ Errors:
 | Error | Condition |
 | --- | --- |
 | thread spawn error string | Server cannot create the event writer thread |
-| `bad request: ...` | Malformed request envelope, wrong field type, or unsupported `tree_events` value |
+| `bad request: ...` | Malformed request envelope, wrong field type, unsupported `tree_events` value, or `presence_only` with `surface` |
 
 CLI mapping:
 

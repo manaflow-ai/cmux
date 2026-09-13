@@ -46,6 +46,12 @@ extension CmuxTuiSurfaceProvider {
                 switch resolution {
                 case let .resolved(surfaceID):
                     session.updateRemoteSurfaceID(surfaceID)
+                    if let panelID = manualMirrorSessions.first(where: { $0.value === session })?.key {
+                        CloudPresenceStore.shared.updateRemoteSurfaceID(
+                            panelID: panelID,
+                            remoteSurfaceID: surfaceID
+                        )
+                    }
                     reconnectableSessionIDs.insert(ObjectIdentifier(session))
                 case .exited:
                     // The remote shell ended. Stop reconnecting; the pane
@@ -77,6 +83,12 @@ extension CmuxTuiSurfaceProvider {
         for session in manualMirrorSessions.values
         where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
             session.reconnect(socketPath: connected.socketPath)
+            if let panelID = manualMirrorSessions.first(where: { $0.value === session })?.key {
+                CloudPresenceStore.shared.updateSocketPath(
+                    panelID: panelID,
+                    socketPath: connected.socketPath
+                )
+            }
         }
         for (panelID, session) in manualMirrorSessions {
             syncRemotePlacement(forPanelID: panelID, terminalID: session.terminalID)

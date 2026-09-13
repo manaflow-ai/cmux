@@ -318,6 +318,21 @@ public abstract class GeneratedCmuxClient {
         return PingResult.fromWire(result);
     }
 
+    public final EmptyResult presenceClear() throws CmuxException {
+        Object result = execute(Commands.PRESENCE_CLEAR, Map.of());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final PresenceListResult presenceList() throws CmuxException {
+        Object result = execute(Commands.PRESENCE_LIST, Map.of());
+        return PresenceListResult.fromWire(result);
+    }
+
+    public final EmptyResult presenceUpdate(PresenceUpdateRequest request) throws CmuxException {
+        Object result = execute(Commands.PRESENCE_UPDATE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final ProcessInfoResult processInfo(ProcessInfoRequest request) throws CmuxException {
         Object result = execute(Commands.PROCESS_INFO, request.toWire());
         return ProcessInfoResult.fromWire(result);

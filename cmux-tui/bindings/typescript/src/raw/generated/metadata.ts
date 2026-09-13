@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
+/* cmux-tui mux protocol 12, IR 3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543" as const;
+export const SDK_IR_SHA256 = "3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -719,6 +719,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "presence-clear": {
+    "authority": "control",
+    "since": 12,
+    "capability": "presence-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": []
+  },
+  "presence-list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "presence-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Pointers idle for 60 seconds are dropped unless their highlight mode is pin."
+    ]
+  },
+  "presence-update": {
+    "authority": "control",
+    "since": 12,
+    "capability": "presence-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Replaces this connection's whole presence state; omitted pointer or highlight means none.",
+      "At most 240 updates per second per connection; more fail with a bad request error.",
+      "Never journaled; a server restart forgets all presence."
+    ]
+  },
   "process-info": {
     "authority": "control",
     "since": 6,
@@ -1143,6 +1173,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "presence_only": {
+        "since": 12,
+        "capability": "presence-v1"
+      },
       "surface": {
         "since": 9,
         "capability": "surface-subscribe-filter"
@@ -1485,6 +1519,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "presence-changed": {
+    "since": 12,
+    "capability": "presence-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -3938,6 +3980,216 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PresenceAnchor": {
+    "kind": "tagged_union",
+    "tag": "kind",
+    "variants": {
+      "cell": {
+        "additional_properties": false,
+        "fields": {
+          "col": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint32"
+            }
+          },
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "cell"
+            }
+          },
+          "row": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint32"
+            }
+          },
+          "scroll_offset": {
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "point": {
+        "additional_properties": false,
+        "fields": {
+          "kind": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "point"
+            }
+          },
+          "x": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            }
+          },
+          "y": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "float64"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
+  "PresenceEntry": {
+    "additional_properties": false,
+    "constraints": [
+      "surface is null only in presence-changed after a clear, disconnect, or surface exit; presence-list never returns such entries.",
+      "color is a palette slot in 0..8, stable for the connection."
+    ],
+    "fields": {
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "color": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "highlight": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceHighlight"
+        }
+      },
+      "kind": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pointer": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceAnchor"
+        }
+      },
+      "surface": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "updated_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PresenceHighlight": {
+    "additional_properties": false,
+    "fields": {
+      "end": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceAnchor"
+        }
+      },
+      "mode": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceHighlightMode"
+        }
+      },
+      "start": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceAnchor"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PresenceHighlightMode": {
+    "kind": "enum",
+    "values": [
+      "laser",
+      "pin"
+    ]
+  },
+  "PresenceListResult": {
+    "additional_properties": false,
+    "fields": {
+      "entries": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "PresenceEntry"
+          },
+          "kind": "array"
         }
       }
     },
@@ -9362,6 +9614,64 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "PingResult"
     }
   },
+  "presence-clear": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "presence-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PresenceListResult"
+    }
+  },
+  "presence-update": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "highlight": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "PresenceHighlight"
+          }
+        },
+        "pointer": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "PresenceAnchor"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "process-info": {
     "request": {
       "additional_properties": false,
@@ -10996,6 +11306,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "presence_only": {
+          "capability": "presence-v1",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "surface": {
           "capability": "surface-subscribe-filter",
           "default": null,
@@ -12246,6 +12566,92 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "presence-changed": {
+    "additional_properties": false,
+    "fields": {
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "color": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "presence-changed"
+        }
+      },
+      "generation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "highlight": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceHighlight"
+        }
+      },
+      "kind": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pointer": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "PresenceAnchor"
+        }
+      },
+      "surface": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "updated_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

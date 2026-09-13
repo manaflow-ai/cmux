@@ -255,7 +255,7 @@ struct CloudManualMirrorTransportTests {
             ],
         ])
         let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error) = frame else {
+        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, _) = frame else {
             Issue.record("expected a response frame")
             return
         }
