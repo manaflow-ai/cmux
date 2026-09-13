@@ -1,6 +1,7 @@
 import { accountMeProcedure } from "./account/me";
 import { cloudDevicesProcedure } from "./cloud/devices";
 import { billingStatusProcedure } from "./billing/dashboard";
+import { coderouterDashboardProcedure } from "./coderouter/dashboard";
 import { testflightStatusProcedure } from "./testflight/status";
 import {
   vaultOverviewProcedure,
@@ -15,6 +16,9 @@ export const router = {
   dashboard: {
     billing: {
       status: billingStatusProcedure,
+    },
+    coderouter: {
+      overview: coderouterDashboardProcedure,
     },
     cloud: {
       devices: cloudDevicesProcedure,

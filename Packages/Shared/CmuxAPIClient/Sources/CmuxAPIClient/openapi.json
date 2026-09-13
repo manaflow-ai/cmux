@@ -274,6 +274,145 @@
         }
       }
     },
+    "/dashboard/coderouter": {
+      "get": {
+        "operationId": "dashboard.coderouter.overview",
+        "summary": "Get the authenticated CodeRouter dashboard",
+        "tags": [
+          "Dashboard"
+        ],
+        "parameters": [
+          {
+            "name": "team",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "allowEmptyValue": true,
+            "allowReserved": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "authorized",
+                        "missing",
+                        "noTeams",
+                        "unavailable"
+                      ],
+                      "type": "string"
+                    },
+                    "team": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "manageAccounts": {
+                              "type": "boolean"
+                            },
+                            "personal": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "manageAccounts",
+                            "personal"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "claude": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "native": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "shared": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {},
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "sharedState": {
+                      "enum": [
+                        "ok",
+                        "migrationPending",
+                        "notConfigured",
+                        "error"
+                      ],
+                      "type": "string"
+                    },
+                    "metrics": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "machineUsage": {
+                      "anyOf": [
+                        {},
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "team",
+                    "claude",
+                    "native",
+                    "shared",
+                    "sharedState"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/dashboard/cloud/devices": {
       "get": {
         "operationId": "dashboard.cloud.devices",

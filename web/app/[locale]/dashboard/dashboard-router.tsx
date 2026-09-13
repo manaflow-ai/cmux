@@ -24,6 +24,16 @@ import { CloudDeviceActions } from "./cloud/device-actions";
 import { SessionsTable } from "./vault/sessions/sessions-table";
 import { CopyButton } from "./vault/copy-button";
 import { TranscriptViewer } from "./vault/sessions/[id]/transcript-viewer";
+import { ApproveForm } from "./vault/cli-auth/approve-form";
+import {
+  CoderouterAccountsSection,
+  type ClaudeAccountsState,
+  type NativeAccountsState,
+  type SharedAccountsState,
+} from "./components/coderouter-accounts";
+import type { ClaudeAccountDescription } from "@/services/coderouter/claudeUpstream";
+import type { CodeRouterAccountSummary } from "@/services/coderouter/types";
+import type { SubrouterAccount } from "@/services/subrouter/types";
 import { formatBytes, formatDate, truncateMiddle } from "@/services/vault/format";
 
 export type DashboardRouterContext = {
@@ -56,7 +66,7 @@ const coderouterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/coderouter",
   validateSearch: z.object({ team: z.string().optional() }),
-  component: routeSlot,
+  component: DashboardCoderouterRoute,
 });
 const testflightRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -88,7 +98,7 @@ const vaultCliAuthRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/vault/cli-auth",
   validateSearch: z.object({ code: z.string().optional() }),
-  component: routeSlot,
+  component: DashboardVaultCliAuthRoute,
 });
 const navigationFixtureRoute = createRoute({ getParentRoute: () => rootRoute, path: "/navigation-fixture", component: routeSlot });
 const legacySubrouterRoute = createRoute({
@@ -342,6 +352,22 @@ function DashboardVaultSessionRoute() {
   );
 }
 
+function DashboardVaultCliAuthRoute() {
+  const t = useTranslations("vault.cliAuth");
+  const code = new URLSearchParams(useLocation().search).get("code")?.trim().toUpperCase() ?? "";
+  const initialCode = /^[A-Z2-9]{8}$/.test(code) ? code : "";
+  return (
+    <div data-testid="dashboard-router-cli-auth" className="mx-auto w-full max-w-3xl px-3 py-4">
+      <div className="border-b border-border pb-3">
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      </div>
+      <ApproveForm initialCode={initialCode} />
+    </div>
+  );
+}
+
 function VaultMetadata({ label, value }: { label: string; value: string }) {
   return <div><div className="text-xs text-muted">{label}</div><div className="mt-1 break-words font-mono text-xs">{value}</div></div>;
 }
@@ -457,6 +483,27 @@ function DashboardBillingRoute() {
   );
 }
 
+function DashboardCoderouterRoute() {
+  const t = useTranslations("dashboard.coderouter");
+  const location = useLocation();
+  const team = new URLSearchParams(location.search).get("team") ?? undefined;
+  const { data } = useSuspenseQuery(orpc.dashboard.coderouter.overview.queryOptions({ input: { team } }));
+  if (data.kind !== "authorized" || !data.team) {
+    return <div data-testid="dashboard-router-coderouter" className="mx-auto w-full max-w-5xl px-3 py-4"><div className="border border-border p-3"><h1 className="text-sm font-medium">{t("title")}</h1><p className="mt-2 text-muted">{t("description")}</p></div></div>;
+  }
+  const shared: SharedAccountsState = data.sharedState === "ok"
+    ? { kind: "ok", accounts: data.shared as unknown as readonly SubrouterAccount[] }
+    : { kind: data.sharedState } as SharedAccountsState;
+  const claude: ClaudeAccountsState = { kind: "ok", accounts: data.claude as unknown as readonly ClaudeAccountDescription[] };
+  const native: NativeAccountsState = { kind: "ok", accounts: data.native as unknown as readonly CodeRouterAccountSummary[] };
+  return (
+    <div data-testid="dashboard-router-coderouter" className="mx-auto w-full max-w-5xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3"><h1 className="text-sm font-medium">{t("title")}</h1><p className="mt-1 max-w-2xl text-muted">{t("description")}</p><p className="mt-2 text-xs text-muted">{data.team.name}</p></div>
+      <CoderouterAccountsSection teamId={data.team.id} canManage={data.team.manageAccounts} claude={claude} native={native} shared={shared} />
+    </div>
+  );
+}
+
 function BillingMetric({ label, value }: { label: string; value: string }) {
   return <div className="border-b border-border p-3 sm:border-b-0 sm:border-r"><p className="text-xs text-muted">{label}</p><p className="mt-2 font-mono text-xs tabular-nums">{value}</p></div>;
 }
@@ -479,10 +526,9 @@ function DashboardInitialContent() {
 }
 
 /**
- * Keeps the existing Next page implementations as the server authority while
- * the dashboard route tree is migrated one screen at a time. A client-side
- * navigation is still owned by TanStack Router; until its route has a native
- * client component, the bridge asks Next for the matching server page.
+ * The payment return page and instant navigation fixture remain server-owned
+ * Next entries. This bridge preserves their full-document behavior while all
+ * authenticated dashboard product routes use native Router components.
  */
 function DashboardLegacyRouteBridge() {
   const location = useLocation();
