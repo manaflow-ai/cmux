@@ -314,9 +314,9 @@ struct CloudPlacementCoordinatorTests {
                 "browsers": [], "agents": []
             ], machine: Self.machine))
         }
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"), observation: .current)
+        provider.install(try state(revision: "12"), in: catalog)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_api")
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"), observation: .current)
+        provider.install(try state(revision: "14"), in: catalog)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
         #expect(catalog.projection(forPanel: panel)?.workspaceID == bound)
     }
@@ -340,7 +340,7 @@ struct CloudPlacementCoordinatorTests {
             "screens": [], "panes": [], "tabs": [],
             "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": []
         ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
+        provider.install(state, in: catalog)
         catalog.moveProjections(panelID: panel, to: bound)
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.moved.isEmpty)
@@ -562,7 +562,7 @@ struct CloudPlacementCoordinatorTests {
 
     @Test func aMissingTrackedTabClearsCoordinatesEvenWhenOtherViewsRemain() throws {
         let bound = UUID(), panel = UUID()
-        let (catalog, _) = Self.harness(bound: bound)
+        let (catalog, provider) = Self.harness(bound: bound)
         let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_live", workspace: Self.api)])
         catalog.replaceResources([term], on: Self.machine)
         let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone")
@@ -575,7 +575,7 @@ struct CloudPlacementCoordinatorTests {
             "tabs": [["id": "tab_live", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
             "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": []
         ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
+        provider.install(state, in: catalog)
         #expect(catalog.projection(forPanel: panel)?.remoteTabID == nil)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == nil)
     }

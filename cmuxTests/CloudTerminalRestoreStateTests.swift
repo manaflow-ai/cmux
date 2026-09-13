@@ -8,30 +8,32 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud terminal restore state", .serialized)
+@Suite("Cloud terminal restore state")
 struct CloudTerminalRestoreStateTests {
     @Test
     func savedCloudIdentityShowsStateBeforeTheProviderHasDiscoveredIt() throws {
-        let manager = TabManager()
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelID = try #require(workspace.focusedPanelId)
-        let machine = SurfaceMachineID.cloud("restore-fixture-" + UUID().uuidString)
-        let catalog = SurfaceCatalog.shared
-        defer { catalog.unregister(machine: machine) }
-        catalog.restore([SurfaceProjectionRecord(
+        let workspaceID = UUID(), panelID = UUID()
+        let machine = SurfaceMachineID.cloud("restore-fixture")
+        let catalog = SurfaceCatalog()
+        // Restore constructs a local scaffold before Cloud discovery. Its live
+        // local entry must not hide the saved remote identity's presentation.
+        catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: .local, kind: .terminal, key: panelID.uuidString),
+            workspaceID: workspaceID, panelID: panelID
+        ))
+        let saved = SurfaceProjectionRecord(
             panelID: panelID,
             resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_saved"),
             remoteWorkspaceID: "ws_saved", remoteTabID: "tab_saved"
-        )], workspaceID: workspace.id)
-
-        let waiting = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        )
+        catalog.restore([saved], workspaceID: workspaceID)
+        #expect(catalog.projectionIdentity(forPanel: panelID, in: workspaceID) == saved)
+        #expect(catalog.projectionIdentity(forPanel: panelID, in: UUID()) == nil)
+        let waiting = try #require(CloudTerminalMaterializationPresentation(machine: nil, identity: saved).presentation)
         #expect(waiting.showsProgress)
-        workspace.setCloudMaterializationFailure(surfaceID: panelID, detail: "Endpoint unavailable", reference: nil)
-        let failed = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        let failed = Workspace.cloudMaterializationFailurePresentation(detail: "Endpoint unavailable", reference: nil)
         #expect(failed.showsReconnectButton)
         #expect(!failed.showsProgress)
-        workspace.clearCloudMaterializationFailure(surfaceID: panelID)
-        #expect(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID)?.showsProgress == true)
 
         let removed = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
             "cursor": ["generation": "g", "revision": "2"],
@@ -40,7 +42,10 @@ struct CloudTerminalRestoreStateTests {
         ], machine: machine))
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.replaceCloudState(removed, resources: CmuxTuiSnapshotParser.resources(from: removed), info: provider.info)
-        let missing = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        let identity = try #require(catalog.projectionIdentity(forPanel: panelID, in: workspaceID))
+        let missing = try #require(CloudTerminalMaterializationPresentation(
+            machine: provider.info, identity: identity, graph: catalog.cloudStates[machine], graphIsCurrent: true
+        ).presentation)
         #expect(missing.showsReconnectButton)
         #expect(!missing.showsProgress, "an authoritative missing tab is not an endless connection spinner")
     }

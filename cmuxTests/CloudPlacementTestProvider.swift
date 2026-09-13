@@ -29,6 +29,10 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     }
 
     func refresh() async { refreshCount += 1 }
+    func install(_ state: CloudVMState, in catalog: SurfaceCatalog) {
+        catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: info)
+        catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: .current)
+    }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
