@@ -87,6 +87,15 @@ final class CloudSidebarOrganizationStore {
         if next != state { commit(next) }
     }
 
+    /// Confirmed machine deletion removes its saved rows. Connection/account
+    /// teardown must not use this path because the same machine may return.
+    func forget(machine: SurfaceMachineID) {
+        let prefix = CloudTreeNodeBuilder.nodeID(machine: machine) + "/"
+        var next = state
+        next.groups = next.groups.filter { !$0.key.hasPrefix(prefix) }
+        if next != state { commit(next) }
+    }
+
     private func commit(_ next: CloudSidebarOrganizationState) {
         state = next
         if let defaults, let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: key) }

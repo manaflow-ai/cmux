@@ -31,6 +31,14 @@ extension SurfaceCatalog {
         sidebarOrganization.reconcile(nodes: nodes, machine: machine, workspaceIDs: Set(state.workspaces.map(\.id)))
     }
 
+    /// Called only after explicit deletion or authoritative fleet reconciliation.
+    /// Sign-out continues to use unregister, retaining this Mac's preferences.
+    func removeCloudMachine(_ machine: SurfaceMachineID) {
+        guard !machine.isLocal else { return }
+        sidebarOrganization.forget(machine: machine)
+        unregister(machine: machine)
+    }
+
     func raiseCloudSidebarNotification(machineID: String, terminalID: String) {
         let resource = SurfaceResourceID(machine: .cloud(machineID), kind: .terminal, key: terminalID)
         guard resources[resource] != nil else { return }

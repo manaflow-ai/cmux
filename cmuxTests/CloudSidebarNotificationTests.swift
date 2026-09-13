@@ -145,6 +145,26 @@ struct CloudSidebarNotificationTests {
         #expect(fixture.catalog.sidebarNodes(on: fixture.machine).allSatisfy { $0.machine == fixture.machine })
     }
 
+    @Test("Sign-out retains pins but confirmed machine deletion forgets them durably")
+    func deletionAndDisconnectionHaveDifferentPersistence() {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let owner = fixture.catalog.sidebarOrganization
+        #expect(fixture.catalog.organizeSidebar(.pin, nodeID: fixture.folderID("ws_2")))
+        let pinned = owner.state
+        fixture.catalog.unregister(machine: fixture.machine)
+        #expect(owner.state == pinned)
+        #expect(CloudSidebarOrganizationStore(defaults: fixture.defaults).state == pinned)
+        fixture.catalog.register(fixture.provider)
+        _ = fixture.catalog.replaceResources(fixture.snapshot().resources, on: fixture.machine, from: fixture.provider)
+        fixture.catalog.raiseCloudSidebarNotification(machineID: fixture.machine.rawValue, terminalID: "term_ws_2")
+        fixture.catalog.removeCloudMachine(fixture.machine)
+        fixture.catalog.sidebarNotifications.flush()
+        #expect(owner.state.groups.isEmpty)
+        #expect(CloudSidebarOrganizationStore(defaults: fixture.defaults).state.groups.isEmpty)
+        #expect(fixture.catalog.machines[fixture.machine] == nil)
+    }
+
     private func notification(_ id: String, terminal: String) -> CloudVMNotificationRow {
         CloudVMNotificationRow(id: id, title: "Fixture notification", subtitle: nil, body: "", level: "info",
                                createdAtMs: 1, terminalID: terminal, readBy: [])
