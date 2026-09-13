@@ -966,6 +966,13 @@ extension TerminalController {
         if strictExplicit {
             if v2HasNonNullParam(params, "workspace_id") {
                 guard let explicit = v2UUID(params, "workspace_id") else { return nil }
+                let exists = v2MainSync {
+                    self.tabManager?.tabs.contains { $0.id == explicit }
+                        == true
+                        || AppDelegate.shared?.tabManagerFor(tabId: explicit)?.tabs.contains { $0.id == explicit }
+                        == true
+                }
+                guard exists else { return nil }
                 return explicit
             }
             if v2HasNonNullParam(params, "pane_id") {
