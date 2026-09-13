@@ -34,18 +34,22 @@ extension CMUXCLI {
     /// - Parameter raw: A whole-number size with an optional `G`, `GB`, or `GiB` suffix.
     /// - Returns: The validated size in MiB, or `nil` when it is outside the provider contract.
     static func parseCloudVMDiskMb(_ raw: String) -> Int? {
+        guard let gib = parseCloudVMGiB(raw), (4...256).contains(gib), gib % 4 == 0 else { return nil }
+        return gib * 1024
+    }
+
+    static func parseCloudVMMemoryMb(_ raw: String) -> Int? {
+        guard let gib = parseCloudVMGiB(raw), (4...64).contains(gib) else { return nil }
+        return gib * 1024
+    }
+
+    private static func parseCloudVMGiB(_ raw: String) -> Int? {
         let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let number = normalized.hasSuffix("gib") ? String(normalized.dropLast(3))
             : normalized.hasSuffix("gb") ? String(normalized.dropLast(2))
             : normalized.hasSuffix("g") ? String(normalized.dropLast())
             : normalized
-        guard let gib = Int(number), (4...256).contains(gib), gib % 4 == 0 else { return nil }
-        return gib * 1024
-    }
-
-    static func parseCloudVMMemoryMb(_ raw: String) -> Int? {
-        guard let mb = parseCloudVMDiskMb(raw), mb <= 64 * 1024 else { return nil }
-        return mb
+        return Int(number)
     }
 
     static var vmResizeUsage: String {
@@ -53,8 +57,10 @@ extension CMUXCLI {
         Usage:
           cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
 
-        Grow an existing Cloud VM's CPU, memory, and/or disk. CPU and memory are grow-only;
-        disk uses 4 GiB steps. The plan's resource ceiling is enforced by the server.
+        Grow an existing Cloud VM in place. Specify at least one resource:
+        CPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.
+        Memory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.
+        The server enforces plan limits and returns the provider-confirmed resources.
         Add --json for the structured result.
         """)
     }
@@ -68,16 +74,18 @@ extension CMUXCLI {
         let (diskOpt, r1) = parseOption(rest, name: "--disk")
         let (cpuOpt, r2) = parseOption(r1, name: "--cpu")
         let (memoryOpt, remaining) = parseOption(r2, name: "--memory")
-        guard remaining.count == 1, let vmId = remaining.first, !vmId.hasPrefix("-"), diskOpt != nil || cpuOpt != nil || memoryOpt != nil else {
+        guard remaining.count == 1, let vmId = remaining.first,
+              !vmId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !vmId.hasPrefix("-"), diskOpt != nil || cpuOpt != nil || memoryOpt != nil else {
             throw CLIError(message: Self.vmResizeUsage)
         }
         let diskMb = diskOpt.flatMap(Self.parseCloudVMDiskMb)
-        let cpu = cpuOpt.flatMap(Int.init)
+        let cpu = cpuOpt.flatMap(Int.init).flatMap { (1...32).contains($0) ? $0 : nil }
         let memoryMb = memoryOpt.flatMap(Self.parseCloudVMMemoryMb)
-        if (diskOpt != nil && diskMb == nil) || (cpuOpt != nil && (cpu == nil || cpu! < 1 || cpu! > 32)) || (memoryOpt != nil && memoryMb == nil) {
+        if (diskOpt != nil && diskMb == nil) || (cpuOpt != nil && cpu == nil) || (memoryOpt != nil && memoryMb == nil) {
             throw CLIError(message: String(
                 localized: "cli.vm.resize.invalidDisk",
-                defaultValue: "vm resize: use CPU 1–32, memory 4–64 GiB, and disk 4–256 GiB in 4 GiB steps."
+                defaultValue: "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
             ))
         }
         var params: [String: Any] = ["id": vmId]

@@ -520537,55 +520537,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: disk must be 4–256 GiB in 4 GiB steps."
+            "value": "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: Die Festplatte muss zwischen 4 und 256 GiB liegen und in 4-GiB-Schritten angegeben werden."
+            "value": "vm resize: CPU 1–32, Arbeitsspeicher 1–64 GiB in ganzen GiB und Festplatte 4–256 GiB in 4-GiB-Schritten angeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize : le disque doit être compris entre 4 et 256 Gio, par pas de 4 Gio."
+            "value": "vm resize : indiquez 1–32 CPU, 1–64 Gio de mémoire en Gio entiers et 4–256 Gio de disque par pas de 4 Gio."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: يجب أن يكون القرص بين 4 و256 جيجابايت وبخطوات 4 جيجابايت."
+            "value": "vm resize: استخدم 1–32 وحدة معالجة، وذاكرة 1–64 GiB بأعداد صحيحة، وقرصًا 4–256 GiB بخطوات 4 GiB."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: el disco debe tener entre 4 y 256 GiB, en pasos de 4 GiB."
+            "value": "vm resize: usa CPU 1–32, memoria 1–64 GiB en GiB enteros y disco 4–256 GiB en pasos de 4 GiB."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：磁碟必須介於 4–256 GiB，且以 4 GiB 為增量。"
+            "value": "vm resize：CPU 為 1–32，記憶體為 1–64 GiB（整數 GiB），磁碟為 4–256 GiB（以 4 GiB 為增量）。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize：磁盘必须介于 4–256 GiB，且以 4 GiB 为增量。"
+            "value": "vm resize：CPU 为 1–32，内存为 1–64 GiB（整数 GiB），磁盘为 4–256 GiB（以 4 GiB 为增量）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: 디스크는 4–256GiB 범위에서 4GiB 단위여야 합니다."
+            "value": "vm resize: CPU 1–32, 메모리 1–64GiB(정수 GiB), 디스크 4–256GiB(4GiB 단위)를 사용하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "vm resize: ディスクは 4〜256 GiB の範囲で 4 GiB 単位で指定してください。"
+            "value": "vm resize: CPU は 1〜32、メモリは 1〜64 GiB（1 GiB 単位）、ディスクは 4〜256 GiB（4 GiB 単位）で指定してください。"
           }
         }
       }
@@ -520596,55 +520596,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK %@ disk=%d GiB"
+            "value": "OK %@ cpu=%@ memory=%@ GiB disk=%@ GiB"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK %@ Festplatte=%d GiB"
+            "value": "OK %@ CPU=%@ Arbeitsspeicher=%@ GiB Festplatte=%@ GiB"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK %@ disque=%d Gio"
+            "value": "OK %@ processeurs=%@ mémoire=%@ Gio disque=%@ Gio"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم %@ القرص=%d جيجابايت"
+            "value": "تم %@ المعالج=%@ الذاكرة=%@ GiB القرص=%@ GiB"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK %@ disco=%d GiB"
+            "value": "OK %@ CPU=%@ memoria=%@ GiB disco=%@ GiB"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成 %@ 磁碟=%d GiB"
+            "value": "完成 %@ CPU=%@ 記憶體=%@ GiB 磁碟=%@ GiB"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "完成 %@ 磁盘=%d GiB"
+            "value": "完成 %@ CPU=%@ 内存=%@ GiB 磁盘=%@ GiB"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "확인 %@ 디스크=%dGiB"
+            "value": "완료 %@ CPU=%@ 메모리=%@GiB 디스크=%@GiB"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OK %@ ディスク=%d GiB"
+            "value": "OK %@ CPU=%@ メモリ=%@ GiB ディスク=%@ GiB"
           }
         }
       }
@@ -520773,55 +520773,350 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage:\n  cmux vm resize <id> --disk <GiB>\n\nGrow an existing Cloud VM's disk in 4 GiB steps from 4 GiB through 256 GiB.\nDisk sizes are grow-only; the provider-confirmed size is returned.\nAdd --json for the structured result."
+            "value": "Usage:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nGrow an existing Cloud VM in place. Specify at least one resource:\nCPU: 1–32 vCPUs. Memory: 1–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.\nMemory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.\nThe server enforces plan limits and returns the provider-confirmed resources.\nAdd --json for the structured result."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung:\n  cmux vm resize <id> --disk <GiB>\n\nVergrößert die Festplatte einer bestehenden Cloud-VM in 4-GiB-Schritten von 4 bis 256 GiB.\nFestplatten können nur vergrößert werden; die bestätigte Größe wird zurückgegeben.\nMit --json wird das strukturierte Ergebnis ausgegeben."
+            "value": "Verwendung:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nErhöht die Ressourcen einer bestehenden Cloud-VM. Mindestens eine Ressource angeben:\nCPU: 1–32 vCPUs. Arbeitsspeicher: 4–64 GiB in ganzen GiB. Festplatte: 4–256 GiB in 4-GiB-Schritten.\nArbeitsspeicher und Festplatte akzeptieren G, GB oder GiB als Suffix. Verkleinern wird nicht unterstützt.\nDer Server prüft die Tarifgrenzen und gibt die vom Anbieter bestätigten Ressourcen zurück.\nMit --json wird das strukturierte Ergebnis ausgegeben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation :\n  cmux vm resize <id> --disk <GiB>\n\nAugmente le disque d’une Cloud VM existante par pas de 4 Gio, de 4 à 256 Gio.\nLes disques ne peuvent qu’être agrandis ; la taille confirmée est renvoyée.\nAjoutez --json pour le résultat structuré."
+            "value": "Utilisation :\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAugmente les ressources d’une Cloud VM existante. Indiquez au moins une ressource :\nCPU : 1–32 vCPU. Mémoire : 4–64 Gio en Gio entiers. Disque : 4–256 Gio par pas de 4 Gio.\nLa mémoire et le disque acceptent les suffixes G, GB ou GiB. La réduction n’est pas prise en charge.\nLe serveur applique les limites de l’offre et renvoie les ressources confirmées par le fournisseur.\nAjoutez --json pour obtenir le résultat structuré."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام:\n  cmux vm resize <id> --disk <GiB>\n\nكبّر قرص Cloud VM موجودة بخطوات 4 جيجابايت من 4 إلى 256 جيجابايت.\nيمكن تكبير الأقراص فقط؛ يتم إرجاع الحجم المؤكد.\nأضف --json للحصول على النتيجة المنظمة."
+            "value": "الاستخدام:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nزِد موارد Cloud VM موجودة دون استبدالها. حدّد موردًا واحدًا على الأقل:\nالمعالج: 1–32 وحدة افتراضية. الذاكرة: 1–64 GiB بأعداد صحيحة. القرص: 4–256 GiB بخطوات 4 GiB.\nتقبل الذاكرة والقرص اللواحق G أو GB أو GiB. تقليل الموارد غير مدعوم.\nيفرض الخادم حدود الخطة ويعيد الموارد التي أكدها المزوّد.\nأضف --json للحصول على النتيجة المنظّمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso:\n  cmux vm resize <id> --disk <GiB>\n\nAumenta el disco de una Cloud VM existente en pasos de 4 GiB, de 4 a 256 GiB.\nLos discos solo pueden crecer; se devuelve el tamaño confirmado.\nAñade --json para el resultado estructurado."
+            "value": "Uso:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\nAumenta los recursos de una Cloud VM existente. Especifica al menos un recurso:\nCPU: 1–32 vCPU. Memoria: 4–64 GiB en GiB enteros. Disco: 4–256 GiB en pasos de 4 GiB.\nLa memoria y el disco aceptan los sufijos G, GB o GiB. No se admite reducir recursos.\nEl servidor aplica los límites del plan y devuelve los recursos confirmados por el proveedor.\nAñade --json para obtener el resultado estructurado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> --disk <GiB>\n\n以 4 GiB 為增量，將現有 Cloud VM 的磁碟從 4 GiB 增加至 256 GiB。\n磁碟只能增加；會回傳確認的大小。\n加上 --json 以取得結構化結果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加現有 Cloud VM 的資源。請指定至少一項資源：\nCPU：1–32 vCPU。記憶體：4–64 GiB，以整數 GiB 指定。磁碟：4–256 GiB，以 4 GiB 為增量。\n記憶體和磁碟接受 G、GB 或 GiB 後綴。不支援縮減資源。\n伺服器會執行方案限制，並回傳供應商確認的資源。\n加上 --json 以取得結構化結果。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：\n  cmux vm resize <id> --disk <GiB>\n\n以 4 GiB 为增量，将现有 Cloud VM 的磁盘从 4 GiB 增加到 256 GiB。\n磁盘只能增加；将返回确认的大小。\n加上 --json 以获取结构化结果。"
+            "value": "用法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n直接增加现有 Cloud VM 的资源。请指定至少一项资源：\nCPU：1–32 vCPU。内存：4–64 GiB，以整数 GiB 指定。磁盘：4–256 GiB，以 4 GiB 为增量。\n内存和磁盘接受 G、GB 或 GiB 后缀。不支持缩减资源。\n服务器会执行套餐限制，并返回提供商确认的资源。\n加上 --json 以获取结构化结果。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법:\n  cmux vm resize <id> --disk <GiB>\n\n기존 Cloud VM 디스크를 4GiB 단위로 4GiB에서 256GiB까지 늘립니다.\n디스크는 늘리기만 가능하며 확인된 크기를 반환합니다.\n구조화된 결과는 --json을 추가하세요."
+            "value": "사용법:\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n기존 Cloud VM의 리소스를 늘립니다. 리소스를 하나 이상 지정하세요:\nCPU: 1–32 vCPU. 메모리: 4–64GiB, 정수 GiB 단위. 디스크: 4–256GiB, 4GiB 단위.\n메모리와 디스크는 G, GB 또는 GiB 접미사를 허용합니다. 리소스 축소는 지원하지 않습니다.\n서버가 요금제 제한을 적용하고 공급자가 확인한 리소스를 반환합니다.\n구조화된 결과를 보려면 --json을 추가하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法：\n  cmux vm resize <id> --disk <GiB>\n\n既存の Cloud VM のディスクを 4 GiB 単位で 4 GiB から 256 GiB まで増量します。\nディスクは増量のみ可能で、プロバイダーが確認したサイズを返します。\n構造化された結果には --json を追加してください。"
+            "value": "使用方法：\n  cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]\n\n既存の Cloud VM のリソースを増量します。少なくとも1つのリソースを指定してください：\nCPU：1〜32 vCPU。メモリ：4〜64 GiB、1 GiB 単位。ディスク：4〜256 GiB、4 GiB 単位。\nメモリとディスクには G、GB、GiB の接尾辞を使用できます。縮小には対応していません。\nサーバーがプランの制限を適用し、プロバイダーが確認したリソースを返します。\n構造化された結果には --json を追加してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.resize.helpDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erhöht CPU, Arbeitsspeicher oder Festplatte einer bestehenden Maschine; siehe `cmux vm resize --help`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmente le CPU, la mémoire ou le disque d’une machine existante ; voir `cmux vm resize --help`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زِد المعالج أو الذاكرة أو القرص لجهاز موجود؛ راجع `cmux vm resize --help`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumenta la CPU, la memoria o el disco de una máquina existente; consulta `cmux vm resize --help`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加現有機器的 CPU、記憶體或磁碟；請參閱 `cmux vm resize --help`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加现有机器的 CPU、内存或磁盘；请参阅 `cmux vm resize --help`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기존 머신의 CPU, 메모리 또는 디스크를 늘립니다. `cmux vm resize --help`를 참조하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既存のマシンの CPU、メモリ、ディスクを増量します。`cmux vm resize --help` を参照してください。"
+          }
+        }
+      }
+    },
+    "machines.menu.resizeToGiB": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase to %d GiB"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %d GiB erhöhen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter à %d Gio"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة إلى %d جيجابايت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar a %d GiB"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加至 %d GiB"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加到 %d GiB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dGiB로 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GiB に増量"
+          }
+        }
+      }
+    },
+    "machines.menu.resizeToVCPUs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase to %d vCPUs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %d vCPUs erhöhen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter à %d vCPU"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة إلى %d وحدة افتراضية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar a %d vCPU"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加至 %d vCPU"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加到 %d vCPU"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d vCPU로 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d vCPU に増量"
+          }
+        }
+      }
+    },
+    "machines.menu.increaseCPU": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase CPU"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU erhöhen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter le CPU"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة وحدة المعالجة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar CPU"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加 CPU"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加 CPU"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU を増量"
+          }
+        }
+      }
+    },
+    "machines.menu.increaseMemory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Memory"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsspeicher erhöhen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Augmenter la mémoire"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زيادة الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar memoria"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모리 늘리기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリを増量"
           }
         }
       }

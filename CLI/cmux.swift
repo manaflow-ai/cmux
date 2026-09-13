@@ -18408,6 +18408,10 @@ struct CMUXCLI {
                 localized: "cli.cloud.domains.helpDescription",
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
+            let resizeDescription = String(
+                localized: "cli.vm.resize.helpDescription",
+                defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
+            )
             return """
             Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
@@ -18518,7 +18522,8 @@ struct CMUXCLI {
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
               stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
-              resize <id> --disk <GiB>        Grow an existing machine's disk in 4 GiB steps (4–256 GiB)
+              resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
+                                        \(resizeDescription)
               tui <id> [--window <id|ref|index>]
                                         Open a workspace attached through the machine's
                                         cmux-tui remote daemon (enrolls this Mac on first use).

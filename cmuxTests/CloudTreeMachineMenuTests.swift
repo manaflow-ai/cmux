@@ -39,7 +39,7 @@ struct CloudTreeMachineMenuTests {
         #expect(CMUXCLI.parseCloudVMDiskMb("260G") == nil)
     }
 
-    @Test("A machine's menu exposes grow-only disk resize and wires its target")
+    @Test("A machine's menu exposes grow-only resource resize and wires its targets")
     func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
@@ -64,7 +64,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
-            Self.title("machines.menu.increaseDisk", "Increase Disk"),
+            Self.title("cloud.operation.kind.resize", "Resize machine"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -77,19 +77,34 @@ struct CloudTreeMachineMenuTests {
         try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)
         #expect(recorder.vpnSetupWindow === window)
-        let diskRoot = try #require(menu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
+        let resizeRoot = try #require(menu.items.first { $0.title == Self.title("cloud.operation.kind.resize", "Resize machine") })
+        let resizeMenu = try #require(resizeRoot.submenu)
+        let diskRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
         let diskMenu = try #require(diskRoot.submenu)
         #expect(diskMenu.items.map(\.title) == [
-            Self.title("machines.menu.increaseDiskTo", "Increase to 64 GiB"),
-            Self.title("machines.menu.increaseDiskTo", "Increase to 128 GiB"),
-            Self.title("machines.menu.increaseDiskTo", "Increase to 256 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to 128 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to 256 GiB"),
+        ])
+        #expect(resizeMenu.items.map(\.title) == [
+            Self.title("machines.menu.increaseDisk", "Increase Disk"),
+            Self.title("machines.menu.increaseCPU", "Increase CPU"),
+            Self.title("machines.menu.increaseMemory", "Increase Memory"),
         ])
 
         // The verbs that stay are still wired, not merely titled.
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
-        try Self.choose(Self.title("machines.menu.increaseDiskTo", "Increase to 64 GiB"), in: diskMenu)
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"), in: diskMenu)
         #expect(recorder.resizes == [(Self.machineID, 64)])
+        let cpuRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") })
+        let cpuMenu = try #require(cpuRoot.submenu)
+        try Self.choose(Self.title("machines.menu.resizeToVCPUs", "Increase to 8 vCPUs"), in: cpuMenu)
+        #expect(recorder.cpuResizes == [(Self.machineID, 8)])
+        let memoryRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") })
+        let memoryMenu = try #require(memoryRoot.submenu)
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 16 GiB"), in: memoryMenu)
+        #expect(recorder.memoryResizes == [(Self.machineID, 16)])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -147,6 +162,8 @@ struct CloudTreeMachineMenuTests {
             confirmDelete: { recorder.deletions.append($0) },
             promptRename: { _, _ in },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
+            resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
+            resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {}
         )
     }
@@ -183,4 +200,6 @@ private final class CloudTreeMenuVerbRecorder {
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []
     var resizes: [(String, Int)] = []
+    var cpuResizes: [(String, Int)] = []
+    var memoryResizes: [(String, Int)] = []
 }

@@ -35,11 +35,11 @@ export async function POST(
       if (dimensions.every((value) => value === undefined) || dimensions.some((value) =>
         value !== undefined && (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0)
       ) || (typeof storageMb === "number" && (storageMb % VM_DISK_MB_STEP !== 0 || storageMb > VM_DISK_MB_MAX)) ||
-        (typeof memoryMb === "number" && (memoryMb % 1024 !== 0 || memoryMb > 64 * 1024)) ||
+        (typeof memoryMb === "number" && (memoryMb < 4 * 1024 || memoryMb % 1024 !== 0 || memoryMb > 64 * 1024)) ||
         (typeof cpu === "number" && cpu > 32)) {
         return jsonResponse({
           error: "invalid resize size",
-          message: "Provide cpu (1–32), memoryMb (whole GiB, up to 64 GiB), or storageMb (4 GiB steps, up to 256 GiB).",
+          message: "Provide cpu (1–32), memoryMb (4–64 GiB, whole GiB), or storageMb (4 GiB steps, up to 256 GiB).",
         }, 400);
       }
       span.setAttribute("cmux.vm.id", id);
@@ -58,7 +58,15 @@ export async function POST(
       const stats = run.value;
       return jsonResponse({
         id,
-        ...stats,
+        state: stats.state,
+        sampledAt: stats.sampledAt,
+        cpus: stats.cpus,
+        cpuPercent: stats.cpuPercent,
+        loadAverage1m: stats.loadAverage1m,
+        memoryTotalMb: stats.memoryTotalMb,
+        memoryUsedMb: stats.memoryUsedMb,
+        diskTotalMb: stats.diskTotalMb,
+        diskUsedMb: stats.diskUsedMb,
         maxDiskMb: maxDiskMbForPlan(account.entitlements.planId),
         maxMemoryMb: maxMemoryMbForPlan(account.entitlements.planId),
         maxVcpus: maxVcpusForPlan(account.entitlements.planId),

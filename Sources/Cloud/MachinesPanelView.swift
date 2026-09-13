@@ -468,6 +468,12 @@ struct MachinesPanelView: View {
                 viewModel?.refresh(tree: true)
             }
         )
+        // The list endpoint is authoritative for the caller's plan-sized
+        // memory ladder. Feed it into the menu so Pro users do not select a
+        // Max-only size and wait for a server rejection.
+        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
+        machineActions.resizeMemoryOptionsGiB = planMemoryGiB
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -755,6 +761,9 @@ struct MachineRowActions {
     let resizeDisk: @MainActor (String, Int) -> Void
     var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
     var resizeMemory: @MainActor (String, Int) -> Void = { _, _ in }
+    /// Plan-advertised targets. Empty means use the provider's conservative ladder.
+    var resizeCPUOptions: [Int] = []
+    var resizeMemoryOptionsGiB: [Int] = []
     let promptUpgrade: @MainActor () -> Void
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert

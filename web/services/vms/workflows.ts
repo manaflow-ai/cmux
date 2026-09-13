@@ -2854,7 +2854,7 @@ export function resizeVm(input: {
   readonly billingPlanId?: string | null;
   /** Current machine-count allowance, also used when resuming a paused VM. */
   readonly maxActiveVms?: number | null;
-}) {
+}): VmWorkflowProgram<VMStats> {
   // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -2889,7 +2889,7 @@ export function resizeVm(input: {
       if (previous === undefined || !Number.isSafeInteger(previous) || previous <= 0) {
         return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
       }
-      if (!Number.isSafeInteger(requested) || requested < previous || requested > max || requested <= 0 || (resource === "memory" && requested % 1024 !== 0)) {
+      if (!Number.isSafeInteger(requested) || requested < previous || requested > max || requested <= 0 || (resource === "memory" && (requested < 4 * 1024 || requested % 1024 !== 0))) {
         return yield* Effect.fail(new VmResizeInvalidError({
           vmId: input.providerVmId, requestedMb: requested, currentMb: previous, maxMb: max,
           reason: requested < previous ? "below_current" : "above_max", resource,
@@ -2902,12 +2902,37 @@ export function resizeVm(input: {
       if (!computeChanged) return current;
       yield* providers.resize(vm.provider, input.providerVmId, { cpu: input.cpu, memoryMb: input.memoryMb });
       const updated = yield* providers.getStats(vm.provider, input.providerVmId);
+      const existingReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
+      const currentDiskMb = vmProviderResourceSize("diskMb", current.diskTotalMb) ?? existingReservation.diskMb;
       if (repo.setResourceReservation) {
         yield* repo.setResourceReservation({
           id: vm.id,
-          reservation: reservationFromLegacyProviderStats(updated, vmResourceReservationFromMetadata(vm.providerMetadata)),
+          reservation: reservationFromLegacyProviderStats(
+            updated,
+            existingReservation,
+            currentDiskMb,
+            currentDiskMb,
+          ),
+          ...(hasVmResourceReservationMetadata(vm.providerMetadata)
+            ? { expectedReservation: existingReservation }
+            : {}),
         });
       }
+      yield* repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.resize",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: {
+          cpu: input.cpu,
+          memoryMb: input.memoryMb,
+          previousCpu: current.cpus,
+          previousMemoryMb: current.memoryTotalMb,
+        },
+      }).pipe(Effect.catchAll(() => Effect.void));
       return updated;
     }
     const currentMb = vmProviderResourceSize("diskMb", current.diskTotalMb);
@@ -3008,6 +3033,31 @@ export function resizeVm(input: {
         }));
       }
     }
+    // Keep the read-model reservation in sync with every provider-confirmed
+    // dimension. Disk confirmation owns a generation; the compare-and-set
+    // expected reservation prevents a concurrent resize from being clobbered.
+    if (repo.setResourceReservation) {
+      const existingReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
+      const confirmedReservation = reservationFromLegacyProviderStats(
+        updated,
+        existingReservation,
+        confirmedDiskMb,
+        input.storageMb,
+      );
+      const expectedReservation = reservation
+        ? {
+          ...existingReservation,
+          diskMb: Math.max(reservation.reservedDiskMb, confirmedDiskMb),
+        }
+        : hasVmResourceReservationMetadata(vm.providerMetadata)
+          ? existingReservation
+          : undefined;
+      yield* repo.setResourceReservation({
+        id: vm.id,
+        reservation: confirmedReservation,
+        ...(expectedReservation === undefined ? {} : { expectedReservation }),
+      }).pipe(Effect.asVoid);
+    }
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -3020,6 +3070,10 @@ export function resizeVm(input: {
         storageMb: input.storageMb,
         confirmedStorageMb: confirmedDiskMb,
         previousStorageMb: currentMb,
+        ...(input.cpu === undefined ? {} : { cpu: input.cpu }),
+        ...(input.memoryMb === undefined ? {} : { memoryMb: input.memoryMb }),
+        ...(updated.cpus === undefined ? {} : { confirmedCpu: updated.cpus }),
+        ...(updated.memoryTotalMb === undefined ? {} : { confirmedMemoryMb: updated.memoryTotalMb }),
       },
     }).pipe(Effect.catchAll(() => Effect.void));
     return updated;
