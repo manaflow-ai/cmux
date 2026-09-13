@@ -46,6 +46,7 @@ extension CmuxTuiSurfaceProvider {
             // re-encoded for that id when the connection is established.
             remoteSurfaceID: 0,
             operations: links.operations,
+            startupTrace: startupTrace,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
             }

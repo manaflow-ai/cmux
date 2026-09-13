@@ -12,6 +12,7 @@ extension CmuxTuiSurfaceProvider {
         case terminalCreationUnsupported(String)
         case remoteWorkspaceNotFound(String)
         case remotePlacementUnavailable(String)
+        case remotePlacementOutcomeUnknown(String)
         case remoteTabNotFound(String)
         /// The terminal's process already ended on the machine.
         case terminalExited(String)
@@ -58,6 +59,14 @@ extension CmuxTuiSurfaceProvider {
                     format: String(
                         localized: "cloudTree.error.remotePlacementUnavailable",
                         defaultValue: "Remote workspace %@ has no available terminal placement. Refresh and retry."
+                    ),
+                    id
+                )
+            case .remotePlacementOutcomeUnknown(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.remotePlacementOutcomeUnknown",
+                        defaultValue: "Cloud could not confirm the placement for %@. Refresh and retry."
                     ),
                     id
                 )

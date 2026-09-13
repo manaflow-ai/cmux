@@ -126389,7 +126389,7 @@
         "en": {"stringUnit": {"state": "translated", "value": "Cloud could not confirm whether the terminal was created. Refresh the machine before retrying."}},
         "de": {"stringUnit": {"state": "translated", "value": "Cloud konnte nicht bestätigen, ob das Terminal erstellt wurde. Aktualisiere den Rechner und versuche es erneut."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Cloud n’a pas pu confirmer la création du terminal. Actualisez la machine avant de réessayer."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "تعذر على Cloud تأكيد إنشاء الطرفية. حدّث الجهاز قبل إعادة المحاولة."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر على خدمة cmux-tui تأكيد إنشاء طرفية Cloud. حدّث الجهاز قبل إعادة المحاولة."}},
         "es": {"stringUnit": {"state": "translated", "value": "Cloud no pudo confirmar si se creó el terminal. Actualiza la máquina antes de volver a intentarlo."}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 無法確認終端機是否已建立。請重新整理機器後再試。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 无法确认终端是否已创建。请刷新机器后重试。"}},
@@ -126403,12 +126403,26 @@
         "en": {"stringUnit": {"state": "translated", "value": "This machine does not support safe Cloud terminal recovery. Update its cmux-tui daemon before retrying."}},
         "de": {"stringUnit": {"state": "translated", "value": "Dieser Rechner unterstützt keine sichere Cloud-Terminal-Wiederherstellung. Aktualisiere den cmux-tui-Daemon und versuche es erneut."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Cette machine ne prend pas en charge la récupération sécurisée des terminaux Cloud. Mettez à jour son daemon cmux-tui avant de réessayer."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "لا يدعم هذا الجهاز الاسترداد الآمن لمحطة Cloud. حدّث عفريت cmux-tui قبل إعادة المحاولة."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لا يدعم هذا الجهاز استرداد طرفية Cloud بشكل آمن. حدّث خدمة cmux-tui قبل إعادة المحاولة."}},
         "es": {"stringUnit": {"state": "translated", "value": "Esta máquina no admite la recuperación segura de terminales de Cloud. Actualiza su daemon cmux-tui antes de volver a intentarlo."}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "這部機器不支援安全的 Cloud 終端機復原。請更新其 cmux-tui 守護程式後再試。"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "此机器不支持安全的 Cloud 终端恢复。请更新其 cmux-tui 守护进程后重试。"}},
         "ko": {"stringUnit": {"state": "translated", "value": "이 머신은 안전한 Cloud 터미널 복구를 지원하지 않습니다. cmux-tui 데몬을 업데이트한 후 다시 시도하세요."}},
         "ja": {"stringUnit": {"state": "translated", "value": "このマシンは安全な Cloud ターミナル復元に対応していません。cmux-tui デーモンを更新してから再試行してください。"}}
+      }
+    },
+    "cloudTree.error.remotePlacementOutcomeUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud could not confirm the placement for %@. Refresh and retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud konnte die Platzierung für %@ nicht bestätigen. Aktualisiere die Ansicht und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cloud n’a pas pu confirmer le placement de %@. Actualisez et réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر على Cloud تأكيد موضع %@. حدّث ثم أعد المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cloud no pudo confirmar la ubicación de %@. Actualiza y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 無法確認 %@ 的位置。請重新整理後再試。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 无法确认 %@ 的位置。请刷新后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud에서 %@의 배치를 확인할 수 없습니다. 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud は %@ の配置を確認できませんでした。更新して再試行してください。"}}
       }
     },
     "cloudTree.error.terminalAttachTimedOut": {

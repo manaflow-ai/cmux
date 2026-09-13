@@ -49,12 +49,10 @@ extension CmuxTuiSurfaceProvider {
         )
         do {
             let created = try await coordinator.run()
-            guard let resolvedWorkspaceID = await resolvedWorkspaceID(
+            let resolvedWorkspaceID = await resolvedWorkspaceID(
                 for: created,
                 requestedWorkspace: workspaceID
-            ) else {
-                throw ProviderError.terminalCreationOutcomeUnknown(correlationKey)
-            }
+            )
             cloudTerminalCreationLogger.info(
                 "create machine=\(self.machineID, privacy: .public) correlation=\(correlationKey, privacy: .private(mask: .hash)) phase=acknowledged terminal=\(created.terminalID, privacy: .private(mask: .hash)) generation=\((created.cursor?.generation ?? "unavailable"), privacy: .private(mask: .hash)) revision=\((created.cursor?.revision).map(String.init) ?? "unavailable", privacy: .public)"
             )

@@ -72,8 +72,6 @@ struct CloudTuiCreationResolution: Equatable, Sendable {
                 return nil
             }
             createdTerminal = parsed
-        } else {
-            guard createdTerminal == nil else { return nil }
         }
 
         switch (state, recovery) {

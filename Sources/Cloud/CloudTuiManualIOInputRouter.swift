@@ -75,7 +75,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
                 return
             }
             guard pendingByteCount + line.count <= pendingByteLimit else {
-                pendingLines.removeAll(keepingCapacity: true)
+                pendingInputs.removeAll(keepingCapacity: true)
                 pendingByteCount = 0
                 return
             }

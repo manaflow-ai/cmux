@@ -114,7 +114,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                     // Treat this as an ambiguous placement outcome so callers
                     // refresh/reconcile the exact intent instead of claiming a
                     // new terminal was never created.
-                    throw ProviderError.terminalCreationOutcomeUnknown(
+                    throw ProviderError.remotePlacementOutcomeUnknown(
                         terminalID ?? tabID ?? remoteWorkspaceID
                     )
                 }

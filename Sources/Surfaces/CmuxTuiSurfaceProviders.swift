@@ -803,20 +803,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
-        workspaceID: String,
+        workspaceID: String?,
         name: String?,
         cwd: String?
     ) -> SurfaceResource {
         let resolvedWorkspaceID = created.workspaceID ?? workspaceID
-        let remoteWorkspace = cloudState?.workspaces.first(where: { $0.id == resolvedWorkspaceID }).map {
+        let remoteWorkspace = resolvedWorkspaceID.flatMap { id in cloudState?.workspaces.first(where: { $0.id == id }) }.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
-        } ?? info.remoteWorkspaces?.first(where: { $0.id == resolvedWorkspaceID })
-            ?? SurfaceRemoteWorkspace(
-                id: resolvedWorkspaceID,
-                name: resolvedWorkspaceID,
-                index: info.remoteWorkspaces?.count ?? 0,
-                focused: false
-            )
+        } ?? resolvedWorkspaceID.flatMap { id in info.remoteWorkspaces?.first(where: { $0.id == id }) }
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: created.terminalID),
             title: name ?? "",
@@ -827,7 +821,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             port: nil,
             url: nil
         )
-        if let tabID = created.tabID {
+        if let tabID = created.tabID, let remoteWorkspace {
             resource.remoteViews = [SurfaceRemoteView(
                 tabID: tabID,
                 workspace: remoteWorkspace,
