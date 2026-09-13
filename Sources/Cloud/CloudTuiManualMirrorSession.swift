@@ -168,7 +168,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
-        presentationReadiness.begin(surface: surface, condition: { [weak self] in
+        if presentationReadiness.phase != .ready { presentationReadiness.begin(surface: surface, condition: { [weak self] in
             guard let self else { return false }
             return self.phase == .attached && self.diagnosticReplayReceived
         }, onReady: { [weak self] in
@@ -179,7 +179,7 @@ final class CloudTuiManualMirrorSession {
             self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }, onTimedOut: { [weak self] in
             self?.transitionToDisconnected(reason: .livenessTimedOut)
-        })
+        }) }
         startupTrace?.mark("surface-bound", surfaceID: remoteSurfaceID)
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
