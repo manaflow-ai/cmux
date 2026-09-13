@@ -36,7 +36,8 @@ struct SurfaceSocketCommandTests {
             }
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-        #expect(try Self.error(object)["code"] as? String == "not_ready")
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "not_ready")
     }
 
     @Test func vmFailureDoesNotExposeBackendCredentialsOrResponseBodies() async throws {
