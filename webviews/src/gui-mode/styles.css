@@ -15,12 +15,131 @@
 }
 
 .gui-mode-home.agent-shell {
-  padding: var(--padding-toolbar);
+  padding: 0 var(--padding-toolbar) var(--padding-toolbar);
 }
 
 .gui-mode-thread {
   width: 100%;
   max-width: var(--thread-content-max-width);
+}
+
+.gui-mode-home .gui-mode-thread[data-empty] {
+  justify-content: center;
+  align-items: center;
+  padding-top: 12vh;
+  padding-bottom: 8vh;
+}
+
+.gui-mode-empty-state {
+  display: flex;
+  max-width: 42rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: auto;
+  padding: 24px;
+  text-align: center;
+}
+
+.gui-mode-empty-title {
+  margin: 0;
+  color: var(--agent-text);
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.gui-mode-empty-subtitle {
+  max-width: 32rem;
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--codex-chat-font-size);
+}
+
+.gui-mode-voice-card {
+  display: flex;
+  width: min(100%, 30rem);
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: 14px;
+  color: var(--agent-soft);
+  background: color-mix(in srgb, var(--agent-surface) 68%, transparent);
+  text-align: left;
+}
+
+.gui-mode-voice-icon {
+  display: flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--agent-accent);
+  background: var(--agent-accent-soft);
+}
+
+.gui-mode-voice-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.gui-mode-voice-copy span {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-voice-action {
+  padding: 5px 9px;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  color: var(--agent-muted);
+  background: transparent;
+  font-size: var(--text-xs);
+}
+
+.gui-mode-context-strip {
+  display: flex;
+  width: min(100%, var(--thread-content-max-width));
+  align-items: center;
+  gap: 7px;
+  margin: 0 auto 7px;
+  padding: 0 8px;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.gui-mode-context-folder,
+.gui-mode-context-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gui-mode-context-folder {
+  color: var(--agent-soft);
+}
+
+.gui-mode-context-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gui-mode-context-divider {
+  color: var(--agent-muted);
+  opacity: 0.7;
 }
 
 .gui-mode-task-thread {
@@ -58,6 +177,8 @@
 
 .gui-mode-composer-stack {
   max-width: var(--thread-content-max-width);
+  width: min(100%, 56rem);
+  margin: 0 auto;
 }
 
 .gui-mode-composer {
@@ -71,6 +192,186 @@
   gap: var(--h-token-button-composer-gap);
   min-height: var(--spacing-token-button-composer);
   padding: 4px 8px;
+}
+
+.gui-mode-mode-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  margin: 8px 10px 2px;
+  padding: 2px;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-control) 70%, transparent);
+}
+
+.gui-mode-mode-button {
+  min-width: 56px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--agent-muted);
+  background: transparent;
+  font-size: var(--text-xs);
+}
+
+.gui-mode-mode-button.is-selected {
+  color: var(--agent-text);
+  background: var(--agent-surface-elevated);
+  box-shadow: 0 1px 3px var(--agent-shadow);
+}
+
+.gui-mode-editor-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px 0 5px;
+}
+
+.gui-mode-context-picker,
+.gui-mode-model-picker,
+.gui-mode-permission-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.gui-mode-context-button {
+  width: 28px;
+  height: 28px;
+  color: var(--agent-muted);
+}
+
+.gui-mode-context-button.is-selected {
+  color: var(--agent-accent);
+  background: var(--agent-accent-soft);
+}
+
+.gui-mode-context-menu,
+.gui-mode-model-menu,
+.gui-mode-permission-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: max-content;
+  min-width: 190px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 6px;
+  border: 1px solid var(--agent-border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--agent-surface-elevated) 96%, transparent);
+  box-shadow: 0 12px 32px var(--agent-shadow);
+  backdrop-filter: blur(16px);
+}
+
+.gui-mode-context-menu-item,
+.gui-mode-model-option,
+.gui-mode-permission-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--agent-text);
+  background: transparent;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.gui-mode-context-menu-item:hover,
+.gui-mode-model-option:hover,
+.gui-mode-permission-option:hover,
+.gui-mode-model-option.is-selected,
+.gui-mode-permission-option.is-selected {
+  background: var(--agent-control-hover);
+}
+
+.gui-mode-context-menu-item > :last-child,
+.gui-mode-model-option > :last-child,
+.gui-mode-permission-option > :last-child {
+  margin-left: auto;
+  color: var(--agent-accent);
+}
+
+.gui-mode-model-button,
+.gui-mode-permission-button {
+  max-width: 14rem;
+  min-width: 0;
+  color: var(--agent-soft);
+  font-size: var(--text-xs);
+}
+
+.gui-mode-model-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-inline: 8px;
+}
+
+.gui-mode-model-sparkle {
+  color: var(--agent-accent);
+}
+
+.gui-mode-model-label,
+.gui-mode-reasoning-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gui-mode-reasoning-label {
+  color: var(--agent-muted);
+}
+
+.gui-mode-model-menu {
+  min-width: 240px;
+}
+
+.gui-mode-model-menu-title {
+  padding: 5px 8px 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.gui-mode-reasoning-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 8px 6px;
+}
+
+.gui-mode-reasoning-option {
+  padding: 4px 7px;
+  border: 1px solid var(--agent-border);
+  border-radius: 999px;
+  color: var(--agent-muted);
+  background: transparent;
+  font-size: var(--text-xs);
+}
+
+.gui-mode-reasoning-option.is-selected {
+  border-color: color-mix(in srgb, var(--agent-accent) 60%, var(--agent-border));
+  color: var(--agent-text);
+  background: var(--agent-accent-soft);
+}
+
+.gui-mode-permission-button {
+  padding-inline: 8px;
+}
+
+.gui-mode-terminal-status {
+  margin: 0 12px 4px;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gui-mode-editor-shell {
@@ -219,6 +520,28 @@
   font-size: var(--text-sm);
 }
 
+.gui-mode-task-status-card {
+  max-width: min(100%, 48rem);
+  padding: 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--agent-surface) 72%, transparent);
+}
+
+.gui-mode-task-status-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gui-mode-task-status-detail {
+  width: 100%;
+  margin-top: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-sm);
+}
+
 .gui-mode-task .gui-mode-chat-agent-name {
   color: var(--agent-text);
   font-weight: 600;
@@ -310,8 +633,20 @@
   }
 
   .gui-mode-composer-footer {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     padding-inline: 6px;
+  }
+
+  .gui-mode-editor-row {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .gui-mode-action-cluster {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: flex-end;
+    padding-bottom: 3px;
   }
 
   .gui-mode-provider-button {

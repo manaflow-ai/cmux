@@ -23,6 +23,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isProviderStartPending = false
     private var isGuiModeSubmitPending = false
     private var guiModeSubmitRequestID: String?
+    private var guiModeTerminalPanelID: UUID?
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -122,7 +123,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             "index=\(indexURL.path)"
         )
 #endif
-        if rendererKind == .guiMode, let script = Self.guiModeBootstrapScript(state: guiModeState) {
+        if rendererKind == .guiMode,
+           let script = Self.guiModeBootstrapScript(
+               state: guiModeState,
+               workspaceId: workspaceId,
+               workingDirectory: workingDirectory
+           ) {
             webView.configuration.userContentController.addUserScript(script)
         }
         webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.resourceURL ?? resourceDirectoryURL)
@@ -365,6 +371,18 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             }
             guiModeSubmitRequestID = nil
             return ["cancelled": true]
+        case "guiMode.executeTerminal":
+            let result = try Self.handleGuiModeTerminal(
+                request,
+                rendererKind: rendererKind,
+                panelId: panelId,
+                workspaceId: workspaceId,
+                terminalPanelId: guiModeTerminalPanelID
+            )
+            if let panelID = result["panelId"], let value = UUID(uuidString: panelID) {
+                guiModeTerminalPanelID = value
+            }
+            return result
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":

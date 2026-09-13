@@ -65,6 +65,14 @@ struct GuiModeTests {
         )
         #expect(GuiModeWorkspaceCoordinator.taskWorktreePRInput(prompt: "Build it", providerID: .codex).hasSuffix("\n"))
         #expect(GuiModeWorkspaceCoordinator.taskWorkspaceTitle(prompt: "  build\n\tthe   UI  ") == "GUI: build the UI")
+        #expect(
+            GuiModeModelCatalog.launchCommand(
+                provider: .codex,
+                modelID: "gpt-6-astra",
+                reasoningEffort: "extra-high",
+                permissionMode: "default"
+            ) == "codex --model 'gpt-6-astra' -c 'model_reasoning_effort=extra-high'"
+        )
     }
 
     @Test("GUI state snapshot round trips with task context")
@@ -75,7 +83,9 @@ struct GuiModeTests {
             workingDirectory: "/tmp/project",
             guiModePage: .taskWorktreePR,
             guiModePrompt: "Build it",
-            guiModeProviderID: .qoder
+            guiModeProviderID: .qoder,
+            guiModeModelID: "default",
+            guiModeReasoningEffort: "default"
         )
         let copy = try JSONDecoder().decode(
             SessionAgentSessionPanelSnapshot.self,
@@ -85,5 +95,7 @@ struct GuiModeTests {
         #expect(copy.guiModePage == .taskWorktreePR)
         #expect(copy.guiModePrompt == "Build it")
         #expect(copy.guiModeProviderID == .qoder)
+        #expect(copy.guiModeModelID == "default")
+        #expect(copy.guiModeReasoningEffort == "default")
     }
 }

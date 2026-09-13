@@ -24,10 +24,19 @@ extension AgentSessionWebRendererCoordinator {
             context["workingDirectory"] = workingDirectory
         }
         if rendererKind == .guiMode {
+            let gitBranch = AppDelegate.shared?
+                .tabManagerFor(tabId: workspaceId)?
+                .workspacesById[workspaceId]?
+                .gitBranch?
+                .branch
             context["guiMode"] = guiModeContextPayload(
                 page: guiModeState.page,
                 prompt: guiModeState.prompt,
-                selectedProviderID: guiModeState.providerID
+                selectedProviderID: guiModeState.providerID,
+                selectedModelID: guiModeState.modelID,
+                selectedReasoningEffort: guiModeState.reasoningEffort,
+                workingDirectory: workingDirectory,
+                gitBranch: gitBranch
             )
         }
         return context

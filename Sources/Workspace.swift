@@ -802,11 +802,7 @@ extension Workspace {
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
-            agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
-                rendererKind: agentPanel.rendererKind,
-                providerID: agentPanel.currentProviderID,
-                workingDirectory: directory, guiModePage: agentPanel.guiModePage, guiModePrompt: agentPanel.guiModePrompt, guiModeProviderID: agentPanel.guiModeProviderID
-            )
+            agentSessionSnapshot = SessionAgentSessionPanelSnapshot(agentPanel: agentPanel, workingDirectory: directory)
             projectSnapshot = nil
         case .project:
             guard let projectPanel = panel as? ProjectPanel else { return nil }

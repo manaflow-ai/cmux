@@ -269,7 +269,7 @@ test("GUI mode agent selector submits every provider from the rendered chat comp
 
       const prompt = `Build with ${provider.displayName}`;
       pasteIntoPromptEditor(dom, prompt);
-      await waitFor(() => dom.window.document.querySelector(".gui-mode-user-message")?.textContent?.includes(prompt) === true);
+      await waitFor(() => dom.window.document.querySelector(".gui-mode-editor .ProseMirror")?.textContent?.includes(prompt) === true);
       await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
       flushSync(() => {
         (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click();
@@ -376,6 +376,106 @@ test("confirmed user cancellation does not issue a second cancellation", async (
     dom.window.close();
   }
 }, 15000);
+
+test("terminal mode executes commands and reuses its terminal panel", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const postedMessages: any[] = [];
+  const restoreGlobals = installDomGlobals(dom);
+  const context = { ...taskContextForProvider(guiModeFallbackProviders[0]!), page: "home", prompt: "" };
+  (dom.window as any).webkit = { messageHandlers: { agentSession: {
+    postMessage: (message: any) => {
+      postedMessages.push(message);
+      if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
+      if (message.method === "guiMode.executeTerminal") {
+        return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1", panelId: "terminal-1" } });
+      }
+      return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1" } });
+    },
+  } } };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor") !== null);
+    flushSync(() => (dom.window.document.querySelectorAll(".gui-mode-mode-button")[1] as HTMLButtonElement).click());
+    expect((dom.window.document.querySelector(".gui-mode-mode-button.is-selected") as HTMLElement).textContent).toBe("Terminal");
+
+    pasteIntoPromptEditor(dom, "cd /tmp");
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor .ProseMirror")?.textContent?.includes("cd /tmp") === true);
+    await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
+    flushSync(() => (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click());
+    await waitFor(() => postedMessages.filter((message) => message.method === "guiMode.executeTerminal").length === 1);
+    expect(postedMessages.at(-1)).toMatchObject({
+      method: "guiMode.executeTerminal",
+      params: { command: "cd /tmp" },
+    });
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-terminal-status")?.textContent === "cd /tmp");
+
+    pasteIntoPromptEditor(dom, "pwd");
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-editor .ProseMirror")?.textContent?.includes("pwd") === true);
+    await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
+    flushSync(() => (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click());
+    await waitFor(() => postedMessages.filter((message) => message.method === "guiMode.executeTerminal").length === 2);
+    expect(postedMessages.at(-1)).toMatchObject({
+      method: "guiMode.executeTerminal",
+      params: { command: "pwd", terminalPanelId: "terminal-1" },
+    });
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+});
+
+test("model and reasoning selections reach the native task launch", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
+    url: "file:///tmp/gui-mode.html",
+  });
+  const postedMessages: any[] = [];
+  const restoreGlobals = installDomGlobals(dom);
+  const context = { ...taskContextForProvider(guiModeFallbackProviders[0]!), page: "home", prompt: "" };
+  (dom.window as any).webkit = { messageHandlers: { agentSession: {
+    postMessage: (message: any) => {
+      postedMessages.push(message);
+      if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
+      return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1" } });
+    },
+  } } };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    flushSync(() => root.render(<GuiModeApp />));
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-model-button") !== null);
+    flushSync(() => (dom.window.document.querySelector(".gui-mode-model-button") as HTMLButtonElement).click());
+    const modelOption = Array.from(dom.window.document.querySelectorAll(".gui-mode-model-option"))
+      .find((element) => element.textContent?.includes("GPT-5.5")) as HTMLButtonElement;
+    expect(modelOption).toBeTruthy();
+    flushSync(() => modelOption.click());
+    flushSync(() => (dom.window.document.querySelector(".gui-mode-model-button") as HTMLButtonElement).click());
+    const highOption = Array.from(dom.window.document.querySelectorAll(".gui-mode-reasoning-option"))
+      .find((element) => element.textContent === "High") as HTMLButtonElement;
+    expect(highOption).toBeTruthy();
+    flushSync(() => highOption.click());
+    pasteIntoPromptEditor(dom, "Use the selected model");
+    await waitFor(() => !(dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).disabled);
+    flushSync(() => (dom.window.document.querySelector(".gui-mode-submit") as HTMLButtonElement).click());
+    await waitFor(() => postedMessages.some((message) => message.method === "guiMode.submit"));
+    expect(postedMessages.at(-1)).toMatchObject({
+      method: "guiMode.submit",
+      params: {
+        modelId: "gpt-5.5",
+        permissionMode: "default",
+        reasoningEffort: "high",
+      },
+    });
+  } finally {
+    flushSync(() => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    restoreGlobals();
+    dom.window.close();
+  }
+});
 
 test("GUI mode task page renders every provider from native context", async () => {
   for (const provider of guiModeFallbackProviders) {

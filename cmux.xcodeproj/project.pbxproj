@@ -1824,6 +1824,7 @@
 		C1ADE10002A1B2C3D4E5F719 /* grok in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE10001A1B2C3D4E5F719 /* grok */; };
 		A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */; };
 		937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */; };
+		B6AC00000000000000000001 /* GuiModeModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AC00000000000000000002 /* GuiModeModelCatalog.swift */; };
 		B6AB00000000000000000001 /* GuiModePanelPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AB00000000000000000002 /* GuiModePanelPage.swift */; };
 		B6A900000000000000000001 /* GuiModePanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A900000000000000000002 /* GuiModePanelState.swift */; };
 		B6A700000000000000000001 /* GuiModeProviderID.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A700000000000000000002 /* GuiModeProviderID.swift */; };
@@ -2553,6 +2554,7 @@
 		5E2701040000000000000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E2701040000000000000001 /* Sentry */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
+		B6AC00000000000000000003 /* SessionAgentSessionPanelSnapshot+GuiMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AC00000000000000000004 /* SessionAgentSessionPanelSnapshot+GuiMode.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
 		A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000006 /* SessionConfigFrameEntry.swift */; };
 		A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000008 /* SessionConfigFrameRing.swift */; };
@@ -5509,6 +5511,7 @@
 		C1ADE10001A1B2C3D4E5F719 /* grok */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/grok; sourceTree = SOURCE_ROOT; };
 		A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokSessionLocator+ProcessDiscovery.swift"; sourceTree = "<group>"; };
 		937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
+		B6AC00000000000000000002 /* GuiModeModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeModelCatalog.swift"; sourceTree = "<group>"; };
 		B6AB00000000000000000002 /* GuiModePanelPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelPage.swift"; sourceTree = "<group>"; };
 		B6A900000000000000000002 /* GuiModePanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelState.swift"; sourceTree = "<group>"; };
 		B6A700000000000000000002 /* GuiModeProviderID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeProviderID.swift"; sourceTree = "<group>"; };
@@ -6226,6 +6229,7 @@
 		C0DEF0C20000000000000002 /* SemanticVersion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemanticVersion.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
+		B6AC00000000000000000004 /* SessionAgentSessionPanelSnapshot+GuiMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionAgentSessionPanelSnapshot+GuiMode.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
 		A74770010000000000000006 /* SessionConfigFrameEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameEntry.swift; sourceTree = "<group>"; };
 		A74770010000000000000008 /* SessionConfigFrameRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameRing.swift; sourceTree = "<group>"; };
@@ -8627,6 +8631,7 @@
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				B6A800000000000000000002 /* GuiModeWorkspaceCoordinator.swift */,
+				B6AC00000000000000000004 /* SessionAgentSessionPanelSnapshot+GuiMode.swift */,
 				A5001416 /* Workspace.swift */,
 				D12393010000000000000002 /* Workspace+PortalRenderingAuthority.swift */,
 				8777E0028777E0028777E002 /* Workspace+AttentionFlashRouting.swift */,
@@ -9505,6 +9510,7 @@
 				B6A700000000000000000002 /* GuiModeProviderID.swift */,
 				B6A900000000000000000002 /* GuiModePanelState.swift */,
 				B6AB00000000000000000002 /* GuiModePanelPage.swift */,
+				B6AC00000000000000000002 /* GuiModeModelCatalog.swift */,
 
 				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
@@ -12864,6 +12870,7 @@
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
+				B6AC00000000000000000001 /* GuiModeModelCatalog.swift in Sources */,
 				B6AB00000000000000000001 /* GuiModePanelPage.swift in Sources */,
 				B6A900000000000000000001 /* GuiModePanelState.swift in Sources */,
 				B6A700000000000000000001 /* GuiModeProviderID.swift in Sources */,
@@ -13338,6 +13345,7 @@
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
+				B6AC00000000000000000003 /* SessionAgentSessionPanelSnapshot+GuiMode.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
 				A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */,
 				A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */,

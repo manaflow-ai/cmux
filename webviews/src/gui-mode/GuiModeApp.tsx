@@ -18,10 +18,13 @@ import {
   loadGuiModeContext,
   readGuiModeBootstrap,
   cancelGuiModeSubmit,
+  executeGuiModeTerminal,
   makeGuiModeRequestId,
   isGuiModeBridgeTimeout,
   submitGuiModePrompt,
   type GuiModeContext,
+  type GuiModeMode,
+  type GuiModeModel,
   type GuiModeProvider,
 } from "./bridge";
 
@@ -81,7 +84,19 @@ export function GuiModeApp() {
 
 function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const [prompt, setPrompt] = useState("");
+  const [mode, setMode] = useState<GuiModeMode>("chat");
   const [selectedProviderId, setSelectedProviderId] = useState(context.selectedProviderId);
+  const [selectedModelId, setSelectedModelId] = useState(
+    context.selectedModelId ?? modelsForProvider(context, context.selectedProviderId)[0]?.id ?? "default",
+  );
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(
+    context.selectedReasoningEffort ?? "extra-high",
+  );
+  const [permissionMode, setPermissionMode] = useState("default");
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [includeCurrentFolder, setIncludeCurrentFolder] = useState(false);
+  const terminalPanelId = useRef<string | null>(null);
+  const [terminalStatus, setTerminalStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const editorRef = useRef<PromptEditorHandle | null>(null);
@@ -91,15 +106,40 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const blockedRequestIds = useRef(new Set<string>());
   const settledRequestIds = useRef(new Set<string>());
   const selectedProvider = providerForId(context.providers, selectedProviderId);
+  const modelOptions = modelsForProvider(context, selectedProvider.id);
+  const selectedModel = modelOptions.find((model) => model.id === selectedModelId) ?? modelOptions[0];
+  const reasoningOptions = selectedModel?.reasoningEfforts ?? ["default"];
+  const reasoningEffort = reasoningOptions.includes(selectedReasoningEffort)
+    ? selectedReasoningEffort
+    : reasoningOptions.includes("extra-high") ? "extra-high" : reasoningOptions[0] ?? "default";
   const trimmedPrompt = prompt.trim();
   const canSubmit = trimmedPrompt.length > 0 && !isSubmitting;
   const submit = useCallback(() => {
     if (!canSubmit) return;
     setIsSubmitting(true);
     setError("");
+    setTerminalStatus("");
+    if (mode === "terminal") {
+      void executeGuiModeTerminal(trimmedPrompt, makeGuiModeRequestId(), terminalPanelId.current ?? undefined)
+        .then((result) => {
+          terminalPanelId.current = result.panelId;
+          setPrompt("");
+          setTerminalStatus(trimmedPrompt);
+        })
+        .catch(() => setError(context.copy.terminalErrorMessage ?? context.copy.errorMessage))
+        .finally(() => setIsSubmitting(false));
+      return;
+    }
     const requestId = makeGuiModeRequestId();
     activeRequestId.current = requestId;
-    void submitGuiModePrompt(trimmedPrompt, selectedProvider.id, requestId)
+    const promptWithContext = includeCurrentFolder && context.workingDirectory
+      ? `In ${context.workingDirectory}: ${trimmedPrompt}`
+      : trimmedPrompt;
+    void submitGuiModePrompt(promptWithContext, selectedProvider.id, requestId, {
+      modelId: selectedModel?.id,
+      permissionMode,
+      reasoningEffort,
+    })
       .catch(async (error) => {
         if (confirmedCancellationRequestIds.current.has(requestId)) return;
         if (!isGuiModeBridgeTimeout(error)) {
@@ -126,7 +166,7 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
           setIsSubmitting(false);
         }
       });
-  }, [canSubmit, context.copy, selectedProvider.id, trimmedPrompt]);
+  }, [canSubmit, context.copy, context.workingDirectory, includeCurrentFolder, mode, permissionMode, reasoningEffort, selectedModel?.id, selectedProvider.id, trimmedPrompt]);
   const cancel = useCallback(() => {
     const requestId = activeRequestId.current;
     if (!requestId) return;
@@ -154,10 +194,38 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
       role: "log",
       "aria-live": "polite",
     },
-      trimmedPrompt.length > 0 ? h(UserChatTurn, { text: prompt }) : null,
+      trimmedPrompt.length === 0
+        ? h("div", { className: "gui-mode-empty-state" },
+          h("h1", { className: "gui-mode-empty-title" }, context.copy.emptyTitle ?? "What should we build in cmux?"),
+          h("p", { className: "gui-mode-empty-subtitle" }, context.copy.emptySubtitle ?? "Describe an idea, fix a bug, or start with a command."),
+          h("div", { className: "gui-mode-voice-card" },
+            h("div", { className: "gui-mode-voice-icon", "aria-hidden": true }, guiModeMicIcon()),
+            h("div", { className: "gui-mode-voice-copy" },
+              h("strong", null, context.copy.voiceTitle ?? "Talk to Codex"),
+              h("span", null, context.copy.voiceDescription ?? "Use your voice to work hands-free."),
+            ),
+            h("button", {
+              className: "gui-mode-voice-action",
+              disabled: true,
+              type: "button",
+            }, context.copy.voiceAction ?? "Try voice"),
+          ),
+        )
+        : null,
     ),
     h("div", { className: CODEX_COMPOSER_STACK },
       h("div", { className: "relative flex w-full flex-col gap-2" },
+        h("div", { className: "gui-mode-context-strip", "aria-label": context.copy.contextLabel ?? "Context" },
+          h("span", { className: "gui-mode-context-folder" }, guiModeFolderIcon(), context.workingDirectory?.split("/").filter(Boolean).at(-1) ?? context.copy.folderFallback ?? "Current folder"),
+          h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
+          h("span", null, context.copy.localLabel ?? "Local"),
+          context.gitBranch
+            ? h(React.Fragment, null,
+              h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
+              h("span", { className: "gui-mode-context-branch" }, guiModeBranchIcon(), context.gitBranch),
+            )
+            : null,
+        ),
         h("form", {
           className: "w-full min-w-0",
           onSubmit: (event: React.FormEvent) => {
@@ -170,19 +238,49 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
               className: `${CODEX_COMPOSER_SURFACE} gui-mode-composer overflow-visible rounded-3xl`,
             },
               h("div", { className: CODEX_COMPOSER_INNER },
+                h(ModeToggle, {
+                  mode,
+                  chatLabel: context.copy.chatMode ?? "Chat",
+                  terminalLabel: context.copy.terminalMode ?? "Terminal",
+                  modeLabel: context.copy.modeLabel ?? "Composer mode",
+                  onChange: (nextMode: GuiModeMode) => {
+                    if (!isSubmitting) {
+                      setMode(nextMode);
+                      setTerminalStatus("");
+                      setError("");
+                    }
+                  },
+                }),
                 h("div", { className: "composer-footer gui-mode-composer-footer" },
-                  h("div", { className: "min-w-0 gui-mode-editor-shell" },
+                  h("div", { className: "gui-mode-editor-row" },
+                    h(ContextButton, {
+                      context,
+                      includeCurrentFolder,
+                      isOpen: contextMenuOpen,
+                      onOpenChange: setContextMenuOpen,
+                      onToggleFolder: () => {
+                        setIncludeCurrentFolder((value) => !value);
+                        setContextMenuOpen(false);
+                        editorRef.current?.focus();
+                      },
+                    }),
+                    h("div", { className: "min-w-0 gui-mode-editor-shell" },
                     h(PromptEditor, {
                       ref: editorRef,
-                      ariaLabel: context.copy.promptPlaceholder,
+                      ariaLabel: mode === "terminal"
+                        ? context.copy.terminalPlaceholder ?? "Run a terminal command"
+                        : context.copy.promptPlaceholder,
                       className: "gui-mode-editor text-base",
                       minHeight: "1.25rem",
                       onSubmit: submit,
                       onTextChange: setPrompt,
-                      placeholder: context.copy.promptPlaceholder,
+                      placeholder: mode === "terminal"
+                        ? context.copy.terminalPlaceholder ?? "Run a terminal command"
+                        : context.copy.promptPlaceholder,
                       singleLine: true,
                       value: prompt,
                     }),
+                    ),
                   ),
                   h("div", { className: "codex-action-cluster gui-mode-action-cluster" },
                     h(ProviderSelect, {
@@ -191,7 +289,41 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
                       selectedProviderId: selectedProvider.id,
                       noResultsLabel: context.copy.noProvidersFound,
                       searchPlaceholder: context.copy.providerSearchPlaceholder,
-                      onSelectProvider: setSelectedProviderId,
+                      onSelectProvider: (providerId: string) => {
+                        setSelectedProviderId(providerId);
+                        const nextModel = modelsForProvider(context, providerId)[0];
+                        setSelectedModelId(nextModel?.id ?? "default");
+                        setSelectedReasoningEffort(nextModel?.reasoningEfforts.includes("extra-high") ? "extra-high" : nextModel?.reasoningEfforts[0] ?? "default");
+                      },
+                    }),
+                    h(ModelSelect, {
+                      label: context.copy.modelLabel ?? "Model",
+                      models: modelOptions,
+                      reasoningLabel: context.copy.reasoningLabel ?? "Reasoning",
+                      reasoningEffort,
+                      reasoningLabels: {
+                        low: context.copy.reasoningLow ?? "Low",
+                        medium: context.copy.reasoningMedium ?? "Medium",
+                        high: context.copy.reasoningHigh ?? "High",
+                        "extra-high": context.copy.reasoningExtraHigh ?? "Extra high",
+                        default: context.copy.reasoningDefault ?? "Default",
+                      },
+                      selectedModelId: selectedModel?.id ?? "default",
+                      onSelectModel: (nextModelId: string, nextReasoningEffort: string) => {
+                        setSelectedModelId(nextModelId);
+                        setSelectedReasoningEffort(nextReasoningEffort);
+                      },
+                    }),
+                    h(PermissionSelect, {
+                      label: context.copy.permissionLabel ?? "Ask for approval",
+                      mode: permissionMode,
+                      labels: {
+                        default: context.copy.permissionDefault ?? "Ask for approval",
+                        "full-access": context.copy.permissionFullAccess ?? "Full access",
+                        "auto-review": context.copy.permissionAutoReview ?? "Auto-review",
+                        custom: context.copy.permissionCustom ?? "Custom",
+                      },
+                      onChange: setPermissionMode,
                     }),
                     isSubmitting
                       ? h("button", {
@@ -210,6 +342,9 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
                     }, guiModeSendIcon("icon-sm text-token-dropdown-background")),
                   ),
                 ),
+                terminalStatus
+                  ? h("div", { className: "gui-mode-terminal-status", role: "status" }, terminalStatus)
+                  : null,
                 h("div", { className: "gui-mode-error", role: "alert" }, error),
               ),
             ),
@@ -230,17 +365,203 @@ function GuiModeTaskPage({ context }: { context: GuiModeContext }) {
     h("div", { className: "agent-thread gui-mode-task-thread", role: "log" },
       h("div", { className: "gui-mode-task-heading" },
         h("div", { className: "gui-mode-title" }, context.copy.taskTitle),
-        h("div", { className: "gui-mode-runtime-pill" }, provider.displayName),
+        h("div", { className: "gui-mode-runtime-pill" }, `${provider.displayName} · ${context.selectedModelId ?? "Default"}`),
       ),
       h(UserChatTurn, { label: context.copy.taskPromptLabel, text: context.prompt }),
-      h(AssistantChatTurn, {
-        provider,
-        text: provider.detail,
-        commandLabel: context.copy.taskCommandLabel,
-        command: provider.taskCommandPreview,
-        capabilities: provider.capabilities,
-      }),
+      h("div", { className: "gui-mode-task-status-card" },
+        h("div", { className: "gui-mode-task-status-title" },
+          h("span", { className: "gui-mode-chat-agent-name" }, provider.displayName),
+          h("span", { className: "gui-mode-chat-agent-support" }, provider.supportLabel),
+          h("span", { className: "gui-mode-task-status-detail" }, provider.detail),
+        ),
+        provider.capabilities.length > 0
+          ? h("div", { className: "gui-mode-task-chips" }, provider.capabilities.map((capability) => h("span", {
+            className: "gui-mode-task-chip",
+            key: capability,
+          }, capability)))
+          : null,
+        h("div", { className: "gui-mode-task-command-row" },
+          h("span", { className: "gui-mode-command-label" }, context.copy.taskCommandLabel),
+          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, provider.taskCommandPreview),
+        ),
+      ),
     ),
+  );
+}
+
+function ModeToggle({
+  mode,
+  chatLabel,
+  terminalLabel,
+  modeLabel,
+  onChange,
+}: {
+  mode: GuiModeMode;
+  chatLabel: string;
+  terminalLabel: string;
+  modeLabel: string;
+  onChange: (mode: GuiModeMode) => void;
+}) {
+  return h("div", { className: "gui-mode-mode-toggle", role: "tablist", "aria-label": modeLabel },
+    h("button", {
+      className: `gui-mode-mode-button${mode === "chat" ? " is-selected" : ""}`,
+      "aria-selected": mode === "chat",
+      onClick: () => onChange("chat"),
+      role: "tab",
+      type: "button",
+    }, chatLabel),
+    h("button", {
+      className: `gui-mode-mode-button${mode === "terminal" ? " is-selected" : ""}`,
+      "aria-selected": mode === "terminal",
+      onClick: () => onChange("terminal"),
+      role: "tab",
+      type: "button",
+    }, terminalLabel),
+  );
+}
+
+function ContextButton({
+  context,
+  includeCurrentFolder,
+  isOpen,
+  onOpenChange,
+  onToggleFolder,
+}: {
+  context: GuiModeContext;
+  includeCurrentFolder: boolean;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onToggleFolder: () => void;
+}) {
+  return h("div", { className: "gui-mode-context-picker" },
+    h("button", {
+      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full gui-mode-context-button${includeCurrentFolder ? " is-selected" : ""}`,
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-label": context.copy.contextLabel ?? "Add context",
+      onClick: () => onOpenChange(!isOpen),
+      type: "button",
+    }, guiModePlusIcon()),
+    isOpen
+      ? h("div", { className: "gui-mode-context-menu", role: "menu" },
+        h("button", {
+          className: "gui-mode-context-menu-item",
+          "aria-checked": includeCurrentFolder,
+          onClick: onToggleFolder,
+          role: "menuitemcheckbox",
+          type: "button",
+        }, guiModeFolderIcon(), context.copy.currentFolder ?? "Current folder", includeCurrentFolder ? "✓" : null),
+      )
+      : null,
+  );
+}
+
+function ModelSelect({
+  label,
+  models,
+  reasoningLabel,
+  reasoningEffort,
+  reasoningLabels,
+  selectedModelId,
+  onSelectModel,
+}: {
+  label: string;
+  models: GuiModeModel[];
+  reasoningLabel: string;
+  reasoningEffort: string;
+  reasoningLabels: Record<string, string>;
+  selectedModelId: string;
+  onSelectModel: (modelId: string, reasoningEffort: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedModel = models.find((model) => model.id === selectedModelId) ?? models[0];
+  const displayReasoning = reasoningLabels[reasoningEffort] ?? reasoningEffort;
+  return h("div", { className: "gui-mode-model-picker" },
+    h("button", {
+      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full gui-mode-model-button`,
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-label": `${label}: ${selectedModel?.displayName ?? "Default"}, ${displayReasoning}`,
+      onClick: () => setIsOpen((open) => !open),
+      type: "button",
+    },
+      h("span", { className: "gui-mode-model-sparkle", "aria-hidden": true }, "✦"),
+      h("span", { className: "gui-mode-model-label" }, selectedModel?.displayName ?? "Default"),
+      h("span", { className: "gui-mode-reasoning-label" }, displayReasoning),
+      guiModeChevronIcon(),
+    ),
+    isOpen
+      ? h("div", { className: "gui-mode-model-menu", role: "menu" },
+        h("div", { className: "gui-mode-model-menu-title" }, label),
+        models.map((model) => h("div", { className: "gui-mode-model-group", key: model.id },
+          h("button", {
+            className: `gui-mode-model-option${model.id === selectedModel?.id ? " is-selected" : ""}`,
+            onClick: () => {
+              const nextReasoning = model.reasoningEfforts.includes(reasoningEffort)
+                ? reasoningEffort
+                : model.reasoningEfforts.includes("extra-high") ? "extra-high" : model.reasoningEfforts[0] ?? "default";
+              onSelectModel(model.id, nextReasoning);
+              setIsOpen(false);
+            },
+            role: "menuitemradio",
+            "aria-checked": model.id === selectedModel?.id,
+            type: "button",
+          }, model.displayName, model.id === selectedModel?.id ? "✓" : null),
+          model.id === selectedModel?.id
+            ? h("div", { className: "gui-mode-reasoning-group", "aria-label": reasoningLabel },
+              model.reasoningEfforts.map((effort) => h("button", {
+                className: `gui-mode-reasoning-option${effort === reasoningEffort ? " is-selected" : ""}`,
+                key: effort,
+                onClick: () => {
+                  onSelectModel(model.id, effort);
+                  setIsOpen(false);
+                },
+                type: "button",
+              }, reasoningLabels[effort] ?? effort)),
+            )
+            : null,
+        )),
+      )
+      : null,
+  );
+}
+
+function PermissionSelect({
+  label,
+  mode,
+  labels,
+  onChange,
+}: {
+  label: string;
+  mode: string;
+  labels: Record<string, string>;
+  onChange: (mode: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const options = ["default", "full-access", "auto-review", "custom"];
+  return h("div", { className: "gui-mode-permission-picker" },
+    h("button", {
+      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full gui-mode-permission-button`,
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-label": label,
+      onClick: () => setIsOpen((open) => !open),
+      type: "button",
+    }, labels[mode] ?? labels.default ?? label, guiModeChevronIcon()),
+    isOpen
+      ? h("div", { className: "gui-mode-permission-menu", role: "menu" },
+        options.map((option) => h("button", {
+          className: `gui-mode-permission-option${option === mode ? " is-selected" : ""}`,
+          "aria-checked": option === mode,
+          onClick: () => {
+            onChange(option);
+            setIsOpen(false);
+          },
+          role: "menuitemradio",
+          type: "button",
+        }, labels[option] ?? option, option === mode ? "✓" : null)),
+      )
+      : null,
   );
 }
 
@@ -386,53 +707,49 @@ function guiModeChevronIcon() {
   );
 }
 
-function AssistantChatTurn({
-  capabilities = [],
-  command,
-  commandLabel,
-  provider,
-  text,
-}: {
-  capabilities?: string[];
-  command?: string;
-  commandLabel?: string;
-  provider: GuiModeProvider;
-  text: string;
-}) {
-  return h("div", { className: "codex-assistant-turn gui-mode-chat-turn gui-mode-chat-turn-assistant" },
-    h("div", { className: "gui-mode-chat-avatar", style: providerAccentStyle(provider), "aria-hidden": "true" },
-      h("span", { className: "gui-mode-provider-mark" }),
-    ),
-    h("div", { className: "codex-assistant-message gui-mode-chat-message gui-mode-assistant-message" },
-      h("div", { className: "gui-mode-chat-message-head" },
-        h("span", { className: "gui-mode-chat-agent-name" }, provider.displayName),
-        h("span", { className: "gui-mode-chat-agent-support" }, provider.supportLabel),
-      ),
-      h("div", { className: "gui-mode-chat-message-text" }, text),
-      capabilities.length > 0
-        ? h("div", { className: "gui-mode-task-chips" },
-          capabilities.map((capability) => h("span", {
-            className: "gui-mode-task-chip",
-            key: capability,
-          }, capability)),
-        )
-        : null,
-      command && commandLabel
-        ? h("div", { className: "gui-mode-command-row gui-mode-task-command-row" },
-          h("span", { className: "gui-mode-command-label" }, commandLabel),
-          h("code", { className: "gui-mode-command-code gui-mode-task-command" }, command),
-        )
-        : null,
-    ),
-  );
-}
-
 function UserChatTurn({ label, text }: { label?: string; text: string }) {
   return h("div", { className: "codex-user-turn gui-mode-chat-turn gui-mode-chat-turn-user" },
     h("div", { className: "codex-user-bubble gui-mode-chat-message gui-mode-user-message" },
       label ? h("div", { className: "gui-mode-chat-user-label" }, label) : null,
       h("div", { className: "codex-user-message-content gui-mode-chat-message-text" }, text),
     ),
+  );
+}
+
+function modelsForProvider(context: GuiModeContext, providerId: string): GuiModeModel[] {
+  const models = context.models?.filter((model) => model.providerId === providerId) ?? [];
+  if (models.length > 0) return models;
+  if (providerId === "codex") {
+    return [
+      { id: "gpt-6-astra", displayName: "GPT-6 Astra", providerId, reasoningEfforts: ["low", "medium", "high", "extra-high"] },
+      { id: "gpt-5.5", displayName: "GPT-5.5", providerId, reasoningEfforts: ["low", "medium", "high"] },
+    ];
+  }
+  return [{ id: "default", displayName: "Default", providerId, reasoningEfforts: ["default"] }];
+}
+
+function guiModePlusIcon() {
+  return h("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+    h("path", { d: "M8 3v10M3 8h10", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round" }),
+  );
+}
+
+function guiModeFolderIcon() {
+  return h("svg", { width: "14", height: "14", viewBox: "0 0 14 14", fill: "none", "aria-hidden": true },
+    h("path", { d: "M1.5 3.5h4l1.2 1.3h5.8v6.2H1.5V3.5Z", stroke: "currentColor", strokeWidth: "1.1", strokeLinejoin: "round" }),
+  );
+}
+
+function guiModeBranchIcon() {
+  return h("svg", { width: "13", height: "13", viewBox: "0 0 13 13", fill: "none", "aria-hidden": true },
+    h("path", { d: "M3.25 2.25v5.5a2 2 0 0 0 2 2h4.5M9.75 9.75l-1.5-1.5m1.5 1.5-1.5 1.5M3.25 2.25a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM9.75 11.75a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z", stroke: "currentColor", strokeWidth: "1", strokeLinecap: "round", strokeLinejoin: "round" }),
+  );
+}
+
+function guiModeMicIcon() {
+  return h("svg", { width: "18", height: "18", viewBox: "0 0 18 18", fill: "none", "aria-hidden": true },
+    h("rect", { x: "6", y: "2", width: "6", height: "9", rx: "3", stroke: "currentColor", strokeWidth: "1.3" }),
+    h("path", { d: "M3.5 8.5a5.5 5.5 0 0 0 11 0M9 14v2M6.5 16h5", stroke: "currentColor", strokeWidth: "1.3", strokeLinecap: "round" }),
   );
 }
 

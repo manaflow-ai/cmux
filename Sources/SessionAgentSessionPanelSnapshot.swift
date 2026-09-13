@@ -7,4 +7,6 @@ struct SessionAgentSessionPanelSnapshot: Codable, Sendable {
     var guiModePage: GuiModePanelPage? = nil
     var guiModePrompt: String? = nil
     var guiModeProviderID: GuiModeProviderID? = nil
+    var guiModeModelID: String? = nil
+    var guiModeReasoningEffort: String? = nil
 }

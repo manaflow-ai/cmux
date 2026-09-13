@@ -23,6 +23,9 @@ final class GuiModeWorkspaceCoordinator {
     func createTaskWorkspace(
         prompt: String,
         providerID: GuiModeProviderID,
+        modelID: String? = nil,
+        reasoningEffort: String? = nil,
+        permissionMode: String? = nil,
         sourcePanelId: UUID,
         preferredWorkspaceId: UUID,
         isRequestCurrent: @MainActor @escaping () -> Bool = { true }
@@ -60,7 +63,12 @@ final class GuiModeWorkspaceCoordinator {
                 insertFirst: false,
                 workingDirectory: location.workspace.currentDirectory,
                 initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID),
-                initialCommand: providerID.launchCommand
+                initialCommand: GuiModeModelCatalog.launchCommand(
+                    provider: providerID,
+                    modelID: modelID,
+                    reasoningEffort: reasoningEffort,
+                    permissionMode: permissionMode
+                )
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }
@@ -71,6 +79,50 @@ final class GuiModeWorkspaceCoordinator {
             location.tabManager.closeWorkspace(workspace, recordHistory: false)
             throw error
         }
+    }
+
+    /// Runs one terminal-mode command, reusing the command panel when it still exists.
+    @discardableResult
+    func executeTerminalCommand(
+        command: String,
+        sourcePanelId: UUID,
+        preferredWorkspaceId: UUID,
+        terminalPanelId: UUID?
+    ) throws -> (workspaceId: UUID, panelId: UUID) {
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty,
+              let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                  panelId: sourcePanelId,
+                  preferredWorkspaceId: preferredWorkspaceId
+              ) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+
+        if let terminalPanelId,
+           let terminal = location.workspace.terminalPanel(for: terminalPanelId) {
+            let result = terminal.sendInputResult(trimmedCommand + "\n")
+            switch result {
+            case .sent, .queued:
+                return (location.workspace.id, terminal.id)
+            case .inputQueueFull, .surfaceUnavailable, .processExited:
+                break
+            }
+        }
+
+        guard let pane = location.workspace.paneId(forPanelId: sourcePanelId)
+                ?? location.workspace.bonsplitController.focusedPaneId
+                ?? location.workspace.bonsplitController.allPaneIds.first,
+              let terminal = location.workspace.splitPaneWithNewTerminal(
+                  targetPane: pane,
+                  orientation: .horizontal,
+                  insertFirst: false,
+                  workingDirectory: location.workspace.currentDirectory,
+                  initialInput: trimmedCommand + "\n"
+              ) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        return (location.workspace.id, terminal.id)
     }
 
     @discardableResult

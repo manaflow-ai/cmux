@@ -16,6 +16,41 @@ export type GuiModeCopy = {
   taskCommandLabel: string;
   taskPromptLabel: string;
   taskTitle: string;
+  chatMode?: string;
+  terminalMode?: string;
+  terminalPlaceholder?: string;
+  terminalErrorMessage?: string;
+  modelLabel?: string;
+  reasoningLabel?: string;
+  reasoningLow?: string;
+  reasoningMedium?: string;
+  reasoningHigh?: string;
+  reasoningExtraHigh?: string;
+  permissionLabel?: string;
+  permissionDefault?: string;
+  permissionFullAccess?: string;
+  permissionAutoReview?: string;
+  permissionCustom?: string;
+  contextLabel?: string;
+  currentFolder?: string;
+  localLabel?: string;
+  voiceTitle?: string;
+  voiceDescription?: string;
+  voiceAction?: string;
+  folderFallback?: string;
+  emptyTitle?: string;
+  emptySubtitle?: string;
+  modeLabel?: string;
+  reasoningDefault?: string;
+};
+
+export type GuiModeMode = "chat" | "terminal";
+
+export type GuiModeModel = {
+  displayName: string;
+  id: string;
+  providerId: string;
+  reasoningEfforts: string[];
 };
 
 export type GuiModeProvider = {
@@ -36,6 +71,11 @@ export type GuiModeContext = {
   prompt: string;
   providers: GuiModeProvider[];
   selectedProviderId: string;
+  selectedModelId?: string;
+  selectedReasoningEffort?: string;
+  models?: GuiModeModel[];
+  workingDirectory?: string;
+  gitBranch?: string;
 };
 
 export type GuiModeAppContext = {
@@ -76,11 +116,24 @@ export async function submitGuiModePrompt(
   prompt: string,
   providerId: string,
   requestId: string = makeGuiModeRequestId(),
+  options: { modelId?: string; reasoningEffort?: string; permissionMode?: string } = {},
 ): Promise<{ workspaceId: string }> {
   return callNativeWithTimeout<{ workspaceId: string }>(
     "guiMode.submit",
-    { prompt, providerId, requestId },
+    { prompt, providerId, requestId, ...options },
     30000,
+  );
+}
+
+export async function executeGuiModeTerminal(
+  command: string,
+  requestId: string = makeGuiModeRequestId(),
+  terminalPanelId?: string,
+): Promise<{ workspaceId: string; panelId: string }> {
+  return callNativeWithTimeout<{ workspaceId: string; panelId: string }>(
+    "guiMode.executeTerminal",
+    { command, requestId, terminalPanelId },
+    5000,
   );
 }
 
