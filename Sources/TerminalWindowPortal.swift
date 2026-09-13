@@ -1030,25 +1030,21 @@ final class WindowTerminalPortal: NSObject {
     }
 
     @discardableResult
-    private func synchronizeLayoutHierarchy() -> Bool {
-        // Idempotence at the choke point. Several paths funnel here (window
-        // notifications, anchor geometry callbacks, deferred full syncs,
-        // transient recovery), each forcing subtree layout — and each layout
-        // pass emits the notifications and callbacks that re-enter those
-        // same paths, possibly delivered after any in-pass flag is down.
-        // When everything this pass reads and writes is unchanged since the
-        // last completed pass, the pass is a no-op: skip the layout storm
-        // and the echo dies here, whichever path carried it. AppKit still
-        // runs pending inner layout before display on its own.
+    private func synchronizeLayoutHierarchy(allowSynchronousLayout: Bool = true) -> Bool {
+        // Idempotence choke point for window, anchor, deferred, and recovery
+        // paths. Identical signatures skip the pass; AppKit flushes pending
+        // inner layout before display on its own.
         let signature = externalGeometrySignature()
         if let last = lastHierarchySyncSignature, last == signature { return true }
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        if allowSynchronousLayout {
+            installedContainerView?.layoutSubtreeIfNeeded()
+            installedReferenceView?.layoutSubtreeIfNeeded()
+            hostView.superview?.layoutSubtreeIfNeeded()
+            hostView.layoutSubtreeIfNeeded()
+        }
         _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
         return false
@@ -1131,7 +1127,10 @@ final class WindowTerminalPortal: NSObject {
         // sees the signature the first one just wrote and publishes a transient
         // terminal size during workspace reveal.
         guard ensureInstalled(syncLayout: false) else { return }
-        let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
+        // Geometry notifications can arrive inside SwiftUI graph transactions;
+        // consume committed geometry here and let AppKit flush pending layout
+        // in its normal display turn (the stable 89/AZ/QJ hang shape).
+        let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy(allowSynchronousLayout: false)
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
         if hierarchyWasAlreadySettled {
