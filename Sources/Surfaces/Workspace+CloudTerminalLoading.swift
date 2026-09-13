@@ -36,6 +36,7 @@ extension Workspace {
             onReady: { setLoading(false) },
             onEnded: { setLoading(false) },
             onTimedOut: { [weak self, weak panel] in
+                setLoading(false)
                 guard let self, let panel,
                       self.panels[panel.id] != nil else { return }
                 self.setCloudMaterializationFailure(
