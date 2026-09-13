@@ -99,7 +99,9 @@ struct CloudManualMirrorPresentationTests {
         for visible in [false, true] {
             owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
             synchronize()
-            #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+            let expectedProgress: Bool? = visible ? true : nil
+            #expect(owner.overlay?.currentPresentation?.showsProgress == expectedProgress)
+            #expect(session.phase == .attached)
         }
 
         // A real transport failure must still be shown after successful use.
@@ -117,7 +119,7 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
-    func unavailableSurfaceResolutionRequestsRefreshOnceAndRemainsRetryable() {
+    func unavailableResolutionPreservesProviderRetryOwnershipAndExplicitRetry() {
         var reconnectRequests = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine",
@@ -128,12 +130,14 @@ struct CloudManualMirrorPresentationTests {
         defer { session.stop() }
         session.markSurfaceResolutionUnavailable()
         session.markSurfaceResolutionUnavailable()
-        #expect(reconnectRequests == 1)
+        // The provider's resolution pass owns the bounded retry. An observed
+        // unavailable state must not start a second refresh loop.
+        #expect(reconnectRequests == 0)
         #expect(session.connectionPresentation?.showsReconnectButton == true)
         #expect(session.retryConnection())
-        #expect(reconnectRequests == 2)
+        #expect(reconnectRequests == 1)
         session.visibilityChanged(true)
-        #expect(reconnectRequests == 3)
+        #expect(reconnectRequests == 2)
         session.stop()
         #expect(!session.retryConnection())
     }
