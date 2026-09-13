@@ -298,6 +298,32 @@ describe("coderouter route token VM binding db behavior", () => {
     expect(revoked.revokedAt).not.toBeNull();
   });
 
+  dbTest("last-used metadata is throttled and never moves backwards", async () => {
+    const issued = await createApiKey(TEAM, "user-1", "throttle");
+    const firstAt = new Date("2026-09-13T00:00:00.000Z");
+    const secondAt = new Date(firstAt.getTime() + 30_000);
+    const thirdAt = new Date(firstAt.getTime() + 61_000);
+
+    await authenticateApiKey(issued.key, firstAt);
+    await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
+      id: issued.id,
+      lastUsedAt: firstAt.toISOString(),
+    }]);
+
+    // A burst within the metadata interval does not issue another UPDATE.
+    await authenticateApiKey(issued.key, secondAt);
+    await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
+      id: issued.id,
+      lastUsedAt: firstAt.toISOString(),
+    }]);
+
+    await authenticateApiKey(issued.key, thirdAt);
+    await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
+      id: issued.id,
+      lastUsedAt: thirdAt.toISOString(),
+    }]);
+  });
+
   dbTest("a token issued for a VM authenticates with that binding", async () => {
     const { token } = await issueRouteToken(TEAM, "user-1", "vm", { vmId: "vm-1" });
     await expect(authenticateRouteToken(token)).resolves.toEqual({
