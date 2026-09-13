@@ -93,18 +93,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-    /// Presentation state for the current runtime renderer. This distinguishes a
-    /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
     public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
-        didSet {
-            guard oldValue != renderHealth else { return }
-            onRenderHealthChanged?(renderHealth)
-        }
+        didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
     }
-    /// Receives render-health transitions on the main actor for pane-local UI.
-    /// The callback is installed by the AppKit host and cleared when it rebinds.
     @MainActor var onRenderHealthChanged: (@MainActor (TerminalSurfaceRenderHealth) -> Void)?
     let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
