@@ -7,20 +7,11 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
-    /// Keeps the outline delegate/source graph alive while AppKit owns a
-    /// native surface drag, including reconstruction between writer creation
-    /// and `willBeginAt`.
-    /// Strong coordinator owner for the active Cloud drag. The coordinator
-    /// clears this at the native terminal boundary; the distinct name makes
-    /// its ownership contract explicit (unlike weak File Explorer markers).
     var activeNativeDragCoordinator: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
-    /// Invoked before a new pointer gesture. AppKit cannot deliver this
-    /// boundary while the previous native drag loop is active.
     var onNativeDragPointerBoundary: (() -> Void)?
+    var onDocumentContentChanged: (() -> Void)?
 
-    /// The active visual preset; the coordinator keeps this in step with the
-    /// style it lays rows out with (chevron centering depends on it).
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
 
     /// Per-event context menu, the same presentation path the sidebar rows
@@ -147,6 +138,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         NSAnimationContext.current.duration = 0
         super.expandItem(item, expandChildren: expandChildren)
         NSAnimationContext.endGrouping()
+        onDocumentContentChanged?()
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
@@ -154,6 +146,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         NSAnimationContext.current.duration = 0
         super.collapseItem(item, collapseChildren: collapseChildren)
         NSAnimationContext.endGrouping()
+        onDocumentContentChanged?()
+    }
+
+    override func reloadData() { super.reloadData(); onDocumentContentChanged?() }
+    override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
+        super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        onDocumentContentChanged?()
     }
 
     /// How far `frameOfCell` moves content past AppKit's default; the cell adds the

@@ -109,7 +109,15 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                 let response = try await link.run(arguments: command)
                 guard let placement = await CmuxTuiSnapshotParser.placedTab(
                     from: response, at: destination.target, tabID: existingTabID, terminalID: terminalID
-                ) else { throw ProviderError.terminalNotCreated(terminalID ?? tabID ?? remoteWorkspaceID) }
+                ) else {
+                    // The mutation had an idempotency key but no usable receipt.
+                    // Treat this as an ambiguous placement outcome so callers
+                    // refresh/reconcile the exact intent instead of claiming a
+                    // new terminal was never created.
+                    throw ProviderError.remotePlacementOutcomeUnknown(
+                        terminalID ?? tabID ?? remoteWorkspaceID
+                    )
+                }
                 return placement
             } catch {
                 guard !retried, destination.revision != nil, Self.isRevisionConflict(error) else { throw error }

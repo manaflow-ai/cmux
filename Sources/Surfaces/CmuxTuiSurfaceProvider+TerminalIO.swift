@@ -1,6 +1,16 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    nonisolated static let defaultWaitTimeoutMs = 30_000
+    nonisolated static let maxWaitTimeoutMs = 3_600_000
+
+    nonisolated static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
+        guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
+        return min(requested, maxWaitTimeoutMs)
+    }
+}
+
+extension CmuxTuiSurfaceProvider {
     /// Type `text` into the remote terminal exactly as given (no newline appended).
     func sendText(terminalID: String, text: String) async throws {
         let connected = try await links.connected(machineID: machineID)
@@ -41,13 +51,6 @@ extension CmuxTuiSurfaceProvider {
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
-    nonisolated static let defaultWaitTimeoutMs = 30_000
-    nonisolated static let maxWaitTimeoutMs = 3_600_000
-
-    nonisolated static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
-        guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
-        return min(requested, maxWaitTimeoutMs)
-    }
 }
 
 /// Two more headless terminal primitives over the machine's link, beside `readScreen`
