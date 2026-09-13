@@ -667,6 +667,8 @@ final class CloudTuiManualMirrorSession {
             remoteLease = lease
             startupTrace?.mark("attach-ack", surfaceID: remoteSurfaceID, outcome: "accepted")
             transition(to: .attached)
+            presentationReadiness.check()
+            if diagnosticReplayReceived { presentationReadiness.markReadyIfPresented() }
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }

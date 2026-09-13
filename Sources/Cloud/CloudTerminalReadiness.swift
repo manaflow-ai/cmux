@@ -148,6 +148,7 @@ final class CloudTerminalReadiness {
     func markReadyIfPresented() {
         guard phase == .waiting,
               let surface,
+              condition?() == true,
               surface.hasLiveSurface,
               surface.isRendererPresented,
               surface.isRendererEffectivelyVisible else { return }
