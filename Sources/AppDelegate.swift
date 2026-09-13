@@ -15455,10 +15455,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .groupSelectedWorkspaces) {
-            // Only consume the event when grouping actually happened; otherwise
-            // fall through so the dispatcher reaches the later
-            // `.toggleReactGrab` check (default ⌘⇧G collides with React Grab
-            // and grouping returns false when no multi-selection exists).
+            // Consume only a successful group creation. A singleton or
+            // ineligible multi-selection falls through to the later React Grab
+            // check, which shares the default ⌘⇧G binding.
             if handleGroupSelectedWorkspacesShortcut(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             ) {
@@ -17100,11 +17099,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func createEmptyWorkspaceGroup(tabManager explicitTabManager: TabManager? = nil, preferredWindow: NSWindow? = nil) -> Bool {
+    func createEmptyWorkspaceGroup(
+        tabManager explicitTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        selectAnchor: Bool = true
+    ) -> Bool {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let resolvedTabs: TabManager? = explicitTabManager ?? contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabs = resolvedTabs, tabs.selectedTab?.isRemoteTmuxMirror != true else { return false }
-        return tabs.createWorkspaceGroup(name: "") != nil
+        return tabs.createWorkspaceGroup(name: "", selectAnchor: selectAnchor, collapseSidebarSelection: selectAnchor) != nil
     }
 
     @discardableResult
@@ -17117,37 +17120,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let resolvedTabManager: TabManager? = contextForMainWindow(targetWindow)?.tabManager ?? self.tabManager
         guard let tabManager = resolvedTabManager else { return false }
         let selectedSet = tabManager.sidebarSelectedWorkspaceIds
+        if selectedSet.isEmpty {
+            return createEmptyWorkspaceGroup(
+                tabManager: tabManager,
+                preferredWindow: targetWindow,
+                selectAnchor: false
+            )
+        }
         // sidebarSelectedWorkspaceIds is a Set; sort by tabs[] order so the
         // anchor is placed before the first sidebar-visible selected workspace
         // (createWorkspaceGroup uses the first child to position the anchor).
-        let orderedSelectedIds: [UUID] = selectedSet.isEmpty
-            ? []
-            : tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
-        // Only consume the shortcut when there's an explicit sidebar
-        // multi-selection. Anything ≤ 1 falls through so ⌘⇧G keeps working as
-        // React Grab's default in browser/terminal contexts. A single-tab
-        // group can still be created via right-click → New Group from
-        // Workspace. `sidebarSelectedWorkspaceIds` is normally synced to the
-        // focused workspace (clearSidebarMultiSelection sets it to a
-        // singleton after keyboard nav), so the singleton case must be
-        // treated the same as "no selection."
+        let orderedSelectedIds = tabManager.tabs.compactMap { selectedSet.contains($0.id) ? $0.id : nil }
+        // A singleton falls through so ⌘⇧G keeps working as React Grab's
+        // default in browser/terminal contexts. A single-tab group can still
+        // be created via right-click → New Group from Workspace. Keyboard
+        // navigation syncs sidebarSelectedWorkspaceIds to the focused workspace.
         guard orderedSelectedIds.count >= 2 else { return false }
-        let candidateIds: [UUID] = orderedSelectedIds
         // Match the workspace context-menu eligibility filter so the shortcut
         // doesn't silently create an anchor-only group when every selected
         // target is already an existing group's anchor.
         let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
-        let eligibleIds: [UUID] = candidateIds.filter { id in
+        let eligibleIds: [UUID] = orderedSelectedIds.filter { id in
             tabManager.tabs.contains(where: { $0.id == id }) && !existingAnchorIds.contains(id)
         }
         guard eligibleIds.count >= 2 else {
-            // Don't consume the event — let it propagate to the next handler
-            // (e.g. toggleReactGrab on the default Cmd+Shift+G binding) so
-            // the user gets the next-best action instead of a dead key. The
-            // shortcut contract is "multi-select then ⌘⇧G"; single-workspace
-            // groups are only created from the right-click context menu, so
-            // a 2-row sidebar selection where only one survives the
-            // pinned/anchor filter should also fall through.
+            // An ineligible multi-selection is not an empty-selection request.
+            // Keep falling through if fewer than two eligible members remain.
             return false
         }
         // No name prompt: TabManager auto-names ("Group N"). Rename via the
