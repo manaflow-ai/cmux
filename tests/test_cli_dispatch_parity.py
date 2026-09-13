@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Gates that every legacy top-level dispatch command and alias is declared
-in the ArgumentParser facade tree, and that each hard-coded alias resolves to
-the same help output as its target.
+"""Gates that every legacy top-level dispatch command and alias, and every
+command `cmux help` lists, is declared in the ArgumentParser facade tree, and
+that each hard-coded alias resolves to the same help output as its target.
 
 This is the safety net for the family-by-family declaration tasks: it is easy
 to migrate a command name but silently drop one of its aliases, or declare an
@@ -147,6 +147,47 @@ def extract_declared_aliases(cli: str) -> dict[str, set[str]]:
     return declared
 
 
+def extract_documented_command_names(cli: str) -> set[str]:
+    """Top-level command names advertised by the Commands section of `cmux help`.
+
+    The dispatch-switch scan cannot see commands the legacy parser handles
+    before that switch (`sudo`, `guide`, `sessions`, ...). They are still the
+    documented surface, and an undeclared one silently drops out of shell
+    completion and typo suggestions while still running, so nothing else
+    notices.
+    """
+    proc = subprocess.run(
+        [cli, "help"],
+        text=True, capture_output=True, check=False, timeout=30.0,
+        env={**os.environ, "CMUX_SOCKET_PATH": "/tmp/cmux-dispatch-parity-absent.sock"},
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"`cmux help` exited {proc.returncode}\n{proc.stderr}")
+    _, found, section = proc.stdout.partition("\nCommands:\n")
+    if not found:
+        raise RuntimeError("could not locate the Commands: section in `cmux help`")
+
+    name_pattern = re.compile(r"[a-z][a-z0-9-]*")
+    names: set[str] = set()
+    for line in section.splitlines():
+        if line and not line.startswith(" "):
+            break  # the next section (Environment:) starts unindented
+        entry = line.strip()
+        if not entry or entry.startswith("#"):
+            continue
+        # `a | b | c` lists sibling commands only when the first alternative is
+        # a bare word (`login | logout`). Otherwise the alternatives are forms of
+        # one command (`browser disable | enable | status`), so only the leading
+        # word is a top-level name.
+        alternatives = entry.split(" | ")
+        heads = [alternatives[0].split(" ")[0]]
+        if " " not in alternatives[0]:
+            heads = [alternative.split(" ")[0] for alternative in alternatives]
+        names.update(head for head in heads if name_pattern.fullmatch(head))
+
+    return names
+
+
 def help_text(cli: str, command: str) -> str:
     proc = subprocess.run(
         [cli, *command.split(" "), "--help"],
@@ -169,6 +210,14 @@ def main() -> int:
     if missing:
         print("FAIL: commands dispatched by the legacy parser but not declared in the facade tree:")
         for name in missing:
+            print(f"  {name}")
+        return 1
+
+    documented_names = extract_documented_command_names(cli)
+    undeclared_documented = sorted(documented_names - declared_names)
+    if undeclared_documented:
+        print("FAIL: commands listed by `cmux help` but not declared in the facade tree:")
+        for name in undeclared_documented:
             print(f"  {name}")
         return 1
 
@@ -235,6 +284,7 @@ def main() -> int:
 
     print(
         f"PASS: {len(legacy_names)} legacy dispatch names covered, "
+        f"{len(documented_names)} documented commands declared, "
         f"{len(ALIASES)} aliases resolve to their target, "
         f"{len(PASSTHROUGH_ALIASES)} passthrough aliases keep their contract"
     )
