@@ -464,10 +464,10 @@ extension MobileShellComposite {
                     token: replayBarrierToken,
                     reason: "dropped_output_cap"
                 )
-                let isPartialVerifiedRenderGrid = terminalOutputTransport == .renderGrid
-                    && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
-                    && delivery.sourceRenderGridFrame?.full == false
-                guard !isPartialVerifiedRenderGrid else { return false }
+                // Full replacements remain behind verified replay after a
+                // barrier failure. Streaming deltas stay on the direct queue
+                // so sustained output does not wait on a GPU fence.
+                guard !requiresVerifiedReplayApplication(for: delivery) else { return false }
                 return deliverTerminalOutput(delivery, surfaceID: surfaceID, bypassReplayBarrier: true)
             }
             if remoteClient != nil,
@@ -516,17 +516,13 @@ extension MobileShellComposite {
     }
 
     /// Whether a chunk must apply through the verified freeze/replay/verify/
-    /// reveal pipeline. Every render-grid frame, including screen-anchored
-    /// primary deltas, uses this path. A delta mutates terminal state and must
-    /// be built and presented as one transaction; the old direct path could
-    /// expose its clear/repaint sequence while a resize or later frame was
-    /// already queued.
+    /// reveal pipeline. Full render-grid replacements use this path because
+    /// they establish a new terminal baseline. Streaming deltas stay on the
+    /// direct queue so sustained output does not wait on a GPU fence.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
-        guard terminalOutputTransport == .renderGrid,
-              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
-            return false
-        }
-        return true
+        guard supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
+              let frame = delivery.sourceRenderGridFrame else { return false }
+        return frame.full
     }
 
     /// Mark the current yielded terminal-output chunk as applied by the iOS surface.

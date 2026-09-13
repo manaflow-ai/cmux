@@ -13,10 +13,11 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     public let renderEpoch: String
     /// Capture revision of the delivered frame.
     public let renderRevision: UInt64
-    /// Dimensions of the delivered grid, when known. A delta must address the
-    /// same grid shape as its base; otherwise absolute row/column spans can
-    /// paint a different layout even when the revision chain is intact.
+    /// Column count of the delivered grid. A delta must address the same grid
+    /// shape as its base; an unknown value cannot safely admit a delta.
     public let columns: Int?
+    /// Row count of the delivered grid. A delta must address the same grid
+    /// shape as its base; an unknown value cannot safely admit a delta.
     public let rows: Int?
 
     public init(
@@ -59,10 +60,13 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         guard let delivered else { return false }
         guard delivered.renderEpoch == frame.renderEpoch,
               delivered.renderRevision == base else { return false }
-        // Legacy continuity records may not have dimensions. New records are
-        // always dimensioned, and a known mismatch fails closed.
-        if let columns = delivered.columns, columns != frame.columns { return false }
-        if let rows = delivered.rows, rows != frame.rows { return false }
+        // A delta with an unknown shape cannot be admitted safely. Without
+        // both dimensions, a valid revision chain could still patch absolute
+        // spans into a grid that changed size during a resize.
+        guard let deliveredColumns = delivered.columns,
+              let deliveredRows = delivered.rows else { return false }
+        guard deliveredColumns == frame.columns,
+              deliveredRows == frame.rows else { return false }
         return true
     }
 }

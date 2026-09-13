@@ -103,6 +103,16 @@ private func chainFrame(
     #expect(!MobileTerminalRenderGridRevisionContinuity.admits(regressedRevision, delivered: delivered))
 }
 
+@Test func revisionContinuityRejectsDeltaWithUnknownDeliveredDimensions() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        renderEpoch: "epoch-1",
+        renderRevision: 7
+    )
+    let delta = try chainFrame(revision: 8, baseRevision: 7)
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
 @Test func revisionContinuityAdmitsEpochlessDeltaWithBase() throws {
     // Epochless frames record no delivered identity, so rejecting their
     // deltas would request replays forever; the history chain governs them.
