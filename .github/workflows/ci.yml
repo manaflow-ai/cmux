@@ -1611,6 +1611,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
           python3 tests/test_claude_wrapper_hooks.py
+          python3 tests/test_claude_wrapper_dead_settings_path.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
           python3 tests/test_cmux_cua_mcp_smoke.py
           python3 tests/test_cmux_cua_build_cache_safety.py
