@@ -517,9 +517,8 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceGroup:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
-                // Cmd+Shift+G is the user-natural mnemonic. It collides with toggleReactGrab's default,
-                // but handleGroupSelectedWorkspacesShortcut returns false (lets the event propagate) whenever
-                // there are no eligible workspaces to group — so React Grab still fires in browser/terminal contexts where this shortcut wouldn't have done anything anyway.
+                // Empty selections create a group; eligible multi-selections are grouped.
+                // Singletons and ineligible selections fall through to React Grab's shared default.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .toggleFocusedWorkspaceGroupCollapsed:
                 // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family used by other group ops,

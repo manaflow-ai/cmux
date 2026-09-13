@@ -105,6 +105,148 @@ struct WorkspaceGroupCycleShortcutTests {
         #expect(manager.selectedTabId == group.anchorWorkspaceId)
     }
 
+    @Test(arguments: [true, false], [false, true])
+    func groupingShortcutCreatesEmptyGroupWhenSidebarSelectionIsEmpty(
+        hasFocusedWorkspace: Bool,
+        useCustomBinding: Bool
+    ) throws {
+        try withGroupingShortcutWindow { appDelegate, window, manager in
+            let originalWorkspace = try #require(manager.selectedWorkspace)
+            if !hasFocusedWorkspace { manager.selectedTabId = nil }
+            let selectedWorkspaceId = manager.selectedTabId
+            manager.setSidebarSelectedWorkspaceIds([])
+            #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
+            let responder = window.firstResponder
+            var shortcut = KeyboardShortcutSettings.Action.groupSelectedWorkspaces.defaultShortcut
+            if useCustomBinding {
+                shortcut = .init(key: "g", command: true, shift: true, option: true, control: true)
+            }
+            KeyboardShortcutSettings.setShortcut(shortcut, for: .groupSelectedWorkspaces)
+            let event = try #require(groupingKeyEvent(window: window, modifiers: shortcut.modifierFlags))
+
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+
+            let group = try #require(manager.workspaceGroups.last)
+            #expect(manager.workspaceGroups.count == 1)
+            #expect(group.anchorWorkspaceProvenance == .generated)
+            #expect(manager.tabs.filter { $0.groupId == group.id }.map(\.id) == [group.anchorWorkspaceId])
+            #expect(manager.selectedTabId == selectedWorkspaceId)
+            #expect(window.firstResponder === responder)
+            #expect(originalWorkspace.groupId == nil)
+            #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
+            // A generated anchor renders exclusively as a header, so an
+            // anchor-only group is visibly empty and keeps a live identity.
+            let rows = SidebarWorkspaceRenderItem.renderItems(
+                tabs: manager.tabs,
+                groupsById: [group.id: group]
+            )
+            #expect(rows.map(\.id) == [.group(group.id), .workspace(originalWorkspace.id)])
+            #expect(rows.first?.rowWorkspaceId == group.anchorWorkspaceId)
+        }
+    }
+
+    @Test func groupingShortcutPreservesOrderedMultiSelectionAndAnchorFocus() throws {
+        try withGroupingShortcutWindow { appDelegate, window, manager in
+            let first = try #require(manager.selectedWorkspace)
+            _ = try #require(manager.addTab(select: false))
+            let last = try #require(manager.addTab(select: false))
+            let selectedIds: Set<UUID> = [last.id, first.id]
+            let originalOrder = manager.tabs.map(\.id)
+            let expectedChildren = originalOrder.filter { selectedIds.contains($0) }
+            let expectedRemaining = originalOrder.filter { !selectedIds.contains($0) }
+            manager.setSidebarSelectedWorkspaceIds(selectedIds)
+            let event = try #require(groupingKeyEvent(window: window))
+
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+
+            let group = try #require(manager.workspaceGroups.last)
+            #expect(manager.tabs.map(\.id) == [group.anchorWorkspaceId] + expectedChildren + expectedRemaining)
+            #expect(manager.tabs.filter { selectedIds.contains($0.id) }.allSatisfy { $0.groupId == group.id })
+            #expect(manager.selectedTabId == group.anchorWorkspaceId)
+            #expect(manager.sidebarSelectedWorkspaceIds == [group.anchorWorkspaceId])
+            #expect(!appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window))
+            #expect(manager.workspaceGroups.count == 1)
+        }
+    }
+
+    @Test func groupingShortcutDoesNotTurnAnIneligibleSelectionIntoAnEmptyGroup() throws {
+        try withGroupingShortcutWindow { appDelegate, window, manager in
+            let originalWorkspace = try #require(manager.selectedWorkspace)
+            #expect(appDelegate.createEmptyWorkspaceGroup(tabManager: manager, preferredWindow: window))
+            let group = try #require(manager.workspaceGroups.last)
+            let originalOrder = manager.tabs.map(\.id)
+            let selection: Set<UUID> = [group.anchorWorkspaceId, originalWorkspace.id]
+            manager.setSidebarSelectedWorkspaceIds(selection)
+
+            #expect(!appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window))
+
+            #expect(manager.workspaceGroups.count == 1)
+            #expect(manager.tabs.map(\.id) == originalOrder)
+            #expect(manager.sidebarSelectedWorkspaceIds == selection)
+            #expect(manager.selectedTabId == group.anchorWorkspaceId)
+        }
+    }
+
+    @Test func emptyGroupingShortcutUsesPreferredWindowRatherThanAppFallback() throws {
+        try withGroupingShortcutWindow { appDelegate, window, manager in
+            let otherWindowId = appDelegate.createMainWindow()
+            defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: otherWindowId) }
+            let otherManager = try #require(appDelegate.tabManagerFor(windowId: otherWindowId))
+            let otherSelection = otherManager.selectedTabId
+            let selectedWorkspaceId = manager.selectedTabId
+            manager.setSidebarSelectedWorkspaceIds([])
+            #expect(appDelegate.tabManager === otherManager)
+
+            #expect(appDelegate.handleGroupSelectedWorkspacesShortcut(preferredWindow: window))
+
+            #expect(manager.workspaceGroups.count == 1)
+            #expect(manager.selectedTabId == selectedWorkspaceId)
+            #expect(otherManager.workspaceGroups.isEmpty)
+            #expect(otherManager.selectedTabId == otherSelection)
+        }
+    }
+
+    private func withGroupingShortcutWindow(
+        _ body: (AppDelegate, NSWindow, TabManager) throws -> Void
+    ) throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-empty-group-shortcut"
+        )
+        KeyboardShortcutSettings.resetAll()
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+        let windowId = appDelegate.createMainWindow()
+        defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let window = try #require(context.window)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        try body(appDelegate, window, context.tabManager)
+    }
+
+    private func groupingKeyEvent(
+        window: NSWindow,
+        modifiers: NSEvent.ModifierFlags = [.command, .shift]
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "g",
+            charactersIgnoringModifiers: "g",
+            isARepeat: false,
+            keyCode: 5
+        )
+    }
+
     private func keyEvent(
         key: String,
         keyCode: UInt16,
