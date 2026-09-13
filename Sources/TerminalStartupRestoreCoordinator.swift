@@ -100,6 +100,19 @@ final class TerminalStartupRestoreCoordinator {
             ),
             ownedResumeLaunchClaim: ownsResumeLaunchClaim ? snapshot : nil
         )
+        StartupBreadcrumbLog.append(
+            "session.restore.panel.staged",
+            fields: [
+                "workspace": workspaceID.uuidString,
+                "panel": panel.id.uuidString,
+                "agent": snapshot?.kind.rawValue ?? resumeBinding?.kind ?? "none",
+                "session": String((snapshot?.sessionId ?? resumeBinding?.checkpointId ?? "none").prefix(8)),
+                "binding": resumeBinding == nil ? "0" : "1",
+                "startupCommand": willRunStartupCommand ? "1" : "0",
+                "startupInput": willRunStartupInput ? "1" : "0",
+                "deferred": defersStartupRestoreAdmission ? "1" : "0"
+            ]
+        )
     }
 
     /// Moves one staged transaction to the topology owner adopting its terminal.
@@ -179,6 +192,15 @@ final class TerminalStartupRestoreCoordinator {
             if pending.willRunStartupWork, !pending.defersStartupRestoreAdmission {
                 pending.panel.surface.admitStartupRestoreRuntime()
             }
+            StartupBreadcrumbLog.append(
+                "session.restore.panel.committed",
+                fields: [
+                    "workspace": workspaceID.uuidString,
+                    "panel": panelID.uuidString,
+                    "startupWork": pending.willRunStartupWork ? "1" : "0",
+                    "deferred": pending.defersStartupRestoreAdmission ? "1" : "0"
+                ]
+            )
         }
     }
 

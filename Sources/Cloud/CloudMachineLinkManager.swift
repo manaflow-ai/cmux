@@ -150,7 +150,11 @@ actor CloudMachineLinkManager {
         guard privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
-        #if DEBUG
+        StartupBreadcrumbLog.append(
+            "cloud.link.start",
+            fields: ["machine": machineID, "knownDevice": paths.deviceFingerprint(for: machineID) == nil ? "0" : "1"]
+        )
+#if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
@@ -233,6 +237,10 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.connected",
+                fields: ["machine": machineID, "session": connected.session]
+            )
             pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
             return connected
         } catch {
@@ -242,6 +250,10 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.failed",
+                fields: ["machine": machineID, "error": CloudDiagnosticFailure.classify(error).rawValue]
+            )
             throw error
         }
     }
