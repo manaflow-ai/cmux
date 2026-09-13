@@ -219,22 +219,17 @@ final class CloudPresenceOverlayView: NSView {
         frame.lineWidth = 1.5
         frame.stroke()
 
-        // Arrow cursor anchored at the cell's top-left corner.
+        // Compact presence marker anchored at the cell's top-left corner.
+        // A dot avoids looking like a local mouse cursor while the cell frame
+        // keeps the exact target visible.
         let tip = CGPoint(x: cell.minX, y: cell.minY)
-        let arrow = NSBezierPath()
-        arrow.move(to: tip)
-        arrow.line(to: CGPoint(x: tip.x, y: tip.y + 13))
-        arrow.line(to: CGPoint(x: tip.x + 3.5, y: tip.y + 10))
-        arrow.line(to: CGPoint(x: tip.x + 6, y: tip.y + 15))
-        arrow.line(to: CGPoint(x: tip.x + 8, y: tip.y + 14))
-        arrow.line(to: CGPoint(x: tip.x + 5.5, y: tip.y + 9))
-        arrow.line(to: CGPoint(x: tip.x + 10, y: tip.y + 9))
-        arrow.close()
+        let marker = CGRect(x: tip.x + 3, y: tip.y + 3, width: 7, height: 7)
         color.setFill()
-        arrow.fill()
-        NSColor.white.withAlphaComponent(0.85).setStroke()
-        arrow.lineWidth = 1
-        arrow.stroke()
+        NSBezierPath(ovalIn: marker).fill()
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        let markerOutline = NSBezierPath(ovalIn: marker.insetBy(dx: -0.5, dy: -0.5))
+        markerOutline.lineWidth = 1
+        markerOutline.stroke()
 
         // Name pill beside the arrow.
         let attributes: [NSAttributedString.Key: Any] = [
