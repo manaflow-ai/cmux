@@ -107,6 +107,26 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
         }
 
         switch method {
+        case "pane.list":
+            return encodedResponse(
+                id: requestID,
+                result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:1",
+                    "panes": [paneRow()],
+                ]
+            )
+        case "pane.surfaces":
+            return encodedResponse(
+                id: requestID,
+                result: [
+                    "workspace_id": workspaceID,
+                    "workspace_ref": "workspace:1",
+                    "pane_id": Self.paneID,
+                    "pane_ref": "pane:1",
+                    "surfaces": [surfaceRow()],
+                ]
+            )
         case "workspace.list":
             return encodedResponse(
                 id: requestID,
@@ -161,6 +181,29 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
                 error: ["code": "unexpected_method", "message": method]
             )
         }
+    }
+
+    private func paneRow() -> [String: Any] {
+        [
+            "id": Self.paneID,
+            "ref": "pane:1",
+            "index": 0,
+            "focused": true,
+            "surface_count": 1,
+            "surface_ids": [Self.surfaceID],
+            "surface_refs": ["surface:1"],
+        ]
+    }
+
+    private func surfaceRow() -> [String: Any] {
+        [
+            "id": Self.surfaceID,
+            "ref": "surface:1",
+            "index": 0,
+            "selected": true,
+            "title": "terminal",
+            "type": "terminal",
+        ]
     }
 
     private func workspaceRow(includingTopTag: Bool = false) -> [String: Any] {
