@@ -508,6 +508,144 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         )
     }
 
+    @Test func workspaceRevealReflowsExistingProcessOutputAtFinalPaneWidth() async throws {
+        let size = NSSize(width: 960, height: 320)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = PortalBindLayoutCountingView(frame: NSRect(origin: .zero, size: size))
+        let anchor = NSView(frame: container.bounds)
+        window.contentView = container
+        container.addSubview(anchor)
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+            window.close()
+            panel.surface.teardownSurface()
+        }
+
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        panel.hostedView.setVisibleInUI(true)
+        await flushPortalReconciliationPasses()
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        _ = panel.hostedView.reconcileGeometryNow()
+        _ = panel.hostedView.surfaceView.forceRefreshSurface()
+
+        let initialSample = try #require(panel.surface.rawSizingSample())
+        let lineLength = max(initialSample.columns - 4, 20)
+        let output = (1...5).map { index in
+            let prefix = "R\(index)"
+            let suffix = "END\(index)"
+            let fillLength = max(lineLength - prefix.count - suffix.count, 1)
+            return prefix + String(repeating: "=", count: fillLength) + suffix
+        }.joined(separator: "\n") + "\n"
+        let runtimeSurface = try #require(panel.surface.surface)
+        let outputData = Data(output.utf8)
+        outputData.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return
+            }
+            ghostty_surface_process_output(runtimeSurface, baseAddress, UInt(rawBuffer.count))
+        }
+        let beforeReveal = try readTerminalSurfaceText(panel)
+        #expect(beforeReveal.contains("R1"))
+        #expect(beforeReveal.contains("END5"))
+
+        let portal = try #require(
+            TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]
+        )
+        // Model a workspace reveal where the ancestor hid the hosted view while
+        // the portal entry remained visible. The entry must still begin a
+        // geometry settlement before accepting the narrower pane width.
+        panel.hostedView.isHidden = true
+        anchor.frame.size.width = 280
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(panel.hostedView),
+            visibleInUI: true
+        )
+        panel.hostedView.setVisibleInUI(true)
+        container.needsLayout = true
+        container.resetLayoutCount()
+
+        // The first reveal pass changes the hosted frame but defers the native
+        // terminal resize until the portal hierarchy is stable.
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        #expect(container.layoutCount > 0)
+        #expect(panel.hostedView.frame.width == 280)
+        #expect(
+            try #require(panel.surface.rawSizingSample()).columns == initialSample.columns,
+            "The first reveal pass must not publish an intermediate terminal width"
+        )
+
+        await flushPortalReconciliationPasses()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        var finalSample = try #require(panel.surface.rawSizingSample())
+        while finalSample.columns >= initialSample.columns, clock.now < deadline {
+            window.displayIfNeeded()
+            container.layoutSubtreeIfNeeded()
+            panel.hostedView.layoutSubtreeIfNeeded()
+            _ = panel.hostedView.reconcileGeometryNow()
+            await flushPortalReconciliationPasses()
+            finalSample = try #require(panel.surface.rawSizingSample())
+        }
+        #expect(finalSample.columns < initialSample.columns)
+
+        let afterReveal = try readTerminalSurfaceText(panel)
+        let lines = afterReveal.split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(
+            lines.allSatisfy { $0.count <= finalSample.columns },
+            "Revealing a narrower pane must reflow existing process output instead of retaining wide rows"
+        )
+        for index in 1...5 {
+            #expect(afterReveal.contains("R\(index)"))
+            #expect(afterReveal.contains("END\(index)"))
+        }
+    }
+
+    private func readTerminalSurfaceText(_ panel: TerminalPanel) throws -> String {
+        let runtimeSurface = try #require(panel.surface.surface)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_SURFACE,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            ),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SURFACE,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            ),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(runtimeSurface, selection, &text) else { return "" }
+        defer { ghostty_surface_free_text(runtimeSurface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(
+            decoding: Data(bytes: pointer, count: Int(text.text_len)),
+            as: UTF8.self
+        )
+    }
+
     private func attentionStrokeHexes(in view: NSView) -> [String] {
         shapeLayers(in: view.layer).compactMap { layer in
             guard let strokeColor = layer.strokeColor,

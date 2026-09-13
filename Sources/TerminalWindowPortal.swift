@@ -1532,8 +1532,10 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         let becameVisible = visibleInUI && !entry.visibleInUI
         let becameHidden = !visibleInUI && entry.visibleInUI
+        let needsVisibleGeometrySettlement = visibleInUI &&
+            (becameVisible || entry.hostedView?.isHidden == true)
         entry.visibleInUI = visibleInUI
-        if becameVisible {
+        if needsVisibleGeometrySettlement {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
             entry.awaitingGeometrySettlement = true
