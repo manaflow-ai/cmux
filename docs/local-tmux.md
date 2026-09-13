@@ -95,6 +95,98 @@ GUI/API operations still use cmux's authenticated control socket. Headless
 operations are limited by the operating-system user; do not share the state
 directory or socket with another Unix user.
 
+## Diagnosing protected-folder access errors
+
+If a shell in tmux reports `Operation not permitted` while reading a file in
+`~/Documents` or another protected folder, record the failure before restarting
+cmux, replacing the tmux server, or changing permissions. A live server and a
+successful attach do not establish that its child processes can read that file.
+
+First identify the affected server. Inside the affected tmux pane, run:
+
+```sh
+tmux display-message -p 'socket=#{socket_path} server_pid=#{pid} server_version=#{version}'
+tmux -V
+```
+
+`server_version` comes from the running server; `tmux -V` describes the client
+binary currently on `PATH`. They can differ after a package upgrade. Record the
+server PID and start time as well as the cmux and macOS versions. On macOS,
+substitute the reported server PID in these read-only commands:
+
+```sh
+ps -p <server-pid> -o pid=,ppid=,lstart=,command=
+lsof -a -p <server-pid> -d txt
+```
+
+The `txt` entries show mapped executable and code files.
+If the mapped executable path has been replaced or removed, record that too; it
+is a possible confounding factor, not proof of the permission failure's cause.
+
+Outside the pane, use `tmux -S <socket-path>` to query the same server, or
+`tmux -L <socket-name>` for an explicitly named server. A plain `tmux ls`
+does not list every server. For the cmux local-tmux profile,
+`cmux local-tmux list --json` includes `socket_path`; external tmux launchers
+may use a different socket.
+Do not infer that a session died from a query against another socket.
+
+Compare the original failing operation in the affected pane, a direct cmux
+shell outside tmux, and a direct shell in the other terminal app. Use the same
+absolute path and record which app hosts each shell. For a directory-listing
+failure, run this POSIX-shell snippet in each context, replacing the example
+path with the affected directory:
+
+```sh
+diagnostic_dir="$HOME/Documents/path/to/affected-directory"
+date -u '+%Y-%m-%dT%H:%M:%SZ'
+/bin/ls -a "$diagnostic_dir" > /dev/null
+diagnostic_status=$?
+printf 'directory listing exit=%s\n' "$diagnostic_status"
+```
+
+Standard output is discarded to avoid printing directory entries; standard
+error remains visible so the exact error can be recorded. If the original
+failure used a relative path such as `ls .`, also record the working directory
+and repeat that exact command: a fresh lookup by absolute path may behave
+differently from access through an existing working directory.
+
+For a file-read failure, choose one harmless, existing regular file and use
+this additional check in the same shell contexts:
+
+```sh
+diagnostic_file="$HOME/Documents/path/to/harmless-file"
+date -u '+%Y-%m-%dT%H:%M:%SZ'
+cat "$diagnostic_file" > /dev/null
+diagnostic_status=$?
+printf 'file read exit=%s\n' "$diagnostic_status"
+```
+
+A successful file read does not establish that listing its directory works.
+Record each command, time, exact error, and exit status without including
+private contents. If a separate server succeeds, also record its version and
+launch context: that result alone does not isolate server age, TCC state, or
+cmux as the cause. If a later retry succeeds without intervention, report the
+failure as currently non-reproducible rather than permanently fixed.
+
+When reporting the problem, include:
+
+- Whether the session uses `cmux local-tmux` or an external launcher.
+- The tested app build/revision and whether newer relevant changes were tested;
+  a marketing version alone may not distinguish a release from a development
+  build.
+- The affected server's version/start time and how its socket was selected.
+- The failing operation and the results for the same path in each shell context.
+- Any available permission-denial record at the failure time, with private
+  paths and unrelated process details removed.
+
+`EPERM` is not specific to TCC, and a daemon's parent PID alone does not identify
+its responsible application. `Operation not permitted` (EPERM) and
+`Permission denied` (EACCES) are different errors; record the exact wording or
+errno rather than treating them as interchangeable. See
+[Apple's guidance](https://developer.apple.com/forums/thread/678819).
+The related [report](https://github.com/manaflow-ai/cmux/issues/2866) is an
+investigation, not evidence that every similar failure has the same cause.
+
 ## Limitations
 
 - This slice requires a local `tmux` executable (or `CMUX_LOCAL_TMUX_BIN`).
