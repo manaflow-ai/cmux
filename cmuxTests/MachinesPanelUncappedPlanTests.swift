@@ -58,7 +58,7 @@ struct MachinesPanelUncappedPlanTests {
         let unlabeled = MachineSnapshotBuilder.snapshot(from: summary)
         #expect(unlabeled.label == nil)
         #expect(unlabeled.displayName == "sleepy-teal-otter")
-        #expect(CloudTreeMachineRowContent.subtitle(unlabeled).contains(summary.id))
+        #expect(CloudTreeMachineRowContent(machine: unlabeled).subtitle.contains(summary.id))
 
         summary.displayName = "dev box"
         #expect(MachineSnapshotBuilder.snapshot(from: summary).displayName == "dev box")
