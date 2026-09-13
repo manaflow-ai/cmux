@@ -792,6 +792,7 @@
 		C4E8746E6B6D40FBB96F13EB /* CloudTerminalPendingPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */; };
 		A1E6C4F3B7D9428CA6B7F0E1 /* CloudTerminalPendingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */; };
 		4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */; };
+		B12478F10000000000000001 /* CloudTerminalReplayPresentationDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12478F20000000000000001 /* CloudTerminalReplayPresentationDiagnostics.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
@@ -4517,6 +4518,7 @@
 		E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalPendingPanelView.swift; sourceTree = "<group>"; };
 		B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalPendingState.swift; sourceTree = "<group>"; };
 		030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReconnectOverlayView.swift; sourceTree = "<group>"; };
+		B12478F20000000000000001 /* CloudTerminalReplayPresentationDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReplayPresentationDiagnostics.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
@@ -7739,6 +7741,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C11322E20000000000000001 /* CloudTuiManualIOInputRouter.swift */,
 				C11323320000000000000001 /* CloudTuiManualIOResizeScheduler.swift */,
 				C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */,
+				B12478F20000000000000001 /* CloudTerminalReplayPresentationDiagnostics.swift */,
 				C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */,
 				B242BF96D4FAFD2965CC24BC /* CloudTuiManualIOGrid+SizingSample.swift */,
 				38376D59ED0A80A041DDAF3A /* CloudTuiManualMirrorWatchdog.swift */,
@@ -12133,6 +12136,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C4E8746E6B6D40FBB96F13EB /* CloudTerminalPendingPanelView.swift in Sources */,
 				A1E6C4F3B7D9428CA6B7F0E1 /* CloudTerminalPendingState.swift in Sources */,
 				4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */,
+				B12478F10000000000000001 /* CloudTerminalReplayPresentationDiagnostics.swift in Sources */,
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,

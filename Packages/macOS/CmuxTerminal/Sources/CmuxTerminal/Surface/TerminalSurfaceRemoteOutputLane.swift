@@ -55,6 +55,28 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
         }
     }
 
+    /// Submits a frame request only after all earlier output was parsed.
+    /// Teardown drains this operation under the same native lifetime fence.
+    @discardableResult
+    func enqueuePresentationProbe(
+        _ token: UInt64,
+        to surface: ghostty_surface_t,
+        onAdmission: @escaping @Sendable (Bool) -> Void
+    ) -> Bool {
+        let surfaceBits = UInt(bitPattern: surface)
+        return isOpen.withLock { isOpen in
+            guard isOpen else { return false }
+            queue.async {
+                guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+                    onAdmission(false)
+                    return
+                }
+                onAdmission(ghostty_surface_request_render_with_token(surface, token))
+            }
+            return true
+        }
+    }
+
     /// Enqueues manual text input behind earlier remote output.
     @discardableResult
     func enqueueTextInput(_ data: Data, to surface: ghostty_surface_t) -> Bool {

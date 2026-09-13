@@ -22,6 +22,10 @@ final class CloudTuiManualMirrorSession {
     let inputRouter: CloudTuiManualIOInputRouter
 
     private let operations: CloudOperationRecorder?
+    private lazy var replayPresentation = CloudTerminalReplayPresentationDiagnostics(
+        operations: operations,
+        isVisible: { [weak self] in self?.surface?.isRendererEffectivelyVisible == true }
+    )
     private var diagnosticContext: CloudOperationContext?
     private var diagnosticReplayReceived = false
     private var diagnosticDeadline: Task<Void, Never>?
@@ -125,10 +129,7 @@ final class CloudTuiManualMirrorSession {
         self.clock = clock
         attachmentStatus = CloudTerminalAttachmentStatus(machineID: machineID)
         watchdog = CloudTuiManualMirrorWatchdog(deadlines: deadlines, clock: clock)
-        inputRouter = CloudTuiManualIOInputRouter(
-            surfaceID: remoteSurfaceID,
-            commandBuilder: commandBuilder
-        )
+        inputRouter = CloudTuiManualIOInputRouter(surfaceID: remoteSurfaceID, commandBuilder: commandBuilder)
     }
 
     /// Reports whether a server that advertised leased attachments omitted
@@ -138,9 +139,7 @@ final class CloudTuiManualMirrorSession {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
-    /// Binds the local Ghostty surface. The pane installs the same callbacks
-    /// before inserting the panel, so a runtime-ready signal cannot be missed;
-    /// assigning them here also makes rebinding after restore safe.
+    /// Binds runtime and replay presentation to the current attachment.
     func bind(surface: TerminalSurface) {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
@@ -148,6 +147,7 @@ final class CloudTuiManualMirrorSession {
             previous.onRuntimeReady = nil
             previous.onManualWindowAttached = nil
             previous.onManualVisibilityChanged = nil
+            previous.onManualOutputPresented = nil
             previous.hostedView.cloudTerminalOverlay.unbindSession(self)
         }
         self.surface = surface
@@ -164,11 +164,11 @@ final class CloudTuiManualMirrorSession {
         surface.onManualSizeApplied = { [weak self] sample in
             self?.apply(size: sample, validatePanePixels: false)
         }
-        surface.onRuntimeReady = { [weak self] in
-            self?.runtimeReady()
-        }
-        surface.onManualWindowAttached = { [weak self] in
-            self?.runtimeReady()
+        let whenReady: @MainActor () -> Void = { [weak self] in self?.runtimeReady() }
+        surface.onRuntimeReady = whenReady
+        surface.onManualWindowAttached = whenReady
+        surface.onManualOutputPresented = { [weak self] revision in
+            self?.replayPresentation.presented(revision)
         }
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
@@ -181,6 +181,7 @@ final class CloudTuiManualMirrorSession {
     /// the visible, real pane makes sizing eligible; initial focus is irrelevant.
     func visibilityChanged(_ visible: Bool) {
         guard phase != .stopped else { return }
+        replayPresentation.visibilityChanged(visible)
         manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
         if !visible {
             // Do not let a hidden portal continue to resize a shared remote
@@ -246,6 +247,7 @@ final class CloudTuiManualMirrorSession {
     /// connection generation and never survive it; a later replay starts from
     /// a reset screen.
     private func tearDownConnection() {
+        replayPresentation.reset()
         watchdog.cancel()
         if hasReceivedRemoteReplay {
             replayNeedsReset = true
@@ -440,6 +442,7 @@ final class CloudTuiManualMirrorSession {
             surface.onRuntimeReady = nil
             surface.onManualWindowAttached = nil
             surface.onManualVisibilityChanged = nil
+            surface.onManualOutputPresented = nil
         }
         self.surface = nil
     }
@@ -481,6 +484,7 @@ final class CloudTuiManualMirrorSession {
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
+            replayPresentation.receive(surface?.requestManualOutputPresentation())
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -497,6 +501,7 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
+            replayPresentation.receive(surface?.requestManualOutputPresentation())
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -634,16 +639,10 @@ final class CloudTuiManualMirrorSession {
             serverCapabilities = Set(capabilities)
             sendClientInfo()
         case .clientInfo:
-            // Capability negotiation is additive: an older daemon may reject
-            // this optional metadata command and the byte attach still works.
-            // The attachment is deliberately sequenced behind the daemon's
-            // answer rather than queued right after the registration. Over a
-            // cloud link `set-client-info` rides the interactive lane while
-            // `attach-surface` rides the bulk lane, and the machine side
-            // applies whichever arrives first; an attach that overtakes the
-            // registration is answered without a lease, which this session
-            // must treat as fatal. The acknowledgement proves the daemon
-            // applied the registration before the attach is sent.
+            // Wait for client-info acknowledgement before attaching: Cloud
+            // routes these commands over separate lanes. An attach that
+            // overtakes registration has no lease. Older peers can reject
+            // this optional metadata and continue with byte attachment.
             sendAttach()
         case .attach:
             guard ok else {

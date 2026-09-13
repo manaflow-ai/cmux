@@ -26,6 +26,7 @@ private func setRendererRealizedResult(_ result: Bool)
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
+extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
     @Test func visibleRuntimeWaitsForUsableDrawableGeometry() {
@@ -444,22 +445,14 @@ private func rendererReleaseWasOccluded() -> Bool
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
         guard let runtimeSurface = surface.surface else { return }
-        let pendingToken = surface.rendererPresentationState.inFlightToken
         #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
-        if let pendingToken,
-           surface.rendererPresentationState.inFlightToken == pendingToken {
-            // Some tests replace the callback context to exercise renderer
-            // mailbox recovery. The C stub still clears its pending token,
-            // while that custom context intentionally does not acknowledge
-            // presentation, so complete the state transition here.
-            surface.rendererFrameDidPresent(token: pendingToken)
-        }
     }
 
     private func installRendererCallbackContext(
         on surface: TerminalSurface,
         scheduler: FakeRendererRealizationScheduler
     ) -> Unmanaged<GhosttySurfaceCallbackContext> {
+        let target = TerminalSurfaceCallbackTarget(surface: surface)
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
             surfaceController: surface,
@@ -468,6 +461,12 @@ private func rendererReleaseWasOccluded() -> Bool
                 MainActor.assumeIsolated {
                     scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
+            },
+            rendererFramePresented: { _, token in
+                MainActor.assumeIsolated { target.surface?.rendererFrameDidPresent(token: token) }
+            },
+            rendererFrameFailed: { _, token, status in
+                MainActor.assumeIsolated { target.surface?.rendererFrameDidFail(token: token, status: status) }
             }
         ))
         surface.surfaceCallbackContext = callbackContext
@@ -475,5 +474,7 @@ private func rendererReleaseWasOccluded() -> Bool
     }
 
 
+
+}
 
 }

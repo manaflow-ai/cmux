@@ -8,6 +8,7 @@ import Testing
 /// Exercises the C callback boundary used by tokened renderer probes. The
 /// presentation state tests cover the state machine directly; these tests keep
 /// registration, userdata routing, and token forwarding in the same contract.
+extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
@@ -67,4 +68,6 @@ import Testing
         ))
         #expect(surface.renderHealth == .shellExited)
     }
+}
+
 }

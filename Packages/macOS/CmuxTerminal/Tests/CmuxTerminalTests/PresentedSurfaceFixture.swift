@@ -90,10 +90,7 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        guard let token = surface.rendererPresentationState.inFlightToken else { return }
+        guard surface.rendererPresentationState.inFlightToken != nil else { return }
         _ = cmux_test_ghostty_renderer_present(runtimeSurface)
-        if surface.rendererPresentationState.inFlightToken == token {
-            surface.rendererFrameDidPresent(token: token)
-        }
     }
 }

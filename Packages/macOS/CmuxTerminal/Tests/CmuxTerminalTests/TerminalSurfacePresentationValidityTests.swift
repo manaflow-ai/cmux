@@ -4,9 +4,31 @@ import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
+extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfacePresentationValidityTests {
+    @Test func retiredRuntimeCannotAcknowledgeItsReplacement() throws {
+        let fixture = PresentedSurfaceFixture()
+        let replacement = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { fixture.tearDown(); replacement.deallocate() }
+        let surface = fixture.surface
+        _ = surface.requestManualOutputPresentation()
+        let retiredToken = try #require(surface.rendererPresentationState.inFlightToken)
+        surface.releaseSurfaceForTesting()
+        fixture.registry.registerRuntimeSurface(replacement, ownerId: surface.id)
+        surface.installRuntimeSurfaceForTesting(replacement)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        let replacementToken = try #require(surface.rendererPresentationState.inFlightToken)
+
+        surface.rendererFrameDidPresent(token: retiredToken)
+
+        #expect(!surface.isRendererPresented)
+        #expect(surface.rendererPresentationState.inFlightToken == replacementToken)
+        #expect(cmux_test_ghostty_renderer_present(replacement))
+        #expect(surface.isRendererPresented)
+    }
+
     @Test func hideAndRevealRetainsThePendingNativeRequest() throws {
         let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
@@ -68,4 +90,6 @@ struct TerminalSurfacePresentationValidityTests {
         #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
         #expect(surface.isRendererPresented)
     }
+}
+
 }

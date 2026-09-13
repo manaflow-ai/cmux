@@ -18,6 +18,98 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func replayDiagnosticsRequireTheCurrentFrame() async throws {
+        let recorder = CloudOperationRecorder()
+        let observation = CloudTerminalReplayPresentationDiagnostics(operations: recorder, isVisible: { true })
+        defer { observation.reset() }
+        observation.receive(1)
+        observation.receive(2)
+        observation.presented(1)
+        #expect(recorder.operations.count == 1)
+        #expect(recorder.operations[0].isRunning)
+        observation.presented(2)
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations[0].outcome == .success)
+        #expect(recorder.operations[0].steps.first?.phase == .ready)
+        #expect(recorder.operations[0].steps.first?.outcome == .success)
+    }
+
+    @Test @MainActor
+    func hiddenReplayDefersObservationUntilReveal() async throws {
+        let recorder = CloudOperationRecorder()
+        var visible = false
+        let observation = CloudTerminalReplayPresentationDiagnostics(operations: recorder, isVisible: { visible })
+        defer { observation.reset() }
+        observation.receive(1)
+        #expect(recorder.operations.isEmpty)
+        visible = true
+        observation.visibilityChanged(true)
+        #expect(recorder.operations.count == 1)
+        visible = false
+        observation.visibilityChanged(false)
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations[0].outcome == .cancelled)
+        #expect(!recorder.operations[0].needsAttention)
+        visible = true
+        observation.visibilityChanged(true)
+        observation.presented(1)
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations.count == 2)
+        #expect(recorder.operations[1].outcome == .success)
+    }
+
+    @Test @MainActor
+    func visibleReplayDeadlineRecordsOneDisplayFailure() async throws {
+        let recorder = CloudOperationRecorder()
+        let deadline = AsyncStream<Void>.makeStream()
+        let observation = CloudTerminalReplayPresentationDiagnostics(
+            operations: recorder, isVisible: { true },
+            waitForDeadline: { for await _ in deadline.stream { return } }
+        )
+        defer { observation.reset(); deadline.continuation.finish() }
+        observation.receive(1)
+        deadline.continuation.yield(())
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations[0].outcome == .timeout)
+        #expect(recorder.operations[0].steps.first?.phase == .ready)
+        observation.visibilityChanged(true)
+        observation.receive(2)
+        #expect(recorder.operations.count == 1)
+    }
+
+    @Test @MainActor
+    func windowOcclusionCannotBecomeAPresentationFailure() async throws {
+        let recorder = CloudOperationRecorder()
+        let deadline = AsyncStream<Void>.makeStream()
+        var visible = true
+        let observation = CloudTerminalReplayPresentationDiagnostics(
+            operations: recorder, isVisible: { visible },
+            waitForDeadline: { for await _ in deadline.stream { return } }
+        )
+        defer { observation.reset(); deadline.continuation.finish() }
+        observation.receive(1)
+        // Window occlusion can change without a portal visibility event.
+        visible = false
+        deadline.continuation.yield(())
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations[0].outcome == .cancelled)
+        #expect(!recorder.operations[0].needsAttention)
+        visible = true
+        observation.presented(1)
+        try await waitForPresentationOutcome(recorder)
+        #expect(recorder.operations[1].outcome == .success)
+    }
+
+    @MainActor
+    private func waitForPresentationOutcome(_ recorder: CloudOperationRecorder) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while recorder.operations.last?.isRunning == true, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        try #require(recorder.operations.last?.isRunning == false)
+    }
+
+    @Test @MainActor
     func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
