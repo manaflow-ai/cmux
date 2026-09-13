@@ -241,8 +241,9 @@ struct CloudPresenceDeliveryTests {
         }
         #expect(store.entries(forPane: firstPane).count == 1)
         let counter = CloudPresenceNotificationCounter()
+        let machineIDKey = CloudPresenceStore.machineIDKey
         let observer = NotificationCenter.default.addObserver(forName: .cloudPresenceDidChange, object: nil, queue: nil) { note in
-            guard note.userInfo?[CloudPresenceStore.machineIDKey] as? String == machine else { return }
+            guard note.userInfo?[machineIDKey] as? String == machine else { return }
             MainActor.assumeIsolated { counter.value += 1 }
         }
         defer { NotificationCenter.default.removeObserver(observer) }
@@ -251,6 +252,41 @@ struct CloudPresenceDeliveryTests {
         store.updateRemoteSurfaceID(panelID: laterPane, remoteSurfaceID: 7)
         #expect(counter.value == 2, "Resolving a pane must redraw existing peers without waiting for their next move")
         #expect(store.entries(forPane: laterPane).first?.name == "Bob")
+    }
+
+    @Test
+    func carrierReplacementResendsUnchangedPresence() async throws {
+        let first = try CloudManualMirrorSocketFixture()
+        let second = try CloudManualMirrorSocketFixture()
+        let link = CloudPresenceLink(machineID: "reconnect", socketPath: first.socketPath,
+                                     clientName: "Alice", onEntry: { _ in }, onPhaseChange: { _ in })
+        defer { link.stop(); first.close(); second.close() }
+        let firstSubscription = try await acceptHandshake(first)
+        first.send(["id": firstSubscription, "ok": true, "data": [:]])
+        try await waitUntilReady(link)
+        link.publish(surfaceID: 7, pointer: .cell(row: 6, col: 2, scrollOffset: 0), highlight: nil)
+        #expect(await first.nextCommand(timeout: .seconds(1))?.pointerRow == 6)
+        link.reconnect(socketPath: second.socketPath)
+        let secondSubscription = try await acceptHandshake(second)
+        second.send(["id": secondSubscription, "ok": true, "data": [:]])
+        #expect(await second.nextCommand(timeout: .seconds(1))?.pointerRow == 6)
+    }
+
+    @Test
+    func clearCancelsThePendingHover() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        let link = CloudPresenceLink(machineID: "clear", socketPath: fixture.socketPath,
+                                     clientName: "Alice", onEntry: { _ in }, onPhaseChange: { _ in })
+        defer { link.stop(); fixture.close() }
+        let subscribe = try await acceptHandshake(fixture)
+        fixture.send(["id": subscribe, "ok": true, "data": [:]])
+        try await waitUntilReady(link)
+        link.publish(surfaceID: 7, pointer: .cell(row: 1, col: 2, scrollOffset: 0), highlight: nil)
+        link.publish(surfaceID: 7, pointer: .cell(row: 8, col: 2, scrollOffset: 0), highlight: nil)
+        link.clear()
+        #expect(await fixture.nextCommand(timeout: .seconds(1))?.cmd == "presence-update")
+        #expect(await fixture.nextCommand(timeout: .seconds(1))?.cmd == "presence-clear")
+        #expect(await fixture.nextCommand(timeout: .milliseconds(120))?.cmd == nil)
     }
 }
 
