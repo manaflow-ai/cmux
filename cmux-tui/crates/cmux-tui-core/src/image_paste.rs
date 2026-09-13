@@ -303,6 +303,7 @@ impl ImagePasteStore {
                 // Keep the file and reservation until the terminal write
                 // returns. Removing it here could race the reader or cause a
                 // partial paste to reference a vanished path.
+                upload.deadline = now + Duration::from_secs(1);
                 return true;
             }
             if upload.file.remove_owned() {
