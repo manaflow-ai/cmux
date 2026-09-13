@@ -201,7 +201,8 @@ impl PresenceHub {
         let mut slots = self.slots.lock().unwrap();
         for slot in slots.values_mut() {
             if now.duration_since(slot.last_change) >= PRESENCE_POINTER_TTL {
-                let pinned = slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
+                let pinned =
+                    slot.entry.highlight.is_some_and(|h| h.mode == PresenceHighlightMode::Pin);
                 slot.entry.pointer = None;
                 if !pinned {
                     slot.entry.surface = None;
