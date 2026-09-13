@@ -1,5 +1,5 @@
 import AppKit
-import XCTest
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -7,29 +7,30 @@ import XCTest
 #endif
 
 @MainActor
-final class CloudTreeWorkspaceTitleLayoutTests: XCTestCase {
-    func testDisplayHostUsesVisibleCellWidth() {
+@Suite("Cloud tree workspace title layout")
+struct CloudTreeWorkspaceTitleLayoutTests {
+    @Test("the display host reaches the visible cell trailing edge")
+    func displayHostUsesVisibleCellWidth() {
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 700, height: 24))
         guard let host = cell.subviews.compactMap({ $0 as? CloudTreePassthroughHostingView }).first else {
-            return XCTFail("Cloud tree cell should host a pass-through display view")
+            Issue.record("Cloud tree cell should host a pass-through display view")
+            return
         }
         guard let trailingConstraint = cell.constraints.first(where: { constraint in
             (constraint.firstItem as? NSView) === host
                 && constraint.firstAttribute == .trailing
                 && (constraint.secondItem as? NSView) === cell
         }) else {
-            return XCTFail("Cloud tree display host should have a trailing constraint")
+            Issue.record("Cloud tree display host should have a trailing constraint")
+            return
         }
 
-        XCTAssertEqual(trailingConstraint.relation, .equal)
-        XCTAssertEqual(
-            trailingConstraint.priority,
-            NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.required.rawValue - 1)
-        )
+        #expect(trailingConstraint.relation == .equal)
+        #expect(trailingConstraint.priority == NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.required.rawValue - 1))
     }
 
-    @MainActor
-    func testContainerDocumentFillsScrollViewportAtWideAndNarrowSizes() {
+    @Test("the container document fills narrow and wide scroll viewports")
+    func containerDocumentFillsScrollViewportAtWideAndNarrowSizes() {
         let machineActions = MachineRowActions.bound(onDidMutate: {})
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared }, selectedWorkspaceID: { nil },
@@ -51,9 +52,10 @@ final class CloudTreeWorkspaceTitleLayoutTests: XCTestCase {
             container.layoutSubtreeIfNeeded()
             guard let scroll = container.subviews.compactMap({ $0 as? NSScrollView }).first,
                   let outline = scroll.documentView else {
-                return XCTFail("Cloud tree should install an outline document view")
+                Issue.record("Cloud tree should install an outline document view")
+                return
             }
-            XCTAssertEqual(outline.frame.width, scroll.contentView.bounds.width, accuracy: 0.5)
+            #expect(abs(outline.frame.width - scroll.contentView.bounds.width) <= 0.5)
         }
     }
 }
