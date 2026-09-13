@@ -13,7 +13,7 @@ import {
  */
 export async function isGoPlanEnabled(
   distinctId = "anonymous",
-  fetchImpl?: typeof fetch,
+  fetchImpl?: (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => ReturnType<typeof fetch>,
 ): Promise<boolean> {
   // Test suites use a deterministic enabled default; the production fallback
   // remains disabled when the remote flag cannot be read.

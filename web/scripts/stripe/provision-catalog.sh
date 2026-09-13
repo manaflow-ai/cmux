@@ -310,9 +310,8 @@ ensure_personal_plan_switch_portal() {
   fi
   configuration_id="${matching_ids[0]:-}"
 
-  local pro_monthly_price_id pro_yearly_price_id max_monthly_price_id
+  local pro_monthly_price_id max_monthly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
-  pro_yearly_price_id="$(price_id_for_lookup_key "cmux-pro-yearly-480")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
   local -a feature_args=(
     -d "features[subscription_update][enabled]=true"
@@ -320,7 +319,6 @@ ensure_personal_plan_switch_portal() {
     -d "features[subscription_update][proration_behavior]=always_invoice"
     -d "features[subscription_update][products][0][product]=${pro_product_id}"
     -d "features[subscription_update][products][0][prices][]=${pro_monthly_price_id}"
-    -d "features[subscription_update][products][0][prices][]=${pro_yearly_price_id}"
     -d "features[subscription_update][products][0][adjustable_quantity][enabled]=false"
     -d "features[subscription_update][products][1][product]=${max_product_id}"
     -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"
@@ -374,13 +372,11 @@ echo "Resolved Team product." >&2
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
-ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
 # Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
 # Max is monthly only (no yearly Price on purpose).
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
-ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
 ensure_price "$pro_product_id" "cmux-pro-monthly" "3000" "month" "cmux Pro Monthly (Legacy \$30)"
@@ -388,6 +384,11 @@ ensure_price "$pro_product_id" "cmux-pro-yearly" "24000" "year" "cmux Pro Yearly
 ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Yearly (Legacy \$288)"
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
+
+# Retired annual offers remain valid for existing subscribers; never advertise
+# them as checkout or portal switch targets.
+ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly (Legacy \$480)"
+ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
 

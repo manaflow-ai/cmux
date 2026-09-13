@@ -59,3 +59,10 @@ declare module "bun:test" {
   ) => SpiedFunction<Extract<T[K], (...args: never[]) => unknown>>;
   export const test: TestFunction;
 }
+
+// Minimal type for the TOML parser supplied by the Bun test runtime.
+declare namespace Bun {
+  namespace TOML {
+    function parse(input: string): Record<string, unknown>;
+  }
+}

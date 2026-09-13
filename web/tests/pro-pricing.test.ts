@@ -21,50 +21,24 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo and $480/yr with a 20% annual discount", () => {
+  test("prices Pro at $50/mo without a new annual offer", () => {
     expect(PRO_PRICING_USD.month).toEqual({
       billedAmount: 50,
       monthlyEquivalent: 50,
       discountPercent: 0,
       lookupKey: "cmux-pro-monthly-50",
     });
-    expect(PRO_PRICING_USD.year).toEqual({
-      billedAmount: 480,
-      monthlyEquivalent: 40,
-      discountPercent: 20,
-      lookupKey: "cmux-pro-yearly-480",
-    });
-    expect(PRO_PRICING_USD.year.billedAmount).toBe(
-      PRO_PRICING_USD.month.billedAmount *
-        12 *
-        (1 - PRO_PRICING_USD.year.discountPercent / 100),
-    );
-    expect(PRO_PRICING_USD.year.monthlyEquivalent * 12).toBe(
-      PRO_PRICING_USD.year.billedAmount,
-    );
+    expect("year" in PRO_PRICING_USD).toBe(false);
   });
 
-  test("prices Team at $60/user/mo and $576/user/yr with a 20% annual discount", () => {
+  test("prices Team at $60/user/mo without a new annual offer", () => {
     expect(TEAM_PRICING_USD.month).toEqual({
       billedAmount: 60,
       monthlyEquivalent: 60,
       discountPercent: 0,
       lookupKey: "cmux-team-monthly-60",
     });
-    expect(TEAM_PRICING_USD.year).toEqual({
-      billedAmount: 576,
-      monthlyEquivalent: 48,
-      discountPercent: 20,
-      lookupKey: "cmux-team-yearly-576",
-    });
-    expect(TEAM_PRICING_USD.year.billedAmount).toBe(
-      TEAM_PRICING_USD.month.billedAmount *
-        12 *
-        (1 - TEAM_PRICING_USD.year.discountPercent / 100),
-    );
-    expect(TEAM_PRICING_USD.year.monthlyEquivalent * 12).toBe(
-      TEAM_PRICING_USD.year.billedAmount,
-    );
+    expect("year" in TEAM_PRICING_USD).toBe(false);
   });
 
   test("prices Max at $200/mo, monthly only", () => {
@@ -83,10 +57,8 @@ describe("pricing plans", () => {
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {
     const current = [
       PRO_PRICING_USD.month,
-      PRO_PRICING_USD.year,
       MAX_PRICING_USD.month,
       TEAM_PRICING_USD.month,
-      TEAM_PRICING_USD.year,
     ];
     for (const price of current) {
       expect(price.lookupKey.endsWith(`-${price.billedAmount}`)).toBe(true);
@@ -96,8 +68,10 @@ describe("pricing plans", () => {
       "cmux-pro-monthly",
       "cmux-pro-yearly",
       "cmux-pro-yearly-288",
+      "cmux-pro-yearly-480",
       "cmux-team-monthly",
       "cmux-team-yearly-336",
+      "cmux-team-yearly-576",
     ]);
   });
 
@@ -182,7 +156,6 @@ describe("VM defaults and pricing copy", () => {
   ] as const) {
     test(`${locale} Max copy sells the 32 GB and 64 GB machines Pro cannot start`, () => {
       const features = messages.pricing.max.features.join("\n");
-      expect(features).toContain("32 GB");
       expect(features).toContain("64 GB");
       expect(features).toContain("50");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);

@@ -8,7 +8,6 @@ export type PlanPrice = {
   lookupKey: string;
 };
 
-type PlanPricing = Record<BillingInterval, PlanPrice>;
 /** A plan sold on one billing interval only; `year` is deliberately absent. */
 type MonthlyOnlyPlanPricing = Record<"month", PlanPrice>;
 
@@ -23,13 +22,7 @@ export const PRO_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-pro-monthly-50",
   },
-  year: {
-    billedAmount: 480,
-    monthlyEquivalent: 40,
-    discountPercent: 20,
-    lookupKey: "cmux-pro-yearly-480",
-  },
-} as const satisfies PlanPricing;
+} as const satisfies MonthlyOnlyPlanPricing;
 
 /** Entry Cloud plan, billed monthly with a small capped VM allowance. */
 export const GO_PRICING_USD = {
@@ -48,13 +41,7 @@ export const TEAM_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-team-monthly-60",
   },
-  year: {
-    billedAmount: 576,
-    monthlyEquivalent: 48,
-    discountPercent: 20,
-    lookupKey: "cmux-team-yearly-576",
-  },
-} as const satisfies PlanPricing;
+} as const satisfies MonthlyOnlyPlanPricing;
 
 /**
  * Max is a personal plan above Pro: the same allowance, plus the 32 GB and
@@ -70,7 +57,8 @@ export const MAX_PRICING_USD = {
   },
 } as const satisfies MonthlyOnlyPlanPricing;
 
-/** Intervals a plan can be bought on; Max has no annual price. */
+/** Every new subscription is monthly. Historical annual subscriptions remain valid. */
+export const CHECKOUT_BILLING_INTERVAL = "month" as const;
 export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
@@ -83,8 +71,10 @@ export const LEGACY_PRICE_LOOKUP_KEYS = [
   "cmux-pro-monthly", // $30/mo
   "cmux-pro-yearly", // $240/yr
   "cmux-pro-yearly-288", // $288/yr
+  "cmux-pro-yearly-480", // $480/yr; existing subscriptions only
   "cmux-team-monthly", // $35/user/mo
   "cmux-team-yearly-336", // $336/user/yr
+  "cmux-team-yearly-576", // $576/user/yr; existing subscriptions only
 ] as const;
 
 export function billingInterval(value: string | null | undefined): BillingInterval {

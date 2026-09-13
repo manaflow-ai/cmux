@@ -74,10 +74,8 @@ export function stripe(): Stripe {
 }
 
 export async function resolveProPrice(interval: BillingInterval): Promise<string> {
-  const overridden = interval === "month"
-    ? env.STRIPE_PRO_MONTHLY_50_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_480_PRICE_ID;
-  return resolvePlanPrice(PRO_PRICING_USD[interval], interval, overridden, resolvedProPriceIds, "pro");
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(PRO_PRICING_USD.month, interval, env.STRIPE_PRO_MONTHLY_50_PRICE_ID, resolvedProPriceIds, "pro");
 }
 
 /** Max is sold monthly only; there is no yearly Price to resolve. */
@@ -102,10 +100,8 @@ export async function resolveGoPrice(): Promise<string> {
 }
 
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
-  const overridden = interval === "month"
-    ? env.STRIPE_TEAM_MONTHLY_60_PRICE_ID
-    : env.STRIPE_TEAM_YEARLY_576_PRICE_ID;
-  return resolvePlanPrice(TEAM_PRICING_USD[interval], interval, overridden, resolvedTeamPriceIds, "team");
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
 }
 
 /**

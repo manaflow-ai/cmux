@@ -35,7 +35,7 @@ import {
   stripe,
 } from "../../../../services/billing/stripe";
 import {
-  billingInterval,
+  CHECKOUT_BILLING_INTERVAL,
   type BillingInterval,
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
@@ -127,14 +127,12 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
+  const intervalError = unavailableIntervalResponse(request);
+  if (intervalError) return intervalError;
   if (plan === GO_PLAN_ID && !(await isGoPlanEnabled())) {
     return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
   }
-  // Max is sold monthly only, so its checkout ignores the interval selector
-  // instead of failing when a shared toggle is on "year".
-  const interval = plan === MAX_PLAN_ID || plan === GO_PLAN_ID
-    ? "month"
-    : checkoutBillingInterval(request.nextUrl.searchParams.get("interval"));
+  const interval = CHECKOUT_BILLING_INTERVAL;
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
   const hasRelayAssertion =
@@ -176,9 +174,6 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!plan) {
-    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
-  }
-  if (!interval) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
   }
 
@@ -542,9 +537,11 @@ function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null 
   return null;
 }
 
-function checkoutBillingInterval(raw: string | null): BillingInterval | null {
-  if (raw === null) return billingInterval(raw);
-  return raw === "month" || raw === "year" ? raw : null;
+function unavailableIntervalResponse(request: NextRequest): NextResponse | null {
+  const raw = request.nextUrl.searchParams.get("interval");
+  if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
+  const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
+  return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {

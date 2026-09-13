@@ -52,17 +52,14 @@ import {
 } from "../../components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "../../components/pricing-interval-selector";
+  PricingView,
+} from "../../components/pricing-checkout";
 import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  proBillingInterval,
 } from "../../../services/billing/plans";
 import { isVaultEnabled } from "../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
@@ -125,7 +122,6 @@ export default async function PricingPage({
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
-  const interval = proBillingInterval(firstParam(query.interval) ?? "year");
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
   // is attributed to the surface that sent the visitor here.
@@ -137,23 +133,11 @@ export default async function PricingPage({
   const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
   // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
-  const proCheckoutHrefs = {
-    month: withCheckoutInterval(proCheckoutURL, "month"),
-    year: withCheckoutInterval(proCheckoutURL, "year"),
-  };
-  const teamCheckoutHrefs = {
-    month: withCheckoutInterval(teamCheckoutURL, "month"),
-    year: withCheckoutInterval(teamCheckoutURL, "year"),
-  };
-  const annualComparePrice = t("annualComparePrice", {
-    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-  });
+  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
-  });
-  const teamAnnualComparePrice = t("teamAnnualComparePrice", {
-    monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
   });
 
   const freeFeatures = t.raw("free.features") as string[];
@@ -195,22 +179,13 @@ export default async function PricingPage({
           <ProWelcomeBanner />
         </Suspense>
 
-        <PricingIntervalProvider initialInterval={interval}>
+        <PricingView surface="public_pricing">
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
           <PricingAudienceSelector
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
             ariaLabel={t("audience.label")}
-            billingControl={
-              <PricingIntervalSelector inline
-                billingPeriodLabel={t("billingPeriod")}
-                monthlyLabel={t("monthly")}
-                annualLabel={t("annual")}
-                savingsLabel={t("saveAnnual", { discount: PRO_PRICING_USD.year.discountPercent })}
-                surface="public_pricing"
-              />
-            }
             individual={
 <PricingCategorySection
             showHeading={false}
@@ -247,7 +222,7 @@ export default async function PricingPage({
                 </div>
               ) : (
                 <PricingCheckoutButton
-                  hrefs={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+                  href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
                   location="pricing_page"
                   plan="go"
                 >
@@ -262,18 +237,8 @@ export default async function PricingPage({
             {/* Pro */}
             <PlanCard
               name={t("pro.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
-                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perMonth")}
-                  annual={t("perMonthBilledYearly")}
-                />
-              }
+              price={`$${PRO_PRICING_USD.month.billedAmount}`}
+              period={t("perMonth")}
               badge={
                 isProCurrent ? (
                   <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
@@ -292,16 +257,15 @@ export default async function PricingPage({
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
+                <ProCtaLink checkoutHref={proCheckoutHref}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
-              <p className="mt-3 text-xs text-muted"><a href={proCheckoutHrefs.month} className="underline underline-offset-2">{t("priceMonthlyNote", { amount: PRO_PRICING_USD.month.billedAmount })}</a></p>
               <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
               <FeatureList items={proFeatures} />
             </PlanCard>
 
-            {/* Max: monthly only, so the interval selector never changes it.
+            {/* Max: larger machines on the monthly personal plan.
                 A Pro subscriber sees checkout; the server routes an active
                 Pro subscription to the Stripe portal upgrade flow. */}
             <PlanCard
@@ -327,7 +291,7 @@ export default async function PricingPage({
                 </SecondaryLink>
               ) : (
                 <PricingCheckoutButton
-                  hrefs={maxCheckoutHref}
+                  href={maxCheckoutHref}
                   location="pricing_page"
                   plan="max"
                 >
@@ -351,27 +315,16 @@ export default async function PricingPage({
             {/* Team */}
             <PlanCard
               name={t("team.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
-                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perUserMonth")}
-                  annual={t("perUserMonthBilledYearly")}
-                />
-              }
+              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+              period={t("perUserMonth")}
             >
               <PricingCheckoutButton
-                hrefs={teamCheckoutHrefs}
+                href={teamCheckoutHref}
                 location="pricing_page"
                 plan="team"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
-              <p className="mt-3 text-xs text-muted"><a href={teamCheckoutHrefs.month} className="underline underline-offset-2">{t("priceMonthlyPerUserNote", { amount: TEAM_PRICING_USD.month.billedAmount })}</a></p>
               <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
               <FeatureList items={teamFeatures} />
             </PlanCard>
@@ -420,19 +373,9 @@ export default async function PricingPage({
               prices={{
                 free: t("free.price"),
                 go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
-                pro: (
-                  <PricingIntervalValue
-                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
-                    annual={annualComparePrice}
-                  />
-                ),
+                pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
                 max: maxComparePrice,
-                team: (
-                  <PricingIntervalValue
-                    monthly={teamMonthlyComparePrice}
-                    annual={teamAnnualComparePrice}
-                  />
-                ),
+                team: teamMonthlyComparePrice,
                 enterprise: t("enterprise.price"),
               }}
               actions={{
@@ -450,7 +393,7 @@ export default async function PricingPage({
                     </SecondaryLink>
                   ) : (
                     <ProCtaLink
-                      checkoutHrefs={proCheckoutHrefs}
+                      checkoutHref={proCheckoutHref}
                       size="compact"
                       location="pricing_compare_header"
                     >
@@ -467,7 +410,7 @@ export default async function PricingPage({
                     </SecondaryLink>
                   ) : (
                     <PricingCheckoutButton
-                      hrefs={maxCheckoutHref}
+                      href={maxCheckoutHref}
                       location="pricing_compare_header"
                       plan="max"
                       size="compact"
@@ -478,7 +421,7 @@ export default async function PricingPage({
                 ),
                 team: (
                   <PricingCheckoutButton
-                    hrefs={teamCheckoutHrefs}
+                    href={teamCheckoutHref}
                     location="pricing_compare_header"
                     plan="team"
                     size="compact"
@@ -494,7 +437,7 @@ export default async function PricingPage({
               }}
             />
           </section>
-        </PricingIntervalProvider>
+        </PricingView>
 
         {/* FAQ */}
         <section className="mt-16 border-t border-border pt-10">

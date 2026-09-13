@@ -6,13 +6,12 @@ import { posthog } from "../lib/posthog-client";
 type PricingAudience = "individual" | "team";
 const audiences: PricingAudience[] = ["individual", "team"];
 
-export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel, individual, team, billingControl, surface = "public_pricing" }: {
+export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel, individual, team, surface = "public_pricing" }: {
   individualLabel: string;
   teamLabel: string;
   ariaLabel: string;
   individual: ReactNode;
   team: ReactNode;
-  billingControl: ReactNode;
   surface?: "public_pricing" | "app_pricing";
 }) {
   const [audience, setAudience] = useState<PricingAudience>("individual");
@@ -43,7 +42,6 @@ export function PricingAudienceSelector({ individualLabel, teamLabel, ariaLabel,
           </button>
         ))}
       </div>
-        {billingControl}
       </div>
       <div className="mt-6">
         <div role="tabpanel" id={`${id}-individual-panel`} aria-labelledby={`${id}-individual-tab`} hidden={audience !== "individual"}>{individual}</div>

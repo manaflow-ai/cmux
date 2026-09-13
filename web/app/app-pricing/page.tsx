@@ -47,16 +47,13 @@ import {
 } from "../components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "../components/pricing-interval-selector";
+  PricingView,
+} from "../components/pricing-checkout";
 import {
   MAX_PRICING_USD,
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  proBillingInterval,
 } from "../../services/billing/plans";
 import { isVaultEnabled } from "../../services/vault/config";
 import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
@@ -104,7 +101,6 @@ export default async function AppPricingPage({
     manageBilling: canManageBilling && !snapshot.isPro,
   });
   const portalVisible = canManageBilling && !appStorePaymentGated;
-  const interval = proBillingInterval(firstParam(params.interval));
   // The app that opened this page tags it with the button it came from and
   // its release channel; forward that to checkout. An app build that predates
   // the tags still counts as an app-originated checkout.
@@ -113,14 +109,8 @@ export default async function AppPricingPage({
     [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
     ...checkoutAttributionParamsFrom(params),
   };
-  const proCheckoutHrefs = {
-    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
-    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
-  };
-  const teamCheckoutHrefs = {
-    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
-    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
-  };
+  const proCheckoutHref = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution);
+  const teamCheckoutHref = appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution);
   // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref = appPricingCheckoutURL(
     "max",
@@ -151,18 +141,9 @@ export default async function AppPricingPage({
     pricing.faq.items as FaqItem[],
     featureVisibility,
   );
-  const annualComparePrice = pricingMessage(pricing.annualComparePrice, {
-    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-  });
   const teamMonthlyComparePrice = pricingMessage(
     pricing.teamMonthlyComparePrice,
     { monthly: TEAM_PRICING_USD.month.monthlyEquivalent },
-  );
-  const teamAnnualComparePrice = pricingMessage(
-    pricing.teamAnnualComparePrice,
-    {
-      monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
-    },
   );
 
   return (
@@ -182,7 +163,7 @@ export default async function AppPricingPage({
         <div className="mx-auto w-full max-w-6xl">
           {banner ? <BillingBanner banner={banner} /> : null}
 
-          <PricingIntervalProvider initialInterval={interval}>
+          <PricingView surface="app_pricing">
             <h1 className="text-2xl font-medium tracking-tight">{pricing.title}</h1>
 
 
@@ -191,15 +172,6 @@ export default async function AppPricingPage({
             teamLabel={pricing.audience.team}
             ariaLabel={pricing.audience.label}
             surface="app_pricing"
-            billingControl={<PricingIntervalSelector inline
-              billingPeriodLabel={pricing.billingPeriod}
-              monthlyLabel={pricing.monthly}
-              annualLabel={pricing.annual}
-              savingsLabel={pricingMessage(pricing.saveAnnual, {
-                discount: PRO_PRICING_USD.year.discountPercent,
-              })}
-              surface="app_pricing"
-            />}
             individual={
 <PricingCategorySection
             showHeading={false}
@@ -250,7 +222,7 @@ export default async function AppPricingPage({
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
                 ) : (
                   <PricingCheckoutButton
-                    hrefs={appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution)}
+                    href={appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution)}
                     location="app_pricing"
                     plan="go"
                   >
@@ -263,18 +235,8 @@ export default async function AppPricingPage({
 
               <PlanCard
                 name={pricing.pro.name}
-                price={
-                  <PricingIntervalValue
-                    monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
-                    annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                  />
-                }
-                period={
-                  <PricingIntervalValue
-                    monthly={pricing.perMonth}
-                    annual={pricing.perMonthBilledYearly}
-                  />
-                }
+                price={`$${PRO_PRICING_USD.month.billedAmount}`}
+                period={pricing.perMonth}
                 badge={
                   isProCurrent ? (
                     <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -286,7 +248,7 @@ export default async function AppPricingPage({
                   portalVisible={portalVisible}
                   checkout={
                     <PricingCheckoutButton
-                      hrefs={proCheckoutHrefs}
+                      href={proCheckoutHref}
                       location="app_pricing"
                     >
                       {pricing.pro.cta}
@@ -299,7 +261,7 @@ export default async function AppPricingPage({
                 <FeatureList items={proFeatures} />
               </PlanCard>
 
-              {/* Max: monthly only, so the interval selector never changes it. */}
+              {/* Max: larger machines on the monthly personal plan. */}
               <PlanCard
                 name={pricing.max.name}
                 price={`$${MAX_PRICING_USD.month.billedAmount}`}
@@ -315,7 +277,7 @@ export default async function AppPricingPage({
                   portalVisible={portalVisible}
                   checkout={
                     <PricingCheckoutButton
-                      hrefs={maxCheckoutHref}
+                      href={maxCheckoutHref}
                       location="app_pricing"
                       plan="max"
                     >
@@ -341,24 +303,14 @@ export default async function AppPricingPage({
             >
               <PlanCard
                 name={pricing.team.name}
-                price={
-                  <PricingIntervalValue
-                    monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
-                    annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                  />
-                }
-                period={
-                  <PricingIntervalValue
-                    monthly={pricing.perUserMonth}
-                    annual={pricing.perUserMonthBilledYearly}
-                  />
-                }
+                price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+                period={pricing.perUserMonth}
               >
                 {appStorePaymentGated ? (
                   <DisabledButton>{pricing.billingUnavailable}</DisabledButton>
                 ) : (
                   <PricingCheckoutButton
-                    hrefs={teamCheckoutHrefs}
+                    href={teamCheckoutHref}
                     location="app_pricing"
                     plan="team"
                   >
@@ -410,24 +362,14 @@ export default async function AppPricingPage({
               prices={{
                 free: pricing.free.price,
                 go: `$${GO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
-                pro: (
-                  <PricingIntervalValue
-                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`}
-                    annual={annualComparePrice}
-                  />
-                ),
+                pro: `$${PRO_PRICING_USD.month.billedAmount} ${pricing.perMonth}`,
                 max: maxComparePrice,
-                team: (
-                  <PricingIntervalValue
-                    monthly={teamMonthlyComparePrice}
-                    annual={teamAnnualComparePrice}
-                  />
-                ),
+                team: teamMonthlyComparePrice,
                 enterprise: pricing.enterprise.price,
               }}
             />
           </section>
-          </PricingIntervalProvider>
+          </PricingView>
 
           <section className="mt-16 border-t border-border pt-10">
             <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
@@ -615,6 +557,8 @@ function appPricingBanner(
   if (billing === "cancelled") {
     return { message: pricing.billingCancelled };
   }
+  if (billing === "annual_unavailable") return { message: pricing.billingAnnualUnavailable };
+  if (billing === "plan_unavailable") return { message: pricing.billingPlanUnavailable };
   if (billing === "invalid_plan") {
     return { message: pricing.billingInvalidPlan };
   }

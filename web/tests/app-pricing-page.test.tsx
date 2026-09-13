@@ -105,7 +105,6 @@ describe("app pricing page", () => {
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo.");
     expect(html).toContain("$50");
     expect(html).toContain("$200");
     expect(html).toContain("$10");
@@ -117,7 +116,7 @@ describe("app pricing page", () => {
     expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("$60/user/mo");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, with 4 vCPUs, 16 GB RAM, and 200 GB disk shared across all VMs",
+      "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -187,7 +186,7 @@ describe("app pricing page", () => {
     );
   });
 
-  test("renders annual pricing and preserves native checkout context", async () => {
+  test("renders monthly pricing and preserves native checkout context", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -201,16 +200,15 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$40");
-    expect(html).toContain("$48");
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
-    expect(html).toContain("/mo, billed yearly");
-    expect(html).toContain("/user/mo, billed yearly");
-    expect(html).not.toContain("/mo.");
+    expect(html).not.toContain("/mo, billed yearly");
+    expect(html).not.toContain("/user/mo, billed yearly");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain("$48/user/mo");
+    expect(html).toContain("$60/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
     // Max ignores the annual selector: still $200 /mo, never billed yearly.
@@ -219,13 +217,13 @@ describe("app pricing page", () => {
     expect(html).not.toContain("$200/mo, billed yearly");
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
     );
     expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
+      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
     );
-    expect(html).toContain('role="radiogroup"');
-    expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
+    expect(html).not.toContain('role="radiogroup"');
+    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -234,13 +232,11 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
     expect(html).toContain('data-testid="pricing-controls"');
-    expect(html).toContain(
-      '<span class="ml-1.5 hidden text-xs font-medium sm:inline" style="color:inherit">Save 20%</span>',
-    );
+    expect(html).not.toContain("Save 20%");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("uses the product accent for the inactive annual savings label", async () => {
+  test("does not advertise annual savings", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -250,9 +246,7 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain(
-      '<span class="ml-1.5 hidden text-xs font-medium sm:inline" style="color:var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))">Save 20%</span>',
-    );
+    expect(html).not.toContain("Save 20%");
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {

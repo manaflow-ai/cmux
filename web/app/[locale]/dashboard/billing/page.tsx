@@ -20,10 +20,8 @@ import {
 } from "@/app/components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "@/app/components/pricing-interval-selector";
+  PricingView,
+} from "@/app/components/pricing-checkout";
 import { cloudDb } from "@/db/client";
 import { stripeCustomers, stripeSubscriptions } from "@/db/schema";
 import { Link } from "@/i18n/navigation";
@@ -42,7 +40,6 @@ import {
   GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  proBillingInterval,
 } from "@/services/billing/plans";
 import { isVaultEnabled } from "@/services/vault/config";
 import { isGoPlanEnabled } from "@/services/billing/goPlanFlag";
@@ -99,15 +96,9 @@ export default async function DashboardBillingPage({
     billingTeamPromise,
     latestActiveStripeSubscription(user.id),
   ]);
-  const [teamSubscription, hasTeamStripeCustomer] = await Promise.all([
-    billingTeam ? latestActiveStripeSubscriptionForTeam(billingTeam.id) : Promise.resolve(null),
-    billingTeam ? hasTeamCustomerRow(billingTeam.id) : Promise.resolve(false),
-  ]);
+  const [teamSubscription, hasTeamStripeCustomer] = await teamBillingDetails(billingTeam?.id);
   const goPlanEnabled = await isGoPlanEnabled(user.id);
-  const banner = billingBanner(Array.isArray(query?.billing) ? query?.billing[0] : query?.billing);
-  const interval = proBillingInterval(
-    Array.isArray(query?.interval) ? query.interval[0] : query?.interval,
-  );
+  const banner = billingBanner(firstBillingParam(query?.billing));
   // Use the resolver's authoritative recoverability state for the personal
   // billing action. A customer-only or terminally canceled row must show the
   // Upgrade flow; only a portal-recoverable subscription shows Manage billing.
@@ -159,7 +150,7 @@ export default async function DashboardBillingPage({
       ) : null}
 
       {isFreePlan ? (
-        <FreePlanUpsell t={t} pricingT={pricingT} interval={interval} goPlanEnabled={goPlanEnabled} />
+        <FreePlanUpsell t={t} pricingT={pricingT} goPlanEnabled={goPlanEnabled} />
       ) : !status.isPro ? (
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       ) : subscription ? (
@@ -313,12 +304,10 @@ function GrantedPlan({ t }: { t: Awaited<ReturnType<typeof getTranslations>> }) 
 function FreePlanUpsell({
   t,
   pricingT,
-  interval,
   goPlanEnabled,
 }: {
   t: Awaited<ReturnType<typeof getTranslations>>;
   pricingT: Awaited<ReturnType<typeof getTranslations>>;
-  interval: "month" | "year";
   goPlanEnabled: boolean;
 }) {
   const proFeatures = visibleProFeatures({
@@ -338,17 +327,11 @@ function FreePlanUpsell({
   const maxCheckoutHref = withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const goCheckoutHref = withCheckoutSource(GO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
-  const proCheckoutHrefs = {
-    month: withCheckoutInterval(proCheckoutURL, "month"),
-    year: withCheckoutInterval(proCheckoutURL, "year"),
-  };
-  const teamCheckoutHrefs = {
-    month: withCheckoutInterval(teamCheckoutURL, "month"),
-    year: withCheckoutInterval(teamCheckoutURL, "year"),
-  };
+  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
 
   return (
-    <PricingIntervalProvider initialInterval={interval}>
+    <PricingView surface="dashboard_billing">
       <div className="space-y-3">
         <section className="border border-border p-3">
           <h2 className="text-sm font-medium">{t("free.name")}</h2>
@@ -359,15 +342,6 @@ function FreePlanUpsell({
           <div className="mb-2">
             <h2 className="text-sm font-medium">{t("free.upsellTitle")}</h2>
             <p className="mt-1 max-w-2xl text-muted">{t("free.upsellBody")}</p>
-            <PricingIntervalSelector
-              billingPeriodLabel={pricingT("billingPeriod")}
-              monthlyLabel={pricingT("monthly")}
-              annualLabel={pricingT("annual")}
-              savingsLabel={pricingT("saveAnnual", {
-                discount: PRO_PRICING_USD.year.discountPercent,
-              })}
-              surface="dashboard_billing"
-            />
           </div>
           <div className={`grid gap-3 md:grid-cols-2 ${goPlanEnabled ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
             {goPlanEnabled ? <PlanCard
@@ -375,7 +349,7 @@ function FreePlanUpsell({
               price={`$${GO_PRICING_USD.month.billedAmount}`}
               period={pricingT("perMonth")}
             >
-              <PricingCheckoutButton hrefs={goCheckoutHref} location="dashboard_billing" plan="go">
+              <PricingCheckoutButton href={goCheckoutHref} location="dashboard_billing" plan="go">
                 {pricingT("go.cta")}
               </PricingCheckoutButton>
               <p className="mt-5 text-sm font-medium">{pricingT("go.featuresLead")}</p>
@@ -384,21 +358,11 @@ function FreePlanUpsell({
 
             <PlanCard
               name={pricingT("pro.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
-                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={pricingT("perMonth")}
-                  annual={pricingT("perMonthBilledYearly")}
-                />
-              }
+              price={`$${PRO_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perMonth")}
             >
               <PricingCheckoutButton
-                hrefs={proCheckoutHrefs}
+                href={proCheckoutHref}
                 location="dashboard_billing"
               >
                 {pricingT("pro.cta")}
@@ -413,7 +377,7 @@ function FreePlanUpsell({
               period={pricingT("perMonth")}
             >
               <PricingCheckoutButton
-                hrefs={maxCheckoutHref}
+                href={maxCheckoutHref}
                 location="dashboard_billing"
                 plan="max"
               >
@@ -425,21 +389,11 @@ function FreePlanUpsell({
 
             <PlanCard
               name={pricingT("team.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
-                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={pricingT("perUserMonth")}
-                  annual={pricingT("perUserMonthBilledYearly")}
-                />
-              }
+              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+              period={pricingT("perUserMonth")}
             >
               <PricingCheckoutButton
-                hrefs={teamCheckoutHrefs}
+                href={teamCheckoutHref}
                 location="dashboard_billing"
                 plan="team"
               >
@@ -462,7 +416,7 @@ function FreePlanUpsell({
           </Link>
         </section>
       </div>
-    </PricingIntervalProvider>
+    </PricingView>
   );
 }
 
@@ -731,4 +685,13 @@ function priceRecurringInterval(
 
 function formatBillingDate(date: Date, locale: string): string {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+}
+
+async function teamBillingDetails(teamId: string | undefined) {
+  if (!teamId) return [null, false] as const;
+  return Promise.all([latestActiveStripeSubscriptionForTeam(teamId), hasTeamCustomerRow(teamId)]);
+}
+
+function firstBillingParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
