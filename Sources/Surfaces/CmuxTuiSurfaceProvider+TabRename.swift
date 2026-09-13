@@ -27,7 +27,8 @@ extension CmuxTuiSurfaceProvider {
         let previous = observed?.tabs.first(where: { $0.id == id })
         let observedCursor = observed?.cursor
         if let expectedName {
-            let currentName = pendingRename?.name ?? previous?.name ?? ""
+            let currentName = pendingRename?.name ?? previous?.name
+                ?? pendingCreation?.resource.remoteViews?.first(where: { $0.tabID == id })?.name ?? ""
             guard currentName == expectedName else { throw CancellationError() }
         }
         let pendingReceipt = [pendingCreation?.receipt, pendingRename?.receipt]

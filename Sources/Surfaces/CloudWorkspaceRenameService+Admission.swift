@@ -18,7 +18,7 @@ extension CloudWorkspaceRenameService {
             guard remoteTabID(for: projection, resource: resource) == tabID,
                   let owner = environment.workspace(projection.workspaceID) else { continue }
             if owner.panelCustomTitles[projection.panelID] != nil,
-               (owner.panelCustomTitleSources[projection.panelID] ?? .user) != .auto { return false }
+               (owner.panelCustomTitleSources[projection.panelID] ?? .user) == .user { return false }
         }
         let accepted = catalog.pendingCloudRenameName(for: .tab(machine: resource.machine, id: tabID))
             ?? resource.remoteViews?.first(where: { $0.tabID == tabID })?.name ?? ""

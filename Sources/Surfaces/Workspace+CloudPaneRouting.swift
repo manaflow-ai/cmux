@@ -236,9 +236,13 @@ final class CloudWorkspaceRenameService {
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
         catalog.enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name) { [weak workspace, weak manager] _ in
             guard let workspace, workspace.customTitle == expectedTitle, let manager else { return }
-            _ = manager.setCustomTitle(tabId: workspace.id, title: previousCustomTitle,
+            let canonical = catalog.cloudStateObservations[target.machine]?.pendingWrites?.first {
+                $0.kind == .workspaceRename && $0.remoteWorkspaceID == target.remoteWorkspaceID
+            }?.name ?? catalog.cloudStates[target.machine]?.lookupIndex.workspace(id: target.remoteWorkspaceID)?.name
+            let restored = canonical ?? previousCustomTitle
+            _ = manager.setCustomTitle(tabId: workspace.id, title: restored,
                 source: .remote, propagateToRemoteTmux: false, propagateToCloud: false)
-            workspace.customTitleSource = previousCustomTitleSource ?? .user
+            if restored == previousCustomTitle { workspace.customTitleSource = previousCustomTitleSource ?? .user }
         }
     }
 
@@ -285,9 +289,14 @@ final class CloudWorkspaceRenameService {
             : nil
         catalog.enqueueRemoteTabRename(on: resource.machine, id: tabID, name: name, expectedName: expectedName) { [weak workspace] _ in
             guard let workspace, workspace.panelCustomTitles[panelID] == expectedTitle else { return }
-            _ = workspace.setPanelCustomTitle(panelId: panelID, title: previousCustomTitle,
+            let receipt = catalog.cloudStateObservations[resource.machine]?.pendingWrites?.first {
+                $0.kind == .tabRename && $0.remoteTabID == tabID
+            }
+            let canonical = catalog.cloudStates[resource.machine]?.lookupIndex.tab(id: tabID)
+            let restored = receipt?.name ?? (canonical != nil ? canonical?.name : previousCustomTitle)
+            _ = workspace.setPanelCustomTitle(panelId: panelID, title: restored,
                 source: .remote, propagateToRemoteTmux: false, propagateToCloud: false)
-            workspace.panelCustomTitleSources[panelID] = previousCustomTitleSource ?? .user
+            if restored == previousCustomTitle { workspace.panelCustomTitleSources[panelID] = previousCustomTitleSource ?? .user }
         }
     }
 

@@ -72,6 +72,34 @@ struct CloudSidebarRenameReconciliationTests {
         try fixture.assertParity("Earlier task")
     }
 
+    @Test("A rename rejected after a remote edit converges immediately to that accepted name")
+    func failedRenameUsesNewerRemoteName() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        fixture.provider.beforeMutation = {
+            fixture.install(try fixture.state(revision: 2, name: "Remote user label"))
+            fixture.reconcile()
+            throw Rejected()
+        }
+        #expect(fixture.manager.syncAgentTerminalTitle(tabId: fixture.workspace.id, panelId: fixture.panelID,
+            title: "Calculate 2+2", catalog: fixture.catalog))
+        try await fixture.drain()
+        try fixture.assertParity("Remote user label")
+        #expect(fixture.workspace.panelCustomTitleSources[fixture.panelID] == .remote)
+    }
+
+    @Test("A failed rename chain restores the accepted name, never an uncommitted intermediate name")
+    func failedChainRestoresCanonicalName() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        fixture.provider.beforeMutation = { throw Rejected() }
+        #expect(fixture.workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Failed first", catalog: fixture.catalog))
+        #expect(fixture.workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Failed second", catalog: fixture.catalog))
+        try await fixture.drain()
+        #expect(fixture.workspace.panelCustomTitles[fixture.panelID] == nil)
+        #expect(fixture.workspace.panelTitle(panelId: fixture.panelID) == "terminal")
+    }
+
     @Test("Agent and user names survive persisted session restore and daemon reconnect", arguments: [false, true])
     func titlePersistence(userOwned: Bool) async throws {
         let fixture = try makeFixture()
@@ -121,6 +149,30 @@ struct CloudSidebarRenameReconciliationTests {
         fixture.reconcile()
         #expect(peer.panelTitle(panelId: panel) == "Human label")
         #expect(fixture.provider.tabRenames == ["Human label"])
+    }
+
+    @Test("Mirroring an agent-named placement does not block its next agent title")
+    func remotePeerConfirmationRetainsAgentOwnership() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.close() }
+        let workspace = fixture.workspace
+        #expect(workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "First task", source: .auto, catalog: fixture.catalog))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 2, name: "First task"))
+        let peer = Workspace()
+        fixture.manager.tabs.append(peer)
+        defer { for panel in peer.panels.values { panel.close() } }
+        let panel = try #require(peer.focusedPanelId)
+        fixture.catalog.record(SurfaceProjection(resource: fixture.resourceID, workspaceID: peer.id,
+            panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_main"))
+        fixture.reconcile()
+        #expect(peer.panelCustomTitleSources[panel] == .remote)
+        #expect(workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Second task", source: .auto, catalog: fixture.catalog))
+        try await fixture.drain()
+        fixture.install(try fixture.state(revision: 3, name: "Second task"))
+        fixture.reconcile()
+        #expect(peer.panelTitle(panelId: panel) == "Second task")
+        try fixture.assertParity("Second task")
     }
 
     private func makeFixture() throws -> CloudSidebarRenameFixture {

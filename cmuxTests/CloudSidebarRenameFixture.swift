@@ -84,5 +84,8 @@ final class CloudSidebarRenameFixture {
         #expect(catalog.cloudStates[machine]?.tabs.map(\.id) == ["tab_main", "tab_other"])
     }
 
-    func close() { catalog.unregister(machine: machine) }
+    func close() {
+        provider.beforeMutation = nil
+        catalog.unregister(machine: machine)
+    }
 }
