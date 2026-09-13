@@ -112,6 +112,7 @@ there is no usable label. Routing ids do not change.
 Set `PS1` after the `/etc/cmux/bashrc` source line in `~/.bashrc` to customize
 the prompt. For example, `PS1='\u@${__cmux_vm_name}:\w\$ '` keeps the live
 name with a different layout. A fixed prompt or a prompt tool also works.
+The line editor attaches at the first prompt, after these user settings load.
 Remove the source line to replace the full cmux shell setup. Lifecycle updates
 only write system defaults, never user rc files or prompt settings. The
 name reader never rewrites `PS1`, runs Git, calls the network, or starts a

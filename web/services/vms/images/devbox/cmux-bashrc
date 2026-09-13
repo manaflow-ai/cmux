@@ -50,7 +50,8 @@ if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
 fi
 
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
-  source /usr/local/share/blesh/ble.sh --noattach
+  # Attach at the first prompt, after the user's .bashrc can customize PS1.
+  source /usr/local/share/blesh/ble.sh --attach=prompt
   bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=
   # Minimal integration: token highlighting off entirely (the stock faces
   # paint colored backgrounds under mistyped commands and mid-word input,
@@ -81,5 +82,3 @@ shopt -s histappend
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias g=git
-
-[ -n "${BLE_VERSION:-}" ] && ble-attach
