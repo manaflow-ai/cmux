@@ -1899,24 +1899,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
-        },
-        "name_source": {
-          "required": false,
-          "type": {
-            "kind": "enum",
-            "values": [
-              "user",
-              "auto"
-            ]
-          }
-        },
-        "name_revision": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "decimal"
-          }
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false

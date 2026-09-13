@@ -34,9 +34,11 @@ final class CloudNameAuthorityTestProvider: SurfaceAgentNaming {
             "workspaces": ["a", "b"].map { ["id": $0, "name": "Same workspace"] },
             "screens": ["a", "b"].map { ["id": "screen_" + $0, "workspace_id": $0] },
             "panes": ["a", "b"].map { ["id": "pane_" + $0, "screen_id": "screen_" + $0] },
-            "tabs": ["b", "a"].map { ["id": "tab_" + $0, "pane_id": "pane_" + $0,
-                "content_kind": "terminal", "content_id": "term_a",
-                "name_source": "user", "name_revision": "0"] },
+            "tabs": ["b", "a"].map { id -> [String: Any] in
+                ["id": "tab_" + id, "pane_id": "pane_" + id,
+                 "content_kind": "terminal", "content_id": "term_a",
+                 "extra": ["name_source": "user", "name_revision": "0"]]
+            },
             "terminals": ["a", "b"].map { ["id": "term_" + $0, "title": "terminal", "lifecycle": "running"] },
             "browsers": [], "agents": []
         ], machine: machine))
@@ -77,8 +79,7 @@ final class CloudNameAuthorityTestProvider: SurfaceAgentNaming {
         let index = try #require(values.firstIndex { $0["id"] as? String == id })
         values[index]["name"] = name.isEmpty ? NSNull() : name as Any
         if collection == "tabs" {
-            values[index]["name_source"] = source
-            values[index]["name_revision"] = String(revision)
+            values[index]["extra"] = ["name_source": source, "name_revision": String(revision)]
         }
         document[collection] = values
         writes.append((id, name))

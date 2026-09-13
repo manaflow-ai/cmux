@@ -595,8 +595,10 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     "id": tab.public_id,
                     "pane_id": tab.pane_id,
                     "name": tab.name,
-                    "name_source": tab.name_source,
-                    "name_revision": tab.name_revision.to_string(),
+                    "extra": {
+                        "name_source": tab.name_source,
+                        "name_revision": tab.name_revision.to_string(),
+                    },
                     "index": checked_index(tab.position)?,
                     "focused": pane.active_tab.as_ref() == Some(&tab.public_id),
                     "content_kind": content_kind,

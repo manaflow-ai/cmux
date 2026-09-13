@@ -47,7 +47,7 @@ extension CloudWorkspaceRenameService {
             )
             for workspace in environment.workspaces() {
                 guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
-                      let id = binding.remoteWorkspaceID else { continue }
+                      binding.remoteWorkspaceID != nil else { continue }
                 switch bindingReconciliation(
                     binding: binding,
                     machine: machine,

@@ -1929,7 +1929,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first["value"]["name"], "Calculate 2+2");
-        assert_eq!(first["value"]["name_source"], "auto");
+        assert_eq!(first["value"]["extra"]["name_source"], "auto");
         let delayed = dispatch(
             &mux,
             parsed(
