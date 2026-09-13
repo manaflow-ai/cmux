@@ -19,7 +19,7 @@ struct CloudTerminalMaterializationPresentation {
         let missingView = isMissingView
         switch missingView ? SurfaceLinkState.error : machine?.linkState {
         case .asleep: state = .disconnected
-        case .error, .unavailable: state = .error
+        case .error, .unavailable, .notApplicable: state = .error
         case .connected, .connecting, .none: state = .connecting
         }
         return CloudTerminalReconnectOverlayPolicy.presentation(
