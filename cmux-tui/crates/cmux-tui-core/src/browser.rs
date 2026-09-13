@@ -710,14 +710,17 @@ impl DownloadLedger {
 
     fn remember_frame(&mut self, frame_id: &str, session_id: &str) {
         if !frame_id.is_empty() {
-            if !self.frame_sessions.contains_key(frame_id) {
-                if self.frame_sessions.len() >= DOWNLOAD_FRAME_SESSION_CAPACITY {
-                    if let Some(oldest) = self.frame_sessions.keys().next().cloned() {
-                        self.frame_sessions.remove(&oldest);
-                    }
+            if !self.frame_sessions.contains_key(frame_id)
+                && self.frame_sessions.len() >= DOWNLOAD_FRAME_SESSION_CAPACITY
+            {
+                if let Some(oldest) = self.frame_sessions.keys().next().cloned() {
+                    self.frame_sessions.remove(&oldest);
                 }
-                self.frame_sessions.insert(frame_id.to_string(), session_id.to_string());
             }
+            // CDP frame ids are target-scoped and may be reused after a
+            // provider target is recreated. The newest lifecycle event owns
+            // the mapping for subsequent browser-scoped download events.
+            self.frame_sessions.insert(frame_id.to_string(), session_id.to_string());
         }
     }
 
