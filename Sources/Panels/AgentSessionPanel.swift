@@ -15,7 +15,7 @@ final class AgentSessionPanel: Panel {
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
-    var displayIcon: String? { "sparkles.rectangle.stack" }
+    var displayIcon: String? { rendererKind == .guiMode ? "macwindow" : "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
         didSet {

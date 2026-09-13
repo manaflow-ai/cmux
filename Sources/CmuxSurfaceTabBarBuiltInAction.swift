@@ -104,7 +104,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
         case .newBrowser:
             return "globe"
         case .newGuiMode:
-            return "sparkles.rectangle.stack"
+            return "macwindow"
         case .newSimulator:
             return "iphone.gen3"
         case .splitRight:
