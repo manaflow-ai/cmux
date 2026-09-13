@@ -27,8 +27,6 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   const [vms, setVms] = useState<readonly DashboardVm[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyDevice, setBusyDevice] = useState<string | null>(null);
-  const [relayURLsDraft, setRelayURLsDraft] = useState("");
-  const [savingRelayURLs, setSavingRelayURLs] = useState(false);
   const redirectingToSignInRef = useRef(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
   useEffect(() => {
@@ -71,16 +69,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   }, [stack, teamId, userId]);
 
   const devices = useMemo(() => directory?.devices ?? [], [directory]);
-  useEffect(() => {
-    if (directory) setRelayURLsDraft(directory.relayURLs.join("\n"));
-  }, [directory]);
-  const saveRelayURLs = async () => {
-    const relayURLs = relayURLsDraft.split(/\s+/u).map(value => value.trim()).filter(Boolean);
-    setSavingRelayURLs(true); setError(null);
-    try { await controllerRef.current?.updateRelayPreferences(relayURLs); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : t("mutationError")); }
-    finally { setSavingRelayURLs(false); }
-  };
+  const vmById = useMemo(() => new Map(vms.map(vm => [vm.id, vm])), [vms]);
   return (
     <div className="space-y-4" data-testid="iroh-dashboard">
       {teamScope.status === "loading" ? <p className="text-muted">{t("loading")}</p> : null}
@@ -88,12 +77,6 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
       {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
       {directory && devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
-      {directory?.canManageTeam ? <section className="border border-border p-3" data-testid="iroh-relay-settings">
-        <h2 className="font-medium">{t("relaySettings")}</h2>
-        <p className="mt-1 text-xs text-muted">{t("relaySettingsDescription")}</p>
-        <textarea className="mt-3 min-h-20 w-full border border-border bg-background p-2 font-mono text-xs" value={relayURLsDraft} onChange={event => setRelayURLsDraft(event.target.value)} aria-label={t("relaySettings")} />
-        <button className="mt-2 border border-border px-2 py-1" disabled={savingRelayURLs} onClick={() => void saveRelayURLs()}>{t("saveRelaySettings")}</button>
-      </section> : null}
       <section className="border border-border p-3" data-testid="connected-workspaces">
         <h2 className="font-medium">{t("vmsTitle")}</h2>
         <p className="mt-1 text-xs text-muted">{t("vmsDescription")}</p>
@@ -109,28 +92,44 @@ export function VmsDashboard({ userId, userEmail }: Props) {
         <p className="mt-1 text-xs text-muted">{t("workspacesDescription")}</p>
         {workspaces.length === 0 ? <p className="mt-3 text-muted">{t("workspacesEmpty")}</p> : (
           <div className="mt-3 space-y-3">
-            {workspaces.map(vm => (
-              <article key={vm.vmId} className="border border-border p-3" data-vm-id={vm.vmId}>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <h3 className="font-medium">{t("vmLabel", { id: `…${vm.vmId.slice(-8)}` })}</h3>
-                  <span className="text-xs text-muted">{t("revisionLabel", { revision: vm.revision })}</span>
+            {workspaces.map(workspaceVm => {
+              const vm = vmById.get(workspaceVm.vmId);
+              return (
+              <article key={workspaceVm.vmId} className="border border-border p-3" data-vm-id={workspaceVm.vmId}>
+                <div className="flex items-center gap-2">
+                  <span aria-hidden="true" className="text-muted">☁</span>
+                  <h3 className="font-medium">{vm?.displayName || t("vmLabel", { id: `…${workspaceVm.vmId.slice(-8)}` })}</h3>
+                  <span className="text-xs text-muted">{vm?.status ?? t("connected")}</span>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {vm.snapshot.workspaces.map(workspace => {
-                    const terminals = vm.snapshot.terminals.filter(terminal => terminal.workspaceId === workspace.id);
+                <div className="mt-3 space-y-3 border-l border-border pl-3">
+                  <TreeGroupLabel label={t("workspacesGroup")} />
+                  {workspaceVm.snapshot.workspaces.map(workspace => {
+                    const terminals = workspaceVm.snapshot.terminals.filter(terminal => terminal.workspaceId === workspace.id);
                     return (
-                      <div key={workspace.id} className="border-l border-border pl-3">
+                      <div key={workspace.id} className="pl-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{workspace.name}</span>
-                          {workspace.focused ? <span className="text-xs text-muted">{t("focused")}</span> : null}
+                          <span aria-hidden="true" className="text-muted">⌄</span>
+                          <span aria-hidden="true">📁</span>
+                          <span className={workspace.focused ? "font-medium" : ""}>{workspace.name}</span>
+                          <span className="text-xs text-muted">{t("terminalCount", { count: terminals.length })}</span>
                         </div>
-                        {terminals.length ? <ul className="mt-1 list-disc pl-4 text-xs text-muted">{terminals.map(terminal => <li key={terminal.id}>{terminal.title}</li>)}</ul> : <p className="mt-1 text-xs text-muted">{t("noTerminals")}</p>}
+                        <ul className="ml-7 mt-1 space-y-1 text-xs text-muted">
+                          {terminals.map(terminal => <li key={terminal.id} className="flex items-center gap-2"><span aria-hidden="true">▣</span><span>{terminal.title}</span><span className="truncate">{terminal.cwd ?? "~"}</span></li>)}
+                        </ul>
                       </div>
                     );
                   })}
+                  <TreeGroupLabel label={t("portsGroup")} />
+                  <div className="pl-2 text-xs text-muted">{t("portsEmpty")}</div>
+                  <TreeGroupLabel label={t("displaysGroup")} />
+                  <div className="flex items-center gap-2 pl-2 text-xs text-muted"><span aria-hidden="true">▣</span><span>{t("desktop")}</span><span>noVNC</span></div>
+                  <TreeGroupLabel label={t("terminalsGroup")} />
+                  {workspaceVm.snapshot.terminals.length === 0 ? <div className="pl-2 text-xs text-muted">{t("terminalsEmpty")}</div> : workspaceVm.snapshot.terminals.map(terminal => <div key={`${terminal.id}-pool`} className="flex items-center gap-2 pl-2 text-xs text-muted"><span aria-hidden="true">▣</span><span>{terminal.title}</span></div>)}
                 </div>
+                <div className="mt-3 text-right text-xs text-muted">{t("revisionLabel", { revision: workspaceVm.revision })}</div>
               </article>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -161,6 +160,10 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       <span className="sr-only">{userEmail}</span>
     </div>
   );
+}
+
+function TreeGroupLabel({ label }: { readonly label: string }) {
+  return <div className="text-xs font-medium text-muted">{label}</div>;
 }
 
 function Fact({ label, value }: { readonly label: string; readonly value: string }) {
