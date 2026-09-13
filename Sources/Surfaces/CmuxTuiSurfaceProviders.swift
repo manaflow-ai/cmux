@@ -900,6 +900,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
+    /// Close a terminal, using its tab when the process has already exited.
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
+        pendingRemoteCreations.removeValue(forKey: id)
+        do {
+            _ = try await runCloseCommand {
+                CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key)
+            }
+        } catch {
+            guard let tabID = fallbackTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            _ = try await runCloseCommand {
+                CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID)
+            }
+        }
+        closeLocalPanes(showing: [id])
+        catalog.remove(id, from: self)
+        scheduleRefresh()
+    }
+
+    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
+        let wanted = Set(ids)
+        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
+            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        }
+    }
+
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
     static func isSelectorNotFound(_ error: Error) -> Bool {
