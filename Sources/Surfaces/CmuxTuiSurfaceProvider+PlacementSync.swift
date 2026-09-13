@@ -81,7 +81,7 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
             let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             guard let snapshotObject = try? JSONSerialization.jsonObject(with: snapshot) as? [String: Any],
                   CmuxTuiSnapshotParser.authoritativeGraphIsValid(snapshotObject) else {
-                throw ProviderError.invalidSnapshot(machineID.rawValue)
+                throw ProviderError.invalidSnapshot(machineID)
             }
             if !CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshotObject).contains(where: { $0.id == remoteWorkspaceID }) {
                 throw ProviderError.remoteWorkspaceNotFound(remoteWorkspaceID)

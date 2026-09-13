@@ -13,6 +13,7 @@ final class CloudPlacementCoordinator {
     }
 
     private let binding: @MainActor (UUID) -> WorkspaceCloudVMBinding?
+    private let workspaceExists: @MainActor (SurfaceMachineID, String) -> Bool?
     private let reportFailure: @MainActor (SurfaceProjection, Error) -> Void
     private var lanes: [SurfaceMachineID: Lane] = [:]
     private var failureRefreshes: [SurfaceMachineID: Task<Void, Never>] = [:]
@@ -26,9 +27,11 @@ final class CloudPlacementCoordinator {
 
     init(
         binding: @escaping @MainActor (UUID) -> WorkspaceCloudVMBinding? = { _ in nil },
+        workspaceExists: @escaping @MainActor (SurfaceMachineID, String) -> Bool? = { _, _ in nil },
         reportFailure: @escaping @MainActor (SurfaceProjection, Error) -> Void = { _, _ in }
     ) {
         self.binding = binding
+        self.workspaceExists = workspaceExists
         self.reportFailure = reportFailure
     }
 
@@ -51,7 +54,7 @@ final class CloudPlacementCoordinator {
     ) -> String? {
         let candidates = Set(resource.remoteWorkspaces.map(\.id))
         if let bound = boundRemoteWorkspaceID(forLocalWorkspace: localWorkspaceID, on: resource.machine),
-           candidates.contains(bound) {
+           candidates.contains(bound) || workspaceExists(resource.machine, bound) == true {
             return bound
         }
         if let preferred = preferredRemoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),

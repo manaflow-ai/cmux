@@ -28,7 +28,7 @@ struct CloudPlacementCoordinatorTests {
     private static func harness(bound: UUID) -> (SurfaceCatalog, CloudPlacementTestProvider) {
         let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
             id == bound ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api") : nil
-        }))
+        }, workspaceExists: { _, remoteID in remoteID == "ws_api" ? true : nil }))
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         return (catalog, provider)
