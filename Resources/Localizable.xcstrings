@@ -538,55 +538,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Choose a machine\n\nInspect existing machines first. Base is a persistent workspace that you can reopen. Use `new` when the task needs a separate machine. Use returned machine, workspace, and terminal IDs in later commands."
+            "value": "## Choose a machine\n\nInspect existing machines first. Route the current directory with `route --json`; reuse its machine when `would_provision` is false. When `machine` is null and `would_provision` is true, check `ls` and choose Base, an idle machine, or deliberate provisioning before creating anything. Check `vpn status`; run `vpn up` if a private operation reports a down or stale tunnel. Base is a persistent machine with a workspace that you can reopen. Prefer a new workspace on an existing machine; use `new` for isolation. Use returned machine, workspace, and terminal IDs in later commands."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Rechner auswählen\n\nPrüfen Sie zuerst vorhandene Rechner. Base ist ein dauerhafter Arbeitsbereich, den Sie erneut öffnen können. Verwenden Sie `new`, wenn die Aufgabe einen separaten Rechner benötigt. Verwenden Sie die zurückgegebenen Rechner-, Arbeitsbereichs- und Terminal-IDs in späteren Befehlen."
+            "value": "## Rechner auswählen\n\nPrüfen Sie zuerst vorhandene Rechner. Leiten Sie das aktuelle Verzeichnis mit `route --json`; verwenden Sie den Rechner, wenn `would_provision` false ist. Wenn `machine` null und `would_provision` true ist, prüfen Sie `ls` und wählen Sie Base, einen freien Rechner oder eine bewusste Bereitstellung, bevor Sie etwas erstellen. Base ist ein dauerhafter Rechner mit einem Arbeitsbereich, den Sie erneut öffnen können. Bevorzugen Sie einen neuen Arbeitsbereich auf einem vorhandenen Rechner; verwenden Sie `new` für Isolation. Verwenden Sie die zurückgegebenen Rechner-, Arbeitsbereichs- und Terminal-IDs in späteren Befehlen. Prüfen Sie `vpn status` und führen Sie `vpn up` nur bei einem inaktiven oder veralteten Tunnel aus."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Choisir une machine\n\nInspectez d’abord les machines existantes. Base est un espace de travail persistant que vous pouvez rouvrir. Utilisez `new` si la tâche nécessite une machine distincte. Utilisez les identifiants de machine, d’espace de travail et de terminal renvoyés dans les commandes suivantes."
+            "value": "## Choisir une machine\n\nInspectez d’abord les machines existantes. Routez le répertoire courant avec `route --json` ; réutilisez sa machine lorsque `would_provision` est false. Lorsque `machine` est null et `would_provision` est true, consultez `ls` et choisissez Base, une machine libre ou une création volontaire avant toute création. Base est une machine persistante avec un espace de travail que vous pouvez rouvrir. Préférez un nouvel espace de travail sur une machine existante ; utilisez `new` pour l’isolation. Utilisez les identifiants de machine, d’espace de travail et de terminal renvoyés ensuite. Vérifiez `vpn status` et lancez `vpn up` seulement si une opération privée signale un tunnel arrêté ou obsolète."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## اختيار جهاز\n\nافحص الأجهزة الموجودة أولاً. Base مساحة عمل دائمة يمكنك إعادة فتحها. استخدم `new` عندما تحتاج المهمة إلى جهاز منفصل. استخدم معرّفات الجهاز ومساحة العمل والطرفية التي أُعيدت في الأوامر اللاحقة."
+            "value": "## اختيار جهاز\n\nافحص الأجهزة الموجودة أولاً. وجّه المجلد الحالي باستخدام `route --json`؛ وأعد استخدام الجهاز عندما تكون `would_provision` تساوي false. عندما تكون `machine` فارغة و`would_provision` تساوي true، افحص `ls` واختر Base أو جهازاً خاملاً أو توفيراً مقصوداً قبل إنشاء أي شيء. Base جهاز دائم مع مساحة عمل يمكنك إعادة فتحها. فضّل مساحة عمل جديدة على جهاز موجود؛ واستخدم `new` للعزل. استخدم معرّفات الجهاز ومساحة العمل والطرفية التي أُعيدت في الأوامر اللاحقة. افحص `vpn status` وشغّل `vpn up` فقط إذا أبلغت عملية خاصة عن نفق متوقف أو قديم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Elegir una máquina\n\nInspeccione primero las máquinas existentes. Base es un espacio de trabajo persistente que puede volver a abrir. Use `new` cuando la tarea necesite una máquina independiente. Use los identificadores devueltos de máquina, espacio de trabajo y terminal en los comandos posteriores."
+            "value": "## Elegir una máquina\n\nInspeccione primero las máquinas existentes. Enrute el directorio actual con `route --json` y reutilice su máquina cuando `would_provision` sea false. Si `machine` es null y `would_provision` es true, consulte `ls` y elija Base, una máquina libre o un aprovisionamiento deliberado antes de crear nada. Base es una máquina persistente con un espacio de trabajo que puede volver a abrir. Prefiera un espacio de trabajo nuevo en una máquina existente; use `new` para aislamiento. Use los identificadores devueltos de máquina, espacio de trabajo y terminal en los comandos posteriores. Compruebe `vpn status` y ejecute `vpn up` solo si una operación privada informa de un túnel caído u obsoleto."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 選擇機器\n\n先檢查現有機器。Base 是可再次開啟的持久工作區。任務需要獨立機器時，使用 `new`。在後續命令中使用傳回的機器、工作區與終端機 ID。"
+            "value": "## 選擇機器\n\n先檢查現有機器。使用 `route --json` 路由目前目錄；當 `would_provision` 為 false 時，重複使用傳回的機器。當 `machine` 為 null 且 `would_provision` 為 true 時，先檢查 `ls`，再選擇 Base、閒置機器或刻意佈建，之後才建立任何項目。Base 是帶有可重新開啟工作區的持久機器。請優先在現有機器上建立新工作區；需要隔離時才使用 `new`。在後續命令中使用傳回的機器、工作區與終端機 ID。 檢查 `vpn status`，只有私有操作回報隧道停止或過時時才執行 `vpn up`。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 选择机器\n\n先检查现有机器。Base 是可再次打开的持久工作区。任务需要独立机器时，使用 `new`。在后续命令中使用返回的机器、工作区和终端 ID。"
+            "value": "## 选择机器\n\n先检查现有机器。使用 `route --json` 路由当前目录；当 `would_provision` 为 false 时，重复使用返回的机器。当 `machine` 为 null 且 `would_provision` 为 true 时，先检查 `ls`，再选择 Base、空闲机器或有意的创建，然后才创建任何内容。Base 是带有可再次打开工作区的持久机器。请优先在现有机器上创建新工作区；需要隔离时才使用 `new`。在后续命令中使用返回的机器、工作区和终端 ID。 检查 `vpn status`，只有私有操作报告隧道停止或过时时才运行 `vpn up`。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 머신 선택\n\n먼저 기존 머신을 확인하세요. Base는 다시 열 수 있는 영구 작업 공간입니다. 작업에 별도의 머신이 필요하면 `new`를 사용하세요. 이후 명령에는 반환된 머신, 작업 공간, 터미널 ID를 사용하세요."
+            "value": "## 머신 선택\n\n먼저 기존 머신을 확인하세요. `route --json`으로 현재 디렉터리를 라우팅하고 `would_provision`이 false이면 반환된 머신을 재사용하세요. `machine`이 null이고 `would_provision`이 true이면 `ls`를 확인하고 Base, 유휴 머신 또는 의도적인 프로비저닝을 선택한 후 생성하세요. Base는 다시 열 수 있는 작업 공간이 있는 영구 머신입니다. 기존 머신에 새 작업 공간을 만드는 방법을 우선하고, 격리에는 `new`를 사용하세요. 이후 명령에는 반환된 머신, 작업 공간, 터미널 ID를 사용하세요. `vpn status`를 확인하고 사설 작업에서 터널이 중단되었거나 오래되었다고 보고할 때만 `vpn up`을 실행하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## マシンを選ぶ\n\nまず既存のマシンを確認してください。Base は再度開ける永続的なワークスペースです。タスクに別のマシンが必要な場合は `new` を使います。後続のコマンドでは、返されたマシン、ワークスペース、ターミナルの ID を使ってください。"
+            "value": "## マシンを選ぶ\n\nまず既存のマシンを確認します。`route --json` で現在のディレクトリをルーティングし、`would_provision` が false ならそのマシンを再利用します。`machine` が null で `would_provision` が true の場合は、`ls` を確認し、Base、空きマシン、または明示的なプロビジョニングを選んでから作成します。Base は再び開けるワークスペースを持つ永続マシンです。既存マシンに新しいワークスペースを作る方法を優先し、隔離には `new` を使います。後続のコマンドでは返されたマシン、ワークスペース、ターミナル ID を使ってください。 `vpn status` を確認し、プライベート操作でトンネルが停止または古いと報告された場合だけ `vpn up` を実行します。"
           }
         }
       }
@@ -597,55 +597,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Run work and collect results\n\nUse `exec` for a short command on a chosen machine. Use `run` to route a command, or `agent` to start a coding agent. Use `push` and `pull` to transfer files. Use `terminal` methods to send input, read output, or wait for completion."
+            "value": "## Run work and collect results\n\nUse `exec` for a short non-GUI command on a chosen machine. Use `run --sync -- <command>` to route a bounded command, or `agent` to start a coding agent. Use a machine `terminal` for long-running, interactive, or GUI work. Machine workspaces and terminals keep running when a pane closes or the Mac sleeps; terminal IDs come from `tree`, and you can reattach with the `vm open <machine>/<workspace>/<terminal>` address. Use `push` and `pull` to transfer files. Use `terminal wait` for a screen pattern and `terminal wait-exit` plus `terminal output` for process completion and logs. Read terminal output before reporting success."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Arbeit ausführen und Ergebnisse abrufen\n\nVerwenden Sie `exec` für einen kurzen Befehl auf einem ausgewählten Rechner. Verwenden Sie `run`, um einen Befehl zuzuweisen, oder `agent`, um einen Coding-Agenten zu starten. Übertragen Sie Dateien mit `push` und `pull`. Mit den `terminal`-Methoden können Sie Eingaben senden, Ausgaben lesen oder auf den Abschluss warten."
+            "value": "## Arbeit ausführen und Ergebnisse abrufen\n\nVerwenden Sie `exec` für einen kurzen Befehl auf einem ausgewählten Rechner. Verwenden Sie `run`, um einen Befehl zu routen, oder `agent`, um einen Coding-Agenten zu starten. Verwenden Sie `terminal` für lang laufende oder interaktive Arbeit. Arbeitsbereiche und Terminals auf dem Rechner laufen weiter, wenn ein Pane geschlossen wird oder der Mac schläft; verbinden Sie sich mit der Adresse `vm open <machine>/<workspace>/<terminal>` erneut. Übertragen Sie Dateien mit `push` und `pull`. Lesen Sie die Terminalausgabe und warten Sie auf ein Ergebnis, bevor Sie Erfolg melden. Verwenden Sie `dev <machine> --no-open` für ein erkanntes Projekt. Warten Sie mit `terminal wait-exit` und lesen Sie `terminal output`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Exécuter le travail et récupérer les résultats\n\nUtilisez `exec` pour une commande courte sur une machine choisie. Utilisez `run` pour orienter une commande, ou `agent` pour lancer un agent de programmation. Transférez des fichiers avec `push` et `pull`. Les méthodes `terminal` permettent d’envoyer une entrée, de lire la sortie ou d’attendre la fin."
+            "value": "## Exécuter le travail et récupérer les résultats\n\nUtilisez `exec` pour une commande courte sur une machine choisie. Utilisez `run` pour router une commande, ou `agent` pour lancer un agent de programmation. Utilisez `terminal` pour le travail long ou interactif. Les espaces de travail et terminaux de la machine continuent quand un volet est fermé ou que le Mac dort ; reconnectez-vous avec l’adresse `vm open <machine>/<workspace>/<terminal>`. Transférez les fichiers avec `push` et `pull`. Lisez la sortie du terminal et attendez un résultat avant de signaler le succès. Utilisez `dev <machine> --no-open` pour un projet reconnu. Attendez avec `terminal wait-exit` et lisez `terminal output`."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## تنفيذ العمل وجمع النتائج\n\nاستخدم `exec` لأمر قصير على جهاز تختاره. استخدم `run` لتوجيه أمر، أو `agent` لبدء وكيل برمجة. استخدم `push` و`pull` لنقل الملفات. استخدم طرق `terminal` لإرسال الإدخال أو قراءة المخرجات أو انتظار الاكتمال."
+            "value": "## تنفيذ العمل وجمع النتائج\n\nاستخدم `exec` لأمر قصير على جهاز تختاره. استخدم `run` لتوجيه أمر، أو `agent` لبدء وكيل برمجة. استخدم `terminal` للعمل الطويل أو التفاعلي. تستمر مساحات العمل والطرفيات على الجهاز عند إغلاق جزء أو دخول Mac في وضع السكون؛ أعد الاتصال باستخدام العنوان `vm open <machine>/<workspace>/<terminal>`. استخدم `push` و`pull` لنقل الملفات. اقرأ مخرجات الطرفية وانتظر نتيجة قبل الإبلاغ عن النجاح. استخدم `dev <machine> --no-open` لمشروع معروف. انتظر باستخدام `terminal wait-exit` واقرأ `terminal output`."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Ejecutar el trabajo y recoger resultados\n\nUse `exec` para un comando breve en una máquina elegida. Use `run` para asignar un comando, o `agent` para iniciar un agente de programación. Use `push` y `pull` para transferir archivos. Los métodos de `terminal` permiten enviar entradas, leer salidas o esperar a que termine el trabajo."
+            "value": "## Ejecutar el trabajo y recoger resultados\n\nUse `exec` para un comando breve en una máquina elegida. Use `run` para enrutar un comando o `agent` para iniciar un agente de programación. Use `terminal` para trabajos largos o interactivos. Los espacios de trabajo y terminales de la máquina siguen funcionando al cerrar un panel o cuando el Mac entra en reposo; vuelva a conectarse con la dirección `vm open <machine>/<workspace>/<terminal>`. Transfiera archivos con `push` y `pull`. Lea la salida del terminal y espere un resultado antes de informar del éxito. Use `dev <machine> --no-open` para un proyecto reconocido. Espere con `terminal wait-exit` y lea `terminal output`."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 執行工作並收集結果\n\n使用 `exec` 在選定機器上執行短命令。使用 `run` 選擇命令的執行位置，或使用 `agent` 啟動程式設計代理。使用 `push` 與 `pull` 傳輸檔案。使用 `terminal` 方法傳送輸入、讀取輸出或等待完成。"
+            "value": "## 執行工作並收集結果\n\n使用 `exec` 在選定機器上執行短命令。使用 `run` 路由命令，或使用 `agent` 啟動程式設計代理。使用 `terminal` 進行長時間或互動式工作。關閉窗格或 Mac 進入睡眠後，機器上的工作區與終端機仍會執行；使用 `vm open <machine>/<workspace>/<terminal>` 位址重新連線。使用 `push` 與 `pull` 傳輸檔案。回報成功前先閱讀終端機輸出並等待結果。 對已識別的專案使用 `dev <machine> --no-open`。使用 `terminal wait-exit` 等待，並讀取 `terminal output`。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 执行工作并收集结果\n\n使用 `exec` 在选定机器上运行短命令。使用 `run` 选择命令的执行位置，或使用 `agent` 启动编程代理。使用 `push` 和 `pull` 传输文件。使用 `terminal` 方法发送输入、读取输出或等待完成。"
+            "value": "## 执行工作并收集结果\n\n使用 `exec` 在选定机器上运行短命令。使用 `run` 路由命令，或使用 `agent` 启动编程代理。使用 `terminal` 进行长时间或交互式工作。关闭窗格或 Mac 进入睡眠后，机器上的工作区和终端仍会运行；使用 `vm open <machine>/<workspace>/<terminal>` 地址重新连接。使用 `push` 和 `pull` 传输文件。报告成功前先阅读终端输出并等待结果。 对已识别的项目使用 `dev <machine> --no-open`。使用 `terminal wait-exit` 等待，并读取 `terminal output`。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 작업 실행 및 결과 수집\n\n선택한 머신에서 짧은 명령을 실행하려면 `exec`를 사용하세요. 명령을 보낼 머신을 선택하려면 `run`을, 코딩 에이전트를 시작하려면 `agent`를 사용하세요. 파일 전송에는 `push`와 `pull`을 사용하세요. `terminal` 메서드로 입력을 보내거나 출력을 읽거나 완료를 기다릴 수 있습니다."
+            "value": "## 작업 실행 및 결과 수집\n\n선택한 머신에서 짧은 명령을 실행하려면 `exec`를 사용하세요. 명령을 라우팅하려면 `run`, 코딩 에이전트를 시작하려면 `agent`를 사용하세요. 오래 실행되거나 상호작용이 필요한 작업에는 `terminal`을 사용하세요. 창을 닫거나 Mac이 잠들어도 머신의 작업 공간과 터미널은 계속 실행되며 `vm open <machine>/<workspace>/<terminal>` 주소로 다시 연결할 수 있습니다. `push`와 `pull`로 파일을 전송하세요. 성공을 보고하기 전에 터미널 출력을 읽고 결과를 기다리세요. 인식된 프로젝트에는 `dev <machine> --no-open`을 사용하세요. `terminal wait-exit`으로 기다리고 `terminal output`을 읽으세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 作業を実行し、結果を取得する\n\n選択したマシンで短いコマンドを実行するには `exec` を使います。コマンドの実行先を選ぶには `run`、コーディングエージェントを起動するには `agent` を使います。ファイル転送には `push` と `pull` を使います。`terminal` の操作で入力の送信、出力の読み取り、完了待ちができます。"
+            "value": "## 作業を実行し、結果を取得する\n\n選択したマシンで短いコマンドを実行するには `exec` を使います。コマンドをルーティングするには `run`、コーディングエージェントを起動するには `agent` を使います。長時間または対話型の作業には `terminal` を使います。ペインを閉じたり Mac がスリープしても、マシンのワークスペースとターミナルは動き続けます。`vm open <machine>/<workspace>/<terminal>` のアドレスで再接続してください。ファイルは `push` と `pull` で転送します。成功を報告する前にターミナル出力を読み、結果を待ってください。 認識可能なプロジェクトには `dev <machine> --no-open` を使います。`terminal wait-exit` で待ち、`terminal output` を読みます。"
           }
         }
       }
@@ -656,55 +656,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its documentation. Prefer the machine's existing headful Chrome session when it exposes DevTools. The devbox installs Chrome, but its dock launcher does not enable remote debugging by default. Start a debugging-enabled Chrome with `--remote-debugging-port=9222`, then use `agent-browser --cdp 9222 snapshot`, or try `agent-browser --auto-connect snapshot`. Inspect installed tools with `tools` first. The default devbox also installs `cua-driver` for Linux desktop automation. Verify it with `cua-driver --version` and `cua-driver doctor`; it needs the desktop display (`DISPLAY=:1`) and accessibility bus. Use `cua-driver` for visible desktop windows and `agent-browser` for web pages. Historical shell-only machines may not have a desktop or driver. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."
+            "value": "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its documentation. Prefer the machine's existing headful Chrome session when it exposes DevTools. The devbox installs Chrome, but its dock launcher does not enable remote debugging by default. If no debugging-enabled session exists, use a machine terminal under the work-user desktop session to start a separate visible Chrome with `DISPLAY=:1`, `--remote-debugging-port=9222`, and a dedicated `--user-data-dir`, then use `agent-browser --cdp 9222 snapshot`, or try `agent-browser --auto-connect snapshot`. `cloud exec` is for short provider commands and may not have the work-user desktop bus. Inspect the installed browser and driver with `command -v` and `--version`; `cloud tools` only checks general utilities. The default devbox also installs `cua-driver` for Linux desktop automation. Run `cua-driver doctor` from the machine terminal and read its X11 and AT-SPI results; a zero exit alone does not prove the desktop is ready. Use `cua-driver list-tools` to inspect its actions. Configure a remote agent's MCP host to launch `cua-driver mcp`; use `cua-driver call <tool> [JSON args]` for shell automation. These commands need the desktop display (`DISPLAY=:1`) and accessibility bus. Use `cua-driver` for visible desktop windows and `agent-browser` for web pages. Historical shell-only machines may not have a desktop or driver. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Browser und Computer Use verwenden\n\nFür Browserautomatisierung auf dem Rechner führen Sie dort `agent-browser` aus und lesen Sie die Dokumentation. Bevorzugen Sie die vorhandene sichtbare Chrome-Sitzung des Rechners, wenn sie DevTools bereitstellt. Die Devbox installiert Chrome, aber der Dock-Starter aktiviert Remote-Debugging standardmäßig nicht. Starten Sie Chrome mit `--remote-debugging-port=9222` und verwenden Sie dann `agent-browser --cdp 9222 snapshot` oder versuchen Sie `agent-browser --auto-connect snapshot`. Prüfen Sie zuerst die installierten Werkzeuge mit `tools`. Die Standard-Devbox installiert außerdem `cua-driver` für Linux-Desktopautomatisierung. Prüfen Sie es mit `cua-driver --version` und `cua-driver doctor`; es benötigt das Desktop-Display (`DISPLAY=:1`) und den Accessibility-Bus. Verwenden Sie `cua-driver` für sichtbare Desktopfenster und `agent-browser` für Webseiten. Historische Rechner ohne Desktop haben möglicherweise keinen Treiber. Prüfen Sie den entfernten Bildschirm, handeln Sie und kontrollieren Sie das Ergebnis. Lokale Computer-Use-Werkzeuge steuern Ihren Mac, sofern kein entferntes Ziel konfiguriert ist."
+            "value": "## Browser und Computer Use verwenden\n\nFür Browserautomatisierung auf dem Rechner führen Sie dort `agent-browser` aus und lesen Sie die Dokumentation. Bevorzugen Sie die vorhandene sichtbare Chrome-Sitzung des Rechners, wenn sie DevTools bereitstellt. Die Devbox installiert Chrome, aber der Dock-Starter aktiviert Remote-Debugging standardmäßig nicht. Wenn keine Debug-Sitzung existiert, starten Sie ein eigenes sichtbares Chrome mit `--remote-debugging-port=9222` und einem eigenen `--user-data-dir`, danach `agent-browser --cdp 9222 snapshot` oder `agent-browser --auto-connect snapshot`. Prüfen Sie zuerst `tools`. Die Standard-Devbox installiert auch `cua-driver` für Linux-Desktopautomatisierung. Prüfen Sie es mit `cua-driver --version` und `cua-driver doctor`; es benötigt Display (`DISPLAY=:1`) und Accessibility-Bus. Verwenden Sie `cua-driver mcp` oder `cua-driver call` für sichtbare Desktopfenster und `agent-browser` für Webseiten. Alte Rechner ohne Desktop haben möglicherweise keinen Treiber. Prüfen Sie den entfernten Bildschirm, handeln Sie und kontrollieren Sie das Ergebnis. Lokale Computer-Use-Werkzeuge steuern Ihren Mac, sofern kein entferntes Ziel konfiguriert ist. Führen Sie Browser- und CUA-Befehle im Arbeitsbenutzer-Terminal aus; `cloud tools` prüft nur allgemeine Werkzeuge."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Utiliser les navigateurs et computer use\n\nPour automatiser un navigateur sur la machine, exécutez-y `agent-browser` et lisez sa documentation. Préférez la session Chrome visible existante de la machine lorsqu’elle expose DevTools. La devbox installe Chrome, mais son lanceur du dock n’active pas le débogage distant par défaut. Démarrez Chrome avec `--remote-debugging-port=9222`, puis utilisez `agent-browser --cdp 9222 snapshot`, ou essayez `agent-browser --auto-connect snapshot`. Vérifiez d’abord les outils installés avec `tools`. La devbox par défaut installe aussi `cua-driver` pour l’automatisation du bureau Linux. Vérifiez-le avec `cua-driver --version` et `cua-driver doctor`; il nécessite l’écran du bureau (`DISPLAY=:1`) et le bus d’accessibilité. Utilisez `cua-driver` pour les fenêtres visibles et `agent-browser` pour les pages Web. Les anciennes machines sans bureau peuvent ne pas avoir de pilote. Inspectez l’écran distant, agissez, puis vérifiez. Les outils computer-use locaux ciblent votre Mac, sauf si une cible distante est configurée."
+            "value": "## Utiliser les navigateurs et computer use\n\nPour automatiser un navigateur sur la machine, exécutez-y `agent-browser` et lisez sa documentation. Préférez la session Chrome visible existante lorsqu’elle expose DevTools. La devbox installe Chrome, mais son lanceur du dock n’active pas le débogage distant par défaut. Si aucune session de débogage n’existe, démarrez un Chrome visible séparé avec `--remote-debugging-port=9222` et un `--user-data-dir` dédié, puis utilisez `agent-browser --cdp 9222 snapshot` ou essayez `agent-browser --auto-connect snapshot`. Vérifiez d’abord les outils avec `tools`. La devbox par défaut installe aussi `cua-driver` pour le bureau Linux. Vérifiez `cua-driver --version` et `cua-driver doctor` ; il nécessite l’écran (`DISPLAY=:1`) et le bus d’accessibilité. Utilisez `cua-driver mcp` ou `cua-driver call` pour les fenêtres visibles et `agent-browser` pour les pages Web. Les anciennes machines sans bureau peuvent ne pas avoir de pilote. Inspectez l’écran distant, agissez, puis vérifiez. Les outils computer-use locaux ciblent votre Mac, sauf si une cible distante est configurée. Exécutez les commandes de navigateur et CUA dans le terminal de l’utilisateur de travail ; `cloud tools` ne vérifie que les outils généraux."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## استخدام المتصفحات وcomputer use\n\nلأتمتة المتصفح على الجهاز، شغّل `agent-browser` هناك واقرأ وثائقه. فضّل جلسة Chrome المرئية الموجودة على الجهاز عندما تعرض DevTools. تثبّت devbox Chrome، لكن مشغّل dock لا يفعّل التصحيح عن بُعد افتراضياً. شغّل Chrome باستخدام `--remote-debugging-port=9222`، ثم استخدم `agent-browser --cdp 9222 snapshot`، أو جرّب `agent-browser --auto-connect snapshot`. افحص الأدوات المثبتة باستخدام `tools` أولاً. تثبّت devbox الافتراضية أيضاً `cua-driver` لأتمتة سطح مكتب Linux. تحقّق منه باستخدام `cua-driver --version` و`cua-driver doctor`؛ فهو يحتاج إلى شاشة سطح المكتب (`DISPLAY=:1`) وناقل إمكانية الوصول. استخدم `cua-driver` لنوافذ سطح المكتب المرئية و`agent-browser` لصفحات الويب. قد لا تحتوي الأجهزة القديمة التي بلا سطح مكتب على برنامج التشغيل. افحص الشاشة البعيدة، ونفّذ الإجراء، ثم تحقّق. تستهدف أدوات computer-use المحلية جهاز Mac لديك ما لم تُضبط لهدف بعيد."
+            "value": "## استخدام المتصفحات وcomputer use\n\nلأتمتة المتصفح على الجهاز، شغّل `agent-browser` هناك واقرأ وثائقه. فضّل جلسة Chrome المرئية الموجودة عندما تعرض DevTools. يثبت devbox متصفح Chrome، لكن مشغّل dock لا يفعّل التصحيح عن بُعد افتراضياً. إذا لم توجد جلسة تدعم التصحيح، شغّل Chrome مرئياً منفصلاً باستخدام `--remote-debugging-port=9222` و`--user-data-dir` مخصص، ثم استخدم `agent-browser --cdp 9222 snapshot` أو جرّب `agent-browser --auto-connect snapshot`. افحص الأدوات المثبتة باستخدام `tools` أولاً. يثبت devbox الافتراضي أيضاً `cua-driver` لأتمتة سطح مكتب Linux. تحقّق باستخدام `cua-driver --version` و`cua-driver doctor`؛ فهو يحتاج شاشة سطح المكتب (`DISPLAY=:1`) وناقل إمكانية الوصول. استخدم `cua-driver mcp` أو `cua-driver call` لنوافذ سطح المكتب المرئية و`agent-browser` لصفحات الويب. قد لا تحتوي الأجهزة القديمة بلا سطح مكتب على برنامج التشغيل. افحص الشاشة البعيدة، ونفّذ الإجراء، ثم تحقّق. تستهدف أدوات computer-use المحلية جهاز Mac لديك ما لم تُضبط لهدف بعيد. نفّذ أوامر المتصفح وCUA في طرفية مستخدم العمل؛ يفحص `cloud tools` الأدوات العامة فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar navegadores y computer use\n\nPara automatizar un navegador en la máquina, ejecute allí `agent-browser` y lea su documentación. Prefiera la sesión existente de Chrome visible de la máquina cuando exponga DevTools. La devbox instala Chrome, pero su lanzador del dock no activa la depuración remota de forma predeterminada. Inicie Chrome con `--remote-debugging-port=9222` y use `agent-browser --cdp 9222 snapshot`, o pruebe `agent-browser --auto-connect snapshot`. Inspeccione primero las herramientas instaladas con `tools`. La devbox predeterminada también instala `cua-driver` para la automatización del escritorio Linux. Verifíquelo con `cua-driver --version` y `cua-driver doctor`; necesita la pantalla del escritorio (`DISPLAY=:1`) y el bus de accesibilidad. Use `cua-driver` para ventanas visibles del escritorio y `agent-browser` para páginas web. Las máquinas antiguas sin escritorio pueden no tener controlador. Inspeccione la pantalla remota, actúe y verifique. Las herramientas computer-use locales controlan su Mac salvo que se configuren para un destino remoto."
+            "value": "## Usar navegadores y computer use\n\nPara automatizar un navegador en la máquina, ejecute allí `agent-browser` y lea su documentación. Prefiera la sesión existente de Chrome visible cuando exponga DevTools. La devbox instala Chrome, pero su lanzador del dock no activa la depuración remota de forma predeterminada. Si no existe una sesión con depuración, inicie un Chrome visible separado con `--remote-debugging-port=9222` y un `--user-data-dir` dedicado; después use `agent-browser --cdp 9222 snapshot` o pruebe `agent-browser --auto-connect snapshot`. Inspeccione primero las herramientas con `tools`. La devbox predeterminada también instala `cua-driver` para automatizar el escritorio Linux. Verifíquelo con `cua-driver --version` y `cua-driver doctor`; necesita la pantalla (`DISPLAY=:1`) y el bus de accesibilidad. Use `cua-driver mcp` o `cua-driver call` para ventanas visibles del escritorio y `agent-browser` para páginas web. Las máquinas antiguas sin escritorio pueden no tener controlador. Inspeccione la pantalla remota, actúe y verifique. Las herramientas computer-use locales controlan su Mac salvo que se configuren para un destino remoto. Ejecute los comandos de navegador y CUA en el terminal del usuario de trabajo; `cloud tools` solo comprueba herramientas generales."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用瀏覽器與 computer use\n\n若要自動操作機器上的瀏覽器，請在該機器執行 `agent-browser` 並閱讀文件。若機器已有可視 Chrome 工作階段並公開 DevTools，請優先使用。devbox 會安裝 Chrome，但 dock 啟動器預設不會開啟遠端偵錯。請使用 `--remote-debugging-port=9222` 啟動支援偵錯的 Chrome，然後使用 `agent-browser --cdp 9222 snapshot`，或嘗試 `agent-browser --auto-connect snapshot`。先使用 `tools` 檢查已安裝工具。預設 devbox 也會安裝用於 Linux 桌面自動化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 驗證；它需要桌面顯示器（`DISPLAY=:1`）與協助工具匯流排。使用 `cua-driver` 操作可視桌面視窗，使用 `agent-browser` 操作網頁。歷史上的無桌面機器可能沒有驅動程式。檢查遠端畫面，操作後再驗證。除非設定了遠端目標，否則本機 computer-use 工具會操作您的 Mac。"
+            "value": "## 使用瀏覽器與 computer use\n\n若要自動操作機器上的瀏覽器，請在該機器執行 `agent-browser` 並閱讀文件。若機器已有可視 Chrome 工作階段並公開 DevTools，請優先使用。devbox 會安裝 Chrome，但 dock 啟動器預設不會開啟遠端偵錯。若沒有支援偵錯的工作階段，請使用 `--remote-debugging-port=9222` 與專用 `--user-data-dir` 啟動另一個可視 Chrome，再使用 `agent-browser --cdp 9222 snapshot`，或嘗試 `agent-browser --auto-connect snapshot`。先使用 `tools` 檢查已安裝工具。預設 devbox 也會安裝用於 Linux 桌面自動化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 驗證；它需要桌面顯示器（`DISPLAY=:1`）與協助工具匯流排。使用 `cua-driver mcp` 或 `cua-driver call` 操作可視桌面視窗，使用 `agent-browser` 操作網頁。歷史上的無桌面機器可能沒有驅動程式。檢查遠端畫面，操作後再驗證。除非設定了遠端目標，否則本機 computer-use 工具會操作您的 Mac。 請在工作使用者的機器終端機執行瀏覽器與 CUA 命令；`cloud tools` 只檢查一般工具。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用浏览器和 computer use\n\n要自动操作机器上的浏览器，请在该机器运行 `agent-browser` 并阅读文档。如果机器已有可视 Chrome 会话并公开 DevTools，请优先使用。devbox 会安装 Chrome，但 dock 启动器默认不会启用远程调试。请使用 `--remote-debugging-port=9222` 启动支持调试的 Chrome，然后使用 `agent-browser --cdp 9222 snapshot`，或尝试 `agent-browser --auto-connect snapshot`。先使用 `tools` 检查已安装工具。默认 devbox 还会安装用于 Linux 桌面自动化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 验证；它需要桌面显示器（`DISPLAY=:1`）和辅助功能总线。使用 `cua-driver` 操作可视桌面窗口，使用 `agent-browser` 操作网页。历史上的无桌面机器可能没有驱动。检查远程屏幕，操作后再验证。除非配置了远程目标，否则本机 computer-use 工具会操作您的 Mac。"
+            "value": "## 使用浏览器和 computer use\n\n要自动操作机器上的浏览器，请在该机器运行 `agent-browser` 并阅读文档。如果机器已有可视 Chrome 会话并公开 DevTools，请优先使用。devbox 会安装 Chrome，但 dock 启动器默认不会启用远程调试。如果没有支持调试的会话，请使用 `--remote-debugging-port=9222` 和专用 `--user-data-dir` 启动另一个可视 Chrome，然后使用 `agent-browser --cdp 9222 snapshot`，或尝试 `agent-browser --auto-connect snapshot`。先使用 `tools` 检查已安装工具。默认 devbox 还会安装用于 Linux 桌面自动化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 验证；它需要桌面显示器（`DISPLAY=:1`）和辅助功能总线。使用 `cua-driver mcp` 或 `cua-driver call` 操作可视桌面窗口，使用 `agent-browser` 操作网页。历史上的无桌面机器可能没有驱动。检查远程屏幕，操作后再验证。除非配置了远程目标，否则本机 computer-use 工具会操作您的 Mac。 请在工作用户的机器终端运行浏览器和 CUA 命令；`cloud tools` 只检查通用工具。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 브라우저 및 computer use 사용\n\n머신에서 브라우저를 자동으로 조작하려면 그 머신에서 `agent-browser`를 실행하고 문서를 읽으세요. 머신의 기존 헤드풀 Chrome 세션이 DevTools를 제공하면 우선 사용하세요. devbox에는 Chrome이 설치되어 있지만 dock 실행기는 기본적으로 원격 디버깅을 켜지 않습니다. `--remote-debugging-port=9222`로 디버깅 가능한 Chrome을 시작한 다음 `agent-browser --cdp 9222 snapshot`을 사용하거나 `agent-browser --auto-connect snapshot`을 시도하세요. 먼저 `tools`로 설치된 도구를 확인하세요. 기본 devbox에는 Linux 데스크톱 자동화를 위한 `cua-driver`도 설치되어 있습니다. `cua-driver --version` 및 `cua-driver doctor`로 확인하세요. 데스크톱 화면(`DISPLAY=:1`)과 접근성 버스가 필요합니다. 보이는 데스크톱 창에는 `cua-driver`, 웹 페이지에는 `agent-browser`를 사용하세요. 데스크톱이 없는 예전 머신에는 드라이버가 없을 수 있습니다. 원격 화면을 확인하고 조작한 다음 검증하세요. 원격 대상을 설정하지 않으면 로컬 computer-use 도구는 Mac을 대상으로 합니다."
+            "value": "## 브라우저 및 computer use 사용\n\n머신에서 브라우저를 자동으로 조작하려면 그 머신에서 `agent-browser`를 실행하고 문서를 읽으세요. 머신의 기존 헤드풀 Chrome 세션이 DevTools를 제공하면 우선 사용하세요. devbox에는 Chrome이 설치되어 있지만 dock 실행기는 기본적으로 원격 디버깅을 켜지 않습니다. 디버깅 가능한 세션이 없으면 `--remote-debugging-port=9222`와 전용 `--user-data-dir`로 별도의 보이는 Chrome을 시작한 뒤 `agent-browser --cdp 9222 snapshot`을 사용하거나 `agent-browser --auto-connect snapshot`을 시도하세요. 먼저 `tools`로 설치된 도구를 확인하세요. 기본 devbox에는 Linux 데스크톱 자동화를 위한 `cua-driver`도 설치되어 있습니다. `cua-driver --version`과 `cua-driver doctor`로 확인하세요. 데스크톱 화면(`DISPLAY=:1`)과 접근성 버스가 필요합니다. 보이는 데스크톱 창에는 `cua-driver mcp` 또는 `cua-driver call`, 웹 페이지에는 `agent-browser`를 사용하세요. 데스크톱이 없는 예전 머신에는 드라이버가 없을 수 있습니다. 원격 화면을 확인하고 조작한 다음 검증하세요. 원격 대상을 설정하지 않으면 로컬 computer-use 도구는 Mac을 대상으로 합니다. 브라우저 및 CUA 명령은 작업 사용자 터미널에서 실행하세요. `cloud tools`는 일반 도구만 확인합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## ブラウザと computer use を使う\n\nマシン上のブラウザを自動操作するには、そのマシンで `agent-browser` を実行し、ドキュメントを読んでください。マシンに既存のヘッドフル Chrome セッションがあり DevTools を公開している場合は優先して使います。devbox には Chrome がインストールされていますが、dock のランチャーはデフォルトでリモートデバッグを有効にしません。`--remote-debugging-port=9222` でデバッグ対応の Chrome を起動し、`agent-browser --cdp 9222 snapshot` を使うか、`agent-browser --auto-connect snapshot` を試してください。まず `tools` でインストール済みのツールを確認します。標準 devbox には Linux デスクトップ自動操作用の `cua-driver` もインストールされています。`cua-driver --version` と `cua-driver doctor` で確認してください。デスクトップ表示（`DISPLAY=:1`）とアクセシビリティバスが必要です。表示中のデスクトップウインドウには `cua-driver`、Web ページには `agent-browser` を使います。デスクトップのない古いマシンにはドライバがない場合があります。リモート画面を確認し、操作後に検証してください。ローカルの computer-use ツールは、リモート対象を設定しない限り Mac を操作します。"
+            "value": "## ブラウザと computer use を使う\n\nマシン上のブラウザを自動操作するには、そのマシンで `agent-browser` を実行し、ドキュメントを読んでください。マシンに既存のヘッドフル Chrome セッションがあり DevTools を公開している場合は優先して使います。devbox には Chrome がインストールされていますが、dock のランチャーはデフォルトでリモートデバッグを有効にしません。デバッグ対応のセッションがない場合は、専用の `--user-data-dir` と `--remote-debugging-port=9222` で別の表示 Chrome を起動し、`agent-browser --cdp 9222 snapshot` を使うか `agent-browser --auto-connect snapshot` を試してください。まず `tools` でインストール済みのツールを確認します。標準 devbox には Linux デスクトップ自動操作用の `cua-driver` もインストールされています。`cua-driver --version` と `cua-driver doctor` で確認してください。デスクトップ表示（`DISPLAY=:1`）とアクセシビリティバスが必要です。表示中のデスクトップウインドウには `cua-driver mcp` または `cua-driver call`、Web ページには `agent-browser` を使います。デスクトップのない古いマシンにはドライバがない場合があります。リモート画面を確認し、操作後に検証してください。ローカルの computer-use ツールは、リモート対象を設定しない限り Mac を操作します。 ブラウザと CUA のコマンドはワークユーザーのマシン・ターミナルで実行してください。`cloud tools` は一般的なツールだけを確認します。"
           }
         }
       }
@@ -715,55 +715,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Open, share, and keep work\n\nUse `open` for a machine's terminal, desktop, or web port. Private web URLs need the Cloud network connection; read `vpn` help. Use `domains` to publish a web port with explicit access rules. Use snapshots and forks to keep or copy machine state. Removing a machine deletes it."
+            "value": "## Observe, open, share, and clean up\n\nUse `tree`, `terminal read`, and `terminal wait` to observe live work and check its real output. Use `open` for a machine's terminal, desktop, or web port when there is something useful to show. Private web URLs need the Cloud network connection; read `vpn` help. Use `domains` to publish a web port with explicit access rules. Use snapshots and forks to keep or copy machine state. Delete forks and scratch machines you created. Never remove or reset a machine you did not create."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Arbeit öffnen, teilen und sichern\n\nVerwenden Sie `open` für Terminal, Desktop oder Web-Port eines Rechners. Private Web-URLs benötigen die Cloud-Netzwerkverbindung; lesen Sie die Hilfe zu `vpn`. Veröffentlichen Sie mit `domains` einen Web-Port mit ausdrücklichen Zugriffsregeln. Sichern oder kopieren Sie den Rechnerzustand mit Snapshots und Forks. Das Entfernen eines Rechners löscht ihn."
+            "value": "## Beobachten, öffnen, teilen und aufräumen\n\nVerwenden Sie `tree`, `terminal read` und `terminal wait`, um laufende Arbeit und ihre echte Ausgabe zu prüfen. Verwenden Sie `open` für Terminal, Desktop oder Web-Port eines Rechners, wenn es etwas Nützliches zu zeigen gibt. Private Web-URLs benötigen die Cloud-Netzwerkverbindung; lesen Sie die Hilfe zu `vpn`. Veröffentlichen Sie mit `domains` einen Web-Port mit ausdrücklichen Zugriffsregeln. Bewahren oder kopieren Sie den Rechnerzustand mit Snapshots und Forks. Löschen Sie Forks und temporäre Rechner, die Sie erstellt haben. Entfernen oder setzen Sie niemals einen Rechner zurück, den Sie nicht erstellt haben. Beobachten Sie mit `tree` und bereinigen Sie nur eigene Forks und temporäre Rechner."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Ouvrir, partager et conserver le travail\n\nUtilisez `open` pour le terminal, le bureau ou un port Web d’une machine. Les URL Web privées nécessitent la connexion réseau Cloud ; lisez l’aide de `vpn`. Utilisez `domains` pour publier un port Web avec des règles d’accès explicites. Les instantanés et les forks conservent ou copient l’état de la machine. Retirer une machine la supprime."
+            "value": "## Observer, ouvrir, partager et nettoyer\n\nUtilisez `tree`, `terminal read` et `terminal wait` pour observer le travail en cours et vérifier sa sortie réelle. Utilisez `open` pour le terminal, le bureau ou le port Web d’une machine lorsqu’il y a quelque chose d’utile à montrer. Les URL Web privées nécessitent la connexion réseau Cloud ; lisez l’aide de `vpn`. Utilisez `domains` pour publier un port Web avec des règles d’accès explicites. Conservez ou copiez l’état avec des instantanés et des forks. Supprimez les forks et machines temporaires que vous avez créés. Ne supprimez ou ne réinitialisez jamais une machine que vous n’avez pas créée. Observez avec `tree` et ne nettoyez que vos propres forks et machines temporaires."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## فتح العمل ومشاركته والاحتفاظ به\n\nاستخدم `open` لطرفية جهاز أو سطح مكتبه أو منفذ الويب الخاص به. تحتاج عناوين الويب الخاصة إلى اتصال شبكة Cloud؛ اقرأ تعليمات `vpn`. استخدم `domains` لنشر منفذ ويب بقواعد وصول صريحة. استخدم اللقطات والتفرعات للاحتفاظ بحالة الجهاز أو نسخها. إزالة الجهاز تحذفه."
+            "value": "## المراقبة والفتح والمشاركة والتنظيف\n\nاستخدم `tree` و`terminal read` و`terminal wait` لمراقبة العمل المباشر والتحقق من مخرجاته الحقيقية. استخدم `open` لطرفية الجهاز أو سطح مكتبه أو منفذ الويب عندما يوجد ما يستحق عرضه. تحتاج عناوين الويب الخاصة إلى اتصال شبكة Cloud؛ اقرأ تعليمات `vpn`. استخدم `domains` لنشر منفذ ويب بقواعد وصول صريحة. استخدم اللقطات والتفرعات للاحتفاظ بحالة الجهاز أو نسخها. احذف التفرعات والأجهزة المؤقتة التي أنشأتها. لا تزل جهازاً لم تنشئه ولا تعِد ضبطه أبداً. راقب باستخدام `tree` ونظّف التفرعات والأجهزة المؤقتة التي أنشأتها فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Abrir, compartir y conservar el trabajo\n\nUse `open` para el terminal, escritorio o puerto web de una máquina. Las URL web privadas necesitan la conexión de red Cloud; lea la ayuda de `vpn`. Use `domains` para publicar un puerto web con reglas de acceso explícitas. Las instantáneas y las bifurcaciones permiten conservar o copiar el estado de la máquina. Quitar una máquina la elimina."
+            "value": "## Observar, abrir, compartir y limpiar\n\nUse `tree`, `terminal read` y `terminal wait` para observar el trabajo activo y comprobar su salida real. Use `open` para el terminal, escritorio o puerto web de una máquina cuando haya algo útil que mostrar. Las URL web privadas necesitan la conexión de red Cloud; lea la ayuda de `vpn`. Use `domains` para publicar un puerto web con reglas de acceso explícitas. Conserve o copie el estado con instantáneas y bifurcaciones. Elimine las bifurcaciones y máquinas temporales que haya creado. Nunca quite ni restablezca una máquina que no haya creado. Observe con `tree` y limpie solo sus propias bifurcaciones y máquinas temporales."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 開啟、分享與保留工作\n\n使用 `open` 開啟機器的終端機、桌面或 Web 連接埠。私人 Web 網址需要 Cloud 網路連線；請閱讀 `vpn` 說明。使用 `domains` 以明確存取規則發布 Web 連接埠。使用快照與分支保留或複製機器狀態。移除機器會將其刪除。"
+            "value": "## 觀察、開啟、分享與清理\n\n使用 `tree`、`terminal read` 與 `terminal wait` 觀察即時工作並檢查實際輸出。有實用內容要展示時，使用 `open` 開啟機器的終端機、桌面或 Web 連接埠。私人 Web 網址需要 Cloud 網路連線；請閱讀 `vpn` 說明。使用 `domains` 以明確存取規則發布 Web 連接埠。使用快照與分支保留或複製機器狀態。刪除您建立的分支與暫存機器。不要移除或重設您未建立的機器。 使用 `tree` 觀察，只清理您建立的分支與暫存機器。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 打开、分享和保留工作\n\n使用 `open` 打开机器的终端、桌面或 Web 端口。私有 Web 地址需要 Cloud 网络连接；请阅读 `vpn` 帮助。使用 `domains` 以明确的访问规则发布 Web 端口。使用快照和分支保留或复制机器状态。移除机器会将其删除。"
+            "value": "## 观察、打开、分享和清理\n\n使用 `tree`、`terminal read` 和 `terminal wait` 观察实时工作并检查实际输出。有实用内容要展示时，使用 `open` 打开机器的终端、桌面或 Web 端口。私有 Web 地址需要 Cloud 网络连接；请阅读 `vpn` 帮助。使用 `domains` 以明确访问规则发布 Web 端口。使用快照和分支保留或复制机器状态。删除你创建的分支和临时机器。不要移除或重置你未创建的机器。 使用 `tree` 观察，只清理你创建的分支和临时机器。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 작업 열기, 공유 및 보존\n\n머신의 터미널, 데스크톱 또는 웹 포트에는 `open`을 사용하세요. 비공개 웹 URL에는 Cloud 네트워크 연결이 필요합니다. `vpn` 도움말을 읽으세요. 명시적인 접근 규칙으로 웹 포트를 공개하려면 `domains`를 사용하세요. 스냅샷과 포크로 머신 상태를 보존하거나 복사하세요. 머신을 제거하면 해당 머신이 삭제됩니다."
+            "value": "## 관찰, 열기, 공유 및 정리\n\n`tree`, `terminal read`, `terminal wait`로 실행 중인 작업을 관찰하고 실제 출력을 확인하세요. 보여줄 유용한 내용이 있을 때 `open`으로 머신의 터미널, 데스크톱 또는 웹 포트를 여세요. 비공개 웹 URL에는 Cloud 네트워크 연결이 필요하므로 `vpn` 도움말을 읽으세요. 명시적인 접근 규칙으로 웹 포트를 공개하려면 `domains`를 사용하세요. 스냅샷과 포크로 머신 상태를 보존하거나 복사하세요. 직접 만든 포크와 임시 머신을 삭제하세요. 직접 만들지 않은 머신은 제거하거나 재설정하지 마세요. `tree`로 관찰하고 직접 만든 포크와 임시 머신만 정리하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 作業を開く、共有する、保存する\n\nマシンのターミナル、デスクトップ、Web ポートを開くには `open` を使います。プライベートな Web URL には Cloud ネットワーク接続が必要です。`vpn` のヘルプを読んでください。アクセス規則を明示して Web ポートを公開するには `domains` を使います。スナップショットとフォークでマシンの状態を保存またはコピーできます。マシンを削除すると、そのマシンは失われます。"
+            "value": "## 観察、開く、共有、クリーンアップ\n\n`tree`、`terminal read`、`terminal wait` で実行中の作業を観察し、実際の出力を確認します。見せる価値のあるものがあるときは `open` でマシンのターミナル、デスクトップ、Web ポートを開きます。プライベートな Web URL には Cloud ネットワーク接続が必要なので、`vpn` のヘルプを読んでください。`domains` では明示的なアクセス規則で Web ポートを公開できます。スナップショットとフォークでマシンの状態を保存またはコピーします。自分で作ったフォークと一時マシンを削除してください。自分で作っていないマシンを削除またはリセットしないでください。 `tree` で観察し、自分で作ったフォークと一時マシンだけをクリーンアップします。"
           }
         }
       }

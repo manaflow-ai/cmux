@@ -305,9 +305,11 @@ def check_guide_contract(cli_path: str) -> list[str]:
                     for needle in ("cmux cloud", "Chrome", "cua-driver"):
                         if needle not in plain.stdout:
                             raise ValueError(f"local guide must include the Cloud detail: {needle}")
-                expected = ["agent-browser.dev", "agent-browser --auto-connect", "agent-browser --cdp", "agent-browser --headed"]
+                expected = ["agent-browser.dev", "agent-browser --auto-connect", "agent-browser --cdp"]
+                if topic == "cmux":
+                    expected.append("agent-browser --headed")
                 if topic == "cloud":
-                    expected += ["cua-driver --version", "cua-driver doctor", "DISPLAY=:1"]
+                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "google-chrome-stable --remote-debugging-port=9222", "cmux cloud dev <machine> --no-open"]
                 missing = [needle for needle in expected if needle not in plain.stdout]
                 if missing:
                     raise ValueError(f"guide is missing method details: {missing}")
