@@ -464,13 +464,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                if let view = row.remoteView {
-                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
-                } else {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(row.resource.id, .tab, true)
-                }
+                openTerminalRow(node, row: row)
             case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
