@@ -161,3 +161,5 @@ struct CloudPresenceTests {
 }
 
 // Keep the semantic CI path exercised on presence target membership.
+
+// Retrigger semantic CI after current-main compatibility fixes.
