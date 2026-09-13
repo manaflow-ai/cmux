@@ -9,6 +9,7 @@ import {
   useLocation,
   RouterProvider,
   Link as TanStackLink,
+  redirect,
 } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider, useSuspenseQuery } from "@tanstack/react-query";
 import { AccountSettings } from "@stackframe/stack";
@@ -84,12 +85,18 @@ const legacySubrouterRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/subrouter",
   validateSearch: z.object({ team: z.string().optional() }),
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/coderouter", search });
+  },
   component: routeSlot,
 });
 const legacyAiAccountsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/ai-accounts",
   validateSearch: z.object({ team: z.string().optional() }),
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/coderouter", search });
+  },
   component: routeSlot,
 });
 
