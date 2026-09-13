@@ -45,7 +45,7 @@ extension AgentSessionWebRendererCoordinator {
         gitBranch: String?
     ) -> [String: Any] {
         let selectedModel = GuiModeModelCatalog.option(provider: selectedProviderID, id: selectedModelID)
-        [
+        return [
             "page": page.rawValue,
             "prompt": prompt ?? "",
             "selectedProviderId": selectedProviderID.rawValue,

@@ -45,7 +45,7 @@ struct GuiModePanelState: Codable, Equatable, Sendable {
         reasoningEffort: String? = nil
     ) -> Self {
         let model = GuiModeModelCatalog.option(provider: providerID, id: modelID)
-        Self(
+        return Self(
             page: .taskWorktreePR,
             prompt: prompt,
             providerID: providerID,
