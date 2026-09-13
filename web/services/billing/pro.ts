@@ -190,6 +190,7 @@ export async function reconcileProPlanMetadata(
   );
 }
 
+// oxlint-disable-next-line complexity -- Rollback keeps the legacy billing resolution path intact.
 export async function resolveProPlanStatus(
   user: ProReconcileUser,
   options: {

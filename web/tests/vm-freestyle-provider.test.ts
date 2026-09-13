@@ -87,7 +87,7 @@ function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
       url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
       sha256: "0".repeat(64),
       commit: "abc",
-      builtAt: null,
+      builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
     }),
   });
 }
@@ -267,7 +267,7 @@ describe("Freestyle platform contract", () => {
   });
 
   test("pin check trusts the pin recorded at bake time, falling back to the live pin on older images", () => {
-    const source = { url: "https://files.cmux.com/x", sha256: "f".repeat(64), commit: "abc", builtAt: null };
+    const source = { url: "https://files.cmux.com/x", sha256: "f".repeat(64), commit: "abc", builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) };
     const check = freestylePinCheckCommand(source);
     expect(check).toContain("if [ -s /etc/cmux/cmux-tui-pin ]; then");
     expect(check).toContain("cut -d' ' -f1 /etc/cmux/cmux-tui-pin");
@@ -388,7 +388,7 @@ describe("Freestyle platform contract", () => {
         url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
         sha256: "0".repeat(64),
         commit: "abc",
-        builtAt: null,
+        builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
       }),
     });
 
@@ -601,7 +601,7 @@ describe("FreestyleProvider resume policy", () => {
         url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
         sha256: "0".repeat(64),
         commit: "abc",
-        builtAt: null,
+        builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
       }),
     });
 
@@ -707,7 +707,7 @@ describe("Freestyle machine sizing", () => {
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
-  const SOURCE_OK = { url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64", sha256: "0".repeat(64), commit: "abc", builtAt: null };
+  const SOURCE_OK = { url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64", sha256: "0".repeat(64), commit: "abc", builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) };
 
   /** The attach bundle's fenced stdout with the trusted-listener probe printing `trusted`. */
   function bundleStdout(trusted: "0" | "1"): string {
@@ -776,6 +776,110 @@ describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
     const fake = attachFake({ trusted: ["0", "0"], manifest: "ok" });
     await expect(fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] })).rejects.toThrow(ProviderError);
     await expect(fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] })).rejects.toThrow(/still refuses the trusted listener/);
+  });
+});
+
+describe("Freestyle openCmuxRemote: agent hooks on a healthy daemon", () => {
+  const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
+  const PIN_COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
+  const SOURCE = { url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64", sha256: "0".repeat(64), commit: PIN_COMMIT, builtAt: null, hookUrl: `https://files.cmux.com/cmux-tui/${PIN_COMMIT}/cmux-tui-hook-x86_64-unknown-linux-musl`, hookSha256: "1".repeat(64) };
+
+  /**
+   * A machine whose daemon is healthy and trusted; `hooksReady` is what the
+   * hooks-ready probe exits, `pin` what /etc/cmux/cmux-tui-pin holds. Records
+   * every manifest URL the driver resolved.
+   */
+  function hooksFake(input: { readonly hooksReady: number; readonly pin: string; readonly manifest?: "ok" | "missing-helper" }) {
+    const execs: string[] = [];
+    const manifests: (string | undefined)[] = [];
+    const vm = {
+      data: async () => PRIVATE,
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        if (command.includes("__CMUX_PROBE__")) {
+          return { statusCode: 0, stdout: ["__CMUX_PROBE__", JSON.stringify({ build_identity: "abc", remote_protocol: 12, version: "0.1.0" }), "__CMUX_DEVICES__", "[]", "__CMUX_TRUSTED__", "1", "__CMUX_END__"].join("\n"), stderr: "" };
+        }
+        if (command.includes("cmux-tui-pin")) return { statusCode: 0, stdout: `${input.pin}\n`, stderr: "" };
+        if (command.includes(".local/share/cmux-tui/bin/cmux-tui-hook") && !command.includes("agent hook install")) {
+          return { statusCode: input.hooksReady, stdout: "", stderr: "" };
+        }
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async (_provider, manifestUrl) => {
+        manifests.push(manifestUrl);
+        if (input.manifest === "missing-helper") throw new ProviderError("freestyle", "manifest has no cmux-tui-hook");
+        return SOURCE;
+      },
+    });
+    return { provider, execs, manifests };
+  }
+
+  test("a healthy daemon with hooks already installed is left alone", async () => {
+    const fake = hooksFake({ hooksReady: 0, pin: PIN_COMMIT });
+    await fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    expect(fake.execs.some((command) => command.includes("agent hook install"))).toBe(false);
+    expect(fake.manifests).toEqual([]);
+  });
+
+  test("a healthy daemon without hooks gets the helper of its own pinned commit and the Claude Code and Codex hooks, with no restart", async () => {
+    const fake = hooksFake({ hooksReady: 1, pin: PIN_COMMIT });
+    await fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    // The bake's pin, not the rolling pointer: helper and daemon share a generation.
+    expect(fake.manifests).toEqual([`https://files.cmux.com/cmux-tui/${PIN_COMMIT}/manifest.json`]);
+    const install = fake.execs.find((command) => command.includes("agent hook install claude codex"));
+    expect(install).toBeDefined();
+    expect(install).toContain(SOURCE.hookUrl);
+    expect(install).not.toContain(SOURCE.url);
+    expect(fake.execs.some((command) => command.includes("systemctl restart cmux-tui-daemon"))).toBe(false);
+  });
+
+  test("a machine created from the live pin (no pin file) takes the live manifest", async () => {
+    const fake = hooksFake({ hooksReady: 1, pin: "" });
+    await fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    expect(fake.manifests).toEqual([undefined]);
+    expect(fake.execs.some((command) => command.includes("agent hook install claude codex"))).toBe(true);
+  });
+
+  test("a daemon that only needed a restart still gets its hooks, and a hook failure never fails the heal", async () => {
+    // The first attach bundle reports the daemon not ready (exit 3); the heal
+    // finds the pin intact, restarts, and must still reconcile hooks. The hook
+    // install itself fails here, and the attach still returns its route.
+    const execs: string[] = [];
+    let bundles = 0;
+    const vm = {
+      data: async () => PRIVATE,
+      fs: { writeTextFile: async () => {}, remove: async () => {} },
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        if (command.includes("__CMUX_PROBE__")) {
+          bundles += 1;
+          if (bundles === 1) return { statusCode: 3, stdout: "", stderr: "" };
+          return { statusCode: 0, stdout: ["__CMUX_PROBE__", JSON.stringify({ build_identity: "abc", remote_protocol: 12, version: "0.1.0" }), "__CMUX_DEVICES__", "[]", "__CMUX_TRUSTED__", "1", "__CMUX_END__"].join("\n"), stderr: "" };
+        }
+        if (command.includes("agent hook install")) return { statusCode: 1, stdout: "", stderr: "helper download failed" };
+        if (command.includes("cmux-tui-pin")) return { statusCode: 0, stdout: `${PIN_COMMIT}\n`, stderr: "" };
+        if (command.includes(".local/share/cmux-tui/bin/cmux-tui-hook")) return { statusCode: 1, stdout: "", stderr: "" };
+        if (command.includes("pgrep -f 'cmux-tui server [s]tart'") && !command.includes("systemctl restart")) return { statusCode: 1, stdout: "", stderr: "" };
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => SOURCE });
+    const endpoint = await provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(execs.some((command) => command.includes("systemctl restart cmux-tui-daemon"))).toBe(true);
+    expect(execs.some((command) => command.includes("agent hook install claude codex"))).toBe(true);
+  });
+
+  test("a pinned build published before the helper existed still attaches, without hooks", async () => {
+    const fake = hooksFake({ hooksReady: 1, pin: PIN_COMMIT, manifest: "missing-helper" });
+    const endpoint = await fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] });
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(fake.execs.some((command) => command.includes("agent hook install"))).toBe(false);
   });
 });
 

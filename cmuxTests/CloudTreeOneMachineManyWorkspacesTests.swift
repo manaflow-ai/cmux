@@ -849,7 +849,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "the machine lists it, so it exists — with nothing in it"
         )
         #expect(CloudTreeNodeBuilder.lookupRemoteWorkspace("scratch", on: machine, snapshot: snapshot) == .ambiguous([scratchA, scratchB]))
-        // The rows agree: both scratch workspaces show under the one machine, each empty.
-        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.map(\.children.count) == [0, 0])
+        // Empty daemon workspaces remain resolvable, but the Cloud sidebar omits them.
+        #expect(rows(snapshot).filter { $0.structureTag == "workspace" }.isEmpty)
     }
 }

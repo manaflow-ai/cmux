@@ -439,9 +439,9 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (every workspace the
-        // machine reports, pointer rows under each), then Ports, VNC Displays (one row
-        // per screen), and last, its own section, Terminals (every terminal the machine owns).
+        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
+        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
@@ -450,12 +450,9 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1/tab:tab_1",
-            "machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
-            "machine:vivid-newt/ws/ws_empty",
-            "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -503,20 +500,15 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertNil(openIn, "nothing of it is open anywhere")
-        } else { XCTFail("expected ws_empty row") }
+        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces are omitted from the Cloud sidebar")
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_main/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertEqual(openIn, local, "ws_main shows locally, so its Desktop opens there")
-        } else { XCTFail("expected ws_main display row") }
+        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk"]!.kind {
+            XCTAssertEqual(openIn, remoteSideLocalWorkspace, "the actual desktop placement opens in ws_side")
+        } else { XCTFail("expected ws_side display row") }
         if case .display(_, let openIn, _) = openByID["resource:vivid-newt/display/display:1"]!.kind {
             XCTAssertNil(openIn, "the pool Desktop keeps the global open-or-focus")
         } else { XCTFail("expected pool display row") }
-        if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1"]!.kind {
-            XCTAssertNil(openIn, "ws_empty shows nowhere locally")
-        } else { XCTFail("expected ws_empty display row") }
         XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing(
             remoteWorkspaceID: wsEmpty.id,
             placements: [],
@@ -527,8 +519,7 @@ final class MachinesPanelModelTests: XCTestCase {
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
             [remoteA.id, display.id]
         )
-        // An implicit display row (no view pins it) shows under the workspace but
-        // stays out of the workspace's open/drag group.
+        // The workspace's open/drag group carries only actual remote placements.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
@@ -555,11 +546,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.resource.agent?.source, "claude")
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
-        // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count, _, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
-            XCTAssertEqual(workspace.name, "scratch")
-            XCTAssertEqual(count, 0)
-        } else { XCTFail("expected empty workspace row") }
+        XCTAssertNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces are not sidebar rows")
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
@@ -573,13 +560,12 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
-            "vivid-newt/display/display:1",
             "vivid-newt/browser/port:3000",
             "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
-        ], "one drag resource per pointer (or implicit display) row, then the port, the screen, then the Terminals rows")
+        ], "one drag resource per actual pointer row, then the port, the screen, then the Terminals rows")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))

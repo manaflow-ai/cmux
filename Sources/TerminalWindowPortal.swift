@@ -1125,7 +1125,11 @@ final class WindowTerminalPortal: NSObject {
         // carries the exact geometry the last pass left behind, so it dies
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
-        guard ensureInstalled() else { return }
+        // Installation must not consume this pass's layout change before the
+        // settlement check. Otherwise its second hierarchy sync immediately
+        // sees the signature the first one just wrote and publishes a transient
+        // terminal size during workspace reveal.
+        guard ensureInstalled(syncLayout: false) else { return }
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")

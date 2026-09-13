@@ -26,7 +26,6 @@ services/apns/payload.ts	786bfe796e1806b16dd802099a961cd734958083f1c0eefcb6f4854
 services/apns/pushDeliveryService.ts	6258d03114757eafd0088eeb085e109c03252d7c17a53906ff224a9381db1f09	async function `executePushDeliveryWithTargets` has a complexity of 26. Maximum allowed is 20.
 services/apns/routePolicy.ts	e08fa5b2b19927a0bbbb66651547022d267452bed35c8ea1fb858ee144fb0ace	function `parsePushPayload` has a complexity of 42. Maximum allowed is 20.
 services/apns/sender.ts	1653b1b61816989f332044e0acedde8abff7c291d02c78149c7403a2d8dec0be	async function `sendApnsNotificationReliably` has a complexity of 27. Maximum allowed is 20.
-services/billing/pro.ts	f8f6c885f585a8316e725f859fb00b833a35e306a6118b8a0a50cf847745cf82	async function `resolveProPlanStatus` has a complexity of 25. Maximum allowed is 20.
 services/billing/purchase.ts	4ea33a458e56d6d8f9462808ea65bb5ea1637a04fe6076b6adc014a4ad5e9a12	async function `recordProCheckoutCompletionByEmail` has a complexity of 34. Maximum allowed is 20.
 services/billing/purchase.ts	6bb48cb9b3f67bb0c4bbc2721b99b909db0197934100c3e6a878605aec2571ee	async function `recordCheckoutCompletion` has a complexity of 48. Maximum allowed is 20.
 services/billing/purchase.ts	7037e3c17ec1b582f41070dfceffc30ff7b563abe5772dbd0ecb857c04339dd4	async function `applySubscriptionUpdate` has a complexity of 31. Maximum allowed is 20.

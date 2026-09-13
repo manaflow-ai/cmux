@@ -243,11 +243,10 @@ private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bo
            CodexHookScriptName(filename: scriptFilename)?.subcommand == candidate {
             return true
         }
-        // Keep the legacy inline matcher conservative. A quoted script path is
-        // handled structurally above; this fallback is only for old generated
-        // shell snippets and must not treat escaped user commands as cmux-owned.
         if !command.contains("\\"),
-           command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
+           command.contains("cmux-codex-hook"),
+           command.contains("hooks codex \(candidate)")
+            || command.contains("hooks enqueue codex \(candidate)") {
             return true
         }
     }

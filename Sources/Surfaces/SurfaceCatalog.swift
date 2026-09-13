@@ -748,6 +748,13 @@ final class SurfaceCatalog {
         }) {
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
+            if resource.kind != .terminal,
+               let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,
+               let browser = SurfacePaneFactory.browserPanel(panelID: resolved.panelID, in: resolved.workspaceID),
+               (browser.cloudAccess.model == nil || browser.cloudAccess.model?.phase == .closed),
+               let raw = resource.url, let url = URL(string: raw) {
+                provider.configureBrowser(browser, url: url)
+            }
             if focus { focusProjection?(resolved) }
             return (resolved, true)
         }
@@ -1368,6 +1375,10 @@ final class SurfaceCatalog {
 
     func resource(forPanel panelID: UUID) -> SurfaceResource? {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
+    }
+
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
     }
 
     // MARK: Restore

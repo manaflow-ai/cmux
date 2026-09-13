@@ -91,6 +91,17 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
         },
       },
+      {
+        id: "newCloudWorkspace",
+        combos: [["⌘", "Y"]],
+        description: { en: "New cloud workspace", ja: "新規クラウドワークスペース", "zh-CN": "新建云工作区", "zh-TW": "新增雲端工作區", "ko": "새 클라우드 워크스페이스", "de": "Neuer Cloud-Arbeitsbereich", "es": "Nuevo espacio de trabajo en la nube", "fr": "Nouvel espace de travail cloud", "it": "Nuovo spazio di lavoro cloud", "da": "Nyt cloud-arbejdsområde", "pl": "Nowy obszar roboczy w chmurze", "ru": "Новое облачное рабочее пространство", "bs": "Novi cloud radni prostor", "ar": "مساحة عمل سحابية جديدة", "no": "Nytt skyarbeidsområde", "pt-BR": "Novo espaço de trabalho na nuvem", "th": "เวิร์กสเปซคลาวด์ใหม่", "tr": "Yeni bulut çalışma alanı", "km": "កន្លែងធ្វើការលើពពកថ្មី", "uk": "Новий хмарний робочий простір" },
+        note: {
+          en: "creates a workspace on the starred default cmux Cloud machine",
+          ja: "スター付きのデフォルト cmux Cloud マシンにワークスペースを作成します",
+          "zh-CN": "在带星标的默认 cmux Cloud 机器上创建工作区", "zh-TW": "在加星號的預設 cmux Cloud 機器上建立工作區", "ko": "별표 표시된 기본 cmux Cloud 머신에 워크스페이스를 만듭니다", "de": "Erstellt einen Arbeitsbereich auf der markierten cmux Cloud-Standardmaschine", "es": "Crea un espacio en la máquina cmux Cloud predeterminada destacada", "fr": "Crée un espace sur la machine cmux Cloud par défaut marquée", "it": "Crea uno spazio sulla macchina cmux Cloud predefinita contrassegnata", "da": "Opretter et arbejdsområde på den stjernemarkerede cmux Cloud-standardmaskine", "pl": "Tworzy obszar roboczy na oznaczonej gwiazdką domyślnej maszynie cmux Cloud", "ru": "Создаёт рабочее пространство на отмеченной звёздочкой машине cmux Cloud по умолчанию", "bs": "Kreira radni prostor na označenoj podrazumijevanoj cmux Cloud mašini", "ar": "ينشئ مساحة عمل على جهاز cmux Cloud الافتراضي المميز بنجمة", "no": "Oppretter et arbeidsområde på den stjernemerkede standardmaskinen i cmux Cloud", "pt-BR": "Cria um espaço de trabalho na máquina cmux Cloud padrão marcada", "th": "สร้างเวิร์กสเปซบนเครื่อง cmux Cloud เริ่มต้นที่ติดดาว", "tr": "Yıldızlı varsayılan cmux Cloud makinesinde çalışma alanı oluşturur", "km": "បង្កើតកន្លែងធ្វើការនៅលើម៉ាស៊ីន cmux Cloud លំនាំដើមដែលមានផ្កាយ", "uk": "Створює робочий простір на позначеній зірочкою машині cmux Cloud за замовчуванням",
+        },
+      },
+      { id: "newCloudMachine", combos: [["⇧", "⌘", "Y"]], description: {"en": "New cloud machine", "ja": "新規クラウドマシン", "zh-CN": "新建云机器", "zh-TW": "新增雲端機器", "ko": "새 클라우드 머신", "de": "Neue Cloud-Maschine", "es": "Nueva máquina en la nube", "fr": "Nouvelle machine cloud", "it": "Nuova macchina cloud", "da": "Ny cloud-maskine", "pl": "Nowa maszyna w chmurze", "ru": "Новая облачная машина", "bs": "Nova mašina u oblaku", "ar": "جهاز سحابي جديد", "no": "Ny skymaskin", "pt-BR": "Nova máquina na nuvem", "th": "เครื่องคลาวด์ใหม่", "tr": "Yeni bulut makinesi", "km": "ម៉ាស៊ីនលើពពកថ្មី", "uk": "Нова хмарна машина"} },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {

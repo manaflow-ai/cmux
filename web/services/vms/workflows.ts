@@ -383,7 +383,9 @@ export function reconcileVmProviderStatuses(input: {
           ensureNetwork(owner.provider, { slug: networkSlugForUser(owner.userId), heal: true }).pipe(
             Effect.catchAll(() => Effect.void),
           ),
-        { concurrency: 4, discard: true },
+        // Freestyle returns 429 when several VPC rule heals run together.
+        // One owner at a time keeps healing bounded.
+        { concurrency: 1, discard: true },
       );
     }
     let updated = 0;
@@ -1503,6 +1505,16 @@ function finalizeNativeForkReservation(
   );
 }
 
+/**
+ * Select native cloning only when the driver declares that capability. The
+ * gateway exposes a fork function for every provider, but unsupported drivers
+ * fail inside that function; checking its presence alone selects the wrong path.
+ */
+function providerForksNatively(providers: VmProviderGatewayShape, provider: ProviderId): boolean {
+  if (provider !== "freestyle" || providers.fork === undefined) return false;
+  return providers.capabilities?.(provider).fork ?? true;
+}
+
 export function forkVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1544,7 +1556,7 @@ export function forkVm(input: {
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = !input.modelPlane && source.provider === "freestyle" && providers.fork !== undefined;
+    const nativeFork = !input.modelPlane && providerForksNatively(providers, source.provider) ? providers.fork : undefined;
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1625,7 +1637,7 @@ export function forkVm(input: {
       const handle = yield* measureVmEffect(
         input.timing,
         "provider_create",
-        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+        nativeFork(source.provider, source.providerVmId ?? input.providerVmId),
       ).pipe(
         Effect.tapError((err) =>
           Effect.all([
@@ -1756,6 +1768,7 @@ export function forkVm(input: {
       provider: source.provider,
       imageId: source.imageId,
       metadata: {
+        native: false,
         snapshotId: snapshot.id,
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
@@ -2809,8 +2822,9 @@ export function getVmStats(input: {
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
-}) {
+}): VmWorkflowProgram<VMStats> {
   return Effect.gen(function* () {
+    const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
     // No resume preflight on purpose: a reading must never wake a sleeping machine.
@@ -2823,7 +2837,20 @@ export function getVmStats(input: {
         }),
       );
     }
-    return yield* providers.getStats(vm.provider, input.providerVmId);
+    return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
+      Effect.mapError((error): VmWorkflowError => error),
+      Effect.catchAll((error) => {
+        if (!isProviderNotFoundError(error)) return Effect.fail(error);
+        return Effect.gen(function* () {
+          yield* repo.markProviderObservedStatus({
+            id: vm.id,
+            providerVmId: input.providerVmId,
+            status: "destroyed",
+          }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+        });
+      }),
+    );
   });
 }
 

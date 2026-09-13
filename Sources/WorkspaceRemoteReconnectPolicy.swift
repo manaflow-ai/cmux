@@ -51,6 +51,11 @@ enum CloudTerminalReconnectOverlayPolicy {
         let detail: String
         let showsProgress: Bool
         let showsReconnectButton: Bool
+        var diagnosticReference: String? = nil
+
+        var copyableError: String {
+            ([title, detail] + (diagnosticReference.map { [$0] } ?? [])).joined(separator: "\n")
+        }
     }
 
     static func presentation(

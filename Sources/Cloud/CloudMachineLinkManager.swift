@@ -38,6 +38,7 @@ actor CloudMachineLinkManager {
         }
     }
 
+    nonisolated let operations: CloudOperationRecorder?
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
@@ -73,6 +74,7 @@ actor CloudMachineLinkManager {
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
         hub: CloudWireGuardHub? = nil,
+        operations: CloudOperationRecorder? = nil,
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
             await MainActor.run {
                 let app = GhosttyApp.shared
@@ -80,6 +82,7 @@ actor CloudMachineLinkManager {
             }
         }
     ) {
+        self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
         self.hub = hub
@@ -124,6 +127,16 @@ actor CloudMachineLinkManager {
 
     /// The link for `machineID`, connecting (and enrolling) if needed.
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        if let context = CloudOperationContext.current {
+            return try await context.withPhase(.connect) { try await self.connectMeasured(machineID: machineID) }
+        }
+        if let operations {
+            return try await operations.perform(.connect, foreground: false) { try await self.connectMeasured(machineID: machineID) }
+        }
+        return try await connectMeasured(machineID: machineID)
+    }
+
+    private func connectMeasured(machineID: String) async throws -> CloudMachineLink.Connected {
         if let link = links[machineID], await link.isConnected, let connected = await link.connected {
             return connected
         }
@@ -178,11 +191,11 @@ actor CloudMachineLinkManager {
                 throw ManagerError.wireGuardHubUnsupported
             }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
-            let claim = try await hub.acquire()
+            let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
             let reachableRoute: String
             do {
-                reachableRoute = try await resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
             } catch {
                 await releaseLease()
                 throw error
@@ -337,6 +350,10 @@ actor CloudMachineLinkManager {
             cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
             #endif
         } catch {
+            if let operations {
+                let context = await operations.begin(.environment, foreground: false)
+                await operations.finish(context, error: error)
+            }
             #if DEBUG
             cmuxDebugLog("cloud.link.themeFailed machine=\(machineID) error=\(CloudMachineLink.errorText(error))")
             #endif

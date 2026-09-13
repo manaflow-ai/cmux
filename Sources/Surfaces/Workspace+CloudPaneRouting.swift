@@ -117,6 +117,7 @@ extension Workspace {
         alert.informativeText = CloudMachineLink.errorText(error)
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
         alert.runModal()
     }
 }

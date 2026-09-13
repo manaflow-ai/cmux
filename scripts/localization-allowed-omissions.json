@@ -3015,5 +3015,20 @@
         ]
       }
     }
+  },
+  "cloud.ports.title": {
+    "source": "Ports",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "fr": "Standard technical UI term with the same spelling in this language."
+    }
+  },
+  "cloud.ports.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "da": "Standard technical UI term with the same spelling in this language.",
+      "nb": "Standard technical UI term with the same spelling in this language."
+    }
   }
 }

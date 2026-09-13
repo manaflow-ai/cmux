@@ -78,7 +78,7 @@ struct CloudVPNSetupPanelView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text(String(localized: "cloud.vpn.setup.status.off", defaultValue: "Off. Your Cloud panes continue to work through cmux's built-in route."))
+                Text(String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection."))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
             }

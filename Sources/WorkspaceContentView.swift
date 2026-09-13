@@ -94,10 +94,7 @@ private struct WorkspacePanelContentHostView: View {
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
             onTriggerFlash: onTriggerFlash,
             onRequestDeferredBrowserMaterialization: {
-                workspace.requestDeferredBrowserMaterialization(
-                    panelId: panel.id,
-                    isVisibleInUI: isVisibleInUI
-                )
+                workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
             }
         )
     }
@@ -298,7 +295,9 @@ struct WorkspaceContentView: View {
                             && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
+                        appearance: appearance,
+                        windowAppearance: windowAppearance,
+                        customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
@@ -338,8 +337,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 }
+            } else if workspace.cloudVMID != nil {
+                TerminalPanelUnavailableView(appearance: appearance)
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in

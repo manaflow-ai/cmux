@@ -15,6 +15,13 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
     }
 
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        guard let resource = SurfaceCatalog.shared.resource(forPanel: sourcePanelId),
+              let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
+              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
+        return target
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId _: UUID,
         filePath _: String,

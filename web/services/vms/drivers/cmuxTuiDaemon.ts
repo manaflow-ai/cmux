@@ -114,9 +114,26 @@ export function cmuxTuiAsDaemonUser(command: string, options?: { readonly exec?:
   );
 }
 
-export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
+/**
+ * One commit's Linux build: the daemon binary and its `cmux-tui-hook` helper,
+ * both from the same manifest so the hook records a daemon of its own
+ * generation writes into the journal.
+ */
+export type CmuxTuiSource = {
+  url: string;
+  sha256: string;
+  commit: string;
+  builtAt: string | null;
+  hookUrl: string;
+  hookSha256: string;
+};
 
 export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
+export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
+/** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
+export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
+/** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
+export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex"] as const;
 export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
@@ -143,12 +160,17 @@ export function parseCmuxTuiManifest(
   const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
   const commit = typeof record.commit === "string" ? record.commit : "";
   const binaries = record.binaries && typeof record.binaries === "object" ? record.binaries as Record<string, unknown> : {};
-  const sha256 = typeof binaries[CMUX_TUI_LINUX_TARGET] === "string" ? (binaries[CMUX_TUI_LINUX_TARGET] as string).toLowerCase() : "";
+  const digest = (target: string): string => (typeof binaries[target] === "string" ? (binaries[target] as string).toLowerCase() : "");
+  const sha256 = digest(CMUX_TUI_LINUX_TARGET);
+  const hookSha256 = digest(CMUX_TUI_HOOK_LINUX_TARGET);
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no commit`);
   }
   if (!/^[0-9a-f]{64}$/.test(sha256)) {
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
+    throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_HOOK_LINUX_TARGET} sha256 — the hook helper ships beside the daemon since cmux-tui-artifacts publishes both`);
   }
   const base = manifestUrl.replace(/\/manifest\.json$/, "");
   return {
@@ -156,14 +178,36 @@ export function parseCmuxTuiManifest(
     sha256,
     commit,
     builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
+    hookUrl: `${base}/${CMUX_TUI_HOOK_LINUX_TARGET}`,
+    hookSha256,
   };
+}
+
+/** The manifest of one published commit, a sibling of the rolling `latest` pointer. */
+export function cmuxTuiPinnedManifestUrl(commit: string, provider: ProviderId = "freestyle"): string {
+  if (!/^[0-9a-f]{40}$/.test(commit)) {
+    throw new ProviderError(provider, `cmux-tui pin commit ${JSON.stringify(commit)} is not a full sha`);
+  }
+  const url = new URL(cmuxTuiManifestUrl(provider));
+  const segments = url.pathname.split("/");
+  if (segments.at(-1) !== "manifest.json") {
+    throw new ProviderError(provider, `cmux-tui manifest URL ${url.href} does not end in /manifest.json`);
+  }
+  // `<base>/<pointer>/manifest.json` -> `<base>/<commit>/manifest.json`; a
+  // root-level `/manifest.json` gains the commit segment. Origin and query survive.
+  if (segments.length >= 3) segments[segments.length - 2] = commit;
+  else segments.splice(segments.length - 1, 0, commit);
+  url.pathname = segments.join("/");
+  return url.href;
 }
 
 let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
 
 /** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). */
-export async function resolveCmuxTuiSource(provider: ProviderId = "freestyle"): Promise<CmuxTuiSource> {
-  const manifestUrl = cmuxTuiManifestUrl(provider);
+export async function resolveCmuxTuiSource(
+  provider: ProviderId = "freestyle",
+  manifestUrl: string = cmuxTuiManifestUrl(provider),
+): Promise<CmuxTuiSource> {
   if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
     return cmuxTuiSourceCache.source;
   }
@@ -204,25 +248,107 @@ export function resetCmuxTuiSourceCache(): void {
  * Runs as root and installs into the daemon's own home, so a work-user machine
  * gets a binary its sessions can execute (/root is 0700) and a legacy machine
  * keeps the one it already has.
+ *
+ * The same command installs the coding-agent hooks (`cmuxTuiAgentHooksInstallCommand`),
+ * so a machine from the bake and a machine healed on attach both ship them.
  */
 export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   const bin = '"$CMUX_TUI_BIN"';
   const tmp = '"$CMUX_TUI_TMP"';
-  const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-  const fetch =
-    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
-    `elif command -v wget >/dev/null 2>&1; then wget -q -O ${tmp} ${shellQuote(source.url)}; ` +
-    `else false; fi`;
   return [
     cmuxTuiLayoutSelector(),
     `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
     `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
-    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
+    `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    ...hookHelperInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} 2>/dev/null || true; fi`,
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
     `${bin} --version`,
+    ...agentHooksInstallSteps(),
   ].join(" && ");
+}
+
+const HOOK_BIN = '"$CMUX_TUI_HOOK_BIN"';
+const HOOK_TMP = '"$CMUX_TUI_HOOK_TMP"';
+/** Where `cmux-tui agent hook install` copies the helper for the daemon user (agent_hook_install.rs installed_helper). */
+const INSTALLED_HOOK = '"$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"';
+
+function pinnedFile(sha256: string, path: string): string {
+  return `printf '%s  %s\n' ${shellQuote(sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
+}
+
+function fetchTo(path: string, url: string): string {
+  return (
+    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${path} ${shellQuote(url)}; ` +
+    `elif command -v wget >/dev/null 2>&1; then wget -q -O ${path} ${shellQuote(url)}; ` +
+    `else false; fi`
+  );
+}
+
+/**
+ * The `cmux-tui-hook` helper lands beside the daemon binary: that is the one
+ * place `cmux-tui agent hook install` looks for it without a PATH search
+ * (agent_hook_install.rs locate_helper_source). Same pin discipline as the daemon.
+ */
+function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
+  return [
+    `CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"`,
+    `CMUX_TUI_HOOK_TMP="$CMUX_TUI_HOOK_BIN.tmp"`,
+    `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${fetchTo(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
+  ];
+}
+
+/**
+ * Writes the Claude Code and Codex hook entries for the daemon user and copies
+ * the helper into that user's data dir, then proves it: the installed helper
+ * is byte-equal to the pinned one and every provider config carries the
+ * cmux marker. Idempotent (the installer rewrites nothing that already matches).
+ * The daemon exports CMUX_TUI_HOOK into every pane it spawns, so no restart is
+ * needed for an already running daemon; agents pick the hooks up at their
+ * next launch.
+ */
+function agentHooksInstallSteps(): string[] {
+  return [
+    cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" agent hook install ${CMUX_TUI_HOOK_PROVIDERS.join(" ")} >/dev/null`),
+    cmuxTuiHooksReadyCheck(),
+  ];
+}
+
+/**
+ * Readiness comes from the installer's own structured status, so a hook entry
+ * a user edited or reordered (reported `partial`) is repaired instead of
+ * passing a text grep; plus the helper beside the daemon must be byte-equal
+ * to the one the daemon user runs.
+ */
+function cmuxTuiHooksReadyCheck(): string {
+  const providers = CMUX_TUI_HOOK_PROVIDERS.join(" ");
+  const installed = JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS]);
+  return [
+    `test -x ${INSTALLED_HOOK}`,
+    `cmp -s ${HOOK_BIN} ${INSTALLED_HOOK}`,
+    cmuxTuiAsDaemonUser(`"$CMUX_TUI_BIN" --json agent hook status ${providers}`) +
+      ` | python3 -c 'import json, sys; r = json.load(sys.stdin); s = {p["provider"]: p["state"] for p in r.get("providers", [])}; sys.exit(0 if all(s.get(i) == "installed" for i in ${installed}) else 1)'`,
+  ].join(" && ");
+}
+
+/**
+ * Hooks alone, for a machine whose daemon is healthy and pinned but predates
+ * hook installation: fetch the helper for the daemon's own commit and install
+ * the provider entries. Never touches the daemon binary or its state.
+ */
+export function cmuxTuiAgentHooksInstallCommand(source: CmuxTuiSource): string {
+  return [
+    cmuxTuiLayoutSelector(),
+    ...hookHelperInstallSteps(source),
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" ${HOOK_BIN} 2>/dev/null || true; fi`,
+    ...agentHooksInstallSteps(),
+  ].join(" && ");
+}
+
+/** Exit 0 when the daemon user's coding-agent hooks are installed and current. */
+export function cmuxTuiHooksReadyCommand(): string {
+  return `${cmuxTuiLayoutSelector()} && CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook" && ${cmuxTuiHooksReadyCheck()}`;
 }
 
 /** True when the installed binary matches the manifest pin (exit 0 from this command). */

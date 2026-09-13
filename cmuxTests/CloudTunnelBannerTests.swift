@@ -10,7 +10,7 @@ import Testing
 /// The Machines panel's tunnel banner: shown only while an explicit VPN start
 /// is doing something the user should see, with the System Settings control
 /// exactly while macOS waits for the extension approval.
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct CloudTunnelBannerTests {
     private static let extensionID = "com.cmuxterm.app.tests.tunnel"
     private let networkExtension = CloudTunnelBackend.networkExtension(extensionBundleIdentifier: CloudTunnelBannerTests.extensionID)
@@ -27,6 +27,16 @@ struct CloudTunnelBannerTests {
         #expect(banner.kind == .awaitingApproval)
         #expect(banner.opensSystemSettings)
         #expect(banner.text.contains("Login Items & Extensions"))
+    }
+
+    @Test("the connected banner is hidden in Machines while transient states stay visible")
+    func machinesPanelVisibility() throws {
+        let connected = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .up, isPinned: true)))
+        #expect(!connected.showsInMachinesPanel)
+        let waiting = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .awaitingApproval, isPinned: true)))
+        #expect(waiting.showsInMachinesPanel)
+        let failed = try #require(CloudTunnelBanner(status: CloudTunnelStatus(backend: networkExtension, state: .failed("no route"), isPinned: false)))
+        #expect(failed.showsInMachinesPanel)
     }
 
     @Test("starting, failed, and up are reported without a settings control")

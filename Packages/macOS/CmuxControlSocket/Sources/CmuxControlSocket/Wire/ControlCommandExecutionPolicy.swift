@@ -91,6 +91,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        // Admission only appends an immutable event to the actor-owned queue;
+        // all downstream process/socket work happens after the reply.
+        "agent.hook.enqueue",
+        "agent.hook.barrier",
         // Performs a fresh off-main process scan before one agent exec. Only
         // the final target revalidation and launch claim hop to MainActor.
         "agent.restore.admit",

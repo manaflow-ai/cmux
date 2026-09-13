@@ -7,12 +7,14 @@ import SwiftUI
 /// the request to ``MachineCreateCoordinator`` and the sheet ends at once, so
 /// the window is modal for exactly as long as the person is choosing.
 @MainActor
-final class NewMachineSheetPresenter {
+final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
     private var hostWindow: NSWindow?
     private var model: NewMachineModel?
+    private var pendingSelectionID: UUID?
+    private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
     private init() {}
 
@@ -98,22 +100,80 @@ final class NewMachineSheetPresenter {
         present(model: model, preferredWindow: preferredWindow)
     }
 
-    /// Entrypoints with no panel state on hand (command palette) read the
-    /// fleet page first for the plan meter and sizes. A nil page (signed
-    /// out, unreachable) still opens the sheet; the CLI reports the real error
-    /// through the Machines panel when the person creates.
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) {
-        Task { @MainActor in
-            var page: VMListPage?
-            if let client = VMClient.shared {
-                page = try? await client.listPage()
-            }
-            presentNewMachine(
-                plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
-                memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
-                preferredWindow: preferredWindow
-            )
+    /// Presents provisioning and awaits the exact local workspace receipt.
+    /// Synchronous menu callers own the surrounding Task; the machine coordinator
+    /// continues to publish the pending machine row while this method awaits.
+    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+        guard !isPresenting, pendingSelectionID == nil else {
+            (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
+            return nil
         }
+        let selectionID = UUID()
+        pendingSelectionID = selectionID
+        let coordinator = MachineCreateCoordinator.shared
+        var page: VMListPage?
+        if let client = VMClient.shared { page = try? await client.listPage() }
+        guard !Task.isCancelled, !isPresenting else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
+        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
+        guard !(plan?.isAtLimit == true && plan?.isPaidPlan == false) else {
+            finishSelection(selectionID, request: nil)
+            ProUpgradePresenter.present(source: .newMachineAtLimit)
+            return nil
+        }
+        let request = await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
+                pendingSelectionContinuation = continuation
+                guard !Task.isCancelled else {
+                    finishSelection(selectionID, request: nil)
+                    return
+                }
+                let model = NewMachineModel(
+                    mode: .newMachine,
+                    plan: plan,
+                    memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    submit: { [weak self] request in
+                        guard let self, self.pendingSelectionID == selectionID else { return false }
+                        self.finishSelection(selectionID, request: request)
+                        return true
+                    }
+                )
+                model.onFinished = { [weak self] outcome in
+                    if case .cancelled = outcome {
+                        self?.finishSelection(selectionID, request: nil)
+                    }
+                }
+                present(model: model, preferredWindow: preferredWindow)
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.pendingSelectionID == selectionID else { return }
+                self.model?.cancel()
+                self.finishSelection(selectionID, request: nil)
+            }
+        })
+        guard let request, !Task.isCancelled else { return nil }
+        return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
+            var cancellation: CloudVMActionLauncher.CancellationHandle?
+            let didStart = MachineRowActions.openNewMachine(
+                arguments: arguments,
+                onOutput: progress,
+                onCompletion: { result in completion(result) },
+                onCancellationReady: { cancellation = $0 }
+            )
+            return didStart ? cancellation : nil
+        })
+    }
+
+    /// Completes only the active sheet selection; late cancellation cannot dismiss a newer sheet.
+    private func finishSelection(_ selectionID: UUID, request: MachineCreateRequest?) {
+        guard pendingSelectionID == selectionID else { return }
+        pendingSelectionID = nil
+        let continuation = pendingSelectionContinuation
+        pendingSelectionContinuation = nil
+        continuation?.resume(returning: request)
     }
 
     private func dismiss() {

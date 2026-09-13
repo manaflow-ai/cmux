@@ -1487,6 +1487,53 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testClaudeForkParentReportedSessionEndDoesNotClearForkPID() throws {
+        let context = try makeClaudeHookContext(name: "claude-fork-parent-end")
+        defer { context.cleanup() }
+
+        let parentSessionId = "parent-session"
+        let childSessionId = "child-session"
+        let parentSurfaceId = "99999999-9999-9999-9999-999999999999"
+        try seedClaudeForkHookStore(
+            context: context,
+            parentSessionId: parentSessionId,
+            parentSurfaceId: parentSurfaceId,
+            forkedSessionId: childSessionId,
+            forkedSurfaceId: context.surfaceId,
+            activeSessionId: childSessionId,
+            activeTurnId: nil
+        )
+
+        let start = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(childSessionId)","source":"fork","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandCount = context.state.commands.count
+        let result = runClaudeHookListingSurfaces(
+            context: context,
+            surfaceIds: [parentSurfaceId, context.surfaceId],
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: claudeForkLaunchEnvironment(context: context, parentSessionId: parentSessionId)
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let parentEndCommands = Array(context.state.commands.dropFirst(commandCount))
+        XCTAssertFalse(
+            parentEndCommands.contains { $0.hasPrefix("clear_agent_pid claude_code ") },
+            "A parent-reported fork SessionEnd must not clear the child PID on the fork pane, saw \(parentEndCommands)"
+        )
+        let parentRecord = try readClaudeHookSession(parentSessionId, context: context)
+        XCTAssertEqual(parentRecord["surfaceId"] as? String, parentSurfaceId)
+    }
+
     func testClaudeForkedSessionPromptSubmitRecordsWithSurfaceRefForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-surface-ref")
         defer { context.cleanup() }
