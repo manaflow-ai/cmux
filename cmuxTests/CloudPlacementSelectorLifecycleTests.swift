@@ -13,6 +13,39 @@ import Testing
 struct CloudPlacementSelectorLifecycleTests {
     private let machine = SurfaceMachineID.cloud("selector-lifecycle")
 
+    @Test
+    func anUnchangedViewCanCommitAndAReplacementViewIsNotGuessed() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        install(try graph(tabID: "tab_live"), catalog: catalog, provider: provider)
+        let id = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_live")
+        let view = try #require(catalog.resources[id]?.remoteViews?.first)
+        let opened = try await catalog.project(
+            id, into: .workspace(id: UUID(), placement: .tab), focus: false, remoteView: view
+        )
+        #expect(catalog.projections == [opened.projection])
+        #expect(opened.projection.remoteTabID == "tab_live")
+    }
+
+    @Test
+    func commandFailureDiagnosticsExcludeDaemonProseAndArguments() {
+        let diagnostic = CloudTuiCommandDiagnostic(
+            arguments: ["--socket", "/private/socket", "--json", "tab", "tab_expected", "move", "--name", "private-name"],
+            output: #"{"code":"selector.not_found","details":{"scope":"tab","selector":"tab_expected"},"message":"private-command /home/user/secret"}"#
+        )
+        #expect(diagnostic.operation == "tab.move")
+        #expect(diagnostic.code == "selector.not_found")
+        #expect(diagnostic.scope == "tab")
+        #expect(!String(reflecting: diagnostic).contains("private"))
+        #expect(CloudTuiDaemonAnswer.isMissingSelector(CloudMachineLink.LinkError.exited(
+            status: 1, output: #"{"code":"selector.not_found","details":{"scope":"tab","selector":"tab_expected"}}"#
+        )))
+        #expect(!CloudTuiDaemonAnswer.isMissingSelector(CloudMachineLink.LinkError.exited(
+            status: 1, output: "unrelated failure mentioning selector.not_found"
+        )))
+    }
+
     @Test(arguments: [false, true])
     func removedViewCannotCommitAfterMaterialization(reuse: Bool) async throws {
         let catalog = SurfaceCatalog()

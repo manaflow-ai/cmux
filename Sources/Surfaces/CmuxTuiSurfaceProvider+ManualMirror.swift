@@ -101,13 +101,12 @@ extension CmuxTuiSurfaceProvider {
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
+        var placement: SurfaceRemotePlacement?
         while true {
             try Task.checkCancellation()
             var resolution = await resolver.resolve(terminalID: terminalID)
             attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
-            var placement: SurfaceRemotePlacement?
-            if resolution == .noPlacement {
-                guard !requiresExistingView else { throw ProviderError.terminalNotCreated(terminalID) }
+            if resolution == .noPlacement, !requiresExistingView, placement == nil {
                 let projected = try await ensureRemoteTerminalView(
                     terminalID: terminalID,
                     socketPath: socketPath,
@@ -127,7 +126,7 @@ extension CmuxTuiSurfaceProvider {
                 // The remote shell already ended, including during projection.
                 throw ProviderError.terminalExited(terminalID)
             case .noPlacement:
-                lastReason = "the projected view did not resolve"
+                lastReason = "the requested view is not ready to attach"
                 lastFailure = .notReady
             case let .retryable(reason, failure):
                 lastReason = reason

@@ -22,7 +22,7 @@ struct CloudManualMirrorTransportTests {
         #expect(presentation.title == "Cloud terminal could not start")
         #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
         #expect(!presentation.showsProgress)
-        #expect(!presentation.showsReconnectButton)
+        #expect(presentation.showsReconnectButton)
         #expect(presentation.copyableError.contains("operation=op trace=trace"))
     }
     private let commands = CloudTuiManualIOCommand()

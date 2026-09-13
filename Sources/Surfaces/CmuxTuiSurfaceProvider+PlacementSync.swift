@@ -85,6 +85,15 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
             }
             var existingTabID = tabID
             var command = arguments(connected.socketPath, destination.target, destination.revision, key)
+            if let tabID {
+                guard let source = await CmuxTuiSnapshotParser.tabPlacement(from: snapshot, tabID: tabID),
+                      source.workspaceID != nil else {
+                    throw SurfaceCatalogError.unsupported(String(
+                        localized: "cloudPane.layoutSyncFailed.ambiguous",
+                        defaultValue: "The pane does not identify a unique machine tab. Reopen it from the machine workspace."
+                    ))
+                }
+            }
             if let terminalID {
                 guard let current = await CmuxTuiSnapshotParser.terminalPlacement(from: snapshot, terminalID: terminalID) else {
                     throw ProviderError.terminalNotCreated(terminalID)
@@ -105,7 +114,8 @@ extension CmuxTuiSurfaceProvider: SurfacePlacementSyncing {
                 ) else { throw ProviderError.terminalNotCreated(terminalID ?? tabID ?? remoteWorkspaceID) }
                 return placement
             } catch {
-                guard !retried, destination.revision != nil, Self.isRevisionConflict(error) else { throw error }
+                guard !retried, destination.revision != nil,
+                      Self.isRevisionConflict(error) || CloudTuiDaemonAnswer.isMissingSelector(error) else { throw error }
                 retried = true
             }
         }

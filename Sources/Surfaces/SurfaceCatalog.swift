@@ -620,24 +620,7 @@ final class SurfaceCatalog {
         // Resolve the opaque tab id against the current graph before any async
         // provider work. A stale view must fail, never silently attach to a
         // different placement after a concurrent daemon update.
-        let resolvedRemoteView: SurfaceRemoteView?
-        if let remoteView {
-            guard let current = resource.remoteViews?.first(where: { $0.tabID == remoteView.tabID }) else {
-                throw SurfaceCatalogError.unavailable(
-                    id,
-                    reason: "remote tab \(remoteView.tabID) is no longer present"
-                )
-            }
-            guard current.workspace.id == remoteView.workspace.id else {
-                throw SurfaceCatalogError.unavailable(
-                    id,
-                    reason: "remote tab \(remoteView.tabID) moved to workspace \(current.workspace.id)"
-                )
-            }
-            resolvedRemoteView = current
-        } else {
-            resolvedRemoteView = nil
-        }
+        let resolvedRemoteView = try validatedRemoteView(remoteView, for: id)
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
@@ -699,6 +682,8 @@ final class SurfaceCatalog {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
+        do { try validateMaterializedProjection(projection, requestedView: resolvedRemoteView) }
+        catch { provider.discardMaterialization(projection); throw error }
         record(projection)
         cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
@@ -799,6 +784,13 @@ final class SurfaceCatalog {
                 inFlightProjects[key] = nil
                 cleanupMaterialization(projection, from: inFlight.provider)
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
+                return
+            }
+            do { try validateMaterializedProjection(projection, requestedTabID: key.remoteTabID) }
+            catch {
+                inFlightProjects[key] = nil
+                cleanupMaterialization(projection, from: inFlight.provider)
+                resume(inFlight.waiters, throwing: error)
                 return
             }
             let returnedProjection: SurfaceProjection
@@ -1284,6 +1276,15 @@ final class SurfaceCatalog {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
     }
 
+    /// Persisted identity remains available for presentation before discovery.
+    func projectionIdentity(forPanel panelID: UUID, in workspaceID: UUID) -> SurfaceProjectionRecord? {
+        if let live = projection(forPanel: panelID), live.workspaceID == workspaceID {
+            return SurfaceProjectionRecord(panelID: panelID, resource: live.resource,
+                remoteWorkspaceID: live.remoteWorkspaceID, remoteTabID: live.remoteTabID)
+        }
+        return pendingRestoredProjections.first { $0.key.panelID == panelID && $0.value == workspaceID }?.key
+    }
+
     func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
         machines[machine]
     }
@@ -1370,7 +1371,6 @@ final class SurfaceCatalog {
     }
 
     // MARK: Snapshot
-
     var snapshot: SurfaceCatalogSnapshot {
         let orderedMachines = machines.values.sorted { lhs, rhs in
             if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
