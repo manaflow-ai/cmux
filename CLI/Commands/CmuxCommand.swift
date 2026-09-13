@@ -210,8 +210,9 @@ struct CmuxCommand: AsyncParsableCommand {
         ]
     )
 
-    /// Every command name and alias the facade owns. The router sends only these
-    /// to ArgumentParser; everything else falls through to the legacy parser.
+    /// Every command name and alias the facade declares, which is the set typo
+    /// suggestions draw from. The router does not consult it: only
+    /// `facadeNativeCommandNames` reach ArgumentParser.
     /// Cached: building this walks every subcommand's `configuration`, which
     /// evaluates localized abstracts and (for `coderouter`) locates the app
     /// bundle, so recomputing it on every invocation is measurably slow.
@@ -226,16 +227,16 @@ struct CmuxCommand: AsyncParsableCommand {
     }()
 
     /// Commands implemented by the ArgumentParser facade itself rather than
-    /// delegated back to the legacy command runner.
+    /// delegated back to the legacy command runner. These are the only commands
+    /// the router hands to ArgumentParser.
     static let facadeNativeCommandNames: Set<String> = [
         "__complete-candidates",
         "__dump-command-tree",
         "completion",
     ]
 
-    /// Runs the facade while preserving the legacy CLI's exit-status contract
-    /// for command-specific validation. ArgumentParser uses EX_USAGE (64) for
-    /// `ValidationError`; cmux historically reports these selector errors as 1.
+    /// Runs a facade-native command. A `CLIError` keeps its own exit code rather
+    /// than ArgumentParser's EX_USAGE (64), matching the legacy CLI.
     static func runFacade() async {
         do {
             var command = try parseAsRoot()
@@ -248,33 +249,11 @@ struct CmuxCommand: AsyncParsableCommand {
             } else {
                 try command.run()
             }
-        } catch let error as FacadeValidationError {
-            CMUXCLIOutput.writeStandardError("Error: \(error.message)\n")
-            CMUXCLIOutput.writeStandardError("\(usageString(for: error.command))\n")
-            Darwin.exit(error.exitCode)
         } catch let error as CLIError {
-            // The same suppression legacy `main()` applies, through the same
-            // predicate. A persistent attach wrapper exports
-            // CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY and owns the retry notice;
-            // `ssh-pty-attach` is facade-declared, so printing a retryable
-            // bridge failure here makes a healthy bounded reconnect look like a
-            // fatal SSH failure.
-            if !GlobalOptions().makeCLI().shouldSuppressSSHPTYAttachRetryError(error) {
-                CMUXCLIOutput.writeStandardError("Error: \(error)\n")
-            }
+            CMUXCLIOutput.writeStandardError("Error: \(error)\n")
             Darwin.exit(error.exitCode)
         } catch {
             exit(withError: error)
         }
     }
-}
-
-/// A validation failure whose diagnostic needs cmux's historical exit code.
-/// Rendering and process termination stay at the facade boundary, not in a
-/// command declaration. Legacy reports these selector errors via plain
-/// `CLIError(message:)`, whose default exit code is 1.
-struct FacadeValidationError: Error {
-    let message: String
-    let command: ParsableCommand.Type
-    let exitCode: Int32 = 1
 }
