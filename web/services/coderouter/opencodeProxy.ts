@@ -29,6 +29,7 @@ import {
   withCoderouterOperationDeadline,
 } from "./upstreamFetch";
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   VM_PLACEHOLDER_API_KEY,
   type RouteTokenAuthFailure,
@@ -60,7 +61,7 @@ type OpenCodeProxyRuntime = {
 };
 
 const defaultDependencies: OpenCodeDependencies = {
-  authenticate: authenticateRouteToken,
+  authenticate: authenticateCoderouterCredential,
   select: selectAccountForRequest,
   credential: freshCredential,
   remoteConfig,
@@ -457,6 +458,7 @@ export async function proxyOpenCodeRequest(
       requestId,
       teamId: auth.teamId,
       stackUserId: auth.stackUserId,
+      apiKeyId: auth.apiKeyId,
       vmId: auth.vmId,
       provider: "opencode-go",
       agent: "opencode",
@@ -634,7 +636,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 
 function captureOpenCodeHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -670,6 +672,7 @@ function captureOpenCodeHealth(input: {
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "opencode-go",
     agent: "opencode",

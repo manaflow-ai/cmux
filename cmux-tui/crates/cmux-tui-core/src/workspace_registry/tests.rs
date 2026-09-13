@@ -604,6 +604,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -697,6 +698,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_set_defaults: false,
         supports_clear_history: false,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -804,6 +806,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
