@@ -1813,6 +1813,7 @@
 		B6AB00000000000000000001 /* GuiModePanelPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AB00000000000000000002 /* GuiModePanelPage.swift */; };
 		B6A900000000000000000001 /* GuiModePanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A900000000000000000002 /* GuiModePanelState.swift */; };
 		B6A700000000000000000001 /* GuiModeProviderID.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A700000000000000000002 /* GuiModeProviderID.swift */; };
+		CA390001CA390001CA390001 /* GuiModeRenderingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA390002CA390002CA390002 /* GuiModeRenderingUITests.swift */; };
 		B6AA00000000000000000001 /* GuiModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AA00000000000000000002 /* GuiModeTests.swift */; };
 		B6A800000000000000000001 /* GuiModeWorkspaceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A800000000000000000002 /* GuiModeWorkspaceCoordinator.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
@@ -5482,6 +5483,7 @@
 		B6AB00000000000000000002 /* GuiModePanelPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelPage.swift"; sourceTree = "<group>"; };
 		B6A900000000000000000002 /* GuiModePanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelState.swift"; sourceTree = "<group>"; };
 		B6A700000000000000000002 /* GuiModeProviderID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeProviderID.swift"; sourceTree = "<group>"; };
+		CA390002CA390002CA390002 /* GuiModeRenderingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuiModeRenderingUITests.swift; sourceTree = "<group>"; };
 		B6AA00000000000000000002 /* GuiModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuiModeTests.swift; sourceTree = "<group>"; };
 		B6A800000000000000000002 /* GuiModeWorkspaceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GuiModeWorkspaceCoordinator.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
@@ -7585,6 +7587,7 @@
 				B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
 				A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */,
+				CA390002CA390002CA390002 /* GuiModeRenderingUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
 				B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */,
 				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
@@ -14369,6 +14372,7 @@
 				D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */,
 				FE00AA10C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift in Sources */,
 				CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */,
+				CA390001CA390001CA390001 /* GuiModeRenderingUITests.swift in Sources */,
 				C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */,
 				B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
 				E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
