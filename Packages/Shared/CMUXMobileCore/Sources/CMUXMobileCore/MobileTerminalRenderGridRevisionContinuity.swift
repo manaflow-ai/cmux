@@ -13,16 +13,30 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     public let renderEpoch: String
     /// Capture revision of the delivered frame.
     public let renderRevision: UInt64
+    /// Dimensions of the delivered grid, when known. A delta must address the
+    /// same grid shape as its base; otherwise absolute row/column spans can
+    /// paint a different layout even when the revision chain is intact.
+    public let columns: Int?
+    public let rows: Int?
 
-    public init(renderEpoch: String, renderRevision: UInt64) {
+    public init(
+        renderEpoch: String,
+        renderRevision: UInt64,
+        columns: Int? = nil,
+        rows: Int? = nil
+    ) {
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
+        self.columns = columns
+        self.rows = rows
     }
 
     /// The chain identity a consumer records after delivering `frame`.
     public init(delivered frame: MobileTerminalRenderGridFrame) {
         self.renderEpoch = frame.renderEpoch
         self.renderRevision = frame.renderRevision
+        self.columns = frame.columns
+        self.rows = frame.rows
     }
 
     /// Whether `frame` may patch on top of the delivered state.
@@ -43,7 +57,12 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         guard !frame.renderEpoch.isEmpty else { return true }
         guard frame.renderRevision > base else { return false }
         guard let delivered else { return false }
-        return delivered.renderEpoch == frame.renderEpoch
-            && delivered.renderRevision == base
+        guard delivered.renderEpoch == frame.renderEpoch,
+              delivered.renderRevision == base else { return false }
+        // Legacy continuity records may not have dimensions. New records are
+        // always dimensioned, and a known mismatch fails closed.
+        if let columns = delivered.columns, columns != frame.columns { return false }
+        if let rows = delivered.rows, rows != frame.rows { return false }
+        return true
     }
 }

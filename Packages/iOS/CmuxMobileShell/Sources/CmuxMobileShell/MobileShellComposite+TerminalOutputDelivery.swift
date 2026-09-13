@@ -265,11 +265,12 @@ extension MobileShellComposite {
         // Chain-link every delta (any anchor or screen) to the exact frame it
         // was diffed against: the revision base changes on every emitted
         // frame, so this also catches missed in-place repaints that leave the
-        // history count unchanged (silent stale rows). Replaceable whole-
-        // viewport patches repaint every row and need no base. Skipped while
-        // a replay barrier is active for the same reason as the history chain.
+        // history count unchanged (silent stale rows). Whole-viewport patches
+        // are deltas too: even when they repaint every row, accepting one
+        // without its exact base can mix dimensions or screen state with a
+        // newer local grid. Skipped while a replay barrier is active for the
+        // same reason as the history chain.
         if !renderGrid.full,
-           !renderGrid.isReplaceableViewportPatchForMobileDelivery,
            terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
            !MobileTerminalRenderGridRevisionContinuity.admits(
                renderGrid,
@@ -515,21 +516,14 @@ extension MobileShellComposite {
     }
 
     /// Whether a chunk must apply through the verified freeze/replay/verify/
-    /// reveal pipeline. Screen-anchored primary-screen deltas apply directly:
-    /// they are ordered by the same stateSeq floors, their scroll prologue
-    /// feeds local scrollback, and skipping the per-frame Metal fence keeps
-    /// streaming output from stalling a locally scrolling viewport. Fulls and
-    /// alternate-screen frames keep the verified pipeline.
+    /// reveal pipeline. Every render-grid frame, including screen-anchored
+    /// primary deltas, uses this path. A delta mutates terminal state and must
+    /// be built and presented as one transaction; the old direct path could
+    /// expose its clear/repaint sequence while a resize or later frame was
+    /// already queued.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
         guard terminalOutputTransport == .renderGrid,
               supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
-            return false
-        }
-        if usesScreenAnchoredRenderGrid,
-           let frame = delivery.sourceRenderGridFrame,
-           !frame.full,
-           frame.anchor == .screen,
-           frame.activeScreen == .primary {
             return false
         }
         return true
