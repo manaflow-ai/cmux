@@ -10628,9 +10628,6 @@ final class GhosttySurfaceScrollView: NSView {
         let entries = CloudPresenceStore.shared.entries(forPane: panelID)
         if !entries.isEmpty { synchronizeCloudPresenceGeometry() }
         cloudPresenceOverlayView.apply(entries: entries)
-        if !entries.isEmpty, cloudPresenceOverlayView.superview === self {
-            addSubview(cloudPresenceOverlayView, positioned: .below, relativeTo: linkHoverIndicatorView)
-        }
     }
 
     private func synchronizeCloudPresenceGeometry() {

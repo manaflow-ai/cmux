@@ -2969,7 +2969,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `Id` | required | Must be a live surface |
 | `pointer` | `PresenceAnchor` | default null | `{kind:"cell",row,col,scroll_offset?}` or `{kind:"point",x,y}` |
-| `highlight` | `PresenceHighlight` | default null | `{start:PresenceAnchor,end:PresenceAnchor,mode:"laser"|"pin"}` |
+| `highlight` | `PresenceHighlight` | default null | `{start:PresenceAnchor,end:PresenceAnchor,mode:"laser"\|"pin"}` |
 
 Result:
 
