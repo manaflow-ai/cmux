@@ -39,6 +39,12 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     @discardableResult
     func forceRefreshSurface() -> Bool
 
+    /// Monotonic count of drawables vended by the native renderer.
+    ///
+    /// Hosts that do not expose a Metal layer use the default zero value; the
+    /// macOS Ghostty host supplies its atomic drawable sequence.
+    var renderedFrameSequence: UInt64 { get }
+
     /// Reconciles view-owned state after a new native Ghostty surface lifetime
     /// is installed.
     func runtimeSurfaceDidBecomeReady()
@@ -71,6 +77,8 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 }
 
 public extension TerminalSurfaceNativeViewing {
+    var renderedFrameSequence: UInt64 { 0 }
+
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///
     /// - Parameters:
