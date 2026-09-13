@@ -130,6 +130,7 @@ test("GUI mode submit sends the selected provider to native", async () => {
         providerId: "codex",
       },
     });
+    expect(typeof (postedMessages[0] as any).params.requestId).toBe("string");
   } finally {
     restoreGlobals();
     dom.window.close();
@@ -151,9 +152,12 @@ test("GUI mode cancellation uses the native bridge", async () => {
     },
   };
   try {
-    await expect(cancelGuiModeSubmit()).resolves.toBeUndefined();
+    await expect(cancelGuiModeSubmit("gui-test-request")).resolves.toBeUndefined();
     expect(postedMessages).toHaveLength(1);
-    expect(postedMessages[0]).toMatchObject({ method: "guiMode.cancel", params: {} });
+    expect(postedMessages[0]).toMatchObject({
+      method: "guiMode.cancel",
+      params: { requestId: "gui-test-request" },
+    });
   } finally {
     restoreGlobals();
     dom.window.close();

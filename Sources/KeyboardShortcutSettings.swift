@@ -118,7 +118,6 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToDock
         case switchRightSidebarToMachines
         case triggerFlash
-
         // Navigation
         case nextSurface
         case prevSurface
@@ -400,7 +399,6 @@ enum KeyboardShortcutSettings {
             case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
-
         var defaultsKey: String { "shortcut.\(rawValue)" }
 
         var defaultShortcut: StoredShortcut {

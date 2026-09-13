@@ -21,10 +21,12 @@ final class GuiModeWorkspaceCoordinator {
         prompt: String,
         providerID: GuiModeProviderID,
         sourcePanelId: UUID,
-        preferredWorkspaceId: UUID
+        preferredWorkspaceId: UUID,
+        isRequestCurrent: @MainActor @escaping () -> Bool = { true }
     ) throws -> Workspace {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else { throw AgentSessionBridgeError.missingParameter("prompt") }
+        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
         guard let app = AppDelegate.shared,
               let location = app.workspaceContainingPanel(panelId: sourcePanelId, preferredWorkspaceId: preferredWorkspaceId) else {
             throw AgentSessionBridgeError.invalidRequest
@@ -35,6 +37,7 @@ final class GuiModeWorkspaceCoordinator {
             select: true,
             autoRefreshMetadata: false
         )
+        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
         guard let guiPanel = installGuiPanel(
             in: workspace,
             state: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID)
@@ -42,6 +45,7 @@ final class GuiModeWorkspaceCoordinator {
         let pane = workspace.paneId(forPanelId: guiPanel.id) else {
             throw AgentSessionBridgeError.invalidRequest
         }
+        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
         guard workspace.splitPaneWithNewTerminal(
             targetPane: pane,
             orientation: .horizontal,
@@ -51,6 +55,7 @@ final class GuiModeWorkspaceCoordinator {
         ) != nil else {
             throw AgentSessionBridgeError.invalidRequest
         }
+        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
         return workspace
     }
 

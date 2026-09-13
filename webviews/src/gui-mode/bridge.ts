@@ -52,12 +52,17 @@ export async function loadGuiModeContext(): Promise<GuiModeContext> {
 export async function submitGuiModePrompt(
   prompt: string,
   providerId: string,
+  requestId: string = makeGuiModeRequestId(),
 ): Promise<{ workspaceId: string }> {
-  return callNativeWithTimeout<{ workspaceId: string }>("guiMode.submit", { prompt, providerId }, 12000);
+  return callNative<{ workspaceId: string }>("guiMode.submit", { prompt, providerId, requestId });
 }
 
-export async function cancelGuiModeSubmit(): Promise<void> {
-  await callNativeWithTimeout("guiMode.cancel", {}, 3000);
+export async function cancelGuiModeSubmit(requestId: string): Promise<void> {
+  await callNativeWithTimeout("guiMode.cancel", { requestId }, 3000);
+}
+
+export function makeGuiModeRequestId(): string {
+  return `gui-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function callNativeWithTimeout<T>(

@@ -22,6 +22,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isClosed = false
     private var isProviderStartPending = false
     private var isGuiModeSubmitPending = false
+    private var guiModeSubmitRequestID: String?
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -365,14 +366,25 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "guiMode.submit":
             guard !isGuiModeSubmitPending else { throw AgentSessionBridgeError.sessionAlreadyRunning }
             isGuiModeSubmitPending = true
-            defer { isGuiModeSubmitPending = false }
+            let requestID = request.string("requestId") ?? request.id
+            guiModeSubmitRequestID = requestID
+            defer {
+                isGuiModeSubmitPending = false
+                if guiModeSubmitRequestID == requestID { guiModeSubmitRequestID = nil }
+            }
             return try Self.handleGuiModeSubmit(
                 request,
                 rendererKind: rendererKind,
                 panelId: panelId,
-                workspaceId: workspaceId
+                workspaceId: workspaceId,
+                isCurrent: { [weak self] in self?.guiModeSubmitRequestID == requestID }
             )
         case "guiMode.cancel":
+            let requestID = request.string("requestId")
+            guard requestID == nil || requestID == guiModeSubmitRequestID else {
+                return ["cancelled": false]
+            }
+            guiModeSubmitRequestID = nil
             isGuiModeSubmitPending = false
             return ["cancelled": true]
         case "app.pickFiles":

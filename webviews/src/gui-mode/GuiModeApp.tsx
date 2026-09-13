@@ -15,6 +15,7 @@ import {
 import {
   loadGuiModeContext,
   cancelGuiModeSubmit,
+  makeGuiModeRequestId,
   submitGuiModePrompt,
   type GuiModeContext,
   type GuiModeProvider,
@@ -97,6 +98,8 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const editorRef = useRef<PromptEditorHandle | null>(null);
+  const activeRequestId = useRef<string | null>(null);
+  const cancelledRequestIds = useRef(new Set<string>());
   const selectedProvider = providerForId(context.providers, selectedProviderId);
   const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
@@ -107,13 +110,25 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     }
     setIsSubmitting(true);
     setError("");
-    void submitGuiModePrompt(trimmedPrompt, selectedProvider.id)
-      .catch(() => setError(context.copy.errorMessage))
-      .finally(() => setIsSubmitting(false));
+    const requestId = makeGuiModeRequestId();
+    activeRequestId.current = requestId;
+    void submitGuiModePrompt(trimmedPrompt, selectedProvider.id, requestId)
+      .catch(() => {
+        if (!cancelledRequestIds.current.has(requestId)) setError(context.copy.errorMessage);
+      })
+      .finally(() => {
+        cancelledRequestIds.current.delete(requestId);
+        if (activeRequestId.current === requestId) {
+          activeRequestId.current = null;
+          setIsSubmitting(false);
+        }
+      });
   }, [canSubmit, context.copy.errorMessage, selectedProvider.id, trimmedPrompt]);
   const cancel = useCallback(() => {
-    void cancelGuiModeSubmit().catch(() => undefined);
-    setIsSubmitting(false);
+    const requestId = activeRequestId.current;
+    if (!requestId) return;
+    cancelledRequestIds.current.add(requestId);
+    void cancelGuiModeSubmit(requestId).catch(() => undefined);
   }, []);
 
   return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle, style: accentStyle },

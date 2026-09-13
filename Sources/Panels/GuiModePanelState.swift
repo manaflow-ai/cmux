@@ -1,11 +1,5 @@
 import Foundation
 
-/// The page and launch context rendered by a GUI Mode agent surface.
-enum GuiModePanelPage: String, Codable, Sendable {
-    case home
-    case taskWorktreePR = "task-worktree-pr"
-}
-
 /// Persisted GUI Mode state passed between the native panel and its webview.
 struct GuiModePanelState: Codable, Equatable, Sendable {
     var page: GuiModePanelPage

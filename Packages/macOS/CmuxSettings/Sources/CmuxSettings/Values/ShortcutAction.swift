@@ -21,6 +21,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleSidebar
     case newTab
     case newBrowserWorkspace
+    /// Opens the Codex-style GUI Mode workspace.
     case newGuiMode
     case newCloudWorkspace
     case newCloudMachine
