@@ -31,6 +31,7 @@ extension View {
         task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
+                    let cloudChanges = workspace.sidebarCloudWorkspaceObservation.changes()
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
                         .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
@@ -43,6 +44,12 @@ extension View {
                         .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
+                        for await _ in cloudChanges {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                    group.addTask { @MainActor in
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
                             onChange(id)
@@ -52,6 +59,27 @@ extension View {
                         for await _ in debouncedChanges {
                             if Task.isCancelled { break }
                             onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Keeps extension sidebar projections current using the same Cloud invalidation source.
+    func sidebarCloudWorkspaceObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarCloudWorkspaceObservationModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange()
                         }
                     }
                 }
@@ -166,7 +194,6 @@ private struct SidebarImmediateObservationState: Equatable {
     let isPinned: Bool
     let isMuted: Bool
     let customColor: String?
-    let cloudVMBinding: WorkspaceCloudVMBinding?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
@@ -219,7 +246,7 @@ extension Workspace {
             $isPinned,
             $customColor
         )
-        .combineLatest($isMuted, $cloudVMBinding)
+        .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest3(
             $latestConversationMessage,
             $latestSubmittedMessage,
@@ -243,7 +270,6 @@ extension Workspace {
                     isPinned: workspaceFields.0.2,
                     isMuted: workspaceFields.1,
                     customColor: workspaceFields.0.3,
-                    cloudVMBinding: workspaceFields.2,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,

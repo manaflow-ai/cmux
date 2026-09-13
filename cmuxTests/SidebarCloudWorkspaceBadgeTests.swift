@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import CmuxCore
 import Testing
 @testable import cmux_DEV
@@ -100,15 +99,57 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
     }
 
-    /// Ensures the existing immediate sidebar publisher carries Cloud updates.
-    @Test func cloudBindingChangeImmediatelyInvalidatesSidebar() {
+    /// Every observer sees the current binding, including changes made before subscription.
+    @Test(.timeLimit(.minutes(1)))
+    func cloudBindingChangesReplayToEveryObserver() async {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
-        var publishCount = 0
-        let cancellable = workspace.sidebarImmediateObservationPublisher.sink { publishCount += 1 }
-        defer { cancellable.cancel() }
-        publishCount = 0
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        #expect(publishCount == 1)
+        var first = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        var second = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        #expect(await first.next() == 1)
+        #expect(await second.next() == 1)
+        workspace.cloudVMBinding = nil
+        #expect(await first.next() == 2)
+        #expect(await second.next() == 2)
+        #expect(workspace.cloudVMID == nil)
+    }
+
+    /// A slow sidebar receives only the newest invalidation after a burst of binding changes.
+    @Test(.timeLimit(.minutes(1)))
+    func cloudBindingChangesCoalesceAndDeduplicate() async {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        var changes = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        #expect(await changes.next() == 0)
+        for index in 1...100 {
+            let binding = WorkspaceCloudVMBinding(vmID: "machine-\(index)", isBase: true)
+            workspace.cloudVMBinding = binding
+            workspace.cloudVMBinding = binding
+        }
+        #expect(await changes.next() == 100)
+        #expect(workspace.cloudVMID == "machine-100")
+    }
+
+    /// Cancelling one subscriber finishes its stream without disconnecting other sidebars.
+    @Test(.timeLimit(.minutes(1)))
+    func cloudBindingObservationCancellationIsIndependent() async {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let cancelledChanges = workspace.sidebarCloudWorkspaceObservation.changes()
+        let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let consumer = Task { @MainActor in
+            var iterator = cancelledChanges.makeAsyncIterator()
+            _ = await iterator.next()
+            started.continuation.yield(())
+            started.continuation.finish()
+            return await iterator.next()
+        }
+        var readiness = started.stream.makeAsyncIterator()
+        _ = await readiness.next()
+        consumer.cancel()
+        #expect(await consumer.value == nil)
+        var active = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        #expect(await active.next() == 0)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        #expect(await active.next() == 1)
     }
 
     private static func makeModel(

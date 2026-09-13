@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import CmuxUpdater
 import QuartzCore
 import SwiftUI
@@ -278,15 +277,7 @@ struct SidebarHiddenPresentationTests {
             initialContainer.tableView.numberOfRows == initialRowCount,
             "The retained native table must not apply workspace updates while hidden."
         )
-        let cloudChanges = AsyncStream<Void>.makeStream()
-        let cloudChangeCancellable = focusedWorkspace.sidebarImmediateObservationPublisher.sink {
-            cloudChanges.continuation.yield(())
-        }
-        defer {
-            cloudChangeCancellable.cancel()
-            cloudChanges.continuation.finish()
-        }
-        var cloudChangeIterator = cloudChanges.stream.makeAsyncIterator()
+        var cloudChangeIterator = focusedWorkspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()
@@ -325,6 +316,15 @@ struct SidebarHiddenPresentationTests {
         #expect(
             cloudRow != nil,
             "Reopening must rebuild retained AppKit rows from the current Cloud identity after a hidden update."
+        )
+        focusedWorkspace.cloudVMBinding = nil
+        let removalDeadline = Date(timeIntervalSinceNow: 1)
+        while cloudRow?.accessibilityLabel()?.contains("Cloud workspace") == true, Date() < removalDeadline {
+            await drainMainRunLoop(for: window, iterations: 1)
+        }
+        #expect(
+            cloudRow?.accessibilityLabel()?.contains("Cloud workspace") == false,
+            "The shared sidebar observation must also refresh a visible row when its Cloud binding is removed."
         )
 
         let sidebarField = NSTextField(frame: NSRect(x: 20, y: 40, width: 120, height: 24))

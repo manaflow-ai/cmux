@@ -3075,13 +3075,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// machine's workspace. Set through `workspace.cloud_vm_bind` and persisted in the
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
-    @Published var cloudVMBinding: WorkspaceCloudVMBinding?
-    /// The binding a session snapshot restores, or nil when the snapshot has none or its
-    /// machine id is malformed.
-    nonisolated static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
-        guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
-        let remote = snapshot.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase, remoteWorkspaceID: remote?.isEmpty == false ? remote : nil)
+    // Preserve legacy Workspace observation; the sidebar consumes completed mutations via AsyncStream.
+    @Published var cloudVMBinding: WorkspaceCloudVMBinding? {
+        didSet {
+            if oldValue != cloudVMBinding {
+                sidebarCloudWorkspaceObservation.cloudBindingDidChange()
+            }
+        }
     }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
@@ -3200,6 +3200,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
+    let sidebarCloudWorkspaceObservation = WorkspaceSidebarCloudWorkspaceObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
