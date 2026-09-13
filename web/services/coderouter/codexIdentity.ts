@@ -13,7 +13,11 @@ export function codexOwner(credential: Pick<CodexCredential, "idToken" | "access
   const claims = [jwtClaims(credential.idToken), jwtClaims(credential.accessToken)];
   const users = claimValues(claims, ["chatgpt_user_id"]);
   if (users.size === 0) {
-    for (const value of claimValues(claims.slice(0, 1), ["user_id"])) users.add(value);
+    const legacyUser = record(claims[0][AUTH_CLAIM]).user_id;
+    if (legacyUser !== undefined) {
+      if (!validID(legacyUser)) throw new CodexOwnerMismatch();
+      users.add(legacyUser);
+    }
   }
   const workspaces = claimValues(claims, ["chatgpt_account_id"]);
   // Email, JWT subject and organization membership are not user/workspace claims.
