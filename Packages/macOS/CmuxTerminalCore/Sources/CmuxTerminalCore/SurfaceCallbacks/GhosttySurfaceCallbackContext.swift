@@ -75,6 +75,20 @@ public final class GhosttySurfaceCallbackContext {
     /// Runs after renderer activity consumes an armed presentation repair.
     private let rendererMailboxDidDrainHandler: @Sendable (UUID) -> Void
 
+    /// Runs after a tokened render is assigned to the host layer.
+    private let rendererFramePresentedHandler: @Sendable (UUID, UInt64) -> Void
+
+    /// Runs after a tokened render is discarded or fails before host-layer presentation.
+    private let rendererFrameFailedHandler:
+        @Sendable (UUID, UInt64, ghostty_render_presentation_status_e) -> Void
+
+    /// Runs after the renderer finishes a draw attempt, before platform delivery.
+    private let rendererDrawFrameDidEndHandler: @Sendable (UUID) -> Void
+
+    /// Lock-free gate so ordinary steady-state draws do not hop to the main
+    /// actor unless a presentation probe is actually waiting for a result.
+    private let rendererDrawFrameObservationArmed = AtomicBooleanGate(false)
+
     /// Lock-free so the unarmed renderer callback path neither allocates nor locks.
     private let rendererPresentationRepairArmed = AtomicBooleanGate(false)
 
@@ -97,6 +111,9 @@ public final class GhosttySurfaceCallbackContext {
     ///     metadata, or `nil` to use Ghostty's OSC title updates.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
+    ///   - rendererFramePresented: Called after a tokened frame reaches the host layer.
+    ///   - rendererFrameFailed: Called when a tokened frame is discarded or fails.
+    ///   - rendererDrawFrameDidEnd: Called after a renderer draw attempt completes.
     ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
     ///     clipboard requests accepted for this surface.
     public init(
@@ -105,6 +122,13 @@ public final class GhosttySurfaceCallbackContext {
         terminalLifecycleID: UUID,
         titleOverride: String? = nil,
         rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
+        rendererFramePresented: @escaping @Sendable (UUID, UInt64) -> Void = { _, _ in },
+        rendererFrameFailed: @escaping @Sendable (
+            UUID,
+            UInt64,
+            ghostty_render_presentation_status_e
+        ) -> Void = { _, _, _ in },
+        rendererDrawFrameDidEnd: @escaping @Sendable (UUID) -> Void = { _ in },
         maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
@@ -114,6 +138,9 @@ public final class GhosttySurfaceCallbackContext {
         self.terminalLifecycleID = terminalLifecycleID
         self.titleOverride = titleOverride
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
+        self.rendererFramePresentedHandler = rendererFramePresented
+        self.rendererFrameFailedHandler = rendererFrameFailed
+        self.rendererDrawFrameDidEndHandler = rendererDrawFrameDidEnd
         self.maximumRuntimeClipboardRequests = max(
             0,
             maximumRuntimeClipboardRequests
@@ -142,6 +169,38 @@ public final class GhosttySurfaceCallbackContext {
         ) else { return false }
         rendererMailboxDidDrainHandler(surfaceId)
         return true
+    }
+
+    /// Delivers a tokened host-layer presentation to the owning surface.
+    public func rendererFrameDidPresent(token: UInt64) {
+        rendererFramePresentedHandler(surfaceId, token)
+    }
+
+    /// Delivers a tokened presentation failure to the owning surface.
+    public func rendererFrameDidFail(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        rendererFrameFailedHandler(surfaceId, token, status)
+    }
+
+    /// Delivers the renderer draw-end signal to the owning surface.
+    public func rendererDrawFrameDidEnd() {
+        guard rendererDrawFrameObservationArmed.compareExchange(
+            expected: true,
+            desired: false
+        ) else { return }
+        rendererDrawFrameDidEndHandler(surfaceId)
+    }
+
+    /// Arms one draw-end observation for the current presentation probe.
+    public func armRendererDrawFrameObservation() {
+        rendererDrawFrameObservationArmed.storeRelease(true)
+    }
+
+    /// Cancels the draw-end observation when the probe is presented, failed, or hidden.
+    public func cancelRendererDrawFrameObservation() {
+        rendererDrawFrameObservationArmed.storeRelease(false)
     }
 
     /// Binds this callback context to the native surface that owns its userdata.
