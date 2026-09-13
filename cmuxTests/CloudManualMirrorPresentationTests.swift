@@ -16,19 +16,25 @@ struct CloudManualMirrorPresentationTests {
         gate.begin(baselineFrame: 10)
 
         // A replay may arrive before the native renderer is presented.
-        #expect(!gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11))
+        let beforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
+        #expect(!beforePresentation)
         #expect(gate.firstPresentedFrame == nil)
         // A frame from the old generation cannot dismiss the loader.
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10))
+        let oldFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10)
+        #expect(!oldFrame)
         #expect(gate.firstPresentedFrame == nil)
-        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11))
+        let currentFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
+        #expect(currentFrame)
         #expect(gate.firstPresentedFrame == 11)
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12))
+        let duplicateFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
+        #expect(!duplicateFrame)
 
         // Reconnect establishes a new generation baseline and requires a new frame.
         gate.begin(baselineFrame: 20)
-        #expect(!gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20))
-        #expect(gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21))
+        let reconnectBaseline = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
+        let reconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
+        #expect(!reconnectBaseline)
+        #expect(reconnectFrame)
     }
 
     @Test
