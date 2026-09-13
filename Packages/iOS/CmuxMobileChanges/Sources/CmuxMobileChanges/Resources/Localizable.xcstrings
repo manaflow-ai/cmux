@@ -2916,7 +2916,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "+%ld"
+            "value": "+%lld"
           }
         },
         "ar": {

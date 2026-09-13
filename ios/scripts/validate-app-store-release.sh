@@ -55,22 +55,29 @@ read_xcconfig_setting() {
   sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\\1/p" "$file" 2>/dev/null | tail -n 1
 }
 
-resolve_screenshot_validation_path() {
+resolve_screenshot_validation_paths() {
   local device_type="$1"
   local device_dir=""
-  local canonical_path=""
+  local locale_dir=""
+  local screenshot_path=""
+  local found=0
 
   case "$device_type" in
     IPHONE_*) device_dir="iphone" ;;
     IPAD_*) device_dir="ipad" ;;
   esac
 
-  if [[ -n "$device_dir" ]]; then
-    canonical_path="$SCREENSHOTS_DIR/en-US/$device_dir"
-    if [[ -d "$canonical_path" ]]; then
-      printf '%s\n' "$canonical_path"
-      return
-    fi
+  if [[ -n "$device_dir" && -d "$SCREENSHOTS_DIR" ]]; then
+    shopt -s nullglob
+    for locale_dir in "$SCREENSHOTS_DIR"/*; do
+      screenshot_path="$locale_dir/$device_dir"
+      if [[ -d "$screenshot_path" ]]; then
+        printf '%s\n' "$screenshot_path"
+        found=1
+      fi
+    done
+    shopt -u nullglob
+    [[ "$found" -eq 1 ]] && return
   fi
 
   printf '%s\n' "$SCREENSHOTS_DIR"
@@ -197,9 +204,10 @@ fi
 
 if [[ -d "$SCREENSHOTS_DIR" ]]; then
   for device_type in "${SCREENSHOT_DEVICE_TYPES[@]}"; do
-    screenshot_validation_path="$(resolve_screenshot_validation_path "$device_type")"
-    note "validating screenshots at $screenshot_validation_path for $device_type"
-    asc screenshots validate --path "$screenshot_validation_path" --device-type "$device_type" --output table
+    while IFS= read -r screenshot_validation_path; do
+      note "validating screenshots at $screenshot_validation_path for $device_type"
+      asc screenshots validate --path "$screenshot_validation_path" --device-type "$device_type" --output table
+    done < <(resolve_screenshot_validation_paths "$device_type")
   done
 else
   note "no local screenshots dir at $SCREENSHOTS_DIR; use $CHECKLIST before staging"

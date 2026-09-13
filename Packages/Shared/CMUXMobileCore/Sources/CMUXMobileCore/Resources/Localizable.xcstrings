@@ -709,7 +709,7 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "نقطة واحدة"
+                        "value": "%lld نقطة"
                 }
               },
               "other": {
@@ -1002,7 +1002,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%ll مللي ثانية"
+            "value": "%lld مللي ثانية"
           }
         },
         "es": {
@@ -1106,7 +1106,7 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%ثانية واحدة"
+                        "value": "%lld ثانية"
                 }
               },
               "other": {

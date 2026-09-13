@@ -1,0 +1,1258 @@
+{
+  "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/Resources/Localizable.xcstrings": {
+    "diagnostics.boolean.no": [
+      "es"
+    ],
+    "diagnostics.count.bytes": [
+      "es"
+    ],
+    "diagnostics.count.points": [
+      "fr"
+    ],
+    "diagnostics.duration.fractionalSeconds": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "diagnostics.duration.milliseconds": [
+      "de",
+      "fr",
+      "es"
+    ],
+    "diagnostics.failure.offline": [
+      "de"
+    ],
+    "diagnostics.field.action": [
+      "fr"
+    ],
+    "diagnostics.field.detail1": [
+      "de"
+    ],
+    "diagnostics.field.detail2": [
+      "de"
+    ],
+    "diagnostics.field.detail3": [
+      "de"
+    ],
+    "diagnostics.field.initiator": [
+      "de"
+    ],
+    "diagnostics.field.peer": [
+      "de"
+    ],
+    "diagnostics.field.phase": [
+      "de",
+      "fr"
+    ],
+    "diagnostics.field.route": [
+      "de"
+    ],
+    "diagnostics.field.session": [
+      "fr"
+    ],
+    "diagnostics.field.style": [
+      "fr"
+    ],
+    "diagnostics.field.surface": [
+      "fr"
+    ],
+    "diagnostics.field.tab": [
+      "de"
+    ],
+    "diagnostics.field.transport": [
+      "de",
+      "fr"
+    ],
+    "diagnostics.field.x": [
+      "de",
+      "fr",
+      "ar",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "diagnostics.field.y": [
+      "de",
+      "es",
+      "ja"
+    ],
+    "diagnostics.incident.failureWithOccurrences": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "diagnostics.incident.occurrences": [
+      "fr"
+    ],
+    "diagnostics.incident.outage": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "diagnostics.path.direct": [
+      "fr"
+    ],
+    "diagnostics.path.loopback": [
+      "de"
+    ],
+    "diagnostics.reachability.offline": [
+      "de"
+    ],
+    "diagnostics.reachability.online": [
+      "de"
+    ],
+    "diagnostics.report.build": [
+      "de"
+    ],
+    "diagnostics.report.generated": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "diagnostics.report.source": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "diagnostics.simulator.button.action": [
+      "fr"
+    ],
+    "diagnostics.simulator.button.siri": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "diagnostics.simulator.inputKind.text": [
+      "de"
+    ],
+    "diagnostics.summary.details": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "diagnostics.summary.field": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "diagnostics.summary.separator": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "diagnostics.transport.iroh": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "diagnostics.transport.tailscale": [
+      "ja"
+    ],
+    "diagnostics.transport.websocket": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ]
+  },
+  "Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Resources/Localizable.xcstrings": {
+    "chat.artifact.highlighting.off.explanation": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "chat.artifact.ok": [
+      "de",
+      "ja"
+    ]
+  },
+  "Packages/iOS/CmuxMobileChanges/Sources/CmuxMobileChanges/Resources/Localizable.xcstrings": {
+    "changes.binary.revision": [
+      "de"
+    ],
+    "changes.dir.accessibility": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "changes.pager.position": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "changes.rename.format": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "changes.row.accessibility": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "changes.summary.additions": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "changes.summary.branch_base": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "changes.summary.deletions": [
+      "de",
+      "fr",
+      "es",
+      "ko",
+      "ja"
+    ]
+  },
+  "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/Resources/Localizable.xcstrings": {
+    "mobile.hideComputersVerifier.allHiddenKnownPairedMac": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.hideComputersVerifier.allHiddenNormalEmpty": [
+      "de",
+      "fr",
+      "ar",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.iroh.diagnostics.failure.offline": [
+      "de"
+    ],
+    "mobile.iroh.private.custom.mac": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.iroh.private.custom.unnamedMac": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "terminal.artifact.gallery.filter.code": [
+      "de",
+      "fr"
+    ],
+    "terminal.artifact.gallery.filter.images": [
+      "fr"
+    ],
+    "terminal.artifact.gallery.kind.image": [
+      "fr"
+    ],
+    "terminal.artifact.gallery.ok": [
+      "de",
+      "ja"
+    ],
+    "terminal.artifact.gallery.scope.session": [
+      "fr"
+    ],
+    "terminal.artifact.gallery.sort.name": [
+      "de"
+    ],
+    "workspace.changes.preview.error": [
+      "es"
+    ]
+  },
+  "ios/cmux/Resources/Localizable.xcstrings": {
+    "mobile.addDevice.nameLabel": [
+      "de"
+    ],
+    "mobile.addDevice.portLabel": [
+      "fr"
+    ],
+    "mobile.addDevice.portPlaceholder": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.addDevice.signedInFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.browserStream.untitled": [
+      "de"
+    ],
+    "mobile.buildType.beta": [
+      "de",
+      "es"
+    ],
+    "mobile.buildType.demo": [
+      "de"
+    ],
+    "mobile.buildType.prod": [
+      "de"
+    ],
+    "mobile.common.ok": [
+      "de",
+      "ja"
+    ],
+    "mobile.composer.attach.paste": [
+      "de"
+    ],
+    "mobile.composer.placeholder": [
+      "fr"
+    ],
+    "mobile.computers.auto": [
+      "de",
+      "fr",
+      "es"
+    ],
+    "mobile.computers.build.dev": [
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "mobile.computers.build.devTaggedFormat": [
+      "ko",
+      "ja"
+    ],
+    "mobile.computers.build.rc": [
+      "de",
+      "fr",
+      "ar",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.computers.buildLabel": [
+      "de"
+    ],
+    "mobile.computers.field.color": [
+      "es"
+    ],
+    "mobile.computers.field.name": [
+      "de"
+    ],
+    "mobile.computers.field.role": [
+      "es"
+    ],
+    "mobile.computers.field.source": [
+      "fr"
+    ],
+    "mobile.computers.ping": [
+      "fr",
+      "ja"
+    ],
+    "mobile.computers.visibilityToggle.named": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.connections.method.direct": [
+      "fr"
+    ],
+    "mobile.connections.method.iroh": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "mobile.connections.method.tailscale": [
+      "de",
+      "ja"
+    ],
+    "mobile.connections.method.websocket": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "mobile.connectionsUpdate.releaseLabel": [
+      "de"
+    ],
+    "mobile.deviceTree.lastSeenFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.deviceTree.offline": [
+      "de"
+    ],
+    "mobile.deviceTree.online": [
+      "de"
+    ],
+    "mobile.deviceTree.workspaceCountFormat.other": [
+      "fr",
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.disconnected.connectFailedTitleFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.hideComputersVerifier.allHidden": [
+      "de",
+      "ar",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.checkpoint.computers": [
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.halfHiddenAbsent": [
+      "de",
+      "ar",
+      "ko",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.halfNoDisconnectedBanner": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.halfRemainingPresent": [
+      "de",
+      "fr",
+      "ar",
+      "ko",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.refreshPreservedEmptyList": [
+      "de",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.refreshPreservedHalfList": [
+      "de",
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.status.pass": [
+      "ja"
+    ],
+    "mobile.hideComputersVerifier.status.running": [
+      "ja"
+    ],
+    "mobile.iroh.custom.name": [
+      "de"
+    ],
+    "mobile.iroh.custom.region": [
+      "de"
+    ],
+    "mobile.iroh.custom.summary": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.iroh.diagnostics.failure.offline": [
+      "de"
+    ],
+    "mobile.iroh.private.name": [
+      "de"
+    ],
+    "mobile.iroh.private.port": [
+      "fr"
+    ],
+    "mobile.macUpdateHint.bodyFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.notificationFeed.filter": [
+      "de"
+    ],
+    "mobile.notificationFeed.macReconnectingFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.notificationFeed.preview.finished.subtitle": [
+      "fr"
+    ],
+    "mobile.notificationFeed.preview.mac.macBookPro": [
+      "de",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "mobile.notificationFeed.preview.mac.studio": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.notificationFeed.preview.openedFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.notificationFeed.preview.surface.agent": [
+      "de",
+      "fr"
+    ],
+    "mobile.notificationFeed.preview.surface.codex": [
+      "ja"
+    ],
+    "mobile.notificationFeed.preview.surface.tests": [
+      "de"
+    ],
+    "mobile.notificationFeed.preview.workspace.cloudBuilder": [
+      "de"
+    ],
+    "mobile.notificationFeed.preview.workspace.ios": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.notificationFeed.row.computer": [
+      "de"
+    ],
+    "mobile.notificationFeed.row.fieldFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.notifications.status.deviceLimitFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.onboarding.connect.method.automatic": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "mobile.onboarding.preview.computer": [
+      "de",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "mobile.onboarding.preview.live": [
+      "de"
+    ],
+    "mobile.pairing.compatibilityDisplayFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.preview.terminalNameFormat": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.settings.activeTransport.iroh": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "mobile.settings.activeTransport.simulator": [
+      "de"
+    ],
+    "mobile.settings.activeTransport.tailscale": [
+      "de",
+      "ja"
+    ],
+    "mobile.settings.activeTransport.websocket": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ja"
+    ],
+    "mobile.settings.cmuxLabs": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.settings.connectionMethod.automatic": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "mobile.settings.deleteAccountFailureOK": [
+      "de",
+      "ja"
+    ],
+    "mobile.settings.mac": [
+      "de"
+    ],
+    "mobile.settings.pointsFormat": [
+      "de",
+      "ja"
+    ],
+    "mobile.settings.team": [
+      "de"
+    ],
+    "mobile.settings.toastDemoDelayValueFormat": [
+      "de",
+      "es",
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.settings.unreadIndicatorLab.pointsFormat": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.settings.version": [
+      "de",
+      "fr"
+    ],
+    "mobile.sidebar.destination.picker": [
+      "fr"
+    ],
+    "mobile.signIn.codePlaceholder": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.signIn.title": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "ko",
+      "ja"
+    ],
+    "mobile.simulatorStream.siri": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.simulatorStream.textPlaceholder": [
+      "de"
+    ],
+    "mobile.surface.kind.browser": [
+      "de"
+    ],
+    "mobile.surface.kind.cloudVM": [
+      "ja"
+    ],
+    "mobile.surface.kind.markdown": [
+      "ja"
+    ],
+    "mobile.surface.kind.terminal": [
+      "de",
+      "fr",
+      "es"
+    ],
+    "mobile.surface.kind.todo": [
+      "de"
+    ],
+    "mobile.tabs.notifications": [
+      "fr"
+    ],
+    "mobile.tabs.notifications.unreadCount": [
+      "fr"
+    ],
+    "mobile.taskComposer.agent": [
+      "de",
+      "fr"
+    ],
+    "mobile.taskComposer.attachments.paste": [
+      "de"
+    ],
+    "mobile.taskComposer.directoryPicker.browse.computer": [
+      "de"
+    ],
+    "mobile.taskComposer.directoryPicker.browse.folderCountFormat.other": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.taskComposer.effort": [
+      "fr"
+    ],
+    "mobile.taskComposer.machine": [
+      "fr"
+    ],
+    "mobile.taskComposer.prompt": [
+      "de"
+    ],
+    "mobile.taskComposer.promptPlaceholder.agentFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.taskComposer.promptTitle.agentFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.taskComposer.startAgentFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.taskComposer.startingAgentFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.taskComposer.template.commandPlaceholder": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.taskComposer.template.hint": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.taskComposer.template.icon.document": [
+      "fr"
+    ],
+    "mobile.taskComposer.template.icon.globe": [
+      "fr"
+    ],
+    "mobile.taskComposer.template.icon.hammer": [
+      "de"
+    ],
+    "mobile.taskComposer.template.icon.terminal": [
+      "de",
+      "fr",
+      "es"
+    ],
+    "mobile.taskComposer.template.icon.test": [
+      "fr"
+    ],
+    "mobile.taskComposer.template.name": [
+      "de"
+    ],
+    "mobile.taskComposer.template.seed.claude": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.taskComposer.template.seed.codex": [
+      "ja"
+    ],
+    "mobile.taskComposer.template.seed.opencode": [
+      "de",
+      "ja"
+    ],
+    "mobile.terminal.action.alt": [
+      "de",
+      "fr",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.alt.label": [
+      "de",
+      "fr",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.claude": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "mobile.terminal.action.codex": [
+      "ja"
+    ],
+    "mobile.terminal.action.command": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.command.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.control": [
+      "fr",
+      "ja"
+    ],
+    "mobile.terminal.action.control.label": [
+      "es",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlC": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlC.label": [
+      "es",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlD": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlD.label": [
+      "es",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlL": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlL.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlZ": [
+      "de",
+      "fr",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.ctrlZ.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.down": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.end": [
+      "ja"
+    ],
+    "mobile.terminal.action.end.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.escape": [
+      "de",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.escape.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.left": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.pageDown": [
+      "de",
+      "fr",
+      "ar",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.pageDown.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.pageUp": [
+      "de",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.pageUp.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.pipe": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.return": [
+      "ja"
+    ],
+    "mobile.terminal.action.return.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.right": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.shift": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.shift.label": [
+      "ja"
+    ],
+    "mobile.terminal.action.tab": [
+      "de",
+      "ja"
+    ],
+    "mobile.terminal.action.tab.label": [
+      "de",
+      "ja"
+    ],
+    "mobile.terminal.action.tilde": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.action.tilde.label": [
+      "de",
+      "fr"
+    ],
+    "mobile.terminal.action.up": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.terminal.modifier.stickyFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.terminal.picker.title": [
+      "de"
+    ],
+    "mobile.terminal.select": [
+      "de",
+      "fr",
+      "es"
+    ],
+    "mobile.todo.status.menuTitle": [
+      "de"
+    ],
+    "mobile.todo.status.todo": [
+      "de"
+    ],
+    "mobile.toolbar.editor.commandPlaceholder": [
+      "ja"
+    ],
+    "mobile.workspace.backUnreadCountFormat": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspace.customize.color": [
+      "es"
+    ],
+    "mobile.workspace.customize.description": [
+      "fr"
+    ],
+    "mobile.workspace.customize.name": [
+      "de"
+    ],
+    "mobile.workspace.preview.daysCompactFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.workspace.preview.hoursCompactFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.workspace.preview.minutesCompactFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko"
+    ],
+    "mobile.workspace.terminalCountFormat.one": [
+      "es"
+    ],
+    "mobile.workspace.terminalCountFormat.other": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspace.unreadCountFormat.other": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspaceAction.failure.legacyFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "mobile.workspaceAction.failure.message": [
+      "ja"
+    ],
+    "mobile.workspaceAction.failure.reason.authorization.host": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspaceAction.failure.reason.rejected.host": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspaceAction.failure.reason.unsupported.host": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspaceGroup.footer.a11y.label": [
+      "zh-Hant",
+      "zh-Hans"
+    ],
+    "mobile.workspaces.filter": [
+      "de"
+    ],
+    "mobile.workspaces.filter.machines": [
+      "fr"
+    ],
+    "mobile.workspaces.macPicker.connectionLabel": [
+      "de"
+    ],
+    "mobile.workspaces.macPicker.titleWithBuildFormat": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "push.generic.title": [
+      "de",
+      "fr",
+      "ar",
+      "es",
+      "ko",
+      "ja"
+    ],
+    "terminal.input_accessory.paste": [
+      "de"
+    ],
+    "terminal.input_accessory.title.alt": [
+      "de",
+      "fr",
+      "ko",
+      "ja"
+    ],
+    "terminal.input_accessory.title.control": [
+      "fr",
+      "ja"
+    ],
+    "terminal.input_accessory.title.end": [
+      "ja"
+    ],
+    "terminal.input_accessory.title.escape": [
+      "de",
+      "ko",
+      "ja"
+    ],
+    "terminal.input_accessory.title.home": [
+      "ja"
+    ],
+    "terminal.input_accessory.title.pageDown": [
+      "de",
+      "fr",
+      "ar",
+      "ko",
+      "ja"
+    ],
+    "terminal.input_accessory.title.pageUp": [
+      "de",
+      "ko",
+      "ja"
+    ],
+    "terminal.input_accessory.title.tab": [
+      "de",
+      "ja"
+    ],
+    "terminal.shortcut.name.alternate": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "terminal.shortcut.name.claude": [
+      "de",
+      "fr",
+      "ja"
+    ],
+    "terminal.shortcut.name.codex": [
+      "ja"
+    ],
+    "terminal.shortcut.name.command": [
+      "ja"
+    ],
+    "terminal.shortcut.name.control": [
+      "es",
+      "ja"
+    ],
+    "terminal.shortcut.name.ctrlC": [
+      "de",
+      "es",
+      "ko",
+      "ja"
+    ],
+    "terminal.shortcut.name.ctrlD": [
+      "de",
+      "es",
+      "ko",
+      "ja"
+    ],
+    "terminal.shortcut.name.ctrlZ": [
+      "de",
+      "es",
+      "zh-Hant",
+      "zh-Hans",
+      "ko",
+      "ja"
+    ],
+    "terminal.shortcut.name.dollar": [
+      "de"
+    ],
+    "terminal.shortcut.name.end": [
+      "ja"
+    ],
+    "terminal.shortcut.name.home": [
+      "ja"
+    ],
+    "terminal.shortcut.name.ollama": [
+      "de",
+      "fr",
+      "es",
+      "ja"
+    ],
+    "terminal.shortcut.name.shift": [
+      "ja"
+    ],
+    "terminal.shortcut.name.tab": [
+      "de"
+    ],
+    "terminal.shortcut.name.tilde": [
+      "de",
+      "fr"
+    ],
+    "terminal.zoom.current_size": [
+      "de",
+      "ja"
+    ]
+  }
+}

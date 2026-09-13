@@ -1,0 +1,7 @@
+{
+  "description": "cmux apporte vos agents de code sur votre téléphone. Associez-le à votre Mac exécutant le terminal cmux et regardez vos agents IA travailler en temps réel, recevez une notification dès qu'un agent a besoin de votre attention ou termine une tâche, et répondez ou lancez des commandes de n'importe où.\n\ncmux est le terminal conçu pour les agents de code : onglets verticaux, anneaux de notification quand les agents attendent une réponse, panneaux divisés, un navigateur intégré et une CLI scriptable sur le bureau. L'application iOS est votre télécommande pour tout cela.\n\n- Terminal en direct : diffusez les espaces de travail et terminaux cmux de votre Mac sur votre téléphone\n- Notifications d'agents : une notification dès qu'un agent pose une question ou termine un travail\n- Répondez en déplacement : envoyez des saisies, lancez des commandes et changez d'espace de travail depuis votre téléphone\n- Dictée vocale : dictez dans la zone de message\n- Association sécurisée : connectez-vous à votre propre Mac via le réseau local ou un relais\n\nGratuit et open source. Nécessite un Mac exécutant cmux (gratuit sur cmux.com).",
+  "keywords": "terminal,agent IA,programmation,ssh,développeur,devops,ghostty,distant,cli,cmux",
+  "promotionalText": "Vos agents de code, dans votre poche. Associez votre Mac, regardez les agents travailler en direct et recevez une notification dès qu'ils ont besoin de vous.",
+  "marketingUrl": "https://cmux.com",
+  "supportUrl": "https://cmux.com"
+}

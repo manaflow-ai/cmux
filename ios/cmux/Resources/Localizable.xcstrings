@@ -74,6 +74,48 @@
             "state": "translated",
             "value": "デモMac"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demo-Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac de démonstration"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac تجريبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac de demostración"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "示範 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "演示 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "데모 Mac"
+          }
         }
       }
     },
@@ -14488,6 +14530,48 @@
             "state": "translated",
             "value": "%lld件の更新"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Aktualisierungen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld mises à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld تحديثًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld actualizaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 項更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개의 업데이트"
+          }
         }
       }
     },
@@ -14506,6 +14590,48 @@
             "state": "translated",
             "value": "以前の通知を非表示"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Mitteilungen ausblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les notifications précédentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء الإشعارات السابقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar notificaciones anteriores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏較早的通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏较早的通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 알림 숨기기"
+          }
         }
       }
     },
@@ -14523,6 +14649,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "以前の通知を表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Mitteilungen einblenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les notifications précédentes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الإشعارات السابقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar notificaciones anteriores"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示較早的通知"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示较早的通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 알림 표시"
           }
         }
       }
@@ -62449,6 +62617,48 @@
             "state": "translated",
             "value": "返信"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répondre"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ردّ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responder"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回覆"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回复"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답장"
+          }
         }
       }
     },
@@ -62465,6 +62675,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "修正を実装して PR を作成しました。レビューできます。返信して続行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Fehlerbehebung wurde umgesetzt und der PR geöffnet. Bereit für deine Prüfung – antworte, um fortzufahren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correctif implémenté et PR ouverte. Prêt pour votre revue — répondez pour continuer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تنفيذ الإصلاح وفتح طلب السحب. أصبح جاهزًا لمراجعتك — أرسل ردًا للمتابعة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se implementó la corrección y se abrió el PR. Ya está listo para tu revisión; responde para continuar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正已完成並已開啟 PR，現在可以供你審閱；回覆即可繼續。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复已完成并已打开 PR，可以开始审阅；回复即可继续。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정 사항을 적용하고 PR을 열었습니다. 검토할 준비가 되었으니 답장하여 계속하세요."
           }
         }
       }
@@ -62483,6 +62735,48 @@
             "state": "translated",
             "value": "エージェントにメッセージ…"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an den Agenten…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer un message à l’agent…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراسلة الوكيل…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar un mensaje al agente…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳訊息給代理程式…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给代理发送消息…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트에게 메시지 보내기…"
+          }
         }
       }
     },
@@ -62499,6 +62793,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내기"
           }
         }
       }
@@ -62517,6 +62853,48 @@
             "state": "translated",
             "value": "cmux エージェント"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agente de cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 代理程式"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 에이전트"
+          }
         }
       }
     },
@@ -62533,6 +62911,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude がワークスペース ~ で完了しました"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude ist im Arbeitsbereich ~ fertig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude a terminé dans l’espace de travail ~"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أكمل Claude عمله في مساحة العمل ~"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude terminó en el espacio de trabajo ~"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 已在工作區 ~ 完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 已在工作区 ~ 完成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude가 작업 공간 ~에서 완료했습니다"
           }
         }
       }
@@ -70574,6 +70994,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmuxが開いている間、Macがスリープするのを防ぎます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verhindern, dass dein Mac in den Ruhezustand wechselt, solange cmux geöffnet ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empêcher votre Mac de se mettre en veille lorsque cmux est ouvert."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منع Mac من الدخول في وضع السكون أثناء فتح cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evitar que el Mac entre en reposo mientras cmux está abierto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 開啟期間防止 Mac 進入睡眠。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 开启期间防止 Mac 进入睡眠。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 열려 있는 동안 Mac이 잠자기 상태로 전환되지 않도록 합니다."
           }
         }
       }
@@ -83454,6 +83916,48 @@
             "state": "translated",
             "value": "Mac に %@ が必要です。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %@ auf deinem Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %@ sur votre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ على جهاز Mac الخاص بك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere %@ en tu Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 %@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 %@이(가) 필요합니다."
+          }
         }
       }
     },
@@ -83471,73 +83975,47 @@
             "state": "translated",
             "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
           }
-        }
-      }
-    },
-    "computers.listauth.unverified.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
+        },
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not verified on the new connection system yet"
+            "value": "Noch nicht bereit? Bleibe bei cmux BETA 1.0.4 (20260817224846) oder kehre dorthin zurück."
           }
         },
-        "ja": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい接続システムでまだ確認されていません"
-          }
-        }
-      }
-    },
-    "computers.listauth.unverified.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+            "value": "Pas prêt ? Restez sur cmux BETA 1.0.4 (20260817224846) ou revenez-y."
           }
         },
-        "ja": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
-          }
-        }
-      }
-    },
-    "computers.version.outdated.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac update required"
+            "value": "لست مستعدًا؟ ابقَ على cmux BETA 1.0.4 (20260817224846) أو ارجع إليه."
           }
         },
-        "ja": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac のアップデートが必要です"
-          }
-        }
-      }
-    },
-    "computers.version.outdated.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
+            "value": "¿Aún no estás listo? Mantén cmux BETA 1.0.4 (20260817224846) o vuelve a esa versión."
           }
         },
-        "ja": {
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
+            "value": "還沒準備好嗎？保留 cmux BETA 1.0.4 (20260817224846)，或還原至此版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没准备好吗？保留 cmux BETA 1.0.4 (20260817224846)，或还原到此版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 준비되지 않았나요? cmux BETA 1.0.4 (20260817224846)를 유지하거나 이 버전으로 되돌리세요."
           }
         }
       }
@@ -83556,6 +84034,48 @@
             "state": "translated",
             "value": "新しい接続システムでまだ確認されていません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im neuen Verbindungssystem noch nicht verifiziert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore vérifié sur le nouveau système de connexion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق منه بعد على نظام الاتصال الجديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha verificado todavía en el nuevo sistema de conexiones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在新的連線系統上驗證"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未在新的连接系统上验证"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 연결 시스템에서 아직 확인되지 않음"
+          }
         }
       }
     },
@@ -83572,6 +84092,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft möglicherweise eine ältere cmux-Version. Aktualisiere den Mac oder öffne cmux einmal darauf, falls er bereits aktualisiert ist, um ihn zu verifizieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il utilise peut-être une ancienne version de cmux. Mettez le Mac à jour ou, s’il l’est déjà, ouvrez cmux dessus une fois pour le vérifier."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد يكون إصدارًا أقدم من cmux. حدّث Mac، أو إذا كان محدّثًا بالفعل، افتح cmux عليه مرة واحدة لإتمام التحقق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es posible que ejecute una versión antigua de cmux. Actualiza el Mac o, si ya está actualizado, abre cmux en él una vez para verificarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 可能執行較舊版本的 cmux。請更新 Mac；如果已是最新版本，請在該 Mac 上開啟一次 cmux 以完成驗證。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 可能运行较旧版本的 cmux。请更新 Mac；如果已经是最新版本，请在该 Mac 上打开一次 cmux 以完成验证。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 이전 버전의 cmux가 실행 중일 수 있습니다. Mac을 업데이트하거나, 이미 업데이트했다면 해당 Mac에서 cmux를 한 번 열어 확인하세요."
           }
         }
       }
@@ -83590,6 +84152,48 @@
             "state": "translated",
             "value": "Mac のアップデートが必要です"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac-Update erforderlich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour du Mac requise"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مطلوب تحديث Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se requiere actualizar el Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新 Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要更新 Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 업데이트 필요"
+          }
         }
       }
     },
@@ -83606,6 +84210,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %@. Aktualisiere cmux auf diesem Mac auf %@ oder neuer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac utilise cmux %@. Mettez cmux à jour sur ce Mac vers %@ ou une version ultérieure."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل هذا الـMac بإصدار cmux %@. حدّث cmux على هذا الـMac إلى %@ أو أحدث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ejecuta cmux %@. Actualiza cmux en este Mac a %@ o una versión posterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 執行 cmux %@。請將此 Mac 上的 cmux 更新至 %@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 运行 cmux %@。请将此 Mac 上的 cmux 更新到 %@ 或更高版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 cmux %@을(를) 실행 중입니다. 이 Mac의 cmux를 %@ 이상으로 업데이트하세요."
           }
         }
       }
@@ -83858,7 +84504,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-          "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+            "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
           }
         },
         "de": {
@@ -83919,6 +84565,48 @@
             "state": "translated",
             "value": "両方の端末で同じcmuxアカウントを使用してください。Mac版cmux %1$@以降が必要です。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwende auf beiden Geräten dasselbe cmux-Konto. Auf deinem Mac ist cmux %1$@ oder neuer erforderlich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez le même compte cmux sur les deux appareils. Nécessite cmux %1$@ ou une version ultérieure sur votre Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم حساب cmux نفسه على كلا الجهازين. يتطلب Mac إصدار cmux %1$@ أو أحدث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa la misma cuenta de cmux en ambos dispositivos. Requiere cmux %1$@ o posterior en tu Mac."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兩部裝置使用相同的 cmux 帳號。Mac 上需要 cmux %1$@ 或更新版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "两台设备使用相同的 cmux 账户。Mac 上需要 cmux %1$@ 或更高版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 기기에서 동일한 cmux 계정을 사용하세요. Mac에 cmux %1$@ 이상이 필요합니다."
+          }
         }
       }
     },
@@ -83935,6 +84623,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac版cmux %1$@以降が必要です。両方のデバイスにTailscaleをインストールして同じネットワークに参加し、ペアリングコードを一度スキャンしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf deinem Mac ist cmux %1$@ oder neuer erforderlich. Installiere Tailscale auf beiden Geräten und tritt demselben Netzwerk bei; scanne dann einmal den Kopplungscode."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite cmux %1$@ ou une version ultérieure sur votre Mac. Installez Tailscale sur les deux appareils et rejoignez le même réseau, puis scannez le code de jumelage une fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب Mac إصدار cmux %1$@ أو أحدث. ثبّت Tailscale على الجهازين وانضم إلى الشبكة نفسها، ثم امسح رمز الاقتران مرة واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere cmux %1$@ o posterior en tu Mac. Instala Tailscale en ambos dispositivos y únelos a la misma red; después, escanea el código de emparejamiento una vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 cmux %1$@ 或更新版本。請在兩部裝置上安裝 Tailscale 並加入相同網路，然後掃描一次配對碼。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 上需要 cmux %1$@ 或更高版本。请在两台设备上安装 Tailscale 并加入同一网络，然后扫描一次配对码。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에 cmux %1$@ 이상이 필요합니다. 두 기기에 Tailscale을 설치하고 같은 네트워크에 연결한 다음 페어링 코드를 한 번 스캔하세요."
           }
         }
       }
@@ -83953,6 +84683,48 @@
             "state": "translated",
             "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmuxを%2$@以降にアップデートしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %1$@. Aktualisiere cmux auf diesem Mac auf %2$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac utilise cmux %1$@. Mettez cmux à jour sur ce Mac vers %2$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل هذا الـMac بإصدار cmux %1$@. حدّث cmux على هذا الـMac إلى %2$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ejecuta cmux %1$@. Actualiza cmux en este Mac a %2$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 執行 cmux %1$@。請將此 Mac 上的 cmux 更新至 %2$@ 或更新版本才能連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 运行 cmux %1$@。请将此 Mac 上的 cmux 更新到 %2$@ 或更高版本后再连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 cmux %1$@을(를) 실행 중입니다. 연결하려면 이 Mac의 cmux를 %2$@ 이상으로 업데이트하세요."
+          }
         }
       }
     },
@@ -83969,6 +84741,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "このMacは古いバージョンのcmuxを実行しています。接続するには、このMacのcmuxを%1$@以降にアップデートしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft eine ältere cmux-Version. Aktualisiere cmux auf diesem Mac auf %1$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac utilise une ancienne version de cmux. Mettez cmux à jour sur ce Mac vers %1$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل هذا الـMac بإصدار أقدم من cmux. حدّث cmux على هذا الـMac إلى %1$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ejecuta una versión antigua de cmux. Actualiza cmux en este Mac a %1$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 執行較舊版本的 cmux。請將此 Mac 上的 cmux 更新至 %1$@ 或更新版本才能連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 运行较旧版本的 cmux。请将此 Mac 上的 cmux 更新到 %1$@ 或更高版本后再连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 이전 버전의 cmux를 실행 중입니다. 연결하려면 이 Mac의 cmux를 %1$@ 이상으로 업데이트하세요."
           }
         }
       }
@@ -83987,6 +84801,48 @@
             "state": "translated",
             "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmux Nightlyを%2$@以降にアップデートしてください。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac läuft cmux %1$@. Aktualisiere cmux Nightly auf diesem Mac auf %2$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac utilise cmux %1$@. Mettez cmux Nightly à jour sur ce Mac vers %2$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل هذا الـMac بإصدار cmux %1$@. حدّث cmux Nightly على هذا الـMac إلى %2$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ejecuta cmux %1$@. Actualiza cmux Nightly en este Mac a %2$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 執行 cmux %1$@。請將此 Mac 上的 cmux Nightly 更新至 %2$@ 或更新版本才能連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 运行 cmux %1$@。请将此 Mac 上的 cmux Nightly 更新到 %2$@ 或更高版本后再连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 cmux %1$@을(를) 실행 중입니다. 연결하려면 이 Mac의 cmux Nightly를 %2$@ 이상으로 업데이트하세요."
+          }
         }
       }
     },
@@ -84004,6 +84860,48 @@
             "state": "translated",
             "value": "Macでcmuxをアップデートしてください（cmuxメニュー > アップデートを確認、またはcmux.comから最新版をダウンロード）。アップデート後、このコンピュータには自動的に再接続します。"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiere cmux auf dem Mac (cmux-Menü > Nach Updates suchen oder lade die neueste Version von cmux.com herunter). Dieser Computer verbindet sich nach dem Update automatisch wieder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le Mac, mettez cmux à jour (menu cmux > Rechercher les mises à jour, ou téléchargez la dernière version depuis cmux.com). Cet ordinateur se reconnectera automatiquement après la mise à jour."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على جهاز Mac، حدّث cmux (من قائمة cmux > التحقق من وجود تحديثات، أو نزّل أحدث إصدار من cmux.com). سيُعاد اتصال هذا الكمبيوتر تلقائيًا بعد التحديث."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac, actualiza cmux (menú cmux > Buscar actualizaciones o descarga la versión más reciente desde cmux.com). Este ordenador se volverá a conectar automáticamente después de la actualización."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請在 Mac 上更新 cmux（cmux 選單 > 檢查更新，或從 cmux.com 下載最新版本）。更新後，此電腦會自動重新連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 Mac 上更新 cmux（cmux 菜单 > 检查更新，或从 cmux.com 下载最新版本）。更新后，此电脑会自动重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux를 업데이트하세요(cmux 메뉴 > 업데이트 확인 또는 cmux.com에서 최신 버전 다운로드). 업데이트 후 이 컴퓨터는 자동으로 다시 연결됩니다."
+          }
         }
       }
     },
@@ -84020,6 +84918,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "このMacのcmux Nightlyを%1$@以降にアップデートして接続してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac ist ein neueres cmux Nightly erforderlich. Aktualisiere cmux Nightly auf diesem Mac auf %1$@ oder neuer, um eine Verbindung herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac nécessite une version plus récente de cmux Nightly. Mettez cmux Nightly à jour sur ce Mac vers %1$@ ou une version ultérieure pour vous connecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الـMac إلى إصدار أحدث من cmux Nightly. حدّث cmux Nightly على هذا الـMac إلى %1$@ أو أحدث للاتصال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac necesita una versión más reciente de cmux Nightly. Actualiza cmux Nightly en este Mac a %1$@ o posterior para conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要較新的 cmux Nightly。請將此 Mac 上的 cmux Nightly 更新至 %1$@ 或更新版本才能連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 需要更新的 cmux Nightly。请将此 Mac 上的 cmux Nightly 更新到 %1$@ 或更高版本后再连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 최신 cmux Nightly가 필요합니다. 연결하려면 이 Mac의 cmux Nightly를 %1$@ 이상으로 업데이트하세요."
           }
         }
       }

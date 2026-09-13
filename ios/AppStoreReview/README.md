@@ -83,6 +83,17 @@ ios/scripts/validate-app-store-release.sh \
 
 ## Files
 
+- `metadata/` is the single source of truth for App Store Connect
+  localization metadata. It contains `app-info/<locale>.json` and
+  `version/<version>/<locale>.json` for the nine shipped locales. The former
+  `ios/fastlane/metadata/` tree was ported here and removed so Fastlane and ASC
+  cannot drift again. TestFlight What to Test notes remain en-US-only because
+  the beta upload lane publishes one review-note audience rather than localized
+  store listings.
+- The checked-in review screenshot package remains en-US-only so the production
+  lane keeps a small, deterministic reviewed asset set. The screenshot capture
+  lane produces all nine locales, and both ASC fan-out upload and the release
+  validator accept locale directories when those captures are staged.
 - `reviewer-setup.md` contains the prepared Mac, automatic review-Mac route, and
   manual fallback setup needed so App Review can test without owning a Mac. Its
   pasteable notes block is the single canonical App Store Connect notes

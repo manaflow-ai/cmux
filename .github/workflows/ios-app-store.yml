@@ -159,19 +159,25 @@ jobs:
           VERSION="$(sed -nE 's/^[[:space:]]*CMUX_IOS_APPSTORE_MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' ios/Config/Shared.xcconfig | tail -n 1)"
           require_locale_metadata() {
             local metadata_dir="$1"
-            local metadata_file
-            local locale_file_count=0
+            local metadata_file locale
+            local required_locales=(en-US de-DE fr-FR ar-SA es-ES zh-Hant zh-Hans ko ja)
             shopt -s nullglob
+            for locale in "${required_locales[@]}"; do
+              metadata_file="$metadata_dir/$locale.json"
+              if [ ! -s "$metadata_file" ]; then
+                echo "Missing required $locale metadata in $metadata_dir" >&2
+                exit 1
+              fi
+            done
             for metadata_file in "$metadata_dir"/*.json; do
-              if [ "${metadata_file##*/}" != "default.json" ]; then
-                locale_file_count=$((locale_file_count + 1))
+              locale="${metadata_file##*/}"
+              locale="${locale%.json}"
+              if [[ ! " ${required_locales[*]} " == *" $locale "* ]]; then
+                echo "Unexpected locale metadata $metadata_file" >&2
+                exit 1
               fi
             done
             shopt -u nullglob
-            if [ "$locale_file_count" -eq 0 ]; then
-              echo "No locale-specific App Store metadata found in $metadata_dir" >&2
-              exit 1
-            fi
           }
           require_locale_metadata "ios/AppStoreReview/metadata/version/$VERSION"
           require_locale_metadata "ios/AppStoreReview/metadata/app-info"
@@ -242,9 +248,25 @@ jobs:
             --dir ios/AppStoreReview/metadata \
             --allow-deletes \
             --confirm
-          asc screenshots validate \
-            --path ios/AppStoreReview/screenshots/en-US/iphone \
-            --device-type IPHONE_69
+          validate_screenshot_locales() {
+            local device_dir="$1"
+            local device_type="$2"
+            local locale_dir screenshot_path found=0
+            shopt -s nullglob
+            for locale_dir in ios/AppStoreReview/screenshots/*; do
+              screenshot_path="$locale_dir/$device_dir"
+              if [ -d "$screenshot_path" ]; then
+                asc screenshots validate --path "$screenshot_path" --device-type "$device_type"
+                found=1
+              fi
+            done
+            shopt -u nullglob
+            if [ "$found" -eq 0 ]; then
+              echo "No localized $device_dir screenshot directories found" >&2
+              exit 1
+            fi
+          }
+          validate_screenshot_locales iphone IPHONE_69
           asc screenshots upload \
             --app "$ASC_APP_ID" \
             --version "$VERSION" \
@@ -252,9 +274,7 @@ jobs:
             --path ios/AppStoreReview/screenshots \
             --device-type IPHONE_69 \
             --replace
-          asc screenshots validate \
-            --path ios/AppStoreReview/screenshots/en-US/ipad \
-            --device-type IPAD_PRO_3GEN_129
+          validate_screenshot_locales ipad IPAD_PRO_3GEN_129
           asc screenshots upload \
             --app "$ASC_APP_ID" \
             --version "$VERSION" \
