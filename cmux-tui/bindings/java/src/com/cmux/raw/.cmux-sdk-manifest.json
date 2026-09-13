@@ -317,8 +317,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "16f2a3bf258e3fa5f6b0c7362bc4794f33e0393aaba868e99c1f58cbaae676ef",
-      "size": 25709
+      "sha256": "6eb6389edc90af16d78db717b9996cbcaa77e3b670a84d5d0ee00c7f27b5774a",
+      "size": 26460
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -432,8 +432,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "1712b8e31182f51af62764c98d007c9c032c28ef43c7ea890818090ee3c5ac9d",
-      "size": 9451
+      "sha256": "2ed0ac9b15ba2e5f330aff70299fded66c029b98b1fa0a475d03adc0ef38e073",
+      "size": 9652
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -507,8 +507,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "24d6586816090aaa943d5449e38bea85f104cda74334c47daf3c41bce063ff74",
-      "size": 24808
+      "sha256": "a3a5a5514e3d0a78dc1719b640ae1690b930ea31b9b80b3bed4b2355d64cacf5",
+      "size": 25423
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -861,6 +861,61 @@
       "size": 4254
     },
     {
+      "path": "PresenceAnchor.java",
+      "sha256": "1873202176e7e1627aed44369581c90181b763158a1df12cb349b8a9ca9f1306",
+      "size": 650
+    },
+    {
+      "path": "PresenceAnchorCell.java",
+      "sha256": "10f6760b242d666dbdb2e100715bbfae4c469f80bcf74060a78abc1c1731ed77",
+      "size": 3366
+    },
+    {
+      "path": "PresenceAnchorPoint.java",
+      "sha256": "f42de603c3456bfcbf145941a9ea45a30b702e2efc5c9961ad423829177d3bec",
+      "size": 2598
+    },
+    {
+      "path": "PresenceChangedEvent.java",
+      "sha256": "1fbd1baea9607a14d7ce5d8aada5023e3cc6dac86d268b5214fb82cf18f57bf7",
+      "size": 7991
+    },
+    {
+      "path": "PresenceClearRequest.java",
+      "sha256": "c0219e51d0a8ce2064ec581e5cbd4ce30a8b4c02662702b50b52e7fec94bca22",
+      "size": 1368
+    },
+    {
+      "path": "PresenceEntry.java",
+      "sha256": "600da6382771a26aefcf6075ca4f148fbff7a9ce1a2d1c556644284cc5f45d37",
+      "size": 7531
+    },
+    {
+      "path": "PresenceHighlight.java",
+      "sha256": "44f3a1911c70d1f41c03d67d030c52658b2d1093f7c3aa226025c6f34318ad28",
+      "size": 3229
+    },
+    {
+      "path": "PresenceHighlightMode.java",
+      "sha256": "9475b182b2cb0923cff8fe3b879286f1c4f877345215e526a7ffa8b0e4956ba5",
+      "size": 921
+    },
+    {
+      "path": "PresenceListRequest.java",
+      "sha256": "280a9363b9b2dd822eecaf831072062e712be164267fe171f8cac20e9712d55b",
+      "size": 1359
+    },
+    {
+      "path": "PresenceListResult.java",
+      "sha256": "38617f56b284c9ed952a3b628b60d30c1645c2bfa07ecc283ab09845babe5caa",
+      "size": 2066
+    },
+    {
+      "path": "PresenceUpdateRequest.java",
+      "sha256": "5502d091e9875629e4a0361e849936f4fdbe82baad9b063ac012430087cab569",
+      "size": 3448
+    },
+    {
       "path": "ProcessInfoRequest.java",
       "sha256": "d16de4af06635fb24ddfcddd1248fa0ef1e30b2592cac5a4177835f92abbc659",
       "size": 2036
@@ -872,8 +927,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "a42c14f55a55fd67b099973b61d3429fbb788c5b2a6f122abcfa131afef3af8d",
-      "size": 4199
+      "sha256": "7dd8a7912bfc022bc9542848ac2aba06dc71afd02288731cc1bdd1f4c263c68c",
+      "size": 4276
     },
     {
       "path": "ProtocolEvent.java",
@@ -1287,8 +1342,8 @@
     },
     {
       "path": "SubscribeRequest.java",
-      "sha256": "3d2bf4e413e0230cacbd33933da70f55f9d418cccb0b048a46318c580d52fea3",
-      "size": 2752
+      "sha256": "7f6f1834f94620a15ea1c627fe34b05e2a99305ed7a030f792bb23a43ed4327e",
+      "size": 3505
     },
     {
       "path": "SubscribeRequestTreeEvents.java",
@@ -1562,7 +1617,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543",
+  "ir_sha256": "3c5e184715e57b897be324f885bf9da77cd01931353c8205f327a87d58b88313",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
