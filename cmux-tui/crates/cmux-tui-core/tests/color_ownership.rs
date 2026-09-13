@@ -168,6 +168,14 @@ fn color_ownership_same_valued_osc_survives_defaults_and_resets_per_terminal() {
     assert_eq!(changed["overrides"], authored);
     assert_eq!(changed["palette"], json!({"4": "#445566"}));
 
+    fixture.surface.resize(50, 10).unwrap();
+    let resized = ColorFixture::event(&mut viewer, "resized");
+    assert_eq!(resized["colors"]["overrides"], authored);
+    assert_eq!(resized["colors"]["palette"], json!({"4": "#445566"}));
+    let reattached = ColorFixture::event(&mut fixture.attach(), "vt-state");
+    assert_eq!(reattached["colors"]["overrides"], authored);
+    assert_eq!(reattached["colors"]["palette"], json!({"4": "#445566"}));
+
     let peer = fixture.mux.new_workspace(None, Some((40, 8))).unwrap();
     let peer_state = ColorFixture::event(&mut fixture.attach_surface(peer.id), "vt-state");
     fixture.mux.close_surface(peer.id).unwrap();
