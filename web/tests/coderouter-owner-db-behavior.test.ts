@@ -29,11 +29,11 @@ function credential(user: string, workspace: string, email = "shared@example.com
 }
 
 dbTest("separates users in one workspace and preserves records when email changes", async () => {
-  const first = await addAccount(team, credential("user-1", "workspace"), keys, async () => {});
-  const second = await addAccount(team, credential("user-2", "workspace"), keys, async () => {});
-  const personal = await addAccount(team, credential("user-1", "personal"), keys, async () => {});
+  const first = await addAccount(team, credential("user-1", "workspace"), keys, async () => {}, async () => {});
+  const second = await addAccount(team, credential("user-2", "workspace"), keys, async () => {}, async () => {});
+  const personal = await addAccount(team, credential("user-1", "personal"), keys, async () => {}, async () => {});
   expect(new Set([first.accountId, second.accountId, personal.accountId]).size).toBe(3);
-  const renamed = await addAccount(team, credential("user-1", "workspace", "renamed@example.com"), keys, async () => {});
+  const renamed = await addAccount(team, credential("user-1", "workspace", "renamed@example.com"), keys, async () => {}, async () => {});
   expect(renamed).toEqual({ accountId: first.accountId, alreadyExists: true });
   const accounts = await listAccounts(team);
   expect(accounts).toHaveLength(3);
@@ -41,7 +41,7 @@ dbTest("separates users in one workspace and preserves records when email change
 });
 
 dbTest("concurrent adds create one record for one owner", async () => {
-  const results = await Promise.all(Array.from({ length: 6 }, () => addAccount(team, credential("user-1", "workspace"), keys, async () => {})));
+  const results = await Promise.all(Array.from({ length: 6 }, () => addAccount(team, credential("user-1", "workspace"), keys, async () => {}, async () => {})));
   expect(new Set(results.map(result => result.accountId)).size).toBe(1);
   expect(await listAccounts(team)).toHaveLength(1);
 });
@@ -53,9 +53,9 @@ dbTest("adopts a legacy workspace row from its encrypted owner without changing 
   await sql`insert into coderouter_accounts (id,team_id,provider,provider_account_id,label,state,vault_revision) values (${id},${team},'codex','workspace','old-email','active',1)`;
   await sql`insert into coderouter_credentials (account_id,team_id,provider,credential_revision,algorithm,ciphertext,nonce,auth_tag,encrypted_data_key,kms_key_id) values (${id},${team},'codex',1,${encrypted.algorithm},${encrypted.ciphertext},${encrypted.nonce},${encrypted.authTag},${encrypted.encryptedDataKey},${encrypted.kmsKeyId})`;
   await bindSessionAccount(team, "codex", "owner-session", id);
-  const other = await addAccount(team, credential("new-user", "workspace"), keys, async () => {});
+  const other = await addAccount(team, credential("new-user", "workspace"), keys, async () => {}, async () => {});
   expect(other.accountId).not.toBe(id);
-  const oldAgain = await addAccount(team, credential("original-user", "workspace", "renamed@example.com"), keys, async () => {});
+  const oldAgain = await addAccount(team, credential("original-user", "workspace", "renamed@example.com"), keys, async () => {}, async () => {});
   expect(oldAgain.accountId).toBe(id);
   expect((await findSessionAccount(team, "codex", "owner-session", []))?.id).toBe(id);
   expect(await listAccounts(team)).toHaveLength(2);

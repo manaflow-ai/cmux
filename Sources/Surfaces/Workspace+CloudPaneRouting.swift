@@ -96,7 +96,10 @@ extension Workspace {
                 if let sourceTabID = source?.remoteTabID, let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     created = try await layoutProvider.createTerminal(nearTabID: sourceTabID, splitDirection: direction)
                 } else {
-                    created = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                    let workingDirectory = await provider.currentWorkingDirectory(of: resource)
+                    created = try await provider.createTerminal(
+                        command: nil, cwd: workingDirectory, name: nil, remoteWorkspaceID: remoteWorkspaceID
+                    )
                 }
                 _ = try await catalog.project(
                     created.id,

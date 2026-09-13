@@ -2,6 +2,7 @@ import { decryptCredential } from "../../services/coderouter/encryption";
 import { needsCodexOwnerMigration, withCodexOwner } from "../../services/coderouter/codexIdentity";
 import { bindCodexOwnerIdentity, listAccounts, listCoderouterTeamIds, listEncryptedCredentials } from "../../services/coderouter/repository";
 import { closeCloudDbForTests } from "../../db/client";
+import { verifyStoredCodexCredential } from "../../services/coderouter/codexSignature";
 import { cloudDbConfig } from "../../db/config";
 import { Signer } from "@aws-sdk/rds-signer";
 import { loadTargetEnv, projects } from "../cloud-vm/projects.mjs";
@@ -46,6 +47,7 @@ try {
       try {
         const credential = await decryptCredential(envelope);
         if (credential.provider !== "codex") throw new Error("provider mismatch");
+        await verifyStoredCodexCredential(credential);
         const identified = withCodexOwner(credential);
         const account = byId.get(envelope.accountId);
         if (!account || account.providerAccountId !== credential.accountId) throw new Error("workspace mismatch");
