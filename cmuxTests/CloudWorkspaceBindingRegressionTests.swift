@@ -30,7 +30,7 @@ struct CloudWorkspaceBindingRegressionTests {
             id == bound
                 ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted")
                 : nil
-        })
+        }, workspaceExists: { _, remoteID in remoteID == "ws_deleted" ? false : nil })
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
             title: "term_1", detail: "/root", lifecycle: .running, agent: nil,
@@ -61,7 +61,7 @@ struct CloudWorkspaceBindingRegressionTests {
             id == bound
                 ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted")
                 : nil
-        })
+        }, workspaceExists: { _, _ in false })
         let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 1, focused: false)
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1"),
