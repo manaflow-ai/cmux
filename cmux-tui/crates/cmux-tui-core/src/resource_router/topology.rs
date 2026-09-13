@@ -1796,6 +1796,46 @@ mod tests {
     }
 
     #[test]
+    fn cloud_rename_authority_preserves_existing_tab_wire_contract() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "rename-wire-contract");
+        let tab = created["value"]["tab_id"].as_str().unwrap();
+        let renamed = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::TabRename,
+                selectors(None, None, None, Some(tab)),
+                json!({"name":"Logs / 東京"}),
+                Some("rename-wire-contract-name"),
+            ),
+        )
+        .unwrap();
+        // Released SDKs reject unknown tab siblings but preserve the extension map.
+        let legacy_schema = json!({
+            "type":"object", "additionalProperties":false,
+            "required":["id", "pane_id", "name", "index", "focused", "content_kind", "content_id"],
+            "properties":{
+                "id":{}, "pane_id":{}, "name":{}, "index":{}, "focused":{},
+                "content_kind":{}, "content_id":{}, "extra":{"type":"object"}
+            }
+        });
+        let validator = jsonschema::validator_for(&legacy_schema).unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let observed = snapshot["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|value| value["id"] == tab)
+            .unwrap();
+        for value in [&renamed["value"], observed] {
+            assert!(validator.is_valid(value), "tab response broke a released SDK: {value}");
+            assert_eq!(value["name"], "Logs / 東京");
+            assert_eq!(value["extra"]["name_source"], "user");
+            assert_eq!(value["extra"]["name_revision"], renamed["revision"]);
+        }
+    }
+
+    #[test]
     fn cloud_rename_authority_rejects_unversioned_callback() {
         let mux = mux();
         let created = terminal_workspace(&mux, "unversioned-name");
