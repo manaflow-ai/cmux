@@ -47,27 +47,43 @@ const PLAN_CTA_EVENTS = {
 
 export function PricingCheckoutButton({
   href,
+  signInHref,
   children,
   location,
   plan = "pro",
   size = "default",
 }: {
   href: string;
+  /** Signed-out visitors authenticate before the server checks subscription state. */
+  signInHref?: string;
   children: ReactNode;
   location: string;
   plan?: PricingPlan;
   size?: PricingActionSize;
 }) {
   const pricing = PLAN_PRICES[plan];
+  const destination = signInHref ?? href;
   return (
     <CheckoutButton
-      href={withCheckoutAttribution(href, { [CHECKOUT_PLACEMENT_PARAM]: location })}
+      href={withCheckoutAttribution(destination, { [CHECKOUT_PLACEMENT_PARAM]: location })}
       size={size}
+      onClick={() => {
+        if (signInHref) {
+          posthog.capture("cmuxterm_pricing_sign_in_required", {
+            plan,
+            location,
+            interval: "month",
+            currency: "usd",
+            billed_amount_usd: pricing.billedAmount,
+          });
+        }
+      }}
       analytics={{
         event: PLAN_CTA_EVENTS[plan],
         properties: {
           location,
-          checkout: true,
+          checkout: !signInHref,
+          auth_required: !!signInHref,
           interval: "month",
           currency: "usd",
           billed_amount_usd: pricing.billedAmount,

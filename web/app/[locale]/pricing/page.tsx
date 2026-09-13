@@ -63,6 +63,7 @@ import {
 } from "../../../services/billing/plans";
 import { isVaultEnabled } from "../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
+import { vaultSignInHref } from "../../lib/vault-auth";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -135,6 +136,7 @@ export default async function PricingPage({
   const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+  const signInCheckoutHref = (checkoutHref: string) => snapshot.authenticated ? undefined : vaultSignInHref(checkoutHref);
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
@@ -223,6 +225,7 @@ export default async function PricingPage({
               ) : (
                 <PricingCheckoutButton
                   href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+                  signInHref={signInCheckoutHref(withCheckoutAttribution(GO_CHECKOUT_URL, attribution))}
                   location="pricing_page"
                   plan="go"
                 >
@@ -257,7 +260,7 @@ export default async function PricingPage({
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHref={proCheckoutHref}>
+                <ProCtaLink checkoutHref={proCheckoutHref} signInHref={signInCheckoutHref(proCheckoutHref)}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -292,6 +295,7 @@ export default async function PricingPage({
               ) : (
                 <PricingCheckoutButton
                   href={maxCheckoutHref}
+                  signInHref={signInCheckoutHref(maxCheckoutHref)}
                   location="pricing_page"
                   plan="max"
                 >
@@ -320,6 +324,7 @@ export default async function PricingPage({
             >
               <PricingCheckoutButton
                 href={teamCheckoutHref}
+                signInHref={signInCheckoutHref(teamCheckoutHref)}
                 location="pricing_page"
                 plan="team"
               >
@@ -394,6 +399,7 @@ export default async function PricingPage({
                   ) : (
                     <ProCtaLink
                       checkoutHref={proCheckoutHref}
+                      signInHref={signInCheckoutHref(proCheckoutHref)}
                       size="compact"
                       location="pricing_compare_header"
                     >
@@ -411,6 +417,7 @@ export default async function PricingPage({
                   ) : (
                     <PricingCheckoutButton
                       href={maxCheckoutHref}
+                      signInHref={signInCheckoutHref(maxCheckoutHref)}
                       location="pricing_compare_header"
                       plan="max"
                       size="compact"
@@ -422,6 +429,7 @@ export default async function PricingPage({
                 team: (
                   <PricingCheckoutButton
                     href={teamCheckoutHref}
+                    signInHref={signInCheckoutHref(teamCheckoutHref)}
                     location="pricing_compare_header"
                     plan="team"
                     size="compact"
@@ -491,6 +499,7 @@ export default async function PricingPage({
 }
 
 type PlanSnapshot = {
+  authenticated: boolean;
   planId: "free" | "go" | "pro" | "max";
   isPro: boolean;
   billingManagement: "stripe" | "none";
@@ -498,17 +507,18 @@ type PlanSnapshot = {
 
 async function currentPlanSnapshot(): Promise<PlanSnapshot> {
   if (!isStackConfigured()) {
-    return { planId: "free", isPro: false, billingManagement: "none" };
+    return { authenticated: false, planId: "free", isPro: false, billingManagement: "none" };
   }
 
   await connection();
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { planId: "free", isPro: false, billingManagement: "none" };
+    return { authenticated: false, planId: "free", isPro: false, billingManagement: "none" };
   }
 
   const status = await resolveProPlanStatus(user);
   return {
+    authenticated: !user.isAnonymous,
     planId: status.planId,
     isPro: status.isPro,
     billingManagement: status.billingManagement,

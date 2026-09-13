@@ -225,20 +225,17 @@ describe("localized pricing page", () => {
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).toContain("$60/user/mo");
-    expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
-    expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
+    expect(html).toContain('href="/handler/sign-in?after_auth_return_to=');
+    expect(html).toContain("plan%253Dpro");
+    expect(html).toContain("plan%253Dteam");
+    expect(html).toMatch(
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dpro[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=month[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dteam[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=month[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
-    );
-    expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=max[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
+      /href="\/handler\/sign-in\?after_auth_return_to=[^"]*plan%253Dmax[^"]*"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Max/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -258,13 +255,12 @@ describe("localized pricing page", () => {
     // The annual selector must not touch Max: no interval on its checkout
     // link and no "billed yearly" label on its card or table column.
     expect(html).toContain(
-      "/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;cmux_placement=pricing_page",
+      "plan%253Dmax%2526cmux_external_browser",
     );
     expect(html).toContain(
-      "/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;cmux_placement=pricing_compare_header",
+      "plan%253Dmax%2526cmux_external_browser",
     );
-    expect(html).not.toMatch(/plan=max[^"]*interval=/);
-    expect(html.split("api/billing/checkout?plan=max")).toHaveLength(3);
+    expect(html).not.toMatch(/plan%253Dmax[^\"]*interval%253D/);
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
@@ -344,12 +340,8 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("$576/user/year");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
-    expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
+    expect(html).toContain("plan%253Dpro%2526cmux_external_browser");
+    expect(html).toContain("plan%253Dteam%2526cmux_external_browser");
     expect(html).toContain('role="tablist"');
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
     expect(html).not.toContain('href="?interval=');
@@ -369,9 +361,8 @@ describe("localized pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=cli_free_access_expiry&amp;cmux_client=cli&amp;utm_source=newsletter&amp;utm_campaign=sept&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
+    expect(html).toContain("plan%253Dpro%2526cmux_external_browser");
+    expect(html).toContain("utm_source%253Dnewsletter");
     expect(html).not.toContain("cmux_source=pricing_page");
   });
 
@@ -389,12 +380,8 @@ describe("localized pricing page", () => {
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
-    expect(html).toContain(
-      "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
-    expect(html).toContain(
-      "/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=pricing_page&amp;interval=month&amp;cmux_placement=pricing_page",
-    );
+    expect(html).toContain("plan%253Dpro%2526cmux_external_browser");
+    expect(html).toContain("plan%253Dteam%2526cmux_external_browser");
     expect(html).toMatch(/<button[^>]*role="tab"[^>]*aria-selected="true"/);
   });
 

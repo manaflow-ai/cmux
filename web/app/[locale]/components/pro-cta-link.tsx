@@ -7,11 +7,13 @@ import type { PricingActionSize } from "../../components/pricing-shared";
 
 export function ProCtaLink({
   checkoutHref,
+  signInHref,
   children,
   size = "default",
   location = "pricing_page",
 }: {
   checkoutHref: string;
+  signInHref?: string;
   children: React.ReactNode;
   size?: PricingActionSize;
   location?: string;
@@ -19,6 +21,7 @@ export function ProCtaLink({
   return (
     <PricingCheckoutButton
       href={checkoutHref}
+      signInHref={signInHref}
       location={location}
       size={size}
     >
