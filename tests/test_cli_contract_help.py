@@ -303,6 +303,12 @@ def check_guide_contract(cli_path: str) -> list[str]:
                         raise ValueError(f"JSON guide differs from plain output: {result}")
                 if topic == "cmux" and "cmux cloud" not in plain.stdout:
                     raise ValueError("local guide must include the Cloud entry point")
+                expected = ["agent-browser.dev", "agent-browser --auto-connect", "agent-browser --cdp", "agent-browser --headed"]
+                if topic == "cloud":
+                    expected += ["cua-driver --version", "cua-driver doctor", "DISPLAY=:1"]
+                missing = [needle for needle in expected if needle not in plain.stdout]
+                if missing:
+                    raise ValueError(f"guide is missing method details: {missing}")
                 for suffix in (["unexpected"], ["--", "--help"]):
                     result = run_cli_args(cli_path, prefix + invocation + suffix)
                     if result.returncode != 2 or result.stdout or "Usage:" not in result.stderr:

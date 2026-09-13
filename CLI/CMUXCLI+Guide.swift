@@ -64,16 +64,19 @@ extension CMUXCLI {
         `cmux new-workspace --help` · `cmux new-pane --help`
         `cmux read-screen --help` · `cmux send --help` · `cmux send-key --help`
 
-        \(CMUXDiffViewerLocalization.string("cli.guide.overview.browser", defaultValue: "## Use a browser\n\nUse `cmux browser` for a browser surface inside cmux. Use `agent-browser` for a separate browser session. Read a snapshot, act on an observed element, then take a fresh snapshot. Check appearance with a screenshot. Keep each tool's target IDs within that tool."))
+        \(CMUXDiffViewerLocalization.string("cli.guide.overview.browser", defaultValue: "## Use a browser\n\nUse `cmux browser` for a browser surface inside cmux. Use `agent-browser` for a separate browser session. Prefer an existing headful Chrome session when it exposes DevTools through remote debugging: `agent-browser --auto-connect snapshot`, or `agent-browser --cdp 9222 snapshot` for an explicit port. A normal Chrome window without remote debugging cannot be attached; `agent-browser --headed` starts a new visible browser. Read a snapshot, act on an observed element, then take a fresh snapshot. Check appearance with a screenshot. Keep each tool's target IDs within that tool."))
 
         ```sh
         cmux browser open https://example.com --focus false
         cmux browser --surface <surface> snapshot --interactive
         cmux browser --help
+        agent-browser --auto-connect snapshot
+        agent-browser --cdp 9222 snapshot
+        agent-browser --headed open https://example.com
         agent-browser --help
         ```
 
-        [cmux browser](https://cmux.com/docs/browser-automation) · [agent-browser](https://agent-browser.dev/commands)
+        [cmux browser](https://cmux.com/docs/browser-automation) · [agent-browser docs](https://agent-browser.dev/) · [agent-browser commands](https://agent-browser.dev/commands)
 
         \(CMUXDiffViewerLocalization.string("cli.guide.overview.computer", defaultValue: "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. Complete setup in Settings > Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."))
 
@@ -122,15 +125,18 @@ extension CMUXCLI {
         cmux cloud pull --help
         ```
 
-        \(CMUXDiffViewerLocalization.string("cli.guide.cloud.browser", defaultValue: "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its help. Inspect installed tools with `tools` first. For desktop tasks, use a computer-use-capable agent on the machine; the devbox includes `cua-driver`. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."))
+        \(CMUXDiffViewerLocalization.string("cli.guide.cloud.browser", defaultValue: "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its documentation. Prefer the machine's existing headful Chrome session when it exposes DevTools. The devbox installs Chrome, but its dock launcher does not enable remote debugging by default. Start a debugging-enabled Chrome with `--remote-debugging-port=9222`, then use `agent-browser --cdp 9222 snapshot`, or try `agent-browser --auto-connect snapshot`. Inspect installed tools with `tools` first. The default devbox also installs `cua-driver` for Linux desktop automation. Verify it with `cua-driver --version` and `cua-driver doctor`; it needs the desktop display (`DISPLAY=:1`) and accessibility bus. Use `cua-driver` for visible desktop windows and `agent-browser` for web pages. Historical shell-only machines may not have a desktop or driver. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."))
 
         ```sh
         cmux cloud tools <machine>
         cmux cloud exec <machine> -- agent-browser --help
+        cmux cloud exec <machine> -- agent-browser --auto-connect snapshot
+        cmux cloud exec <machine> -- cua-driver --version
+        cmux cloud exec <machine> -- cua-driver doctor
         cmux cloud desktop <machine>
         ```
 
-        [agent-browser](https://agent-browser.dev/commands) · [cmux cloud agent](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-cloud-vm/references/agent-workflows.md)
+        [agent-browser docs](https://agent-browser.dev/) · [agent-browser commands](https://agent-browser.dev/commands) · [cmux cloud agent](https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-cloud-vm/references/agent-workflows.md)
 
         \(CMUXDiffViewerLocalization.string("cli.guide.cloud.share", defaultValue: "## Open, share, and keep work\n\nUse `open` for a machine's terminal, desktop, or web port. Private web URLs need the Cloud network connection; read `vpn` help. Use `domains` to publish a web port with explicit access rules. Use snapshots and forks to keep or copy machine state. Removing a machine deletes it."))
 

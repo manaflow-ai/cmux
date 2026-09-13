@@ -243,55 +243,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Use a browser\n\nUse `cmux browser` for a browser surface inside cmux. Use `agent-browser` for a separate browser session. Read a snapshot, act on an observed element, then take a fresh snapshot. Check appearance with a screenshot. Keep each tool's target IDs within that tool."
+            "value": "## Use a browser\n\nUse `cmux browser` for a browser surface inside cmux. Use `agent-browser` for a separate browser session. Prefer an existing headful Chrome session when it exposes DevTools through remote debugging: `agent-browser --auto-connect snapshot`, or `agent-browser --cdp 9222 snapshot` for an explicit port. A normal Chrome window without remote debugging cannot be attached; `agent-browser --headed` starts a new visible browser. Read a snapshot, act on an observed element, then take a fresh snapshot. Check appearance with a screenshot. Keep each tool's target IDs within that tool."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Browser verwenden\n\nVerwenden Sie `cmux browser` für eine Browseroberfläche in cmux. Verwenden Sie `agent-browser` für eine separate Browsersitzung. Lesen Sie einen Snapshot, bedienen Sie ein darin erkanntes Element und erstellen Sie einen neuen Snapshot. Prüfen Sie die Darstellung mit einem Screenshot. Verwenden Sie Ziel-IDs nur im jeweiligen Werkzeug."
+            "value": "## Browser verwenden\n\nVerwenden Sie `cmux browser` für eine Browseroberfläche in cmux. Verwenden Sie `agent-browser` für eine separate Browsersitzung. Bevorzugen Sie eine vorhandene sichtbare Chrome-Sitzung, wenn sie DevTools über Remote-Debugging bereitstellt: `agent-browser --auto-connect snapshot` oder `agent-browser --cdp 9222 snapshot` für einen festen Port. Ein normales Chrome-Fenster ohne Remote-Debugging kann nicht verbunden werden; `agent-browser --headed` startet einen neuen sichtbaren Browser. Lesen Sie einen Snapshot, bedienen Sie ein darin erkanntes Element und erstellen Sie einen neuen Snapshot. Prüfen Sie die Darstellung mit einem Screenshot. Verwenden Sie Ziel-IDs nur im jeweiligen Werkzeug."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Utiliser un navigateur\n\nUtilisez `cmux browser` pour une surface de navigateur dans cmux. Utilisez `agent-browser` pour une session de navigateur distincte. Lisez un instantané, agissez sur un élément observé, puis prenez un nouvel instantané. Vérifiez l’apparence avec une capture d’écran. Utilisez les identifiants de cible uniquement dans leur outil d’origine."
+            "value": "## Utiliser un navigateur\n\nUtilisez `cmux browser` pour une surface de navigateur dans cmux. Utilisez `agent-browser` pour une session distincte. Préférez une session Chrome visible existante lorsqu’elle expose DevTools par débogage distant : `agent-browser --auto-connect snapshot`, ou `agent-browser --cdp 9222 snapshot` pour un port précis. Une fenêtre Chrome normale sans débogage distant ne peut pas être connectée ; `agent-browser --headed` ouvre un nouveau navigateur visible. Lisez un instantané, agissez sur un élément observé, puis prenez un nouvel instantané. Vérifiez l’apparence avec une capture d’écran. Utilisez les identifiants de cible uniquement dans leur outil."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## استخدام متصفح\n\nاستخدم `cmux browser` لسطح متصفح داخل cmux. واستخدم `agent-browser` لجلسة متصفح منفصلة. اقرأ لقطة للحالة، ثم تفاعل مع عنصر لاحظته، وبعد ذلك التقط لقطة جديدة. تحقق من المظهر بلقطة شاشة. استخدم معرّفات أهداف كل أداة داخل تلك الأداة فقط."
+            "value": "## استخدام متصفح\n\nاستخدم `cmux browser` لسطح متصفح داخل cmux. واستخدم `agent-browser` لجلسة متصفح منفصلة. فضّل جلسة Chrome مرئية موجودة عندما تعرض DevTools عبر التصحيح عن بُعد: `agent-browser --auto-connect snapshot`، أو `agent-browser --cdp 9222 snapshot` لمنفذ محدد. لا يمكن الاتصال بنافذة Chrome عادية من دون التصحيح عن بُعد؛ يبدأ `agent-browser --headed` متصفحاً مرئياً جديداً. اقرأ لقطة للحالة، ثم تفاعل مع عنصر لاحظته، وبعد ذلك التقط لقطة جديدة. تحقق من المظهر بلقطة شاشة. استخدم معرّفات أهداف كل أداة داخل تلك الأداة فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar un navegador\n\nUse `cmux browser` para una superficie de navegador dentro de cmux. Use `agent-browser` para una sesión de navegador independiente. Lea una instantánea, actúe sobre un elemento observado y tome una nueva instantánea. Compruebe el aspecto con una captura de pantalla. Use los identificadores de destino de cada herramienta solo en esa herramienta."
+            "value": "## Usar un navegador\n\nUse `cmux browser` para una superficie de navegador dentro de cmux. Use `agent-browser` para una sesión independiente. Prefiera una sesión de Chrome visible existente cuando exponga DevTools mediante depuración remota: `agent-browser --auto-connect snapshot`, o `agent-browser --cdp 9222 snapshot` para un puerto concreto. Una ventana normal de Chrome sin depuración remota no se puede conectar; `agent-browser --headed` inicia un navegador visible nuevo. Lea una instantánea, actúe sobre un elemento observado y tome una nueva instantánea. Compruebe el aspecto con una captura de pantalla. Use los identificadores de destino solo en su herramienta."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用瀏覽器\n\n使用 `cmux browser` 操作 cmux 內的瀏覽器表面。使用 `agent-browser` 開啟獨立的瀏覽器工作階段。閱讀快照，操作已觀察到的元素，再擷取新快照。使用螢幕截圖檢查外觀。每個工具的目標 ID 僅供該工具使用。"
+            "value": "## 使用瀏覽器\n\n使用 `cmux browser` 操作 cmux 內的瀏覽器表面。使用 `agent-browser` 開啟獨立的瀏覽器工作階段。若現有的可視 Chrome 工作階段透過遠端偵錯公開 DevTools，請優先使用：`agent-browser --auto-connect snapshot`，或使用 `agent-browser --cdp 9222 snapshot` 指定連接埠。未開啟遠端偵錯的一般 Chrome 視窗無法連線；`agent-browser --headed` 會啟動新的可視瀏覽器。閱讀快照，操作已觀察到的元素，再擷取新快照。使用螢幕截圖檢查外觀。每個工具的目標 ID 僅供該工具使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用浏览器\n\n使用 `cmux browser` 操作 cmux 内的浏览器表面。使用 `agent-browser` 开启独立的浏览器会话。阅读快照，操作已观察到的元素，再获取新快照。使用屏幕截图检查外观。每个工具的目标 ID 仅供该工具使用。"
+            "value": "## 使用浏览器\n\n使用 `cmux browser` 操作 cmux 内的浏览器表面。使用 `agent-browser` 开启独立的浏览器会话。如果现有的可视 Chrome 会话通过远程调试公开 DevTools，请优先使用：`agent-browser --auto-connect snapshot`，或使用 `agent-browser --cdp 9222 snapshot` 指定端口。未启用远程调试的普通 Chrome 窗口无法连接；`agent-browser --headed` 会启动新的可视浏览器。阅读快照，操作已观察到的元素，再获取新快照。使用屏幕截图检查外观。每个工具的目标 ID 仅供该工具使用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 브라우저 사용\n\ncmux 내부의 브라우저 표면에는 `cmux browser`를 사용하세요. 별도의 브라우저 세션에는 `agent-browser`를 사용하세요. 스냅샷을 읽고 확인한 요소를 조작한 다음 새 스냅샷을 만드세요. 스크린샷으로 화면 모양을 확인하세요. 각 도구의 대상 ID는 해당 도구에서만 사용하세요."
+            "value": "## 브라우저 사용\n\ncmux 내부의 브라우저 표면에는 `cmux browser`를 사용하세요. 별도의 브라우저 세션에는 `agent-browser`를 사용하세요. 기존 헤드풀 Chrome 세션이 원격 디버깅으로 DevTools를 제공하면 우선 사용하세요: `agent-browser --auto-connect snapshot`, 또는 명시적 포트에는 `agent-browser --cdp 9222 snapshot`. 원격 디버깅이 없는 일반 Chrome 창에는 연결할 수 없습니다. `agent-browser --headed`는 새 가시 브라우저를 시작합니다. 스냅샷을 읽고 확인한 요소를 조작한 다음 새 스냅샷을 만드세요. 스크린샷으로 화면 모양을 확인하세요. 각 도구의 대상 ID는 해당 도구에서만 사용하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## ブラウザを使う\n\ncmux 内のブラウザサーフェスには `cmux browser` を使います。別のブラウザセッションには `agent-browser` を使います。スナップショットを読み、確認した要素を操作して、新しいスナップショットを取得してください。スクリーンショットで外観を確認します。各ツールの対象 ID は、そのツール内でのみ使ってください。"
+            "value": "## ブラウザを使う\n\ncmux 内のブラウザサーフェスには `cmux browser` を使います。別のブラウザセッションには `agent-browser` を使います。既存のヘッドフル Chrome セッションがリモートデバッグで DevTools を公開している場合は優先して使います。`agent-browser --auto-connect snapshot`、またはポートを明示する `agent-browser --cdp 9222 snapshot` を使います。リモートデバッグのない通常の Chrome ウインドウには接続できません。`agent-browser --headed` は新しい表示ブラウザを起動します。スナップショットを読み、確認した要素を操作して、新しいスナップショットを取得してください。スクリーンショットで外観を確認します。各ツールの対象 ID は、そのツール内でのみ使ってください。"
           }
         }
       }
@@ -656,55 +656,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its help. Inspect installed tools with `tools` first. For desktop tasks, use a computer-use-capable agent on the machine; the devbox includes `cua-driver`. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."
+            "value": "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its documentation. Prefer the machine's existing headful Chrome session when it exposes DevTools. The devbox installs Chrome, but its dock launcher does not enable remote debugging by default. Start a debugging-enabled Chrome with `--remote-debugging-port=9222`, then use `agent-browser --cdp 9222 snapshot`, or try `agent-browser --auto-connect snapshot`. Inspect installed tools with `tools` first. The default devbox also installs `cua-driver` for Linux desktop automation. Verify it with `cua-driver --version` and `cua-driver doctor`; it needs the desktop display (`DISPLAY=:1`) and accessibility bus. Use `cua-driver` for visible desktop windows and `agent-browser` for web pages. Historical shell-only machines may not have a desktop or driver. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Browser und Computer Use verwenden\n\nFühren Sie für Browserautomatisierung auf dem Rechner dort `agent-browser` aus und lesen Sie dessen Hilfe. Prüfen Sie zuerst mit `tools`, welche Werkzeuge installiert sind. Verwenden Sie für Desktop-Aufgaben einen Computer-Use-fähigen Agenten auf dem Rechner; die Devbox enthält `cua-driver`. Prüfen Sie den entfernten Bildschirm, handeln Sie und kontrollieren Sie das Ergebnis. Lokale Computer-Use-Werkzeuge steuern Ihren Mac, sofern kein entferntes Ziel konfiguriert ist."
+            "value": "## Browser und Computer Use verwenden\n\nFür Browserautomatisierung auf dem Rechner führen Sie dort `agent-browser` aus und lesen Sie die Dokumentation. Bevorzugen Sie die vorhandene sichtbare Chrome-Sitzung des Rechners, wenn sie DevTools bereitstellt. Die Devbox installiert Chrome, aber der Dock-Starter aktiviert Remote-Debugging standardmäßig nicht. Starten Sie Chrome mit `--remote-debugging-port=9222` und verwenden Sie dann `agent-browser --cdp 9222 snapshot` oder versuchen Sie `agent-browser --auto-connect snapshot`. Prüfen Sie zuerst die installierten Werkzeuge mit `tools`. Die Standard-Devbox installiert außerdem `cua-driver` für Linux-Desktopautomatisierung. Prüfen Sie es mit `cua-driver --version` und `cua-driver doctor`; es benötigt das Desktop-Display (`DISPLAY=:1`) und den Accessibility-Bus. Verwenden Sie `cua-driver` für sichtbare Desktopfenster und `agent-browser` für Webseiten. Historische Rechner ohne Desktop haben möglicherweise keinen Treiber. Prüfen Sie den entfernten Bildschirm, handeln Sie und kontrollieren Sie das Ergebnis. Lokale Computer-Use-Werkzeuge steuern Ihren Mac, sofern kein entferntes Ziel konfiguriert ist."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Utiliser les navigateurs et computer use\n\nPour automatiser un navigateur sur la machine, exécutez-y `agent-browser` et lisez son aide. Inspectez d’abord les outils installés avec `tools`. Pour les tâches de bureau, utilisez sur la machine un agent compatible computer-use ; la devbox inclut `cua-driver`. Inspectez l’écran distant, agissez, puis vérifiez. Les outils computer-use locaux ciblent votre Mac, sauf si une cible distante est configurée."
+            "value": "## Utiliser les navigateurs et computer use\n\nPour automatiser un navigateur sur la machine, exécutez-y `agent-browser` et lisez sa documentation. Préférez la session Chrome visible existante de la machine lorsqu’elle expose DevTools. La devbox installe Chrome, mais son lanceur du dock n’active pas le débogage distant par défaut. Démarrez Chrome avec `--remote-debugging-port=9222`, puis utilisez `agent-browser --cdp 9222 snapshot`, ou essayez `agent-browser --auto-connect snapshot`. Vérifiez d’abord les outils installés avec `tools`. La devbox par défaut installe aussi `cua-driver` pour l’automatisation du bureau Linux. Vérifiez-le avec `cua-driver --version` et `cua-driver doctor`; il nécessite l’écran du bureau (`DISPLAY=:1`) et le bus d’accessibilité. Utilisez `cua-driver` pour les fenêtres visibles et `agent-browser` pour les pages Web. Les anciennes machines sans bureau peuvent ne pas avoir de pilote. Inspectez l’écran distant, agissez, puis vérifiez. Les outils computer-use locaux ciblent votre Mac, sauf si une cible distante est configurée."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## استخدام المتصفحات وcomputer use\n\nلأتمتة المتصفح على الجهاز، شغّل `agent-browser` هناك واقرأ تعليماته. افحص الأدوات المثبتة باستخدام `tools` أولاً. لمهام سطح المكتب، استخدم وكيلاً يدعم computer-use على الجهاز؛ تتضمن devbox أداة `cua-driver`. افحص الشاشة البعيدة، ونفّذ الإجراء، ثم تحقق. تستهدف أدوات computer-use المحلية جهاز Mac لديك ما لم تُضبط لهدف بعيد."
+            "value": "## استخدام المتصفحات وcomputer use\n\nلأتمتة المتصفح على الجهاز، شغّل `agent-browser` هناك واقرأ وثائقه. فضّل جلسة Chrome المرئية الموجودة على الجهاز عندما تعرض DevTools. تثبّت devbox Chrome، لكن مشغّل dock لا يفعّل التصحيح عن بُعد افتراضياً. شغّل Chrome باستخدام `--remote-debugging-port=9222`، ثم استخدم `agent-browser --cdp 9222 snapshot`، أو جرّب `agent-browser --auto-connect snapshot`. افحص الأدوات المثبتة باستخدام `tools` أولاً. تثبّت devbox الافتراضية أيضاً `cua-driver` لأتمتة سطح مكتب Linux. تحقّق منه باستخدام `cua-driver --version` و`cua-driver doctor`؛ فهو يحتاج إلى شاشة سطح المكتب (`DISPLAY=:1`) وناقل إمكانية الوصول. استخدم `cua-driver` لنوافذ سطح المكتب المرئية و`agent-browser` لصفحات الويب. قد لا تحتوي الأجهزة القديمة التي بلا سطح مكتب على برنامج التشغيل. افحص الشاشة البعيدة، ونفّذ الإجراء، ثم تحقّق. تستهدف أدوات computer-use المحلية جهاز Mac لديك ما لم تُضبط لهدف بعيد."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar navegadores y computer use\n\nPara automatizar un navegador en la máquina, ejecute allí `agent-browser` y lea su ayuda. Inspeccione primero las herramientas instaladas con `tools`. Para tareas de escritorio, use en la máquina un agente compatible con computer-use; la devbox incluye `cua-driver`. Inspeccione la pantalla remota, actúe y verifique. Las herramientas computer-use locales controlan su Mac salvo que se configuren para un destino remoto."
+            "value": "## Usar navegadores y computer use\n\nPara automatizar un navegador en la máquina, ejecute allí `agent-browser` y lea su documentación. Prefiera la sesión existente de Chrome visible de la máquina cuando exponga DevTools. La devbox instala Chrome, pero su lanzador del dock no activa la depuración remota de forma predeterminada. Inicie Chrome con `--remote-debugging-port=9222` y use `agent-browser --cdp 9222 snapshot`, o pruebe `agent-browser --auto-connect snapshot`. Inspeccione primero las herramientas instaladas con `tools`. La devbox predeterminada también instala `cua-driver` para la automatización del escritorio Linux. Verifíquelo con `cua-driver --version` y `cua-driver doctor`; necesita la pantalla del escritorio (`DISPLAY=:1`) y el bus de accesibilidad. Use `cua-driver` para ventanas visibles del escritorio y `agent-browser` para páginas web. Las máquinas antiguas sin escritorio pueden no tener controlador. Inspeccione la pantalla remota, actúe y verifique. Las herramientas computer-use locales controlan su Mac salvo que se configuren para un destino remoto."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用瀏覽器與 computer use\n\n若要自動操作機器上的瀏覽器，請在該機器執行 `agent-browser` 並閱讀其說明。先使用 `tools` 檢查已安裝的工具。桌面任務請在機器上使用支援 computer-use 的代理；devbox 包含 `cua-driver`。檢查遠端畫面，操作後再驗證。除非設定了遠端目標，否則本機 computer-use 工具會操作您的 Mac。"
+            "value": "## 使用瀏覽器與 computer use\n\n若要自動操作機器上的瀏覽器，請在該機器執行 `agent-browser` 並閱讀文件。若機器已有可視 Chrome 工作階段並公開 DevTools，請優先使用。devbox 會安裝 Chrome，但 dock 啟動器預設不會開啟遠端偵錯。請使用 `--remote-debugging-port=9222` 啟動支援偵錯的 Chrome，然後使用 `agent-browser --cdp 9222 snapshot`，或嘗試 `agent-browser --auto-connect snapshot`。先使用 `tools` 檢查已安裝工具。預設 devbox 也會安裝用於 Linux 桌面自動化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 驗證；它需要桌面顯示器（`DISPLAY=:1`）與協助工具匯流排。使用 `cua-driver` 操作可視桌面視窗，使用 `agent-browser` 操作網頁。歷史上的無桌面機器可能沒有驅動程式。檢查遠端畫面，操作後再驗證。除非設定了遠端目標，否則本機 computer-use 工具會操作您的 Mac。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 使用浏览器和 computer use\n\n要自动操作机器上的浏览器，请在该机器运行 `agent-browser` 并阅读其帮助。先使用 `tools` 检查已安装的工具。桌面任务请在机器上使用支持 computer-use 的代理；devbox 包含 `cua-driver`。检查远程屏幕，操作后再验证。除非配置了远程目标，否则本机 computer-use 工具会操作您的 Mac。"
+            "value": "## 使用浏览器和 computer use\n\n要自动操作机器上的浏览器，请在该机器运行 `agent-browser` 并阅读文档。如果机器已有可视 Chrome 会话并公开 DevTools，请优先使用。devbox 会安装 Chrome，但 dock 启动器默认不会启用远程调试。请使用 `--remote-debugging-port=9222` 启动支持调试的 Chrome，然后使用 `agent-browser --cdp 9222 snapshot`，或尝试 `agent-browser --auto-connect snapshot`。先使用 `tools` 检查已安装工具。默认 devbox 还会安装用于 Linux 桌面自动化的 `cua-driver`。使用 `cua-driver --version` 和 `cua-driver doctor` 验证；它需要桌面显示器（`DISPLAY=:1`）和辅助功能总线。使用 `cua-driver` 操作可视桌面窗口，使用 `agent-browser` 操作网页。历史上的无桌面机器可能没有驱动。检查远程屏幕，操作后再验证。除非配置了远程目标，否则本机 computer-use 工具会操作您的 Mac。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 브라우저 및 computer use 사용\n\n머신에서 브라우저를 자동으로 조작하려면 그 머신에서 `agent-browser`를 실행하고 도움말을 읽으세요. 먼저 `tools`로 설치된 도구를 확인하세요. 데스크톱 작업에는 머신에서 computer-use를 지원하는 에이전트를 사용하세요. devbox에는 `cua-driver`가 포함됩니다. 원격 화면을 확인하고 조작한 다음 검증하세요. 원격 대상을 설정하지 않으면 로컬 computer-use 도구는 Mac을 대상으로 합니다."
+            "value": "## 브라우저 및 computer use 사용\n\n머신에서 브라우저를 자동으로 조작하려면 그 머신에서 `agent-browser`를 실행하고 문서를 읽으세요. 머신의 기존 헤드풀 Chrome 세션이 DevTools를 제공하면 우선 사용하세요. devbox에는 Chrome이 설치되어 있지만 dock 실행기는 기본적으로 원격 디버깅을 켜지 않습니다. `--remote-debugging-port=9222`로 디버깅 가능한 Chrome을 시작한 다음 `agent-browser --cdp 9222 snapshot`을 사용하거나 `agent-browser --auto-connect snapshot`을 시도하세요. 먼저 `tools`로 설치된 도구를 확인하세요. 기본 devbox에는 Linux 데스크톱 자동화를 위한 `cua-driver`도 설치되어 있습니다. `cua-driver --version` 및 `cua-driver doctor`로 확인하세요. 데스크톱 화면(`DISPLAY=:1`)과 접근성 버스가 필요합니다. 보이는 데스크톱 창에는 `cua-driver`, 웹 페이지에는 `agent-browser`를 사용하세요. 데스크톱이 없는 예전 머신에는 드라이버가 없을 수 있습니다. 원격 화면을 확인하고 조작한 다음 검증하세요. 원격 대상을 설정하지 않으면 로컬 computer-use 도구는 Mac을 대상으로 합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## ブラウザと computer use を使う\n\nマシン上のブラウザを自動操作するには、そのマシンで `agent-browser` を実行し、ヘルプを読んでください。まず `tools` でインストール済みのツールを確認します。デスクトップ作業には、マシン上で computer-use 対応エージェントを使います。devbox には `cua-driver` が含まれます。リモート画面を確認し、操作後に結果を検証してください。ローカルの computer-use ツールは、リモート対象を設定しない限り Mac を操作します。"
+            "value": "## ブラウザと computer use を使う\n\nマシン上のブラウザを自動操作するには、そのマシンで `agent-browser` を実行し、ドキュメントを読んでください。マシンに既存のヘッドフル Chrome セッションがあり DevTools を公開している場合は優先して使います。devbox には Chrome がインストールされていますが、dock のランチャーはデフォルトでリモートデバッグを有効にしません。`--remote-debugging-port=9222` でデバッグ対応の Chrome を起動し、`agent-browser --cdp 9222 snapshot` を使うか、`agent-browser --auto-connect snapshot` を試してください。まず `tools` でインストール済みのツールを確認します。標準 devbox には Linux デスクトップ自動操作用の `cua-driver` もインストールされています。`cua-driver --version` と `cua-driver doctor` で確認してください。デスクトップ表示（`DISPLAY=:1`）とアクセシビリティバスが必要です。表示中のデスクトップウインドウには `cua-driver`、Web ページには `agent-browser` を使います。デスクトップのない古いマシンにはドライバがない場合があります。リモート画面を確認し、操作後に検証してください。ローカルの computer-use ツールは、リモート対象を設定しない限り Mac を操作します。"
           }
         }
       }
