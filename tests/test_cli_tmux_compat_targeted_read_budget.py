@@ -99,8 +99,27 @@ class FakeCmuxState:
             raise RateLimited(method)
         self.tokens -= 1
 
+    def require_workspace(self, method: str, params: dict[str, object]) -> None:
+        """Reject a call aimed at a workspace this fake does not host."""
+        workspace_id = params.get("workspace_id")
+        if workspace_id != WORKSPACE_ID:
+            raise RuntimeError(
+                f"{method} targeted workspace {workspace_id!r}, expected {WORKSPACE_ID}"
+            )
+
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.admit(method)
+
+        if method in {
+            "surface.current",
+            "surface.list",
+            "pane.list",
+            "pane.surfaces",
+            "surface.split",
+            "surface.send_text",
+            "workspace.equalize_splits",
+        }:
+            self.require_workspace(method, params)
 
         if method == "workspace.list":
             return {
@@ -190,11 +209,33 @@ class FakeCmuxState:
                 "panes": panes,
             }
         if method == "surface.split":
+            target_surface = params.get("surface_id")
+            if target_surface != SURFACE_ID:
+                raise RuntimeError(
+                    f"surface.split targeted surface {target_surface!r}, "
+                    f"expected {SURFACE_ID}"
+                )
             self.split_created = True
             return {"surface_id": NEW_SURFACE_ID, "pane_id": NEW_PANE_ID}
-        if method in {"surface.send_text", "surface.select", "workspace.select"}:
+        if method == "surface.send_text":
+            known_surfaces = {SURFACE_ID} | (
+                {NEW_SURFACE_ID} if self.split_created else set()
+            )
+            if params.get("surface_id") not in known_surfaces:
+                raise RuntimeError(
+                    f"surface.send_text targeted surface {params.get('surface_id')!r}, "
+                    f"expected one of {sorted(known_surfaces)}"
+                )
+            return {"ok": True}
+        if method in {"workspace.equalize_splits", "surface.select", "workspace.select"}:
             return {"ok": True}
         if method == "pane.surfaces":
+            known_panes = {PANE_ID} | ({NEW_PANE_ID} if self.split_created else set())
+            if params.get("pane_id") not in known_panes:
+                raise RuntimeError(
+                    f"pane.surfaces targeted pane {params.get('pane_id')!r}, "
+                    f"expected one of {sorted(known_panes)}"
+                )
             if self.split_created and params.get("pane_id") == NEW_PANE_ID:
                 return {
                     "surfaces": [
