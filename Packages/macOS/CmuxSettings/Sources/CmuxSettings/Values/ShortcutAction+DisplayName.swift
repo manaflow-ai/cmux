@@ -16,6 +16,8 @@ extension ShortcutAction {
         case .newTab: return "New Workspace"
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+        case .newGuiMode:
+            return String(localized: "shortcut.newGuiMode.label", defaultValue: "Open GUI Mode")
         case .saveLayoutTemplate:
             return String(localized: "shortcut.saveLayoutTemplate.label", defaultValue: "Save Layout as Template…")
         case .openFolder: return "Open Folder"

@@ -91,6 +91,16 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "新規ワークスペースと同様ですが、最初のサーフェスがブラウザペインになり、アドレスバーにフォーカスします",
         },
       },
+      {
+        id: "newGuiMode",
+        combos: [["⌘", "⌥", "⇧", "G"]],
+        description: { en: "Open GUI Mode", ja: "GUIモードを開く" },
+        note: {
+          en: "opens a Codex-style task workspace; rebind it in Settings or shortcuts.bindings.newGuiMode",
+          ja: "Codexスタイルのタスクワークスペースを開きます。設定またはshortcuts.bindings.newGuiModeで変更できます",
+        },
+        configValue: "cmd+opt+shift+g",
+      },
       { id: "saveLayoutTemplate", combos: [["⌃", "⌘", "S"]], description: { en: "Save current workspace layout as a template", ja: "現在のワークスペースレイアウトをテンプレートとして保存" } },
       { id: "openFolder", combos: [["⌘", "O"]], description: { en: "Open folder", ja: "フォルダを開く" } },
       {

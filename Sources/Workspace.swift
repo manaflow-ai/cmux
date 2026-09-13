@@ -790,7 +790,7 @@ extension Workspace {
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.currentProviderID,
-                workingDirectory: directory
+                workingDirectory: directory, guiModePage: agentPanel.guiModePage, guiModePrompt: agentPanel.guiModePrompt, guiModeProviderID: agentPanel.guiModeProviderID
             )
             projectSnapshot = nil
         case .project:
@@ -931,7 +931,6 @@ extension Workspace {
             fallbackSplitPlacement: fallbackSplitPlacement
         )
     }
-
     private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
         let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
         let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
@@ -2293,7 +2292,7 @@ extension Workspace {
                     providerID: agentSession.providerID,
                     rendererKind: agentSession.rendererKind,
                     workingDirectory: restoresUntrustedSavedDirectory ? nil : (agentSession.workingDirectory ?? snapshot.directory),
-                    focus: false
+                    focus: false, guiModeState: GuiModePanelState(snapshot: agentSession)
                   ) else {
                 return nil
             }
@@ -10379,7 +10378,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         rendererKind: AgentSessionRendererKind,
         workingDirectory: String? = nil,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil, guiModeState: GuiModePanelState = .home
     ) -> AgentSessionPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -10398,7 +10397,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
-            workingDirectory: directory
+            workingDirectory: directory, guiModeState: guiModeState
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle
@@ -14574,6 +14573,7 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspaceIfActive()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
+            case .newGuiMode: if let owningTabManager { _ = GuiModeWorkspaceCoordinator().createHomeWorkspace(in: owningTabManager) }
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:

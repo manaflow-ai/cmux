@@ -17,6 +17,8 @@ extension ContentView {
             return .newTab
         case "palette.newBrowserWorkspace":
             return .newBrowserWorkspace
+        case "palette.newGuiMode":
+            return .newGuiMode
         case "palette.newWindow":
             return .newWindow
         case "palette.openFolder":
