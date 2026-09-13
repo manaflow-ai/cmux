@@ -3075,13 +3075,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// machine's workspace. Set through `workspace.cloud_vm_bind` and persisted in the
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
-    // Preserve legacy Workspace observation; the sidebar consumes completed mutations via AsyncStream.
-    @Published var cloudVMBinding: WorkspaceCloudVMBinding? {
-        didSet {
-            if oldValue != cloudVMBinding {
-                sidebarCloudWorkspaceObservation.cloudBindingDidChange()
-            }
-        }
+    var cloudVMBinding: WorkspaceCloudVMBinding? {
+        get { cloudBindingState.binding }
+        set { cloudBindingState.binding = newValue }
     }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
@@ -3200,7 +3196,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
-    let sidebarCloudWorkspaceObservation = WorkspaceSidebarCloudWorkspaceObservationModel()
+    let cloudBindingState = WorkspaceCloudBindingState()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel

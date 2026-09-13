@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import Observation
 import Testing
 @testable import cmux_DEV
 
@@ -99,13 +100,30 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
     }
 
+    /// SwiftUI consumers track Cloud identity through Workspace's existing read facade.
+    @Test(.timeLimit(.minutes(1)))
+    func cloudIdentityParticipatesInObservationTracking() async {
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let changes = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        withObservationTracking {
+            #expect(workspace.cloudVMID == nil)
+        } onChange: {
+            changes.continuation.yield(())
+            changes.continuation.finish()
+        }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        var iterator = changes.stream.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+        #expect(workspace.cloudVMID == "vivid-newt")
+    }
+
     /// Every observer sees the current binding, including changes made before subscription.
     @Test(.timeLimit(.minutes(1)))
     func cloudBindingChangesReplayToEveryObserver() async {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        var first = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
-        var second = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        var first = workspace.cloudBindingState.changes().makeAsyncIterator()
+        var second = workspace.cloudBindingState.changes().makeAsyncIterator()
         #expect(await first.next() == 1)
         #expect(await second.next() == 1)
         workspace.cloudVMBinding = nil
@@ -118,7 +136,7 @@ struct SidebarCloudWorkspaceBadgeTests {
     @Test(.timeLimit(.minutes(1)))
     func cloudBindingChangesCoalesceAndDeduplicate() async {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
-        var changes = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        var changes = workspace.cloudBindingState.changes().makeAsyncIterator()
         #expect(await changes.next() == 0)
         for index in 1...100 {
             let binding = WorkspaceCloudVMBinding(vmID: "machine-\(index)", isBase: true)
@@ -133,7 +151,7 @@ struct SidebarCloudWorkspaceBadgeTests {
     @Test(.timeLimit(.minutes(1)))
     func cloudBindingObservationCancellationIsIndependent() async {
         let workspace = Workspace(initialSurface: .cloudVMLoading)
-        let cancelledChanges = workspace.sidebarCloudWorkspaceObservation.changes()
+        let cancelledChanges = workspace.cloudBindingState.changes()
         let started = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let consumer = Task { @MainActor in
             var iterator = cancelledChanges.makeAsyncIterator()
@@ -146,7 +164,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         _ = await readiness.next()
         consumer.cancel()
         #expect(await consumer.value == nil)
-        var active = workspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        var active = workspace.cloudBindingState.changes().makeAsyncIterator()
         #expect(await active.next() == 0)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         #expect(await active.next() == 1)

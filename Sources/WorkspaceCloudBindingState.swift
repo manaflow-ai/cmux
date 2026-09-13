@@ -1,10 +1,16 @@
 import Foundation
 import Observation
 
-/// Invalidates sidebar projections after the workspace's authoritative Cloud binding changes.
+/// Owns a workspace's Cloud binding for SwiftUI observation and async sidebar projections.
 @MainActor
 @Observable
-final class WorkspaceSidebarCloudWorkspaceObservationModel {
+final class WorkspaceCloudBindingState {
+    var binding: WorkspaceCloudVMBinding? {
+        didSet {
+            guard oldValue != binding else { return }
+            cloudBindingDidChange()
+        }
+    }
     private(set) var revision: UInt64 = 0
     @ObservationIgnored
     private var observers: [UUID: AsyncStream<UInt64>.Continuation] = [:]
@@ -22,8 +28,8 @@ final class WorkspaceSidebarCloudWorkspaceObservationModel {
         }
     }
 
-    /// Signals a completed binding mutation without keeping a second copy of the binding.
-    func cloudBindingDidChange() {
+    /// Notifies async consumers after the authoritative binding has changed.
+    private func cloudBindingDidChange() {
         revision &+= 1
         var terminatedIDs: [UUID] = []
         for (id, continuation) in observers {

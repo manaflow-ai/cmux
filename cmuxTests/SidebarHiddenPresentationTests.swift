@@ -277,7 +277,7 @@ struct SidebarHiddenPresentationTests {
             initialContainer.tableView.numberOfRows == initialRowCount,
             "The retained native table must not apply workspace updates while hidden."
         )
-        var cloudChangeIterator = focusedWorkspace.sidebarCloudWorkspaceObservation.changes().makeAsyncIterator()
+        var cloudChangeIterator = focusedWorkspace.cloudBindingState.changes().makeAsyncIterator()
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()

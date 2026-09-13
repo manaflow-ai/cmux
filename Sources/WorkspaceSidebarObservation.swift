@@ -31,7 +31,7 @@ extension View {
         task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
-                    let cloudChanges = workspace.sidebarCloudWorkspaceObservation.changes()
+                    let cloudChanges = workspace.cloudBindingState.changes()
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
                         .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
@@ -67,9 +67,9 @@ extension View {
     }
 
     /// Keeps extension sidebar projections current using the same Cloud invalidation source.
-    func sidebarCloudWorkspaceObservations(
+    func sidebarCloudBindingObservations(
         ids: [UUID],
-        models: [WorkspaceSidebarCloudWorkspaceObservationModel],
+        models: [WorkspaceCloudBindingState],
         onChange: @MainActor @escaping () -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
