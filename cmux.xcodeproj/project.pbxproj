@@ -694,6 +694,8 @@
 		EAEF1B227CA5A458005D2EAD /* CloudAgentSkillLauncher+LauncherError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */; };
 		68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7BA0E69E17F61ECF69C9025 /* CloudAgentSkillLauncher.swift */; };
 		C6D4C5A38097BB05AB98E460 /* CloudAgentSkillLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */; };
+		D0F2A0000000000000000005 /* CloudBannerDismissal.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000006 /* CloudBannerDismissal.swift */; };
+		D0F2A0000000000000000007 /* CloudBannerDismissButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */; };
 		69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */; };
 		57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E3C21B3A59A40EF4132513 /* CloudBrowserAccessView.swift */; };
 		4990A466C95D003D532E770D /* CloudBrowserConnectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */; };
@@ -748,6 +750,7 @@
 		F11347000000000000000003 /* CloudPortOpenRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000004 /* CloudPortOpenRegressionTests.swift */; };
 		7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000071B /* CloudPortRoutePlan.swift */; };
 		7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */; };
+		D0F2A0000000000000000009 /* CloudPortsVPNWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */; };
 		7A0CE1000000000000000027 /* CloudPrivateNetworkGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000001 /* CloudPrivateNetworkGate.swift */; };
 		7A0CE1000000000000000504 /* CloudPrivateNetworkPurpose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000503 /* CloudPrivateNetworkPurpose.swift */; };
 		7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */; };
@@ -1043,6 +1046,8 @@
 		C0DE64950000000000000005 /* CMUXCLISessionsListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000006 /* CMUXCLISessionsListTests.swift */; };
 		C0DE6495000000000000000B /* CMUXCLISessionsListTranscriptPidTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE6495000000000000000C /* CMUXCLISessionsListTranscriptPidTests.swift */; };
 		C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */; };
+		D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
+		D0F2A0000000000000000004 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
 		5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
@@ -2907,6 +2912,7 @@
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceCustomizationPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceCustomizationPersistence.swift */; };
 		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
+		C9A57701C9A57701C9A57701 /* TabManager+WorkspaceGroupRename.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57702C9A57702C9A57702 /* TabManager+WorkspaceGroupRename.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */; };
 		C0DE71510000000000000001 /* TabManagerBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */; };
@@ -4335,6 +4341,8 @@
 		0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudAgentSkillLauncher+LauncherError.swift"; sourceTree = "<group>"; };
 		A7BA0E69E17F61ECF69C9025 /* CloudAgentSkillLauncher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudAgentSkillLauncher.swift; sourceTree = "<group>"; };
 		763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudAgentSkillLauncherTests.swift; sourceTree = "<group>"; };
+		D0F2A0000000000000000006 /* CloudBannerDismissal.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBannerDismissal.swift; sourceTree = "<group>"; };
+		D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBannerDismissButton.swift; sourceTree = "<group>"; };
 		857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserAccessState.swift"; sourceTree = "<group>"; };
 		A5E3C21B3A59A40EF4132513 /* CloudBrowserAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserAccessView.swift"; sourceTree = "<group>"; };
 		F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserConnectionCard.swift"; sourceTree = "<group>"; };
@@ -4391,6 +4399,7 @@
 		F11347000000000000000004 /* CloudPortOpenRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortOpenRegressionTests.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000071B /* CloudPortRoutePlan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlan.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortRoutePlanTests.swift; sourceTree = "<group>"; };
+		D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPortsVPNWarning.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000001 /* CloudPrivateNetworkGate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkGate.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000503 /* CloudPrivateNetworkPurpose.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkPurpose.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000303 /* CloudPrivateNetworkUse.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPrivateNetworkUse.swift; sourceTree = "<group>"; };
@@ -6434,6 +6443,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceCustomizationPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomizationPersistence.swift"; sourceTree = "<group>"; };
 		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
+		C9A57702C9A57702C9A57702 /* TabManager+WorkspaceGroupRename.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceGroupRename.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBackgroundWorkspaceMountBoundTests.swift; sourceTree = "<group>"; };
 		C0DE71510000000000000002 /* TabManagerBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBootstrapTests.swift; sourceTree = "<group>"; };
@@ -7105,6 +7115,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */,
 				CA52A003CA52A003CA52A003 /* CmuxCanvas in Frameworks */,
 				CA53A003CA53A003CA53A003 /* CmuxCanvasUI in Frameworks */,
+				D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */,
 				5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */,
 				5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */,
 				C750100000000000000000A3 /* CmuxControlSocket in Frameworks */,
@@ -7208,6 +7219,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
+				D0F2A0000000000000000004 /* CmuxCloudBannerCore in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
 				A79840010000000000000003 /* CmuxControlSocket in Frameworks */,
 				CC0DE00000000000000000A4 /* CmuxCore in Frameworks */,
@@ -7635,6 +7647,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D9143D900F124494A55F859F /* CloudMachinesFeature.swift */,
 				08610D114C8CF23877176D7E /* MachinesPanelView.swift */,
 				7A0CE1000000000000000723 /* MachinesTunnelBanner.swift */,
+				D0F2A0000000000000000006 /* CloudBannerDismissal.swift */,
+				D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */,
+				D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */,
 				68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */,
 				C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */,
 				874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */,
@@ -8216,6 +8231,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
 				C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */,
 				736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */,
+				C9A57702C9A57702C9A57702 /* TabManager+WorkspaceGroupRename.swift */,
 				6FA1B7598E85578423ADBE3F /* TabManager+WorkspaceCustomizationPersistence.swift */,
 				F0C05170000000000000001 /* FocusHistory.swift */,
 				C0DEFB100000000000000002 /* FocusSurfaceBroadcaster.swift */,
@@ -10896,6 +10912,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
+				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
@@ -11018,6 +11035,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				C01E00AA00000000000000A2 /* CmuxSyntaxHighlighting */,
 				D0F1A0000000000000000002 /* CmuxFilePreviewCore */,
+				D0F2A0000000000000000002 /* CmuxCloudBannerCore */,
 				A5001262 /* Bonsplit */,
 				D96973000000000000000001 /* CmuxSudoBroker */,
 				D96973000000000000000002 /* CmuxSudoBrokerUI */,
@@ -11137,6 +11155,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
 				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
+				D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
@@ -11816,6 +11835,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C62A16251EC09E72A897A2A3 /* CloudAgentSkillLauncher+CodingAgent.swift in Sources */,
 				EAEF1B227CA5A458005D2EAD /* CloudAgentSkillLauncher+LauncherError.swift in Sources */,
 				68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */,
+				D0F2A0000000000000000005 /* CloudBannerDismissal.swift in Sources */,
+				D0F2A0000000000000000007 /* CloudBannerDismissButton.swift in Sources */,
 				69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */,
 				57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */,
 				4990A466C95D003D532E770D /* CloudBrowserConnectionCard.swift in Sources */,
@@ -11855,6 +11876,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000716 /* CloudPortForwardRelay.swift in Sources */,
 				7A0CE1000000000000000712 /* CloudPortForwardTarget.swift in Sources */,
 				7A0CE100000000000000071C /* CloudPortRoutePlan.swift in Sources */,
+				D0F2A0000000000000000009 /* CloudPortsVPNWarning.swift in Sources */,
 				7A0CE1000000000000000027 /* CloudPrivateNetworkGate.swift in Sources */,
 				7A0CE1000000000000000504 /* CloudPrivateNetworkPurpose.swift in Sources */,
 				7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */,
@@ -13153,6 +13175,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				CDC71D88CCED9EEEE0D83FE5 /* TabManager+WorkspaceCustomizationPersistence.swift in Sources */,
 				736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */,
+				C9A57701C9A57701C9A57701 /* TabManager+WorkspaceGroupRename.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
 				A71100000000000000000001 /* TailscaleStatusProviding.swift in Sources */,
 				C7A503000000000000000002 /* TaskManagerSnapshot.swift in Sources */,
@@ -15559,6 +15582,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxFilePreviewCore;
 		};
+		D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCloudBannerCore;
+		};
 		CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxSentryTelemetry;
@@ -15869,6 +15896,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */;
 			productName = CmuxFilePreviewCore;
+		};
+		D0F2A0000000000000000002 /* CmuxCloudBannerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */;
+			productName = CmuxCloudBannerCore;
 		};
 		CE57E10000000000000000A2 /* CmuxSentryScrubbing */ = {
 			isa = XCSwiftPackageProductDependency;
