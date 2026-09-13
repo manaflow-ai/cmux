@@ -29,6 +29,11 @@ struct CloudTerminalCreationCoordinatorTests {
         var createCount = 0
         var projectCount = 0
         var shouldFail = true
+        let projection = SurfaceProjection(
+            resource: resource.id,
+            workspaceID: UUID(),
+            panelID: UUID()
+        )
         let coordinator = CloudTerminalCreationCoordinator(
             panel: panel,
             create: {
@@ -41,6 +46,7 @@ struct CloudTerminalCreationCoordinatorTests {
                     shouldFail = false
                     throw SurfaceCatalogError.unavailable(resource.id, reason: "link restarting")
                 }
+                return (projection: projection, reused: false)
             },
             onSuccess: {}
         )
@@ -69,6 +75,55 @@ struct CloudTerminalCreationCoordinatorTests {
         panel.onCancel = { cancelled = true }
         panel.close()
         #expect(cancelled)
+    }
+
+    @Test @MainActor
+    func cancellationDiscardsAProjectionCreatedByTheStaleOperation() async {
+        let panel = CloudTerminalPendingPanel(
+            workspaceId: UUID(),
+            machine: .cloud("machine")
+        )
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: .cloud("machine"), kind: .terminal, key: "term_1"),
+            title: "",
+            detail: nil,
+            lifecycle: .launching,
+            agent: nil,
+            remoteWorkspace: nil,
+            remoteViews: [],
+            port: nil,
+            url: nil
+        )
+        let projection = SurfaceProjection(
+            resource: resource.id,
+            workspaceID: UUID(),
+            panelID: UUID()
+        )
+        let startedStream = AsyncStream<Void>.makeStream()
+        var release: CheckedContinuation<Void, Never>?
+        var discarded = false
+        let coordinator = CloudTerminalCreationCoordinator(
+            panel: panel,
+            create: { resource },
+            project: { _ in
+                startedStream.continuation.yield(())
+                await withCheckedContinuation { continuation in
+                    release = continuation
+                }
+                return (projection: projection, reused: false)
+            },
+            onSuccess: {},
+            discardProjection: { _ in discarded = true }
+        )
+
+        coordinator.start()
+        var iterator = startedStream.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        coordinator.cancel()
+        release?.resume()
+        await Self.yieldUntil { discarded }
+
+        #expect(discarded)
     }
 
     @MainActor

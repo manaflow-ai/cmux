@@ -3,7 +3,13 @@ import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
-/// Cloud pane terminal creation owns the temporary tab shown while a split is materialized.
+/// Cmd+D / Cmd+T from a pane that projects a cloud resource create the new terminal ON
+/// that machine — in the same cmux-tui workspace — instead of a local shell. Same rule
+/// as the remote tmux mirror: a "split" next to a remote pane means "another terminal
+/// where that pane lives". The new terminal is created through the machine's provider
+/// (`workspace <ws> run`) and projected back into this workspace at the requested spot,
+/// so the sidebar, the socket, and the shortcut agree on what exists.
+/// Installs the temporary panel used while a Cloud terminal split is materialized.
 extension Workspace {
     /// The cloud resource behind a panel, when the panel projects one.
     func cloudProjectedResource(forPanel panelID: UUID) -> SurfaceResource? {
@@ -22,6 +28,7 @@ extension Workspace {
     }
 
     /// Routes a Cmd+D-style split from a cloud-projected panel to its machine.
+    /// Returns false when the source panel is not a cloud projection (create locally).
     func routeCloudPaneTerminalSplit(
         from panelID: UUID,
         orientation: SplitOrientation,
@@ -34,51 +41,60 @@ extension Workspace {
             ? (insertFirst ? .left : .right)
             : (insertFirst ? .up : .down)
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
             focus: focus
         )
     }
 
-    /// Routes a Bonsplit split whose source pane projects a Cloud resource.
-    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID) -> Bool {
+    /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
+    /// projects a cloud resource: the already-created empty pane receives the machine's
+    /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
+    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
         guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
             focus: true,
+            splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
         )
     }
 
-    /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a Cloud resource.
+    /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
+    /// resource to that machine. Returns false when the pane is not cloud-anchored.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) },
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
             focus: focus
         )
     }
 
-    /// Creates a remote terminal and projects it at `destination`.
-    ///
-    /// A UI-created split already contains a pane before this asynchronous operation starts.
-    /// A temporary panel keeps that pane explicit while the link starts or recovers.
+    /// Creates a terminal on `resource`'s machine (in the remote workspace of the
+    /// anchor's first view, when it has one) and projects it at `destination`.
+    /// Optimistic like the cloud tree's "New Terminal Here": the pane appears when the
+    /// machine reports the terminal; a failure is announced instead of silently doing
+    /// nothing, because the user's gesture otherwise looks dead.
     private func routeCloudPaneTerminalCreate(
         near resource: SurfaceResource,
+        sourcePanelID: UUID?,
         destination: SurfaceDestination,
         focus: Bool,
+        splitDirection: SurfaceSplitDirection? = nil,
         pendingPane: PaneID? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
+        guard let provider = catalog.provider(for: resource.machine) else { return false }
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
         let machine = resource.machine
         let pendingPanel: CloudTerminalPendingPanel?
         if let pendingPane {
             guard let pending = installCloudTerminalPendingPanel(machine: machine, in: pendingPane) else {
-                // The new pane may have been closed or claimed by another action. Remove an
-                // untouched pane that Bonsplit left behind so a handled Cloud request cannot
-                // strand an anonymous empty pane or fall through to a local shell.
+                // The pane may have been closed or claimed while Bonsplit was
+                // delivering the split callback. Remove only an untouched pane;
+                // never leave a handled Cloud request as a blank slot.
                 if bonsplitController.allPaneIds.contains(pendingPane),
                    bonsplitController.tabs(inPane: pendingPane).isEmpty {
                     _ = bonsplitController.closePane(pendingPane)
@@ -89,32 +105,53 @@ extension Workspace {
         } else {
             pendingPanel = nil
         }
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
-        let create: CloudTerminalCreationCoordinator.Create = {
-            guard let provider = catalog.provider(for: machine) else {
-                throw SurfaceCatalogError.noProvider(machine)
-            }
-            return try await provider.createTerminal(
-                command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
-            )
+
+        let scope = catalog.beginProjectionMutation(for: [resource.id])
+        var projectionMutationEnded = false
+        let endProjectionMutation: @MainActor () -> Void = {
+            guard !projectionMutationEnded else { return }
+            projectionMutationEnded = true
+            catalog.endProjectionMutation(scope)
         }
-        let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] resource in
-            // A close can race the provider result. The temporary panel is the
-            // operation's cancellation fence, so never project a terminal after
-            // its pane has gone away.
-            if pendingPane != nil {
-                guard let pendingPanel,
-                      let self,
-                      self.panels[pendingPanel.id] != nil else {
+        let create: CloudTerminalCreationCoordinator.Create = {
+            do {
+                let source = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+                let direction: SurfaceSplitDirection?
+                if case .split(_, _, let requested) = destination { direction = requested }
+                else { direction = splitDirection }
+                if let sourceTabID = source?.remoteTabID,
+                   let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
+                    return try await layoutProvider.createTerminal(
+                        nearTabID: sourceTabID,
+                        splitDirection: direction
+                    )
+                }
+                let workingDirectory = await provider.currentWorkingDirectory(of: resource)
+                return try await provider.createTerminal(
+                    command: nil,
+                    cwd: workingDirectory,
+                    name: nil,
+                    remoteWorkspaceID: remoteWorkspaceID
+                )
+            } catch {
+                endProjectionMutation()
+                throw error
+            }
+        }
+        let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] created in
+            if let pendingPanel {
+                guard let self, self.panels[pendingPanel.id] != nil else {
+                    endProjectionMutation()
                     throw CancellationError()
                 }
             }
-            _ = try await catalog.project(
-                resource.id,
+            defer { endProjectionMutation() }
+            return try await catalog.project(
+                created.id,
                 into: destination,
                 focus: focus,
                 reuseExisting: true,
-                remoteView: resource.remoteViews?.count == 1 ? resource.remoteViews?.first : nil
+                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil
             )
         }
         if let pendingPanel {
@@ -123,31 +160,70 @@ extension Workspace {
                 create: create,
                 project: project,
                 onSuccess: { [weak self, weak pendingPanel] in
+                    endProjectionMutation()
                     guard let self, let pendingPanel,
                           self.panels[pendingPanel.id] != nil else { return }
                     pendingPanel.onCancel = nil
                     pendingPanel.onRetry = nil
                     _ = self.closePanel(pendingPanel.id, force: true)
+                },
+                discardProjection: { projection in
+                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
             )
-            pendingPanel.onCancel = { coordinator.cancel() }
+            pendingPanel.onCancel = {
+                coordinator.cancel()
+                endProjectionMutation()
+            }
             pendingPanel.onRetry = { coordinator.retry() }
             coordinator.start()
         } else {
             Task { @MainActor in
+                defer { endProjectionMutation() }
                 do {
                     let created = try await create()
                     _ = try await project(created)
                 } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error)
+                    Self.presentCloudPaneCreationFailure(machine: machine, error: error)
                 }
             }
         }
         return true
     }
 
-    /// Inserts a visible temporary panel into a newly-created empty split pane.
-    private func installCloudTerminalPendingPanel(
+    @MainActor
+    private static func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
+        #if DEBUG
+        cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
+        #endif
+        let alert = NSAlert()
+        alert.messageText = String(
+            format: String(
+                localized: "cloudPane.newTerminalFailed.title",
+                defaultValue: "Couldn’t start a terminal on %@"
+            ),
+            machine.rawValue
+        )
+        alert.informativeText = String(
+            localized: "cloudTerminal.creation.failed.detail",
+            defaultValue: "The Cloud service did not accept the terminal request."
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
+        alert.runModal()
+    }
+}
+
+
+extension Workspace {
+    /// Adds a visible pending panel to an empty Bonsplit pane.
+    ///
+    /// Returns nil when the pane disappeared, was claimed by another action, or
+    /// Bonsplit could not create the placeholder tab. In those cases the caller
+    /// must not fall through to local terminal creation.
+    @discardableResult
+    func installCloudTerminalPendingPanel(
         machine: SurfaceMachineID,
         in pane: PaneID
     ) -> CloudTerminalPendingPanel? {
@@ -171,29 +247,5 @@ extension Workspace {
         }
         bindSurface(tab, toPanelId: pending.id)
         return pending
-    }
-
-    /// Presents an error only for operations whose destination already contains a real pane.
-    @MainActor
-    private func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
-        #if DEBUG
-        cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
-        #endif
-        let alert = NSAlert()
-        alert.messageText = String(
-            format: String(
-                localized: "cloudPane.newTerminalFailed.title",
-                defaultValue: "Couldn’t start a terminal on %@"
-            ),
-            machine.rawValue
-        )
-        alert.informativeText = String(
-            localized: "cloudTerminal.creation.failed.detail",
-            defaultValue: "The Cloud service did not accept the terminal request."
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK"))
-        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
-        alert.runModal()
     }
 }
