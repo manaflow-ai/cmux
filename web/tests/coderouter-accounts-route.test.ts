@@ -21,7 +21,7 @@ const credentialBody = JSON.stringify({
   provider: "codex",
   accessToken: "access",
   refreshToken: "refresh",
-  idToken: "id",
+  idToken: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJhY2N0LW9wZW5haS0xIn19.signature",
   accountId: "acct-openai-1",
   email: "person@example.com",
   expiresAt: Date.now() + 60_000,

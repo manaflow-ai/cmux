@@ -48,11 +48,20 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Rehosts one immutable tree snapshot and its optional row actions.
+    ///
+    /// - Parameters:
+    ///   - node: The row snapshot to display.
+    ///   - machineActions: Actions for machine and creation controls.
+    ///   - nodeActions: Actions for workspace and surface controls.
+    ///   - style: The visual preset for the row.
+    ///   - showsCloudVPNWarning: Whether the Ports group exposes the VPN affordance.
     func configure(
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        showsCloudVPNWarning: Bool = false
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
@@ -60,16 +69,16 @@ final class CloudTreeCellView: NSTableCellView {
         }
         #endif
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
+        if CloudTreeRowHoverButtons.hasButtons(for: node.kind, showsCloudVPNWarning: showsCloudVPNWarning) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions, showsCloudVPNWarning: showsCloudVPNWarning))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
@@ -90,6 +99,10 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
+        } else if showsCloudVPNWarning, case .portsGroup = node.kind {
+            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
+        } else if showsCloudVPNWarning, case .display = node.kind {
+            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
         } else {
             toolTip = nil
         }

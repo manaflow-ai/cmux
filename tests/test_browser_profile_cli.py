@@ -15,6 +15,7 @@ from claude_teams_test_utils import resolve_cmux_cli
 
 
 PROFILE_ID = "11111111-1111-4111-8111-111111111111"
+SURFACE_ID = "22222222-2222-4222-8222-222222222222"
 
 
 class FakeCmuxState:
@@ -25,7 +26,7 @@ class FakeCmuxState:
         self.calls.append((method, params))
         if method == "browser.open_split":
             return {
-                "surface_id": "22222222-2222-4222-8222-222222222222",
+                "surface_id": SURFACE_ID,
                 "surface_ref": "surface:2",
                 "pane_id": "33333333-3333-4333-8333-333333333333",
                 "pane_ref": "pane:2",
@@ -33,7 +34,7 @@ class FakeCmuxState:
             }
         if method == "pane.create":
             return {
-                "surface_id": "22222222-2222-4222-8222-222222222222",
+                "surface_id": SURFACE_ID,
                 "surface_ref": "surface:2",
                 "pane_id": "33333333-3333-4333-8333-333333333333",
                 "pane_ref": "pane:2",
@@ -51,6 +52,31 @@ class FakeCmuxState:
                     }
                 ],
             }
+        if method == "browser.download.list":
+            return {
+                "workspace_id": "44444444-4444-4444-8444-444444444444",
+                "surface_id": SURFACE_ID,
+                "downloads": [
+                    {
+                        "download_id": "download-1",
+                        "filename": "report (1).csv",
+                        "path": "/tmp/report (1).csv",
+                        "path_exists": True,
+                        "status": "saved",
+                        "bytes": 42,
+                    },
+                    {
+                        "download_id": "download-2",
+                        "filename": "pending.csv",
+                        "path": None,
+                        "path_exists": None,
+                        "status": "downloading",
+                        "bytes": None,
+                    },
+                ],
+            }
+        if method == "browser.download.wait":
+            return {"downloaded": True}
         raise RuntimeError(f"unexpected method: {method}")
 
 
@@ -222,6 +248,66 @@ def main() -> int:
                 raise AssertionError(f"profile list omitted name or UUID: {profiles!r}")
             if "last used" not in profiles:
                 raise AssertionError(f"profile list did not mark last-used profile: {profiles!r}")
+
+            list_json = run_cli(
+                cli,
+                socket_path,
+                [
+                    "browser",
+                    SURFACE_ID,
+                    "download",
+                    "list",
+                    "--limit",
+                    "2",
+                    "--json",
+                ],
+            )
+            payload = json.loads(list_json)
+            downloads = payload.get("downloads")
+            if not isinstance(downloads, list) or len(downloads) != 2:
+                raise AssertionError(f"download list JSON omitted records: {payload!r}")
+            if downloads[0]["download_id"] != "download-1" or downloads[0]["path"] != "/tmp/report (1).csv":
+                raise AssertionError(f"download list JSON lost the actual saved path: {payload!r}")
+            if downloads[1]["status"] != "downloading" or downloads[1]["path"] is not None:
+                raise AssertionError(f"download list JSON did not preserve missing path state: {payload!r}")
+
+            text = run_cli(
+                cli,
+                socket_path,
+                ["browser", SURFACE_ID, "download", "list"],
+            )
+            for needle in ["download-1", "report (1).csv", "/tmp/report (1).csv", "saved", "download-2", "<unavailable>"]:
+                if needle not in text:
+                    raise AssertionError(f"download list text omitted {needle!r}: {text!r}")
+
+            list_calls = [call for call in state.calls if call[0] == "browser.download.list"]
+            if len(list_calls) != 2 or list_calls[0][1].get("limit") != 2 or list_calls[1][1].get("limit") is not None:
+                raise AssertionError(f"download list dispatch/limit mismatch: {list_calls!r}")
+
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "wait", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"explicit wait path was not preserved: {state.calls[-1]!r}")
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "--path", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"--path wait was not preserved: {state.calls[-1]!r}")
+
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"legacy positional path was not preserved: {state.calls[-1]!r}")
+            for invalid_args, expected in [
+                (["list", "--limit", "0"], "--limit must be an integer between 1 and 25"),
+                (["list", "--limit"], "--limit requires an integer between 1 and 25"),
+                (["list", "--timeout-ms", "100"], "Unexpected argument"),
+            ]:
+                calls_before_invalid = len(state.calls)
+                assert_cli_fails(
+                    cli,
+                    socket_path,
+                    ["browser", SURFACE_ID, "download", *invalid_args],
+                    expected,
+                )
+                if len(state.calls) != calls_before_invalid:
+                    raise AssertionError(f"invalid list arguments reached the socket: {invalid_args!r}")
         finally:
             server.shutdown()
             server.server_close()

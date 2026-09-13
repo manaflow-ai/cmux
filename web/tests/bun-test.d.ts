@@ -2,7 +2,7 @@ declare module "bun:test" {
   type TestCallback = () => unknown | Promise<unknown>;
   type LifecycleHook = (fn: TestCallback, timeout?: number) => void;
   type TestFunction = {
-    (name: string, fn: TestCallback, timeout?: number): void;
+    (name: string, fn: TestCallback, timeout?: number | { timeout?: number }): void;
     only: TestFunction;
     skip: TestFunction;
     todo: (name: string) => void;

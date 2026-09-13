@@ -132,6 +132,11 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "artifactUnavailable": {
+      "title": "Cloud VM setup unavailable",
+      "message": "Cloud VM setup is temporarily unavailable.",
+      "action": "Try again later. If the problem continues, contact support."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
