@@ -275,6 +275,7 @@ struct CloudTreeNativeDragOwnershipTests {
         let container = CloudTreeContainerView(coordinator: coordinator)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 320), styleMask: [], backing: .buffered, defer: false)
         window.contentView = container
+        defer { window.close() }
         let outline = try #require(coordinator.outlineView)
         let machine = SurfaceMachineID.cloud("cloud-tree-test")
         let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-2", name: "Second", index: 1, focused: false)
