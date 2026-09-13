@@ -305,7 +305,14 @@ struct RightSidebarToolPanelView: View {
                     .frame(width: 0, height: 0)
             )
         case .machines:
-            MachinesPanelView(chromeBackgroundColor: resolvedChromeBackgroundColor, tabManager: tabManager)
+            if isVisibleInUI {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    defaultMachineStore: AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore
+                        ?? DefaultCloudMachineStore(defaults: .standard),
+                    tabManager: tabManager
+                )
+            }
         case .feed, .dock, .customSidebar:
             EmptyView()
         }
