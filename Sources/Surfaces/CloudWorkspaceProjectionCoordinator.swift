@@ -42,9 +42,10 @@ final class CloudWorkspaceProjectionCoordinator {
             defer { if self.tasks[machine]?.id == id { self.tasks[machine] = nil } }
             guard let catalog else { return }
             while self.requested.remove(machine) != nil {
-                guard self.localMutations[machine] == nil else { return }
+                guard !Task.isCancelled, self.localMutations[machine] == nil else { return }
                 await catalog.cloudPlacementCoordinator.waitForPendingMutations()
-                guard self.localMutations[machine] == nil,
+                guard !Task.isCancelled,
+                      self.localMutations[machine] == nil,
                       let state = catalog.cloudStates[machine],
                       catalog.cloudStateObservations[machine]?.freshness == .current,
                       catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state) else { return }
@@ -89,7 +90,10 @@ final class CloudWorkspaceProjectionCoordinator {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
-            guard isCurrent(state, catalog: catalog) else { requested.insert(machine); return }
+            guard isCurrent(state, catalog: catalog) else {
+                if !Task.isCancelled { requested.insert(machine) }
+                return
+            }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)
             let desired = (group?.placements ?? []).filter {
                 !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine)
@@ -99,7 +103,8 @@ final class CloudWorkspaceProjectionCoordinator {
             do {
                 for placement in plan.missing {
                     guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
-                        requested.insert(machine); return
+                        if !Task.isCancelled { requested.insert(machine) }
+                        return
                     }
                     let view = try catalog.remoteView(for: placement.resource, tabID: placement.remoteTabID,
                                                       workspaceID: placement.remoteTabID == nil ? nil : remoteID)
@@ -107,7 +112,8 @@ final class CloudWorkspaceProjectionCoordinator {
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }
                 guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
-                    requested.insert(machine); return
+                    if !Task.isCancelled { requested.insert(machine) }
+                    return
                 }
                 for projection in plan.obsolete {
                     environment.close(projection)

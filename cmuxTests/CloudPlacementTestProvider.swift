@@ -46,12 +46,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func renameRemoteTab(id: String, name: String) async throws {
         try await beforeMutation?()
         tabRenames.append(name)
-    }
-    func projectionDidEnd(_ projection: SurfaceProjection) {}
-    func renameRemoteTab(id: String, name: String) async throws {
-        try await beforeMutation?()
         renamedTabs.append((id, name))
     }
+    func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         events.append("move-start:" + remoteWorkspaceID)
         try await beforeMutation?()

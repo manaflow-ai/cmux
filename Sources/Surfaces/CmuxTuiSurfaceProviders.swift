@@ -555,7 +555,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard cloudState == state, canPublishCloudState(state) else { return }
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
-        // ids are opaque and cannot tell us whether the machine has a desktop.
         if summary.resolvedKind.hasDesktop {
             pool.append(desktopDisplayResource())
         }
@@ -576,20 +575,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: observationWithPendingWrites(observation)
         )
         if reconcileTitles {
-            catalog.cloudWorkspaceRenameService.reconcileRemoteState(
-                machine: machine,
-                state: state,
-                catalog: catalog,
-                affectedResources: affected,
-                workspaceNamesChanged: false
-            )
+            catalog.reconcileCloudRemoteState(machine: machine, state: state)
         }
         closePanesForVanishedRemoteTerminals(observation: observation)
     }
 
-    /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
-    /// only their affected terminal, browser, or display rows. A topology change crosses a
-    /// relationship boundary and uses the authoritative complete publication path.
     func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
@@ -603,15 +593,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
 
         var affected = impact.resourceIDs
-        // A full publish can erase an optimistic create while its receipt is
-        // still ahead of the accepted graph. Include those identities in a
-        // delta patch as well, so every publication path applies the same
-        // read-your-write overlay atomically.
         affected.formUnion(pendingRemoteCreations.keys)
         var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
         resources = resourcesWithPendingCreations(resources, state: state)
-        // A desktop is a machine capability even when no workspace currently points at it.
-        // Include that pool row only when the delta actually touched a display identity.
         if summary.resolvedKind.hasDesktop,
            affected.contains(SurfaceResourceID(machine: machine, kind: .display, key: "display:1")) {
             resources = CmuxTuiSnapshotParser.mergingDisplays(
@@ -629,10 +613,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: observationWithPendingWrites()
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.cloudWorkspaceRenameService.reconcileRemoteState(
+                machine: machine,
+                state: state,
+                catalog: catalog,
+                affectedResources: affected,
+                workspaceNamesChanged: false
+            )
         }
-        // A newly restored terminal may need its attach pane materialized. Existing rows do not
-        // need a full projection scan for every title event.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
