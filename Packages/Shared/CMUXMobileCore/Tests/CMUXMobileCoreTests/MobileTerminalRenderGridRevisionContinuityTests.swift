@@ -128,6 +128,15 @@ private func chainFrame(
     #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
 }
 
+@Test func revisionContinuityRejectsEpochlessDeltaWithStaleBase() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        delivered: try chainFrame(revision: 8, full: true)
+    )
+    let delta = try chainFrame(revision: 9, epoch: "", baseRevision: 7)
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
 @Test func revisionContinuityRejectsEpochlessDeltaWithoutBaseline() throws {
     // A base revision without an epoch still needs a delivered shape. Without
     // that baseline, a resize could make absolute row spans unsafe to patch.

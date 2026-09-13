@@ -66,6 +66,7 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         // spans into a grid that changed size during a resize.
         guard delivered.columns == frame.columns,
               delivered.rows == frame.rows else { return false }
+        guard delivered.renderRevision == base else { return false }
         // Legacy producers may omit the epoch, but their revision and shape
         // still have to match the delivered baseline before patching.
         guard !frame.renderEpoch.isEmpty else { return true }

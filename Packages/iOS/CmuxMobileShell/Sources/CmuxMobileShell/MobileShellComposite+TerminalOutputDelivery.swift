@@ -523,8 +523,12 @@ extension MobileShellComposite {
     /// so sustained output does not wait on a GPU fence.
     private func requiresVerifiedReplayApplication(for delivery: TerminalOutputDelivery) -> Bool {
         guard terminalOutputTransport == .renderGrid,
-              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability),
-              let frame = delivery.sourceRenderGridFrame else { return false }
+              supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability) else {
+            return false
+        }
+        // An unknown delivery cannot prove that it is a safe primary-screen
+        // delta, so keep it behind the verified path when recovering.
+        guard let frame = delivery.sourceRenderGridFrame else { return true }
         guard !frame.full,
               usesScreenAnchoredRenderGrid,
               frame.anchor == .screen,
