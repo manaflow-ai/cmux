@@ -25,7 +25,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public final class SearchState: ObservableObject {
         /// The current search needle.
         @Published public var needle: String
-
         /// The 1-based index of the selected match, if known.
         @Published public var selected: UInt?
 
@@ -94,7 +93,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
         didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
     }
     @MainActor var onRenderHealthChanged: (@MainActor (TerminalSurfaceRenderHealth) -> Void)?
