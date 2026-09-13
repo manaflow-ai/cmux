@@ -11764,7 +11764,12 @@ struct VerticalTabsSidebar: View, Equatable {
                     updateViewModel: updateViewModel,
                     fileExplorerState: fileExplorerState,
                     modifierKeyMonitor: modifierKeyMonitor,
-                    onSendFeedback: onSendFeedback
+                    onSendFeedback: onSendFeedback,
+                    // Read the observable update model at the same boundary as the
+                    // `.equatable()` sidebar. Passive Sparkle callbacks mutate the model in
+                    // place, so carrying this value through the footer keeps those mutations
+                    // from being hidden behind the model's unchanged object identity.
+                    updatePillVisible: updateViewModel.showsPill
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -15295,29 +15300,12 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     }
 }
 
-private struct SidebarFooter: View {
-    var updateViewModel: UpdateStateModel
-    @ObservedObject var fileExplorerState: FileExplorerState
-    let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
-    let onSendFeedback: () -> Void
-
-    var body: some View {
-#if DEBUG
-        SidebarDevFooter(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
-#else
-        SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, modifierKeyMonitor: modifierKeyMonitor, onSendFeedback: onSendFeedback)
-            .padding(.leading, 6)
-            .padding(.trailing, 10)
-            .padding(.bottom, 6)
-#endif
-    }
-}
-
 struct SidebarFooterButtons: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let modifierKeyMonitor: WindowScopedShortcutHintModifierMonitor
     let onSendFeedback: () -> Void
+    let updatePillVisible: Bool
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     // Reuse the exact Command-hold shortcut-hint signal that drives the per-row
@@ -15384,6 +15372,7 @@ struct SidebarFooterButtons: View {
             }
             if shows(.update), let updateActionsHost = AppDelegate.shared {
                 UpdatePill(model: updateViewModel, accent: cmuxAccentColor(), actions: updateActionsHost)
+                    .accessibilityHidden(!updatePillVisible)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
