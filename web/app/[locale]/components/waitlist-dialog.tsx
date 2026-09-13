@@ -4,7 +4,7 @@ import { Checkbox } from "@base-ui-components/react/checkbox";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   WAITLIST_EARLY_ACCESS_FLAGS,
   WAITLIST_PLATFORMS,
@@ -188,6 +188,7 @@ function WaitlistBody({
     "idle" | "error" | "submitting" | "sendError" | "done"
   >("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doneButtonRef = useRef<HTMLButtonElement | null>(null);
   // The generic dialog forces the visitor to choose which platforms to join
   // (none checked by default); a per-platform entry is fixed to that one.
   const [selected, setSelected] = useState<Set<WaitlistPlatform>>(
@@ -260,6 +261,10 @@ function WaitlistBody({
   // dialog's height; the success view is overlaid absolutely on top, so the
   // modal never resizes between states (zero layout shift).
   const done = status === "done";
+
+  useEffect(() => {
+    if (done) doneButtonRef.current?.focus();
+  }, [done]);
 
   return (
     <div className="relative">
@@ -337,7 +342,6 @@ function WaitlistBody({
             id="waitlist-email"
             type="email"
             autoComplete="email"
-            autoFocus
             required
             value={email}
             disabled={submitting}
@@ -429,7 +433,7 @@ function WaitlistBody({
             </p>
           </div>
           <Dialog.Close
-            autoFocus
+            ref={doneButtonRef}
             className="mt-6 inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity"
             style={{ color: "var(--background)" }}
           >

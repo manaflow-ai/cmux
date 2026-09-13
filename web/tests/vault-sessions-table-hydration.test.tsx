@@ -48,6 +48,19 @@ describe("Vault sessions table hydration", () => {
     expect(serverHtml).toContain("30 seconds ago");
     expect(hydrationHtml).toBe(serverHtml);
   });
+
+  test("exposes session navigation and copying as independent native controls", () => {
+    const html = renderSessionsTable("2026-07-04T12:01:00.000Z");
+    const sessionRowHtml = html.match(/<tr class="group[^>]*>(.*?)<\/tr>/)?.[0];
+
+    expect(sessionRowHtml).toBeDefined();
+    expect(sessionRowHtml).toContain(
+      'href="/dashboard/vault/sessions/session-1"',
+    );
+    expect(sessionRowHtml).toContain('<button type="button"');
+    expect(sessionRowHtml).toContain('aria-label="copySession"');
+    expect(sessionRowHtml).not.toContain('tabindex="0"');
+  });
 });
 
 function renderSessionsTable(initialNowIso: string) {
