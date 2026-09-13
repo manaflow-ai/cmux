@@ -20,6 +20,10 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
     /// shape as its base; an unknown value cannot safely admit a delta.
     public let rows: Int?
 
+    /// Creates a continuity record from a producer's render identity.
+    ///
+    /// Dimensions are optional for legacy producers, but deltas are rejected
+    /// when the delivered record does not carry both values.
     public init(
         renderEpoch: String,
         renderRevision: UInt64,
