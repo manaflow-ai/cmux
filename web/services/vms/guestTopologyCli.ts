@@ -30,53 +30,7 @@ guest_topology_command() {
     show|focus|close|move|split|swap|zoom|resize)
       [ "\$#" -ge 1 ] && [ -n "\$1" ] || die_message 2 topologyUsage
       if [ "\$cmux_tp_noun" = workspace ] && [ "\$cmux_tp_verb" = close ]; then
-        # Preserve the documented verb-first form while accepting the safe
-        # host-compatible spelling used by scripts. Closing a workspace has
-        # no focus operation, so --focus false is normalized away; true is
-        # rejected instead of being silently ignored.
-        cmux_tp_id=""
-        cmux_tp_json=""
-        case "\${1:-}" in
-          --workspace)
-            [ "\$#" -ge 2 ] || die_message 2 topologyUsage
-            cmux_tp_id="\$2"
-            shift 2
-            ;;
-          --workspace=*)
-            cmux_tp_id="\${1#--workspace=}"
-            shift
-            ;;
-          *)
-            cmux_tp_id="\$1"
-            shift
-            ;;
-        esac
-        [ -n "\$cmux_tp_id" ] || die_message 2 topologyUsage
-        while [ "\$#" -gt 0 ]; do
-          case "\$1" in
-            --json)
-              cmux_tp_json=--json
-              shift
-              ;;
-            --focus)
-              [ "\$#" -ge 2 ] || die_message 2 topologyUsage
-              [ "\$2" = false ] || die_message 2 topologyCloseFocus
-              shift 2
-              ;;
-            --focus=false)
-              shift
-              ;;
-            --focus=*)
-              [ "\${1#--focus=}" = false ] || die_message 2 topologyCloseFocus
-              shift
-              ;;
-            *)
-              die_message 2 topologyUsage
-              ;;
-          esac
-        done
-        # shellcheck disable=SC2086
-        exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" workspace "\$cmux_tp_id" close \$cmux_tp_json
+        guest_workspace_close "\$@"
       fi
       cmux_tp_id="\$1"; shift
       case "\$cmux_tp_noun:\$cmux_tp_verb" in
@@ -98,6 +52,48 @@ guest_topology_command() {
       exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" "\$cmux_tp_noun" "\$cmux_tp_verb" "\$@"
       ;;
   esac
+}
+
+# Remove only the wrapper's compatibility options. Leave daemon options such
+# as revision fences and idempotency keys intact for cmux-tui to validate
+# before opening its session socket. Rotate only original arguments so quoted
+# values retain their bytes and argument boundaries without eval or temp files.
+guest_workspace_close() {
+  cmux_wc_remaining=\$#
+  cmux_wc_workspace=""
+  cmux_wc_workspace_seen=0
+  cmux_wc_focus_seen=0
+  while [ "\$cmux_wc_remaining" -gt 0 ]; do
+    cmux_wc_arg="\$1"; shift
+    cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+    case "\$cmux_wc_arg" in
+      --workspace|--focus)
+        [ "\$cmux_wc_remaining" -gt 0 ] || die_message 2 topologyUsage
+        cmux_wc_value="\$1"; shift
+        cmux_wc_remaining=\$((cmux_wc_remaining - 1))
+        case "\$cmux_wc_value" in ''|--*) die_message 2 topologyUsage ;; esac
+        ;;
+      --workspace=*|--focus=*) cmux_wc_value="\${cmux_wc_arg#*=}" ;;
+      *) set -- "\$@" "\$cmux_wc_arg"; continue ;;
+    esac
+    case "\$cmux_wc_arg" in
+      --workspace|--workspace=*)
+        [ "\$cmux_wc_workspace_seen" -eq 0 ] && [ -n "\$cmux_wc_value" ] || die_message 2 topologyUsage
+        cmux_wc_workspace_seen=1
+        cmux_wc_workspace="\$cmux_wc_value"
+        ;;
+      --focus|--focus=*)
+        [ "\$cmux_wc_focus_seen" -eq 0 ] || die_message 2 topologyUsage
+        [ "\$cmux_wc_value" = false ] || die_message 2 topologyCloseFocus
+        cmux_wc_focus_seen=1
+        ;;
+    esac
+  done
+  if [ "\$cmux_wc_workspace_seen" -eq 1 ]; then set -- "\$cmux_wc_workspace" "\$@"; fi
+  [ "\$#" -gt 0 ] || die_message 2 topologyUsage
+  case "\$1" in ''|--*) die_message 2 topologyUsage ;; esac
+  cmux_wc_workspace="\$1"; shift
+  exec "\$CMUX_TUI_BIN" "\$TARGET_FLAG" "\$TARGET_VALUE" workspace "\$cmux_wc_workspace" close "\$@"
 }
 
 # A terminal label is implemented by renaming its exact tab placements, like
