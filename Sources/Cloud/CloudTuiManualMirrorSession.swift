@@ -213,6 +213,7 @@ final class CloudTuiManualMirrorSession {
         }
         if phase == .disconnected || phase == .idle { onNeedsReconnect() }
         runtimeReady()
+        presentationReadiness.check()
     }
 
     func updateRemoteSurfaceID(_ surfaceID: UInt64) {
