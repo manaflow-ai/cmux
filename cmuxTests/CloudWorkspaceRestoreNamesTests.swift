@@ -11,6 +11,40 @@ import Testing
 struct CloudWorkspaceRestoreNamesTests {
     private struct RenameFailure: Error {}
 
+    @Test("Machine summaries preserve acknowledged names and only known pending workspace overlays")
+    func machineSummaryCannotInventWorkspaceRows() throws {
+        let machine = SurfaceMachineID.cloud("metadata")
+        let catalog = SurfaceCatalog()
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        let graph = try state(machine, workspace: "Saved name", names: ["Build"], revision: 2)
+        let canonicalResources = CmuxTuiSnapshotParser.resources(from: graph)
+        let pendingWorkspace = SurfaceRemoteWorkspace(id: "ws_pending", name: "Creating", index: 1, focused: false)
+        let pendingResource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_pending"),
+            title: "bash", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: pendingWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab_pending", workspace: pendingWorkspace)],
+            port: nil, url: nil
+        )
+        catalog.replaceCloudState(graph, resources: canonicalResources + [pendingResource], info: provider.info)
+        var stale = provider.info
+        stale.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "Old name", index: 0, focused: true),
+            SurfaceRemoteWorkspace(id: "ws_removed", name: "Removed", index: 1, focused: false)
+        ]
+        catalog.updateMachine(stale, from: provider)
+        let canonicalWorkspace = SurfaceRemoteWorkspace(id: "ws_main", name: "Saved name", index: 0, focused: false)
+        #expect(catalog.machines[machine]?.remoteWorkspaces == [canonicalWorkspace, pendingWorkspace])
+        #expect(catalog.cloudStates[machine] == graph)
+        // Once the authoritative resource transaction removes the overlay, a stale
+        // summary cannot resurrect either that provisional row or a deleted workspace.
+        catalog.replaceCloudState(graph, resources: canonicalResources, info: stale)
+        catalog.updateMachine(stale, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces == [canonicalWorkspace])
+    }
+
     @Test("Checkpoint waits for the latest workspace and placement names, including clears")
     func checkpointWaitsForNames() async throws {
         let machine = SurfaceMachineID.cloud("checkpoint")
