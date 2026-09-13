@@ -281,6 +281,13 @@ bootstrap at create; it heals pin drift and a missing listener on attach
 (`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
 ships only the supervisor and waits for a driver install.
 
+Before each daemon start, the supervisor uses `remote stop` to check the
+previous lifecycle. After a crash, `remote stop --acknowledge-failed-finalization`
+proves the old sockets are inactive and completes authorization persistence
+under its exclusive lease. Only then does the supervisor start the daemon.
+This preserves the machine identity and saved sessions. A failed recovery
+stays visible in the systemd journal and prevents an unsafe restart.
+
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
@@ -459,6 +466,12 @@ snapshot holds a different daemon identity, and deletes both sandboxes:
 ```bash
 bun scripts/verify-devbox-image.ts freestyle <sh-snapshot-id>
 ```
+
+Desktop snapshots also pass forced-failure checks for cmux-tui, noVNC, the
+display server, the window manager, the dock, clipboard and accessibility
+helpers, and both systemd service processes. Each must return without a
+manual start. Verification checks that the machine identity survives and
+that a new remote terminal connection works after recovery.
 
 Only after verify passes may an entry carry `validationStatus: "passed"`;
 `vm-image-manifest.test.ts` refuses a `defaultForKind` entry with any other
