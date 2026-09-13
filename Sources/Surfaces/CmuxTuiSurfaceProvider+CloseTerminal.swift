@@ -1,6 +1,10 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, fallbackTabID: nil)
+    }
+
     /// Closes a Cloud terminal, falling back to its daemon tab when the process already exited.
     func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
         pendingRemoteCreations.removeValue(forKey: id)
