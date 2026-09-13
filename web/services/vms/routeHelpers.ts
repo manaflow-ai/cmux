@@ -52,11 +52,13 @@ import {
   type VmRequestContext,
 } from "./requestContext";
 import {
+  vmArtifactUnavailableCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
+import { ProviderArtifactUnavailableError } from "./drivers/types";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -653,6 +655,9 @@ export const vmWorkflowErrorResponders = {
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
     }
+    if (providerArtifactUnavailable(error.cause)) {
+      return vmArtifactUnavailableResponse(error, context.locale);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -861,6 +866,32 @@ export async function vmWorkflowErrorResponse(
   const error = vmWorkflowErrorCause(err);
   if (!error) return null;
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
+}
+
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderArtifactUnavailableError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
+/** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
+async function vmArtifactUnavailableResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmArtifactUnavailableCopy(locale);
+  return vmErrorResponse({
+    error: "vm_artifact_unavailable",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
 }
 
 function vmProviderOperationErrorResponse(error: VmProviderOperationError): Response {
