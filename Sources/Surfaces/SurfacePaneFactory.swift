@@ -66,6 +66,19 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        if let app = AppDelegate.shared,
+           let manager = app.tabManagerFor(tabId: workspaceID),
+           let windowID = app.windowId(for: manager),
+           let window = app.mainWindow(for: windowID) {
+            // A sidebar-origin action is an explicit request to move keyboard
+            // ownership into the opened terminal. Clear the sidebar intent
+            // before the focus coordinator evaluates the terminal target.
+            app.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: window
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
