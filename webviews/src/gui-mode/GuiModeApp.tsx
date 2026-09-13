@@ -100,6 +100,8 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
   const editorRef = useRef<PromptEditorHandle | null>(null);
   const activeRequestId = useRef<string | null>(null);
   const cancelledRequestIds = useRef(new Set<string>());
+  const blockedRequestIds = useRef(new Set<string>());
+  const settledRequestIds = useRef(new Set<string>());
   const selectedProvider = providerForId(context.providers, selectedProviderId);
   const accentStyle = providerAccentStyle(selectedProvider);
   const trimmedPrompt = prompt.trim();
@@ -113,10 +115,20 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     const requestId = makeGuiModeRequestId();
     activeRequestId.current = requestId;
     void submitGuiModePrompt(trimmedPrompt, selectedProvider.id, requestId)
-      .catch(() => {
+      .catch(async () => {
         if (!cancelledRequestIds.current.has(requestId)) setError(context.copy.errorMessage);
+        try {
+          await cancelGuiModeSubmit(requestId);
+        } catch {
+          // Keep the request locked when native cancellation cannot be delivered;
+          // releasing it would permit a duplicate workspace mutation.
+          blockedRequestIds.current.add(requestId);
+          throw new Error("GUI mode cancellation is still pending.");
+        }
       })
       .finally(() => {
+        settledRequestIds.current.add(requestId);
+        if (blockedRequestIds.current.has(requestId)) return;
         cancelledRequestIds.current.delete(requestId);
         if (activeRequestId.current === requestId) {
           activeRequestId.current = null;
@@ -128,7 +140,14 @@ function GuiModeHomePage({ context }: { context: GuiModeContext }) {
     const requestId = activeRequestId.current;
     if (!requestId) return;
     cancelledRequestIds.current.add(requestId);
-    void cancelGuiModeSubmit(requestId).catch(() => undefined);
+    void cancelGuiModeSubmit(requestId).then(() => {
+      blockedRequestIds.current.delete(requestId);
+      if (settledRequestIds.current.has(requestId) && activeRequestId.current === requestId) {
+        cancelledRequestIds.current.delete(requestId);
+        activeRequestId.current = null;
+        setIsSubmitting(false);
+      }
+    }).catch(() => undefined);
   }, []);
 
   return h("section", { className: "gui-mode-home", "aria-label": context.copy.homeTitle, style: accentStyle },

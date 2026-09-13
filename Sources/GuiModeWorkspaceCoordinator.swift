@@ -37,26 +37,31 @@ final class GuiModeWorkspaceCoordinator {
             select: true,
             autoRefreshMetadata: false
         )
-        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-        guard let guiPanel = installGuiPanel(
-            in: workspace,
-            state: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID)
-        ),
-        let pane = workspace.paneId(forPanelId: guiPanel.id) else {
-            throw AgentSessionBridgeError.invalidRequest
+        do {
+            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            guard let guiPanel = installGuiPanel(
+                in: workspace,
+                state: .taskWorktreePR(prompt: trimmedPrompt, providerID: providerID)
+            ),
+            let pane = workspace.paneId(forPanelId: guiPanel.id) else {
+                throw AgentSessionBridgeError.invalidRequest
+            }
+            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            guard workspace.splitPaneWithNewTerminal(
+                targetPane: pane,
+                orientation: .horizontal,
+                insertFirst: false,
+                workingDirectory: location.workspace.currentDirectory,
+                initialInput: taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
+            ) != nil else {
+                throw AgentSessionBridgeError.invalidRequest
+            }
+            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
+            return workspace
+        } catch {
+            location.tabManager.closeWorkspace(workspace, recordHistory: false)
+            throw error
         }
-        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-        guard workspace.splitPaneWithNewTerminal(
-            targetPane: pane,
-            orientation: .horizontal,
-            insertFirst: false,
-            workingDirectory: location.workspace.currentDirectory,
-            initialInput: taskWorktreePRCommand(prompt: trimmedPrompt, providerID: providerID)
-        ) != nil else {
-            throw AgentSessionBridgeError.invalidRequest
-        }
-        guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-        return workspace
     }
 
     @discardableResult

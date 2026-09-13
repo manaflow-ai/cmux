@@ -54,7 +54,11 @@ export async function submitGuiModePrompt(
   providerId: string,
   requestId: string = makeGuiModeRequestId(),
 ): Promise<{ workspaceId: string }> {
-  return callNative<{ workspaceId: string }>("guiMode.submit", { prompt, providerId, requestId });
+  return callNativeWithTimeout<{ workspaceId: string }>(
+    "guiMode.submit",
+    { prompt, providerId, requestId },
+    30000,
+  );
 }
 
 export async function cancelGuiModeSubmit(requestId: string): Promise<void> {
