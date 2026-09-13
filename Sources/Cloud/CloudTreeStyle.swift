@@ -100,12 +100,12 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
 
     // MARK: Presets
 
-    /// The default: quiet Finder-like single lines, monochrome glyphs. Sized like
-    /// the system sidebar (13pt titles; lawrence, 2026-08-27: the old 11.5 read
-    /// too small next to the Files tree).
+    /// The default: quiet Finder-like machine cards with a dedicated resource
+    /// line. Keeping the live reading below the name gives CPU, RAM, and disk
+    /// enough room to remain readable in the narrow sidebar.
     static let compact = CloudTreeStyle(
         id: "compact", name: "Compact",
-        rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        rowHeight: 24, machineRowLayout: .twoLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
         indentPerLevel: 12,

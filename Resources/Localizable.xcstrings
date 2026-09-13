@@ -130749,7 +130749,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mem %@/%@ GB"
+            "value": "RAM %@/%@ GB"
           }
         },
         "ja": {
@@ -130799,6 +130799,120 @@
             "state": "translated",
             "value": "메모리 %@/%@ GB"
           }
+        }
+      }
+    },
+    "cloudTree.stats.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU — · RAM — · Disk —"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU — · RAM — · ディスク —"
+          }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · Festplatte —" }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · Disque —" }
+        },
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · القرص —" }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · Disco —" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · 磁碟 —" }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · 磁盘 —" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "CPU — · RAM — · 디스크 —" }
+        }
+      }
+    },
+    "cloudTree.stats.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %@ · RAM %@ · Disk %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU %@ · RAM %@ · ディスク %@"
+          }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · Festplatte %@" }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · Disque %@" }
+        },
+        "ar": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · القرص %@" }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · Disco %@" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · 磁碟 %@" }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · 磁盘 %@" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": "CPU %@ · RAM %@ · 디스크 %@" }
+        }
+      }
+    },
+    "cloudTree.stats.asleepSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " · Asleep"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " · スリープ中"
+          }
+        },
+        "de": {
+          "stringUnit": { "state": "translated", "value": " · Ruhezustand" }
+        },
+        "fr": {
+          "stringUnit": { "state": "translated", "value": " · En veille" }
+        },
+        "ar": {
+          "stringUnit": { "state": "translated", "value": " · في وضع السكون" }
+        },
+        "es": {
+          "stringUnit": { "state": "translated", "value": " · En reposo" }
+        },
+        "zh-Hant": {
+          "stringUnit": { "state": "translated", "value": " · 休眠中" }
+        },
+        "zh-Hans": {
+          "stringUnit": { "state": "translated", "value": " · 休眠中" }
+        },
+        "ko": {
+          "stringUnit": { "state": "translated", "value": " · 잠자기" }
         }
       }
     },

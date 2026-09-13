@@ -1009,11 +1009,9 @@ final class MachinesPanelModelTests: XCTestCase {
         }
         XCTAssertEqual(CloudTreeStyle.defaultStyle, .compact, "the default is the compact variant")
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
-        // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Two-line cards grow with the stats line; single-line rows never do.
         XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
-        XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+        XCTAssertGreaterThan(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     func testDropDestinationMapsEverySplitSideAndInserts() {
@@ -1399,11 +1397,13 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
     }
 
+    @Test("Machine resource labels stay visible while stats load")
+    func resourceLine() { #expect(CloudTreeMachineRowContent.resourceLine(nil) == "CPU — · RAM — · Disk —") }
     @Test("Two-line rows grow by one line for the spend readout")
     func twoLineHeightGrows() {
         let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
         guard let twoLine else { return }
         #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) > CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 }
