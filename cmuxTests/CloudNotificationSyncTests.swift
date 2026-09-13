@@ -190,6 +190,40 @@ struct CloudNotificationSyncTests {
         #expect(CloudNotificationSyncReducer.unreadTerminalIDs(rows: overlaid, clientID: Self.me, state: state) == [Self.row("b").terminalID!])
     }
 
+    @Test func dismissedCompletionStaysReadAcrossStaleSnapshotAndSecondCompletionIsUnread() {
+        let first = Self.row("first", terminal: "term-cloud")
+        var state = CloudNotificationSyncReducer.plan(
+            rows: [first], clientID: Self.me, state: CloudNotificationSyncState()
+        ).state
+        state = CloudNotificationSyncReducer.recordRead(
+            ids: [first.id], rows: [first], clientID: Self.me, state: state, newKey: { "ack-first" }
+        )
+        state = CloudNotificationSyncReducer.ackCompleted(key: "ack-first", state: state)
+
+        // The ack overlay made the live rows read, but the next feed snapshot
+        // is stale and still carries the old unread payload.
+        let staleSnapshot = CloudNotificationSyncReducer.plan(
+            rows: [first], clientID: Self.me, state: state
+        )
+        #expect(
+            CloudNotificationSyncReducer.unreadTerminalIDs(
+                rows: [first], clientID: Self.me, state: staleSnapshot.state
+            ).isEmpty,
+            "a stale snapshot must not resurrect a dismissed Cloud completion"
+        )
+
+        let second = Self.row("second", terminal: "term-cloud", createdAt: 2)
+        let next = CloudNotificationSyncReducer.plan(
+            rows: [first, second], clientID: Self.me, state: staleSnapshot.state
+        )
+        #expect(next.deliver.map(\.id) == [second.id], "a genuinely new completion still delivers")
+        #expect(
+            CloudNotificationSyncReducer.unreadTerminalIDs(
+                rows: [first, second], clientID: Self.me, state: next.state
+            ) == [second.terminalID!]
+        )
+    }
+
     @Test @MainActor func correlationKeysRoundTripThroughTheLocalStore() throws {
         let key = CloudNotificationCorrelation.key(machineID: "vm-1", notificationID: "notification_0000000000000000000000000000000a")
         let parsed = try #require(CloudNotificationCorrelation.parse(key))
