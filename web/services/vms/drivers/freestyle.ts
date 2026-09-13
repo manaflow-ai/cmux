@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
   type AttachTransport,
@@ -1399,6 +1400,7 @@ export class FreestyleProvider implements VMProvider {
             // that predates hook installation gets its Claude Code and Codex
             // hooks (best effort inside).
             await this.ensureAgentHooks(vm, vmId);
+            await this.execResult(vm, guestResourceReporterInstallCommand(), 5_000);
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1647,7 +1649,7 @@ export class FreestyleProvider implements VMProvider {
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
+        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}' && ( ${guestResourceReporterInstallCommand()} )`,
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });

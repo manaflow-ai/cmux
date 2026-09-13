@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { applyVmResourceUsage } from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -2838,6 +2839,7 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
+      Effect.map((stats) => applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, Date.now())),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
