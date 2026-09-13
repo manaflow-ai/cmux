@@ -87,7 +87,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the next snapshot can lag it. Keep the exact created row and placement
     /// until an accepted graph reaches that receipt. This is a transient view
     /// overlay, never a second remote-state store.
-    private struct PendingRemoteCreation {
+    fileprivate struct PendingRemoteCreation {
         var resource: SurfaceResource
         var receipt: CloudVMCursor?
         let tabID: String?
