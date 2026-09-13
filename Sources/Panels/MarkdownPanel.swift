@@ -6,6 +6,8 @@ import Foundation
 
 enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
     case preview
+    /// The rendered document is directly editable with rich Markdown formatting.
+    case edit
     case text
 
     var id: String { rawValue }
@@ -383,8 +385,8 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             applyPendingSearchNeedleIfPossible()
             return
         }
-        // Preview mode: the rendered web view is the panel's keyboard
-        // surface. Taking first responder on activation is what moves the
+        // Preview and rich edit modes use the rendered web view as their
+        // keyboard surface. Taking first responder on activation is what moves the
         // keyboard out of wherever it was (for example the right-sidebar
         // file list after a click- or drag-open), so the find/shortcut
         // router targets this panel — the same behavior terminal and
@@ -403,7 +405,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// attached to its window. The callback is event-driven, so it cannot
     /// steal focus after this panel has been unfocused in the meantime.
     func replayPendingPreviewFocusAfterWindowAttach() {
-        guard pendingPreviewFocus, displayMode == .preview else { return }
+        guard pendingPreviewFocus, displayMode != .text else { return }
         focus()
     }
 
@@ -453,10 +455,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
         guard displayMode != mode else { return }
         displayMode = mode
-        if mode == .text {
+        rendererSession.setEditing(mode == .edit)
+        if mode != .preview {
             // The find bar and its highlights belong to the preview surface;
-            // text mode has the NSTextView's native find panel instead.
+            // edit and text modes use their own native editing paths instead.
             hideFind()
+        }
+        if mode == .edit || mode == .text {
             focus()
         }
     }
@@ -503,6 +508,15 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         content = nextContent
         isDirty = nextContent != originalTextContent
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+    }
+
+    /// Applies a rich edit produced by the inline WebKit editor.
+    ///
+    /// The renderer sends a Markdown snapshot after a DOM transaction. Keeping
+    /// this mutation on the panel preserves one dirty/save source of truth for
+    /// both the raw editor and the rich editor.
+    func updateInlineMarkdown(_ nextContent: String) {
+        updateTextContent(nextContent)
     }
 
     @discardableResult
