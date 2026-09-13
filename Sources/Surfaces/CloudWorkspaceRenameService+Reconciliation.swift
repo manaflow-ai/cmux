@@ -18,8 +18,7 @@ extension CloudWorkspaceRenameService {
         guard !state.workspaceIDs.contains(remoteID) else { return .keep }
         guard let target = inferredRemoteWorkspaceTarget(
             projections: projections,
-            resources: resources,
-            resourcesByID: resourcesByID
+            resources: resources
         ), target.machine == machine,
         state.workspaceIDs.contains(target.remoteWorkspaceID) else { return .clear }
         return .rebind(machine: target.machine, remoteWorkspaceID: target.remoteWorkspaceID)

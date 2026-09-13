@@ -10,6 +10,7 @@ struct PaneTransferSourceResolver {
         /// A Cloud tree row: catalog resources (terminals, screens, browsers) on this Mac or a
         /// machine — one, or a whole workspace's worth.
         case surfaceResources(SurfaceResourceGroup)
+        case rightSidebarTool(RightSidebarMode)
         case surface
     }
 
@@ -76,6 +77,7 @@ struct PaneTransferSourceResolver {
     @MainActor
     func source(for transfer: PaneDragTransfer) -> Source? {
         guard transfer.isFromCurrentProcess else { return nil }
+        if let mode = transfer.rightSidebarToolMode { return .rightSidebarTool(mode) }
         if let source = registeredSource(id: transfer.tabId) {
             return source
         }
@@ -85,7 +87,9 @@ struct PaneTransferSourceResolver {
 
     /// Resolves a synthetic source registered outside Bonsplit's live tab model.
     @MainActor
-    func registeredSource(id: UUID) -> Source? {
+    func registeredSource(id: UUID, pasteboard: NSPasteboard = NSPasteboard(name: .drag)) -> Source? {
+        if let transfer = transfer(from: pasteboard), transfer.tabId == id,
+           let mode = transfer.rightSidebarToolMode { return .rightSidebarTool(mode) }
         if let entry = vaultSessionRegistry()?.entry(id: id) {
             return .vaultSession(entry)
         }
@@ -104,7 +108,7 @@ struct PaneTransferSourceResolver {
             FilePreviewDragRegistry.shared.discard(id: id)
         case .surfaceResources:
             SurfaceResourceDragRegistry.shared.discard(id: id)
-        case .surface:
+        case .surface, .rightSidebarTool:
             break
         }
     }
@@ -120,7 +124,7 @@ struct PaneTransferSourceResolver {
         pasteboard: NSPasteboard
     ) {
         switch source {
-        case .surface:
+        case .surface, .rightSidebarTool:
             tabTransferRegistry()?.finish(from: pasteboard)
         case .vaultSession, .filePreview, .surfaceResources:
             finish(source, id: id)

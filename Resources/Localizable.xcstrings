@@ -148015,6 +148015,20 @@
         }
       }
     },
+    "command.openCloudPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Cloud as Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloudをペインで開く" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Cloud 作为窗格打开" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud als Teilfenster öffnen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir Cloud en tant que volet" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فتح Cloud كجزء" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir Cloud como panel" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟 Cloud 為窗格" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud를 분할 창으로 열기" } }
+      }
+    },
     "command.openWorkspacePRLinks.title": {
       "extractionState": "manual",
       "localizations": {
