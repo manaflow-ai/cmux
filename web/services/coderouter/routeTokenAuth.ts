@@ -1,7 +1,9 @@
-// Shared route-token authentication for every coderouter data-plane surface
+// Shared credential authentication for every coderouter data-plane surface
 // (codex responses/models, opencode config/proxy, the Claude messages leg).
 //
 // A route token may be bound to one Cloud VM (`coderouter_route_tokens.vm_id`).
+// Long-lived user API keys are unbound and carry their own opaque key id for
+// usage attribution.
 // Such a token is only ever delivered by the Freestyle edge, which injects
 // both `x-coderouter-route-token` and `x-cmux-vm-id` into the guest's session
 // (the guest itself never holds the token). The database binding is the
@@ -9,7 +11,11 @@
 // `x-cmux-vm-id` is rejected, so a rule that was mis-provisioned for another
 // machine, or a guest that forges the header, cannot spend a token that is
 // not its own. Unbound tokens (the `cr` CLI) ignore the header.
-import { authenticateRouteToken } from "./repository";
+import {
+  authenticateApiKey,
+  authenticateRouteToken,
+  type RouteTokenPrincipal,
+} from "./repository";
 import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
@@ -30,6 +36,8 @@ export type RouteTokenIdentity = {
   /** The Cloud VM this token is bound to, or null for an unbound (CLI) token. */
   readonly vmId: string | null;
   readonly token: string;
+  /** Opaque database id for a long-lived API key, or null for route tokens. */
+  readonly apiKeyId?: string | null;
 };
 
 export type RouteTokenAuthFailure =
@@ -59,11 +67,16 @@ export function routeTokenFromRequest(request: Request): string | null {
 
 type Authenticate = (
   token: string,
-) => Promise<{ teamId: string; stackUserId: string; vmId?: string | null } | null>;
+) => Promise<{
+  readonly teamId: string;
+  readonly stackUserId: string;
+  readonly vmId?: string | null;
+  readonly apiKeyId?: string | null;
+} | null>;
 
 export async function authenticateRequestRouteToken(
   request: Request,
-  authenticate: Authenticate = authenticateRouteToken,
+  authenticate: Authenticate = authenticateCoderouterCredential,
 ): Promise<RouteTokenAuthResult> {
   const startedAt = performance.now();
   const result = await authenticateUnobserved(request, authenticate);
@@ -92,6 +105,20 @@ async function authenticateUnobserved(
   }
   return {
     ok: true,
-    identity: { teamId: identity.teamId, stackUserId: identity.stackUserId, vmId, token },
+    identity: {
+      teamId: identity.teamId,
+      stackUserId: identity.stackUserId,
+      vmId,
+      token,
+      ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+    },
   };
+}
+
+/** Authenticate either a short-lived route token or a user API key. */
+export async function authenticateCoderouterCredential(
+  token: string,
+): Promise<RouteTokenPrincipal | null> {
+  if (token.startsWith("crk_")) return await authenticateApiKey(token);
+  return await authenticateRouteToken(token);
 }

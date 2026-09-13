@@ -104,7 +104,7 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
-  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
   outcome?: CoderouterOutcome;
@@ -157,11 +157,16 @@ export function currentCoderouterRequestId(): string {
 }
 
 export function recordCoderouterIdentity(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">,
 ): void {
   const context = storage.getStore();
   if (!context) return;
-  context.identity = { teamId: identity.teamId, stackUserId: identity.stackUserId, vmId: identity.vmId };
+  context.identity = {
+    teamId: identity.teamId,
+    stackUserId: identity.stackUserId,
+    vmId: identity.vmId,
+    ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+  };
   const span = trace.getActiveSpan();
   if (span) {
     setSpanAttributes(span, {

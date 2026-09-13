@@ -13,6 +13,7 @@
 // the AWS event stream back to SSE. Usage is read from a bounded head and
 // tail of the response only.
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   type RouteTokenAuthResult,
   type RouteTokenIdentity,
@@ -140,7 +141,7 @@ type ClaudeProxyRuntime = {
 };
 
 const defaultDependencies: ClaudeProxyDependencies = {
-  authenticate: (request) => authenticateRequestRouteToken(request),
+  authenticate: (request) => authenticateRequestRouteToken(request, authenticateCoderouterCredential),
   select: selectClaudeUpstream,
   cooldown: markClaudeAccountCooldown,
   touchUsed: touchClaudeAccountUsed,
@@ -1051,6 +1052,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "claude",
     agent,
@@ -1087,6 +1089,7 @@ function captureModelUsage(
     requestId: ledger.requestId,
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
+    apiKeyId: identity.apiKeyId,
     vmId: identity.vmId,
     provider: "claude",
     upstreamKind: upstream.kind,
