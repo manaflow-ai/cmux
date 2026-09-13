@@ -104,7 +104,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace, .devicesSection:
+        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace, .devicesSection, .cloudMachinesSection:
             return true
         case .pendingMachine:
             return true

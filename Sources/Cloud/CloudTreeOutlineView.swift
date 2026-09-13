@@ -399,6 +399,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .devicesEmpty(let section):
                 return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section))
+            case .cloudMachinesSection:
+                return GlobalFontMagnification.scaledSize(style.rowHeight)
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
                 // Same rule as usageLine (nil for empty totals), without formatting text per row.
@@ -483,7 +485,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .device, .devicesSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
                 toggle(node)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
@@ -777,6 +779,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
             case .devicesSection(let section), .devicesEmpty(let section):
                 return deviceDiscoveryMenuItems(section: section)
+            case .cloudMachinesSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             }
         }
 

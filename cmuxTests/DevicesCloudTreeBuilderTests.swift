@@ -37,7 +37,7 @@ struct DevicesCloudTreeBuilderTests {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, source: .cloudWithDevicesSection
         )
-        let section = try #require(nodes.first)
+        let section = try #require(nodes.last)
         let device = try #require(section.children.first)
         coordinator.apply(nodes: nodes)
         outline.collapseItem(device)
@@ -318,13 +318,13 @@ struct DevicesCloudTreeBuilderTests {
         #expect(emptyState == state)
     }
 
-    @Test("An empty My Devices section remains visible beneath the cloud fleet")
+    @Test("An empty My Devices section remains visible beneath the Cloud Machines section")
     func emptyDevicesSectionRemainsVisible() throws {
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: .empty, localWorkspaces: [],
             includeLocalMachine: false, source: .cloudWithDevicesSection
         )
-        let section = try #require(nodes.first)
+        let section = try #require(nodes.last)
         guard case .devicesSection(let count) = section.kind else {
             Issue.record("Expected the My Devices section")
             return
@@ -337,7 +337,7 @@ struct DevicesCloudTreeBuilderTests {
         ))
     }
 
-    @Test("Merged into the Cloud tab, devices sit under one Devices section after the fleet")
+    @Test("Merged into the Cloud tab, Cloud Machines and My Devices are separate sections")
     func cloudWithDevicesSection() throws {
         let snapshot = SurfaceCatalogSnapshot(
             machines: [cloudInfo("brave-otter"), info(studio, name: "Studio", online: true, linkState: .connecting)],
@@ -348,8 +348,14 @@ struct DevicesCloudTreeBuilderTests {
             source: .cloudWithDevicesSection
         )
         #expect(nodes.count == 2)
-        guard case .machine(let fleet, _) = nodes[0].kind else {
-            Issue.record("expected the fleet row first, got \(nodes[0].kind)")
+        let cloudSection = try #require(nodes.first)
+        guard case .cloudMachinesSection = cloudSection.kind else {
+            Issue.record("expected the Cloud Machines section first, got \(cloudSection.kind)")
+            return
+        }
+        let fleetNode = try #require(cloudSection.children.first)
+        guard case .machine(let fleet, _) = fleetNode.kind else {
+            Issue.record("expected the fleet row under Cloud Machines, got \(fleetNode.kind)")
             return
         }
         #expect(fleet.id == "brave-otter")
@@ -371,6 +377,11 @@ struct DevicesCloudTreeBuilderTests {
             source: .cloudWithDevicesSection
         )
         #expect(emptyDevices.count == 2)
+        let emptyCloudSection = try #require(emptyDevices.first)
+        guard case .cloudMachinesSection = emptyCloudSection.kind else {
+            Issue.record("expected the empty Cloud Machines section first")
+            return
+        }
         let emptySection = try #require(emptyDevices.last)
         guard case .devicesSection(let emptyCount) = emptySection.kind else {
             Issue.record("expected the empty My Devices section after the fleet")
@@ -397,10 +408,13 @@ struct DevicesCloudTreeBuilderTests {
             source: .cloudWithDevicesSection
         )
         #expect(nodes.map(\.id) == [
+            "cloud-machines-section",
+            CloudTreeNodeBuilder.devicesSectionNodeID,
+        ])
+        #expect(nodes.first?.children.map(\.id) == [
             CloudTreeNodeBuilder.nodeID(machine: .cloud("fleet-b")),
             CloudTreeNodeBuilder.nodeID(machine: .cloud("fleet-a")),
             CloudTreeNodeBuilder.nodeID(machine: .cloud("catalog-only")),
-            CloudTreeNodeBuilder.devicesSectionNodeID,
         ])
     }
 

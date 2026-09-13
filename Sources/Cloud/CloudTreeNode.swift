@@ -61,6 +61,8 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
+        /// The collapsible Cloud Machines section header.
+        case cloudMachinesSection
         /// Empty My Devices state with independent discovery actions.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
@@ -104,6 +106,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
+        case .cloudMachinesSection: return "cloudMachinesSection"
         case .devicesEmpty: return "devicesEmpty"
         }
     }
@@ -140,6 +143,7 @@ final class CloudTreeNode: NSObject {
         // The section is a header over several machines; the id keeps it
         // addressable (expansion, debug logs) without naming any one of them.
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
+        case .cloudMachinesSection: return .cloud("cloud-machines-section")
         }
     }
 
@@ -174,6 +178,7 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.name
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
+        case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
         }
     }
@@ -228,7 +233,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .device, .devicesSection, .devicesEmpty:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection:
             return nil
         }
     }
@@ -636,6 +641,25 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex
                 )
             ))
+        }
+        if source.groupsDevicesUnderSection {
+            let cloudChildren = nodes.isEmpty
+                ? [CloudTreeNode(
+                    id: "cloud-machines-section/empty",
+                    kind: .placeholder(
+                        machine: .cloud("cloud-machines-section"),
+                        CloudTreePlaceholder(
+                            text: String(localized: "machines.empty.title", defaultValue: "No machines yet"),
+                            style: .dimmed
+                        )
+                    )
+                )]
+                : nodes
+            nodes = [CloudTreeNode(
+                id: "cloud-machines-section",
+                kind: .cloudMachinesSection,
+                children: cloudChildren
+            )]
         }
         if source.includesDevices {
             nodes.append(contentsOf: deviceNodes(
