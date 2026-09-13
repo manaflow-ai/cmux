@@ -951,7 +951,11 @@ changes them:
    pinned to the same revision already resolved for `CmuxAPIClient`.
 3. **Done.** `CLI/Commands/CmuxCommand.swift` is the parse-only facade; every
    declared command's `run()` delegates to the existing `CMUXCLI` runner via
-   `GlobalOptions().makeCLI().run()`.
+   `GlobalOptions().makeCLI().run()`. The router hands ArgumentParser only the
+   commands the facade implements itself (`completion` and the hidden candidate
+   and tree dumps); every other invocation goes straight to the legacy parser,
+   so a declaration shapes completion and typo suggestions but never runtime
+   behavior. A family joins the routed set when step 4 moves its runner.
 4. Move one command family at a time into small files, starting with no-socket
    commands (`version`, `themes`, hook installers), then socket commands, then
    browser and tmux compatibility.

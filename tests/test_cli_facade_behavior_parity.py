@@ -9,6 +9,10 @@ ArgumentParser itself rejects, an exit code the facade fails to propagate)
 passes it silently. Each case below is a repro that regressed exactly that
 way during the facade migration and is pinned here so it cannot regress
 again.
+
+The router now sends only facade-native commands to ArgumentParser, which
+closes that class for every delegated command at once. The cases stay as the
+guard that a delegated command keeps reaching the legacy runner untouched.
 """
 from __future__ import annotations
 
@@ -102,18 +106,6 @@ FACADE_ONLY_CASES: list[tuple[list[str], int, str]] = [
     (["completion", "tcsh"], 2, "facade-native CLIError must keep its declared exit code"),
 ]
 
-# Cases where facade/legacy stderr is known and expected to diverge even
-# though the exit code matches. `dismiss-notification` validates its
-# --id/--all-read selector in FacadeValidationError before ever touching the
-# socket; the legacy runner connects to the socket first for every command in
-# its dispatch group, so it reports the (absent) socket instead of the
-# selector requirement. Fixing the legacy connect-then-validate ordering is a
-# larger, separate change, so this divergence is pinned here rather than
-# weakening the stderr check for every case.
-KNOWN_STDERR_DIVERGENCES: set[tuple[str, ...]] = {
-    ("dismiss-notification",),
-}
-
 
 def run(
     cli: str, args: list[str], legacy: bool, socket_path: str, home: str
@@ -150,11 +142,7 @@ def main() -> int:
         for args, description in CASES:
             facade = run(cli, args, legacy=False, socket_path=socket_path, home=home)
             legacy = run(cli, args, legacy=True, socket_path=socket_path, home=home)
-            stderr_diverges = (
-                facade.stderr != legacy.stderr
-                and tuple(args) not in KNOWN_STDERR_DIVERGENCES
-            )
-            if facade.returncode != legacy.returncode or stderr_diverges:
+            if facade.returncode != legacy.returncode or facade.stderr != legacy.stderr:
                 failures.append(
                     f"cmux {' '.join(args)} ({description}): "
                     f"facade exit {facade.returncode} != legacy exit {legacy.returncode}\n"
