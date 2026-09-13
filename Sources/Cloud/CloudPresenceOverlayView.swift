@@ -189,7 +189,8 @@ final class CloudPresenceOverlayView: NSView {
             row: endRow,
             col: endCol
         )
-        if first.row > last.row || (first.row == last.row && first.col > last.col) {
+        let shouldSwap = first.row > last.row || (first.row == last.row && first.col > last.col)
+        if shouldSwap {
             swap(&first, &last)
         }
         color.setFill()
