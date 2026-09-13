@@ -9897,12 +9897,13 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    init(surfaceView: GhosttyNSView) {
+    init(surfaceView: GhosttyNSView, documentView: NSView = NSView(frame: .zero)) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
 
         self.surfaceView = surfaceView
+        self.documentView = documentView
         backgroundView = TerminalPaneBackgroundView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -9931,7 +9932,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.contentView.backgroundColor = .clear
         scrollView.surfaceView = surfaceView
 
-        documentView = NSView(frame: .zero)
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
 
@@ -12940,6 +12940,9 @@ final class GhosttySurfaceScrollView: NSView {
         logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
 #endif
         surfaceView.frame.origin = visibleRect.origin
+        // NSClipView minimizes scroll damage, so moving the viewport-sized Metal view
+        // must explicitly invalidate its new footprint instead of reusing copied pixels.
+        documentView.setNeedsDisplay(surfaceView.frame)
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
