@@ -149,6 +149,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vms"), .machines)
+        XCTAssertTrue(RightSidebarMode.machines.canOpenAsPane)
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(

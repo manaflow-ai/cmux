@@ -2332,7 +2332,6 @@ extension Workspace {
             return nil
         }
     }
-
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
