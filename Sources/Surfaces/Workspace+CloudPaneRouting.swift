@@ -444,7 +444,7 @@ final class CloudWorkspaceRenameService {
         state: CloudVMState,
         catalog: SurfaceCatalog
     ) {
-        guard case .cloud = machine else { return }
+        guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
         let snapshot = catalog.snapshot
         // Synchronizable snapshots reject duplicate identity rows at the parser
         // boundary. Keep these defensive maps total for legacy callers that may
@@ -476,12 +476,7 @@ final class CloudWorkspaceRenameService {
             if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
                 continue
             }
-            let displayName = workspaceDisplayName(
-                machine: machine,
-                remoteName: remote.name,
-                currentTitleSource: workspace.effectiveCustomTitleSource,
-                currentCustomTitle: workspace.customTitle
-            )
+            let displayName = remote.name
             let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
             _ = manager?.setCustomTitle(
                 tabId: workspace.id,
@@ -499,6 +494,7 @@ final class CloudWorkspaceRenameService {
                   resource.kind == .terminal
             else { continue }
 
+            _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.title)
             let tabID = remoteTabID(for: projection, resource: resource)
             guard let tabID, let tab = tabsByID[tabID] else { continue }
             let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
@@ -513,22 +509,6 @@ final class CloudWorkspaceRenameService {
                 propagateToCloud: false
             )
         }
-    }
-
-    private func workspaceDisplayName(
-        machine: SurfaceMachineID,
-        remoteName: String,
-        currentTitleSource: Workspace.CustomTitleSource?,
-        currentCustomTitle: String?
-    ) -> String {
-        // Preserve the machine prefix only for a title this feature created.
-        // A user-entered title remains exact after the daemon echoes it.
-        let prefix = "\(machine.rawValue): "
-        if currentTitleSource == .remote,
-           currentCustomTitle?.hasPrefix(prefix) == true {
-            return prefix + remoteName
-        }
-        return remoteName
     }
 
     /// Records which machine + remote workspace a just-opened local workspace stands

@@ -5468,7 +5468,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let previous = panelCustomTitles[panelId]
         if source == .auto {
-            guard !trimmed.isEmpty else { return false }
+            guard !trimmed.isEmpty, cloudProjectedResource(forPanel: panelId) == nil else { return false }
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
         var sameText = false

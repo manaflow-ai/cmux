@@ -584,6 +584,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reconcileTitles: Bool = true,
         observation: CloudVMStateObservation = .current
     ) {
+        guard cloudState == state else { return }
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
         // ids are opaque and cannot tell us whether the machine has a desktop.
@@ -621,14 +622,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ports: [Int],
         reconcileTitles: Bool
     ) {
+        guard cloudState == state else { return }
         if impact.requiresFullResourceRebuild {
             publish(state, ports: ports, reconcileTitles: reconcileTitles)
             return
         }
 
         var affected = impact.resourceIDs
-        // A full publish can erase an optimistic create while its receipt is
-        // still ahead of the accepted graph. Include those identities in a
+        // Include creates whose receipts still lead the graph in a
         // delta patch as well, so every publication path applies the same
         // read-your-write overlay atomically.
         affected.formUnion(pendingRemoteCreations.keys)
@@ -655,8 +656,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if reconcileTitles {
             catalog.reconcileCloudRemoteState(machine: machine, state: state)
         }
-        // A newly restored terminal may need its attach pane materialized. Existing rows do not
-        // need a full projection scan for every title event.
+        // Only restored terminals need materialization; ordinary title events do not.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
             reprojectRestoredPanes(generation: lifecycleGeneration)
         }
@@ -2017,7 +2017,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 await link.setEventsCursor(next.cursor)
                 info.linkState = .connected
                 info.linkError = nil
-                let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs
+                let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs || current.terminals != next.terminals
                 publishDelta(
                     next,
                     impact: application.impact,

@@ -271,6 +271,10 @@ extension SurfaceCatalog {
         host: NewWorkspaceHost,
         layout: SurfaceProjectionLayout? = nil
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        let current = try currentCloudWorkspace(group)
+        let group = current?.group ?? group
+        let title = current?.group.title ?? title
+        let layout = current.map { $0.layout } ?? layout
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title)

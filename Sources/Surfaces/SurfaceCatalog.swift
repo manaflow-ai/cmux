@@ -247,8 +247,8 @@ final class SurfaceCatalog {
         )
     }
 
-    /// Applies an accepted daemon snapshot to all local projections with exact IDs.
     func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+        guard cloudStates[machine] == state else { return }
         cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
         cloudWorkspaceRenameService.reconcileRemoteState(
             machine: machine,
@@ -1181,11 +1181,11 @@ final class SurfaceCatalog {
         }
     }
 
-    /// Record a pane that shows a resource (materialized by a provider, or adopted from an
-    /// existing pane such as a local terminal the app created on its own).
+    /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
+        reconcileCloudProjection(projection)
         notifyChange()
     }
 
