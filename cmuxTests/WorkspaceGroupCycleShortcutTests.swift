@@ -74,8 +74,11 @@ struct WorkspaceGroupCycleShortcutTests {
         let orderedMembers = manager.tabs.filter {
             $0.groupId == group.id && $0.id != group.anchorWorkspaceId
         }
-        let firstOrderedMember = try #require(orderedMembers.first)
-        let lastOrderedMember = try #require(orderedMembers.last)
+        let firstMemberIndex = try #require(orderedMembers.firstIndex { $0.id == firstMember.id })
+        let nextFromFirstMember = orderedMembers[(firstMemberIndex + 1) % orderedMembers.count].id
+        let nextFromNextMember = orderedMembers[(firstMemberIndex + 2) % orderedMembers.count].id
+        let firstOrderedMember = try #require(orderedMembers.first?.id)
+        let lastOrderedMember = try #require(orderedMembers.last?.id)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -92,18 +95,18 @@ struct WorkspaceGroupCycleShortcutTests {
 
         manager.selectWorkspace(firstMember)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == lastOrderedMember.id)
+        #expect(manager.selectedTabId == nextFromFirstMember)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == firstOrderedMember.id)
+        #expect(manager.selectedTabId == nextFromNextMember)
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
-        #expect(manager.selectedTabId == lastOrderedMember.id)
+        #expect(manager.selectedTabId == nextFromFirstMember)
 
         manager.selectWorkspace(anchor)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
-        #expect(manager.selectedTabId == firstOrderedMember.id)
+        #expect(manager.selectedTabId == firstOrderedMember)
         manager.selectWorkspace(anchor)
         #expect(appDelegate.debugHandleCustomShortcut(event: previousEvent))
-        #expect(manager.selectedTabId == lastOrderedMember.id)
+        #expect(manager.selectedTabId == lastOrderedMember)
 
         manager.selectWorkspace(ungroupedWorkspace)
         #expect(appDelegate.debugHandleCustomShortcut(event: nextEvent))
