@@ -1,6 +1,40 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Type text into a remote terminal without adding a newline.
+    func sendText(terminalID: String, text: String) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        _ = try await link.run(arguments: CloudTuiCommandLine.writeArguments(socketPath: connected.socketPath, terminalID: terminalID, text: text))
+    }
+
+    /// Press named keys in the remote terminal, in order.
+    func sendKeys(terminalID: String, keys: [String]) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        _ = try await link.run(arguments: CloudTuiCommandLine.keysArguments(socketPath: connected.socketPath, terminalID: terminalID, keys: keys))
+    }
+
+    /// Read the visible terminal grid reported by the daemon.
+    func readScreen(terminalID: String) async throws -> [String: Any] {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let data = try await link.run(arguments: CloudTuiCommandLine.screenReadArguments(socketPath: connected.socketPath, terminalID: terminalID))
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
+    /// Wait for the screen pattern, with time for the link to return its result.
+    func waitForScreen(terminalID: String, pattern: String, timeoutMs: Int?) async throws -> [String: Any] {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
+        let data = try await link.run(
+            arguments: CloudTuiCommandLine.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: effectiveMs),
+            timeout: .milliseconds(effectiveMs + 5_000)
+        )
+        return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
+
     nonisolated static let defaultWaitTimeoutMs = 30_000
     nonisolated static let maxWaitTimeoutMs = 3_600_000
 
