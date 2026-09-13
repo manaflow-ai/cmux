@@ -23,11 +23,6 @@ final class CloudTerminalOverlayCoordinator {
         case hidden, anchor, terminal
     }
 
-    /// Creates a coordinator backed by the app's signature dismissal store.
-    init() {
-        dismissalStore = CloudBannerDismissalStore(defaults: .standard)
-    }
-
     /// Creates a coordinator with an injected dismissal store.
     ///
     /// - Parameter dismissalStore: Repository shared by this native surface owner.
