@@ -197,4 +197,15 @@ extension SetAutoTitleSocketTests {
         #expect(manager.window == nil)
     }
 
+    @Test("A blank Cloud workspace name leaves its name and legacy binding untouched")
+    func cloudBlankWorkspaceNameIsNotLocalAlias() async throws {
+        try await withCloudNameFixture { fixture in
+            fixture.workspace.cloudVMBinding = nil
+            #expect(!fixture.manager.setCustomTitle(tabId: fixture.workspace.id, title: nil))
+            #expect(fixture.workspace.cloudVMBinding == nil)
+            #expect(fixture.provider.writes.isEmpty)
+            try fixture.expectParity("terminal", workspaceName: "Same workspace")
+        }
+    }
+
 }

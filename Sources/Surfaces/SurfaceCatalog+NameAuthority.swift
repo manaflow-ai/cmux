@@ -50,6 +50,17 @@ extension SurfaceCatalog {
             ?? cloudWorkspaceRenameService.inferredRemoteWorkspaceTarget(
                 projections: projections.filter { $0.workspaceID == workspace.id }, resources: [], resourcesByID: resources
             ) else { return nil }
+        // Cloud workspaces have one nonempty daemon name. A local-only clear
+        // would violate layout/sidebar parity. Local and SSH owners return nil
+        // above and retain their existing clear semantics.
+        guard source == .user else { return false }
+        let name = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else {
+            workspace.presentCloudRenameFailure(SurfaceCatalogError.unsupported(
+                String(localized: "cloudTree.error.renameWorkspaceEmptyName", defaultValue: "A workspace name cannot be empty.")
+            ))
+            return false
+        }
         // Upgrade legacy projections before admitting the name. No display text
         // participates in either identity resolution or the remote payload.
         if workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
@@ -60,11 +71,6 @@ extension SurfaceCatalog {
                 remoteWorkspaceID: target.remoteWorkspaceID
             )
         }
-        // Daemon workspaces have an explicit nonempty name. An agent callback
-        // targets its terminal tab, never a local alias of this workspace.
-        guard source == .user else { return false }
-        let name = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !name.isEmpty else { return false }
         let write = enqueueRemoteWorkspaceRename(on: target.machine, id: target.remoteWorkspaceID, name: name)
         observeCloudNameWrite(write, workspace: workspace, automatic: false)
         return true
