@@ -472,6 +472,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID) }
             presentationReadiness.check()
+            presentationReadiness.markReadyIfPresented()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -491,6 +492,7 @@ final class CloudTuiManualMirrorSession {
             diagnosticReplayReceived = true
             if firstReplay { startupTrace?.mark("first-replay-applied", surfaceID: remoteSurfaceID, outcome: "resized") }
             presentationReadiness.check()
+            presentationReadiness.markReadyIfPresented()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
