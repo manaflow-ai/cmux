@@ -44,18 +44,21 @@ struct PaneDragTransfer: Equatable {
     let tabId: UUID
     let sourcePaneId: UUID
     let sourceProcessId: Int32
+    let rightSidebarToolMode: RightSidebarMode?
 
     var isFromCurrentProcess: Bool {
         sourceProcessId == Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     init(tabDragTransfer: TabDragTransfer) {
+        rightSidebarToolMode = RightSidebarToolDragPayload(transfer: tabDragTransfer)?.mode
         tabId = tabDragTransfer.tab.id.uuid
         sourcePaneId = tabDragTransfer.sourcePaneId.id
         sourceProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
     }
 
     init(tabId: UUID, sourcePaneId: UUID, sourceProcessId: Int32) {
+        rightSidebarToolMode = nil
         self.tabId = tabId
         self.sourcePaneId = sourcePaneId
         self.sourceProcessId = sourceProcessId

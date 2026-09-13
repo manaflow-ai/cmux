@@ -66,7 +66,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .machines]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -726,28 +726,6 @@ extension NSView {
             view = current.superview
         }
         return true
-    }
-}
-
-/// Drag payload for reordering the mode bar's tabs in place. Same shape as
-/// `SidebarTabDragPayload`: an in-process custom UTI (declared in
-/// `Resources/Info.plist` under `UTExportedTypeDeclarations`) carrying the
-/// dragged mode's raw value.
-enum RightSidebarModeDragPayload {
-    static let typeIdentifier = "com.cmux.right-sidebar-mode-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-
-    static func provider(for mode: RightSidebarMode) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let data = Data(mode.rawValue.utf8)
-        provider.registerDataRepresentation(
-            forTypeIdentifier: typeIdentifier,
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return provider
     }
 }
 
