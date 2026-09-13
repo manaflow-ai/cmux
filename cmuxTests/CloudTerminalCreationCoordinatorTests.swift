@@ -135,5 +135,6 @@ struct CloudTerminalCreationCoordinatorTests {
         while !condition(), ContinuousClock.now < deadline {
             await Task.yield()
         }
+        #expect(condition())
     }
 }
