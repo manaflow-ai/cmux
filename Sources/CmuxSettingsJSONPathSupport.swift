@@ -137,7 +137,6 @@ enum AppSettingsFileMapping {
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
-        .init(jsonKey: "paneResizeStepPixels", defaultsKey: AppCatalogSection().paneResizeStepPixels.userDefaultsKey),
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
