@@ -26,8 +26,13 @@ final class CloudTerminalOverlayCoordinator {
     /// Creates a coordinator backed by the app's signature dismissal store.
     ///
     /// - Parameter dismissalStore: Repository shared by this native surface owner.
-    init(dismissalStore: CloudBannerDismissalStore? = nil) {
-        self.dismissalStore = dismissalStore ?? CloudBannerDismissalStore(defaults: .standard)
+    init(dismissalStore: CloudBannerDismissalStore) {
+        self.dismissalStore = dismissalStore
+    }
+
+    /// Creates a coordinator backed by the app's standard user defaults.
+    convenience init() {
+        self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
     }
 
     /// A replaced representable may still emit layout and hide callbacks. Only
