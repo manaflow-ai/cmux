@@ -1994,6 +1994,46 @@ actor VMClient {
         }
     }
 
+    /// Grow a machine's disk and return the provider-confirmed post-resize reading.
+    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
+        try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)
+    }
+
+    /// Grow one or more machine resources and return provider-confirmed stats.
+    func resize(id: String, cpu: Int?, memoryMb: Int?, diskMb: Int?) async throws -> VMStats {
+        return try await withOperation(.resize, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/resize",
+                jsonBody: ["cpu": cpu as Any, "memoryMb": memoryMb as Any, "storageMb": diskMb as Any].compactMapValues { value in value is NSNull ? nil : value },
+                timeoutSeconds: 120
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+            func int(_ key: String) -> Int? {
+                if let value = obj[key] as? Int { return value }
+                if let value = obj[key] as? Double { return Int(value) }
+                return nil
+            }
+            let sampledAtMs = (obj["sampledAt"] as? Double)
+                ?? (obj["sampledAt"] as? Int).map(Double.init)
+                ?? Date().timeIntervalSince1970 * 1000
+            return VMStats(
+                state: state,
+                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+                cpus: int("cpus"),
+                cpuPercent: int("cpuPercent").map(Double.init),
+                loadAverage1m: nil,
+                memoryTotalMb: int("memoryTotalMb"),
+                memoryUsedMb: int("memoryUsedMb"),
+                diskTotalMb: int("diskTotalMb"),
+                diskUsedMb: int("diskUsedMb")
+            )
+        }
+    }
+
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         return try await withOperation(.port, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")

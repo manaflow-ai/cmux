@@ -43,7 +43,7 @@ cmux vm tree --json                    # {machines: [{id, local, name, status, l
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
-cmux pane resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
+cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
@@ -133,10 +133,10 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
 
-### `cmux pane resize`
+### `cmux vm resize`
 
 ```bash
-cmux pane resize <id> --disk <4|8|…|256>G [--json]
+cmux vm resize <id> [--cpu <1|2|…|32>] [--memory <4|5|…|64>G] [--disk <4|8|…|256>G] [--json]
 ```
 
 Grows the machine's persistent disk; it never shrinks or recreates the VM. The
@@ -490,7 +490,8 @@ cmux vm ssh-attach <id>
 ```
 
 `ssh-info` reports provider SSH details when an image exposes them; the default
-cmux transport may have no SSH endpoint. `ssh-attach` is an internal helper
+cmux transport may have no SSH endpoint. The app also exposes the internal
+`vm.diagnostics` socket method for provider attach diagnostics. `ssh-attach` is an internal helper
 used by the app's attach surface and is not normally invoked by an agent.
 
 ### `cmux surface ls`
@@ -626,7 +627,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
-| `pane.resize` | `vm resize <id> --disk <GiB>`; machine row › Resize Disk… |
+| `vm.resize` | `vm resize <id> [--cpu …] [--memory …] [--disk …]`; machine row › Resize machine |
 | `vm.rename` | `vm new --name` and the router's `agent-pool` label; direct machine-label editing is currently a sidebar action |
 | `vm.tab_rename` | `vm tab rename` |
 | `vm.terminal_rename` | `vm terminal rename` |
@@ -987,7 +988,7 @@ cmux notify --title "Review ready" --body "The workspace has the app, logs, and 
 of that terminal. Names, including spaces and an empty string, are passed as exact
 arguments. A terminal with several views should be moved by its tab ID. Moving,
 renaming, swapping, and changing split ratios preserve running terminal processes.
-`pane resize` changes layout geometry; machine disk resizing remains unavailable.
+`pane resize` changes layout geometry. Machine resource resizing uses `vm resize` and preserves the existing VM identity and data.
 
 Local commands use `cmux <resource> <verb> …`; a peer uses
 `cmux vm <resource> <verb> <machine> …` (for example,

@@ -27,6 +27,8 @@ import {
   "../account/metadataMutation";
 
 export const PRO_PLAN_ID = "pro";
+/** Max is the personal tier that unlocks the largest VM shapes. */
+export const MAX_PLAN_ID = "max";
 export const TEAM_PLAN_ID = "team";
 // Founder's Edition is a one-time purchase. Its completion recorder stores a
 // durable active Pro row with a Founder marker, and subscription reconciliation
@@ -56,7 +58,7 @@ export function isDevelopmentProAccessEnabled(
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
  * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
  */
-export const PAID_PLAN_IDS = [PRO_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const PAID_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 /** Subscription states that Stripe Billing Portal can manage or recover. */
