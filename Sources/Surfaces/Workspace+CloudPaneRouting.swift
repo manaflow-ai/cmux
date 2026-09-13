@@ -88,12 +88,22 @@ extension Workspace {
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
+        let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+        if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
+            Task { @MainActor in
+                Self.presentCloudPaneCreationFailure(
+                    machine: machine,
+                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
+                )
+            }
+            return true
+        }
         let scope = catalog.beginProjectionMutation(for: [resource.id])
         Task { @MainActor in
             defer { catalog.endProjectionMutation(scope) }
             do {
                 let created: SurfaceResource
-                let source = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+                let source = sourceProjection
                 let direction: SurfaceSplitDirection?
                 if case .split(_, _, let requested) = destination { direction = requested }
                 else { direction = splitDirection }

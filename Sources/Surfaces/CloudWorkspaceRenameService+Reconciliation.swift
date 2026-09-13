@@ -7,14 +7,14 @@ extension CloudWorkspaceRenameService {
         case rebind(machine: SurfaceMachineID, remoteWorkspaceID: String)
     }
 
-    private func bindingReconciliation(
+    func bindingReconciliation(
         binding: WorkspaceCloudVMBinding,
         machine: SurfaceMachineID,
         state: CloudVMState,
         observation: CloudVMStateObservation,
         projections: [SurfaceProjection],
         resources: [SurfaceResource],
-        resourcesByID: [SurfaceResourceID: SurfaceResource]
+        resourcesByID: [SurfaceResourceID: SurfaceResource]? = nil
     ) -> BindingReconciliation {
         guard let remoteID = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !remoteID.isEmpty else { return .keep }
@@ -43,14 +43,14 @@ extension CloudWorkspaceRenameService {
         workspaceNamesChanged: Bool = true
     ) {
         guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
-        let snapshot = catalog.snapshot
-        let resources = snapshot.resources(on: machine)
-        let resourcesByID = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let projectionsByWorkspace = Dictionary(
-            grouping: snapshot.projections.filter { $0.resource.machine == machine },
-            by: \.workspaceID
-        )
         if workspaceNamesChanged {
+            let snapshot = catalog.snapshot
+            let resources = snapshot.resources(on: machine)
+            let resourcesByID = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let projectionsByWorkspace = Dictionary(
+                grouping: snapshot.projections.filter { $0.resource.machine == machine },
+                by: \.workspaceID
+            )
             for workspace in environment.workspaces() {
                 guard let binding = workspace.cloudVMBinding, binding.vmID == machine.cloudMachineID,
                       let id = binding.remoteWorkspaceID else { continue }
