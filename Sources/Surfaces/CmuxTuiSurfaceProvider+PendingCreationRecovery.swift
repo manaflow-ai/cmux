@@ -6,6 +6,7 @@ import Foundation
 /// daemon cannot erase an acknowledged terminal while the canonical graph catches up.
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    private static let pendingCreationGenerationRecoveryTimeout: TimeInterval = 120
     /// Merges pending mutation receipts into derived rows until an accepted
     /// graph reaches each receipt. The canonical graph is never edited here.
     /// A delayed snapshot cannot retire a receipt overlay. A generation change
@@ -18,7 +19,7 @@ extension CmuxTuiSurfaceProvider {
     ) -> [SurfaceResource] {
         var merged = resources
         var completed: [SurfaceResourceID] = []
-        for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
+        for (resourceID, var pending) in pendingRemoteCreations where resourceID.machine == machine {
             if let state {
                 if let receipt = pending.receipt {
                     if let cursor = state.cursor, cursor.generation == receipt.generation,
@@ -38,6 +39,14 @@ extension CmuxTuiSurfaceProvider {
                             completed.append(resourceID)
                             continue
                         }
+                        let now = Date()
+                        if let since = pending.generationMismatchSince,
+                           now.timeIntervalSince(since) >= Self.pendingCreationGenerationRecoveryTimeout {
+                            pending.resource.lifecycle = .unavailable
+                            pending.receipt = nil
+                        } else {
+                            pending.generationMismatchSince = pending.generationMismatchSince ?? now
+                        }
                     }
                 } else if pendingCreationIsVisible(pending, in: state) {
                     // Legacy mutation responses have no ordering fence. Stop
@@ -46,6 +55,7 @@ extension CmuxTuiSurfaceProvider {
                     continue
                 }
             }
+            pendingRemoteCreations[resourceID] = pending
             mergePendingCreation(pending, into: &merged)
         }
         for resourceID in completed {
@@ -187,6 +197,12 @@ extension CmuxTuiSurfaceProvider {
         guard let receipt = pendingCreationReceipt(forTerminalID: terminalID) else { return false }
         guard let cursor = cloudState?.cursor else { return true }
         return cursor.generation == receipt.generation && cursor.revision < receipt.revision
+    }
+
+    func pendingCreationRecoveryExhausted(forTerminalID terminalID: String) -> Bool {
+        pendingRemoteCreations.values.contains {
+            $0.resource.id.key == terminalID && $0.receipt == nil && $0.resource.lifecycle == .unavailable
+        }
     }
 
     func pendingCreation(forTabID tabID: String) -> PendingRemoteCreation? {

@@ -95,6 +95,9 @@ extension CmuxTuiSurfaceProvider {
             return resolution
         }
         guard let receipt = pendingCreationReceipt(forTerminalID: terminalID) else {
+            if pendingCreationAwaitingCurrentReceipt(forTerminalID: terminalID) == false {
+                return resolution
+            }
             return .retryable("awaiting the creation receipt", failure: .notReady)
         }
         guard let cursor = cloudState?.cursor else {
