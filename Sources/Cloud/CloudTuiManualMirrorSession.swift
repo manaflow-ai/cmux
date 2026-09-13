@@ -22,7 +22,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    private weak var surface: TerminalSurface?
+    fileprivate weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
@@ -65,8 +65,7 @@ final class CloudTuiManualMirrorSession {
             surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }
     }
-    /// Bounds on the handshake and on attached-stream liveness, enforced by
-    /// the attachment watchdog. Tests inject short bounds and a virtual clock.
+    /// Handshake and attached-stream watchdog bounds.
     let deadlines: CloudTuiManualMirrorDeadlines
     let clock: any Clock<Duration>
     /// What the pane shows about this attachment; written only by `transition`.
@@ -131,16 +130,12 @@ final class CloudTuiManualMirrorSession {
         )
     }
 
-    /// Reports whether a server that advertised leased attachments omitted
-    /// the lease on its attach response. Falling back to an unleased resize in
-    /// that state could let a stale connection change a reused surface id.
+    /// Reports whether a lease-capable server omitted its token.
     nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
 
-    /// Binds the local Ghostty surface. The pane installs the same callbacks
-    /// before inserting the panel, so a runtime-ready signal cannot be missed;
-    /// assigning them here also makes rebinding after restore safe.
+    /// Binds the local Ghostty surface and callbacks.
     func bind(surface: TerminalSurface) {
         if let previous = self.surface, previous !== surface,
            previous.hostedView.cloudTerminalOverlay.session === self {
@@ -180,13 +175,15 @@ final class CloudTuiManualMirrorSession {
         }, onReady: { [weak self] in
             self?.startupTrace?.mark("first-visible-frame", surfaceID: self?.remoteSurfaceID, outcome: "ready")
             self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }, onEnded: { [weak self] in
+            self?.clearStartupLoading()
+            self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         })
         startupTrace?.mark("surface-bound", surfaceID: remoteSurfaceID)
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
 
-    /// Re-samples on reveal even without a frame-size delta.
     func visibilityChanged(_ visible: Bool) {
         guard phase != .stopped else { return }
         manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
@@ -547,6 +544,7 @@ final class CloudTuiManualMirrorSession {
 
     private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
         tearDownConnection()
+        presentationReadiness.end()
         guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
         switch reason {
@@ -562,6 +560,7 @@ final class CloudTuiManualMirrorSession {
 
     private func transitionToDisconnected(error: Error? = CloudDiagnosticFailure.network) {
         tearDownConnection()
+        presentationReadiness.end()
         guard phase != .stopped else { return }
         finishDiagnostics(error: error ?? CancellationError())
         transition(to: .disconnected, reason: .transportClosed)
@@ -570,6 +569,7 @@ final class CloudTuiManualMirrorSession {
 
     private func fenceAttachment(error: Error, reason: CloudTerminalAttachmentInterruption = .transportClosed) {
         tearDownConnection()
+        presentationReadiness.end()
         guard phase != .stopped else { return }
         finishDiagnostics(error: error)
         transition(to: .disconnected, reason: reason)

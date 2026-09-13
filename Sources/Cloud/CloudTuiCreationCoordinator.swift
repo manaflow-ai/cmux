@@ -120,6 +120,9 @@ struct CloudTuiCreationCoordinator: Sendable {
                         "correlation=\(correlationKey, privacy: .private(mask: .hash)) phase=resolve state=pending attempt=\(resolutionAttempts + 1)"
                     )
                     resolutionAttempts += 1
+                    guard resolutionAttempts <= recoveryPolicy.maximumResolutionAttempts else {
+                        throw Failure.outcomeUnknown
+                    }
                     try await clock.sleep(for: recoveryPolicy.delay(afterAttempts: resolutionAttempts))
                 case .notApplied:
                     cloudTerminalCreationCoordinatorLogger.info(

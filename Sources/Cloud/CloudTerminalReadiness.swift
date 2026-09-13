@@ -113,7 +113,7 @@ final class CloudTerminalReadiness {
     /// Rearms the same surface after a reconnect without creating another
     /// observer or retaining a second render-demand lease.
     func rearm() {
-        guard phase != .ended, let surface else { return }
+        guard let surface else { return }
         gate.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
         phase = .waiting
         check()
@@ -147,13 +147,10 @@ final class CloudTerminalReadiness {
     }
 
     private func finishEnd(notify: Bool) {
+        let shouldNotify = notify && phase != .ended
         releaseObservers()
         if phase != .ended { phase = .ended }
-        if notify { onEnded?() }
-        condition = nil
-        onReady = nil
-        onEnded = nil
-        surface = nil
+        if shouldNotify { onEnded?() }
     }
 
     private func releaseObservers() {

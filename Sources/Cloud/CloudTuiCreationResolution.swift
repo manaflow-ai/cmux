@@ -119,4 +119,9 @@ struct CloudTuiCreationRecoveryPolicy: Equatable, Sendable {
     func delay(afterAttempts attempts: Int) -> Duration {
         delays[min(max(attempts, 1), delays.count) - 1]
     }
+
+    /// A pending receipt is progress, but it cannot hold an operation forever.
+    /// The extra attempts cover a normal reconnect without making a permanently
+    /// lost daemon response an unbounded task.
+    var maximumResolutionAttempts: Int { delays.count + 2 }
 }
