@@ -13,10 +13,9 @@ extension CmuxTuiSurfaceProvider {
 extension CmuxTuiSurfaceProvider {
     /// Type `text` into the remote terminal exactly as given (no newline appended).
     func sendText(terminalID: String, text: String) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.writeArguments(socketPath: connected.socketPath, terminalID: terminalID, text: text))
+        try await writeBytes(terminalID: terminalID, data: Data(text.utf8))
     }
+
 
     /// Press named keys (`enter`, `ctrl+c`, …) in the remote terminal, in order.
     func sendKeys(terminalID: String, keys: [String]) async throws {
