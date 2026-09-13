@@ -253,7 +253,7 @@ extension CMUXCLI {
             out.append(Data(arg.utf8))
             out.append(0)
         }
-        FileHandle.standardOutput.write(out)
+        cliWriteStdout(out)
     }
 
     /// The cmux-owned directory holding the generated codex hook scripts.
