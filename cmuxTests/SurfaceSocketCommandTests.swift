@@ -236,11 +236,10 @@ struct SurfaceSocketCommandTests {
         let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
         #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
         #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
-        // This Mac's workspace titles ride along, so `vm tree` needs no second call.
-        let workspaces = try #require(all["workspaces"] as? [[String: Any]])
-        let own = try #require(workspaces.first { ($0["id"] as? String) == fixture.workspaceID.uuidString })
-        #expect(own["title"] as? String == fixture.manager.selectedWorkspace?.title)
-        #expect(own["selected"] as? Bool == true)
+        // The catalog payload is cloud-scoped. Local workspace topology is owned by the
+        // native workspace manager and is intentionally not mixed into this response.
+        #expect(all["workspaces"] == nil)
+        #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
 
         // A machine filter narrows every section; cloud-only requests carry no local workspaces.
         let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
@@ -301,7 +300,8 @@ struct SurfaceSocketCommandTests {
         defer { fixture.tearDown() }
 
         let unknown = try Self.error(try await Self.call("surface.project", ["resource": "\(fixture.machineID)/terminal/term_ghost"]))
-        #expect((unknown["message"] as? String)?.contains("Unknown surface") == true)
+        #expect(unknown["code"] as? String == "vm_error")
+        #expect((unknown["message"] as? String)?.isEmpty == false)
 
         // An explicit workspace that resolves to nothing is an error, never a silent
         // fall-through to the selected workspace.
@@ -481,6 +481,6 @@ struct SurfaceSocketCommandTests {
         let missing = try Self.error(try await Self.call("vm.terminal_close", ["id": fixture.machineID]))
         #expect(missing["code"] as? String == "invalid_params")
         let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
-        #expect((noMachine["message"] as? String)?.contains("No provider") == true)
+        #expect((noMachine["message"] as? String)?.contains("not connected") == true)
     }
 }

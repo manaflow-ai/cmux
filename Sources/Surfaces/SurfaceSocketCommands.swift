@@ -44,7 +44,7 @@ extension TerminalController {
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
-            guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+            guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
             }
             let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -77,7 +77,7 @@ extension TerminalController {
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
             let open = Self.surfaceBool(params["open"]) ?? true
             let focus = Self.surfaceBool(params["focus"]) ?? true
-            let workspaceID = open ? surfaceTargetWorkspaceID(params) : nil
+            let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
             if open, workspaceID == nil {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
             }
@@ -129,7 +129,7 @@ extension TerminalController {
         let focus = Self.surfaceBool(params["focus"]) ?? true
         let remoteTabID = Self.surfaceString(params["remote_tab_id"])
         let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
-        guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open: no target workspace (pass `workspace_id`, or select one).")
         }
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -167,7 +167,7 @@ extension TerminalController {
         // uses `workspace_id` for it. Map before resolving.
         var targetParams = params
         targetParams["workspace_id"] = params["local_workspace_id"]
-        let workspaceID = open ? surfaceTargetWorkspaceID(targetParams) : nil
+        let workspaceID = open ? surfaceTargetWorkspaceID(targetParams, strictExplicit: true) : nil
         if open, workspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_new: no local workspace to open into (pass `local_workspace_id`, select one, or send `open: false`).")
         }
@@ -200,7 +200,7 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .display, key: SurfaceResourceID.desktopDisplayKey)
         let focus = Self.surfaceBool(params["focus"]) ?? false
-        guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open: no target workspace (pass `workspace_id`, or select one).")
         }
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
@@ -477,7 +477,7 @@ extension TerminalController {
         // `workspace_id` is the REMOTE workspace here; the local target rides as `target_workspace_id`.
         var destinationParams = params
         destinationParams["workspace_id"] = params["target_workspace_id"]
-        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
+        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams, strictExplicit: true) : nil
         if here, localWorkspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
         }
