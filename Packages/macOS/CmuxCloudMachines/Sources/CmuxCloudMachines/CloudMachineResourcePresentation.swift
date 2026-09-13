@@ -40,6 +40,15 @@ public struct CloudMachineResourcePresentation: Sendable {
     /// The three resource details in display order, separated by newlines.
     public var summary: String { [cpu.detail, memory.detail, disk.detail].joined(separator: "\n") }
 
+    /// A compact, single-line readout for narrow sidebars. Keeping the labels
+    /// beside their values makes the three readings scannable without turning
+    /// each machine into a miniature table.
+    public var inlineSummary: String {
+        [cpu, memory, disk]
+            .map { "\($0.label) \($0.value)" }
+            .joined(separator: " · ")
+    }
+
     /// Presents advisory resource readings without depending on app or provider types.
     ///
     /// Localized text uses the host application's string catalog.

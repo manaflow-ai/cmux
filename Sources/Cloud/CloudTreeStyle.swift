@@ -83,7 +83,8 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
-    var machineResourceHeight: CGFloat { detailSize + 2 + machineNameLineHeight + 1 }
+    /// One text line, rather than three stacked label/value pairs.
+    var machineResourceHeight: CGFloat { detailSize + 3 }
 
     /// Resource columns reserve space even before the first sample arrives.
     /// Local/pending rows pass false and keep the preset's original density.
