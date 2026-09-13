@@ -23,6 +23,19 @@ export const DEVBOX_WORK_HOME = `/home/${DEVBOX_WORK_USER}`;
 export const DEVBOX_WORK_UID = 1000;
 
 /**
+ * Keeps service-owned shells' runtime files alive after the last PAM login.
+ * Also restores ble.sh's directory for shells already affected by logout.
+ * Run as root; containers and legacy machines without the work user skip it.
+ */
+export function devboxWorkUserRuntimeCommand(): string {
+  return `if [ -d /run/systemd/system ] && [ "$(id -u ${DEVBOX_WORK_USER} 2>/dev/null)" = ${DEVBOX_WORK_UID} ]; then
+  loginctl enable-linger ${DEVBOX_WORK_USER} &&
+  systemctl start user-runtime-dir@${DEVBOX_WORK_UID}.service &&
+  install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 0700 /run/user/${DEVBOX_WORK_UID}/blesh
+fi`;
+}
+
+/**
  * Renames the base image's uid-1000 account to the work user. Idempotent: a
  * re-bake over an already-renamed machine skips the rename and re-asserts the
  * rest. Run as root, before any layer that writes into the home or names the
@@ -68,6 +81,7 @@ find ${home} -type d -exec chmod g-w,o-w {} +
 [ "$(getent passwd ${user} | cut -d: -f6)" = ${home} ]
 test -d ${home}
 sudo -n -u ${user} sudo -n true
+${devboxWorkUserRuntimeCommand()}
 echo work-user-ok
 `.trim();
 }
