@@ -52,6 +52,7 @@ struct TerminalLinkOpenCoordinator {
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
         var normalizedOpenURLString = request.rawValue
+        let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 
         let canResolveLocalFilePath: Bool
         if let sourcePanelId = request.sourcePanelId, let container {
@@ -65,7 +66,7 @@ struct TerminalLinkOpenCoordinator {
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            if let line = reference.line {
+            if let line = reference.line, !isExplicitLocalFileURL {
                 log(
                     "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
                     (reference.column.map { ":\($0)" } ?? "")
@@ -78,7 +79,6 @@ struct TerminalLinkOpenCoordinator {
                 return true
             }
 
-            let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
             if !isExplicitLocalFileURL,
                CommandClickFileOpenRouter.shouldRouteInCmux(
                    path: reference.path,

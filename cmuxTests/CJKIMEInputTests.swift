@@ -2183,6 +2183,7 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             return
         }
 
+        var interpretedKeyCodes: [UInt16] = []
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
             guard candidateView === view,
@@ -2190,6 +2191,7 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if [14, 32, 34, 45, 50].contains(Int(event.keyCode)) {
+                interpretedKeyCodes.append(event.keyCode)
                 XCTAssertFalse(
                     flags.contains(.option),
                     "A claimed Option side must show AppKit Ghostty's translated event"
@@ -2236,6 +2238,11 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             events.forEach { view.keyDown(with: $0) }
         }
 
+        XCTAssertEqual(
+            interpretedKeyCodes,
+            deadKeyEvents.map(\.keyCode),
+            "Every claimed dead-key event must be interpreted through AppKit"
+        )
         XCTAssertEqual(pressedText, deadKeyEvents.map(\.character))
         XCTAssertEqual(pressedKeycodes, [], "The translated text path should not leak raw key events")
         XCTAssertFalse(view.hasMarkedText(), "Claimed Option dead keys must not start marked-text composition")
