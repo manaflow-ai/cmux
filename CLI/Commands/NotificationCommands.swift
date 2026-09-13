@@ -24,19 +24,6 @@ struct DismissNotificationCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static let configuration = CommandConfiguration(commandName: "dismiss-notification", helpNames: [])
-
-    func run() async throws {
-        guard (id != nil) != allRead else {
-            throw FacadeValidationError(
-                message: String(
-                    localized: "cli.error.dismissNotificationSelector",
-                    defaultValue: "dismiss-notification requires exactly one of --id or --all-read"
-                ),
-                command: Self.self
-            )
-        }
-        try await GlobalOptions().makeCLI().run()
-    }
 }
 
 struct MarkNotificationReadCommand: SharedLegacyFacadeCommand {
@@ -48,29 +35,6 @@ struct MarkNotificationReadCommand: SharedLegacyFacadeCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
 
     static let configuration = CommandConfiguration(commandName: "mark-notification-read", helpNames: [])
-
-    func run() async throws {
-        let selectorCount = (id == nil ? 0 : 1) + (workspace == nil ? 0 : 1) + (all ? 1 : 0)
-        guard selectorCount == 1 else {
-            throw FacadeValidationError(
-                message: String(
-                    localized: "cli.error.markNotificationReadSelector",
-                    defaultValue: "mark-notification-read requires exactly one selector: --id, --workspace, or --all"
-                ),
-                command: Self.self
-            )
-        }
-        guard surface == nil || workspace != nil else {
-            throw FacadeValidationError(
-                message: String(
-                    localized: "cli.error.markNotificationReadSurfaceRequiresWorkspace",
-                    defaultValue: "--surface requires --workspace"
-                ),
-                command: Self.self
-            )
-        }
-        try await GlobalOptions().makeCLI().run()
-    }
 }
 
 struct OpenNotificationCommand: SharedLegacyFacadeCommand {
