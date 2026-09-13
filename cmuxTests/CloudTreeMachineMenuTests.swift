@@ -164,6 +164,20 @@ struct CloudTreeMachineMenuTests {
         _ = container
     }
 
+    @Test("Repeated navigation activation shares one keyed Cloud operation")
+    func keyedNavigationIsIdempotent() async {
+        let controller = CloudWorkspaceOperationController(isAvailable: { true })
+        var executions = 0
+        #expect(controller.start(key: "cloud-terminal:machine:workspace") {
+            executions += 1
+        })
+        #expect(!controller.start(key: "cloud-terminal:machine:workspace") {
+            executions += 1
+        })
+        await controller.waitForPendingOperations()
+        #expect(executions == 1)
+    }
+
     /// The same catalog lookup the outline uses for its items, so the
     /// expectation holds in every locale.
     private static func title(_ key: StaticString, _ defaultValue: String.LocalizationValue) -> String {
@@ -223,9 +237,6 @@ struct CloudTreeMachineMenuTests {
             projectRemoteView: { _, _, _, _ in recorder.projectRemoteViewCount += 1 },
             projectInLocalWorkspace: { _, _ in },
             projectRemoteViewInLocalWorkspace: { _, _, _ in },
-            openRemoteTerminal: { machine, group, resource, view, openIn in
-                recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
-            },
             newTerminal: { machine, _ in recorder.newTerminals.append(machine) },
             openGroup: { _, _, _, _ in },
             openGroupAsWorkspace: { _, _, _ in },
@@ -237,7 +248,10 @@ struct CloudTreeMachineMenuTests {
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
             copyPortLink: { _ in },
-            refresh: {}
+            refresh: {},
+            openRemoteTerminal: { machine, group, resource, view, openIn in
+                recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
+            }
         )
     }
 }
