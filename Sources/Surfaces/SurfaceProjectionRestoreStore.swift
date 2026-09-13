@@ -13,6 +13,10 @@ struct SurfaceProjectionRestoreStore: Sendable {
         Set(entriesByPanelID.values.map(\.resource.machine))
     }
 
+    var projections: [SurfaceProjection] {
+        Array(entriesByPanelID.values)
+    }
+
     mutating func stage(_ record: SurfaceProjectionRecord, workspaceID: UUID) {
         entriesByPanelID[record.panelID] = SurfaceProjection(
             resource: record.resource,
@@ -24,12 +28,13 @@ struct SurfaceProjectionRestoreStore: Sendable {
         capturedPanelIDs.remove(record.panelID)
     }
 
-    mutating func remove(panelID: UUID) {
+    @discardableResult
+    mutating func remove(panelID: UUID) -> Bool {
+        let removed = entriesByPanelID[panelID] != nil
         entriesByPanelID[panelID] = nil
         capturedPanelIDs.remove(panelID)
+        return removed
     }
-
-    func contains(panelID: UUID) -> Bool { entriesByPanelID[panelID] != nil }
 
     mutating func remove(machine: SurfaceMachineID) {
         entriesByPanelID = entriesByPanelID.filter { $0.value.resource.machine != machine }
