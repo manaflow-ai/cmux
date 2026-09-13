@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 import Testing
 import struct CmuxSettings.AppCatalogSection
@@ -23,7 +24,9 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         false
     }
 
-    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        nil
+    }
 
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
@@ -89,8 +92,9 @@ struct TerminalLinkLocationAndDockTests {
         // tab-to-panel index to exercise resolution when those identities do
         // not equal the panel dictionary key.
         let callbackSurfaceId = UUID()
-        store.bindSurface(callbackSurfaceId, toPanelId: terminalPanel.id)
-        #expect(store.surfaceIdToPanelId[callbackSurfaceId] == terminalPanel.id)
+        let callbackTabId = TabID(uuid: callbackSurfaceId)
+        store.bindSurface(callbackTabId, toPanelId: terminalPanel.id)
+        #expect(store.surfaceIdToPanelId[callbackTabId] == terminalPanel.id)
 
         var externallyOpened: [URL] = []
         let coordinator = TerminalLinkOpenCoordinator(

@@ -18,7 +18,9 @@ extension CmuxTuiSurfaceProvider {
     ) async -> Bool {
         let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
             && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
-                || manualMirrorSessions.values.contains { $0.phase == .disconnected })
+                || manualMirrorSessions.values.contains {
+                    $0.phase == .idle || $0.phase == .disconnected || $0.remoteSurfaceID == 0
+                })
         var reconnectableSessionIDs = Set<ObjectIdentifier>(
             manualMirrorSessions.values.map { ObjectIdentifier($0) }
         )
@@ -33,7 +35,8 @@ extension CmuxTuiSurfaceProvider {
             var allSurfaceIDsResolved = true
             var exitedTerminalIDs: Set<String> = []
             for session in sessions {
-                let resolution = resolutions[ObjectIdentifier(session)] ?? .retryable("no resolution was produced")
+                let observed = resolutions[session.terminalID] ?? .retryable("no resolution was produced")
+                let resolution = attachmentResolution(observed, terminalID: session.terminalID)
                 attachmentLog.resolution(
                     machineID: machineID,
                     terminalID: session.terminalID,
@@ -75,7 +78,62 @@ extension CmuxTuiSurfaceProvider {
         where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
             session.reconnect(socketPath: connected.socketPath)
         }
+        for (panelID, session) in manualMirrorSessions {
+            syncRemotePlacement(forPanelID: panelID, terminalID: session.terminalID)
+        }
         return true
+    }
+
+    /// A resolver snapshot taken before a create receipt is not evidence that
+    /// the newly acknowledged terminal exited. Keep the session in recovery
+    /// until an accepted graph reaches that receipt.
+    private func attachmentResolution(
+        _ resolution: CloudTuiSurfaceIDResolution,
+        terminalID: String
+    ) -> CloudTuiSurfaceIDResolution {
+        guard resolution == .exited, hasPendingCreation(forTerminalID: terminalID) else {
+            return resolution
+        }
+        guard let receipt = pendingCreationReceipt(forTerminalID: terminalID) else {
+            if pendingCreationAwaitingCurrentReceipt(forTerminalID: terminalID) == false {
+                return resolution
+            }
+            return .retryable("awaiting the creation receipt", failure: .notReady)
+        }
+        guard let cursor = cloudState?.cursor else {
+            return .retryable("awaiting the creation receipt", failure: .notReady)
+        }
+        guard cursor.generation == receipt.generation, cursor.revision < receipt.revision else {
+            if cursor.generation != receipt.generation {
+                return .retryable("awaiting the current daemon generation", failure: .notReady)
+            }
+            return resolution
+        }
+        return .retryable("snapshot precedes the creation receipt", failure: .notReady)
+    }
+
+    /// Publishes the exact remote tab once the accepted graph catches up with
+    /// a pane that was materialized before its first resolver pass completed.
+    private func syncRemotePlacement(forPanelID panelID: UUID?, terminalID: String) {
+        guard let panelID else { return }
+        guard let projection = catalog.projection(forPanel: panelID),
+              projection.resource == SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+              let resource = catalog.resource(forPanel: projection.panelID),
+              let views = resource.remoteViews,
+              let view = projection.remoteTabID.flatMap({ tabID in
+                  views.first(where: { $0.tabID == tabID })
+              })
+                ?? (projection.remoteTabID == nil && views.count == 1 ? views.first : nil) else {
+            return
+        }
+        guard projection.remoteWorkspaceID != view.workspace.id || projection.remoteTabID != view.tabID else {
+            return
+        }
+        catalog.setRemotePlacement(
+            for: projection,
+            workspaceID: view.workspace.id,
+            tabID: view.tabID
+        )
     }
 
     /// A failed pass never waits for an external edge: the next attempt is
