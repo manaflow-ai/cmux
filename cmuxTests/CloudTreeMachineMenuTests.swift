@@ -112,6 +112,100 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.deletions == [Self.machineID])
     }
 
+    @Test("A nested terminal activates its owning Cloud workspace for click and Return")
+    func nestedTerminalActivationUsesOwnerNavigation() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let remoteWorkspace = SurfaceRemoteWorkspace(
+            id: "ws-owner",
+            name: "Owner",
+            index: 0,
+            focused: true
+        )
+        let machine = SurfaceMachineID.cloud(Self.machineID)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-owner")
+        let view = SurfaceRemoteView(tabID: "tab-owner", workspace: remoteWorkspace)
+        let terminal = SurfaceResource(
+            id: resource,
+            title: "shell",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [view],
+            port: nil,
+            url: nil
+        )
+        let child = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(
+                resource: resource,
+                inRemoteWorkspace: remoteWorkspace.id,
+                remoteTabID: view.tabID
+            ),
+            kind: .terminal(CloudTreeTerminalRow(
+                resource: terminal,
+                isOpen: false,
+                viewBadge: nil,
+                remoteView: view
+            ))
+        )
+        let group = SurfaceResourceGroup(
+            title: remoteWorkspace.name,
+            placements: [SurfaceResourcePlacement(resource: resource, remoteView: view)],
+            remoteWorkspaceID: remoteWorkspace.id
+        )
+        let parent = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspace.id, machine: machine),
+            kind: .workspace(machine: machine, remoteWorkspace, terminalCount: 1, hiddenTabCount: 0, openIn: nil),
+            children: [child],
+            dragGroup: group
+        )
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-owner-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        coordinator.apply(nodes: [parent])
+        outline.expandItem(parent)
+
+        // The direct call stands in for the outline's pointer click.
+        coordinator.open(child)
+        // Selecting the same row and opening the selection stands in for Return.
+        let childRow = outline.row(forItem: child)
+        #expect(childRow >= 0)
+        outline.selectRowIndexes(IndexSet(integer: childRow), byExtendingSelection: false)
+        coordinator.openSelection()
+
+        #expect(recorder.ownerNavigations.count == 2)
+        #expect(recorder.ownerNavigations.allSatisfy {
+            $0.machine == machine
+                && $0.group == group
+                && $0.resource == resource
+                && $0.view == view
+                && $0.openIn == nil
+        })
+        #expect(recorder.projectRemoteViewCount == 0)
+        _ = container
+    }
+
+    @Test("Repeated navigation activation shares one keyed Cloud operation")
+    func keyedNavigationIsIdempotent() async {
+        let controller = CloudWorkspaceOperationController(isAvailable: { true })
+        var executions = 0
+        #expect(controller.start(key: "cloud-terminal:machine:workspace") {
+            executions += 1
+        })
+        #expect(!controller.start(key: "cloud-terminal:machine:workspace") {
+            executions += 1
+        })
+        await controller.waitForPendingOperations()
+        #expect(executions == 1)
+    }
+
     /// The same catalog lookup the outline uses for its items, so the
     /// expectation holds in every locale.
     private static func title(_ key: StaticString, _ defaultValue: String.LocalizationValue) -> String {
@@ -171,7 +265,7 @@ struct CloudTreeMachineMenuTests {
     private static func nodeActions(recording recorder: CloudTreeMenuVerbRecorder) -> CloudTreeNodeActions {
         CloudTreeNodeActions(
             project: { _, _, _ in },
-            projectRemoteView: { _, _, _, _ in },
+            projectRemoteView: { _, _, _, _ in recorder.projectRemoteViewCount += 1 },
             projectInLocalWorkspace: { _, _ in },
             projectRemoteViewInLocalWorkspace: { _, _, _ in },
             newTerminal: { machine, _ in recorder.newTerminals.append(machine) },
@@ -185,7 +279,10 @@ struct CloudTreeMachineMenuTests {
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
             copyPortLink: { _ in },
-            refresh: {}
+            refresh: {},
+            openRemoteTerminal: { machine, group, resource, view, openIn in
+                recorder.ownerNavigations.append((machine: machine, group: group, resource: resource, view: view, openIn: openIn))
+            }
         )
     }
 }
@@ -199,6 +296,8 @@ private final class CloudTreeMenuVerbRecorder {
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []
+    var projectRemoteViewCount = 0
+    var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
     var resizes: [(String, Int)] = []
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
