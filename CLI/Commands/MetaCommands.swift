@@ -11,6 +11,13 @@ struct WelcomeCommand: LegacyMetaCommand {
     static let configuration = CommandConfiguration(commandName: "welcome", helpNames: [])
 }
 
+/// Dispatched before the legacy parser's command switch. `--skill` is the same
+/// guide as a flag spelling, so it stays with the legacy parser.
+struct GuideCommand: LegacyMetaCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "guide", helpNames: [])
+}
+
 struct DocsCommand: LegacyMetaCommand {
     // A single topic, not a subcommand tree: the runner rejects more than one
     // argument, so `.allUnrecognized` keeps the shape while the completion kind
