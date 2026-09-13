@@ -3394,15 +3394,8 @@ mod tests {
         }
 
         for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
-            let args = [
-                "tab",
-                TAB,
-                "rename",
-                "--name",
-                "logs",
-                "--expected-name-revision",
-                invalid,
-            ];
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
             assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
         }
 
