@@ -35,6 +35,16 @@ struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
+    /// A round trip that proves the control connection is alive. Every daemon
+    /// answers it; the watchdog sends it when an attached stream has carried
+    /// no frame for a while.
+    func ping(requestID: UInt64 = 1) -> [String: Any] {
+        [
+            "id": requestID,
+            "cmd": "ping",
+        ]
+    }
+
     /// Advertises this connection as the native Ghostty mirror.  The server
     /// only adds capabilities it recognizes, so sending these to an older
     /// daemon is safe and leaves the byte attach fallback available.

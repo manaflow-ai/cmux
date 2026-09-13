@@ -66,7 +66,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Numeric cmux-tui surface ids are process-local. Re-read the legacy tree
     /// when the link socket generation changes or an attachment disconnects,
     /// then reuse the result for the rest of that socket generation.
-    private var manualMirrorSurfaceIDsSocketPath: String?
+    var manualMirrorSurfaceIDsSocketPath: String?
+    /// Arms the next attachment pass after one that could not resolve every
+    /// open pane; reset by a fully resolved pass.
+    let attachmentRetry = CloudTerminalAttachmentRetryScheduler()
+    let attachmentLog = CloudTerminalAttachmentLog()
+    /// Drives the bounded backoff between resolver attempts of one open.
+    let attachmentClock: any Clock<Duration>
     /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
     /// no longer resolves in cmux-tui) can still be closed through its tab.
     private var tabByTerminal: [String: String] = [:]
@@ -105,9 +111,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
+        attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil
     ) {
         machineID = summary.id
+        self.attachmentClock = attachmentClock
         self.summary = summary
         self.links = links
         self.catalog = catalog
@@ -179,6 +187,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for session in manualMirrorSessions.values { session.stop() }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
+        attachmentRetry.cancel()
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
@@ -190,7 +199,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     /// The generation to capture before detached work that touches panes.
     var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
-    private func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
+    func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
         lifecycleGeneration == lifecycle
             && refreshGeneration == refresh
             && isRegisteredInCatalog()
@@ -333,48 +342,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // whose items cannot be ordered against the installed snapshot.
                 await link.suspendEventsSubscription()
             }
-            let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
-                && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
-                    || manualMirrorSessions.values.contains { $0.phase == .disconnected })
-            var reconnectableSessionIDs = Set<ObjectIdentifier>(
-                manualMirrorSessions.values.map { ObjectIdentifier($0) }
-            )
-            if needsSurfaceIDRefresh {
-                let sessions = Array(manualMirrorSessions.values)
-                let resolutions = await resolveManualMirrorSessions(
-                    sessions,
-                    socketPath: connected.socketPath,
-                    link: link
-                )
-                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-                var allSurfaceIDsResolved = true
-                var exitedTerminalIDs: Set<String> = []
-                for session in sessions {
-                    switch resolutions[session.terminalID] {
-                    case let .resolved(surfaceID):
-                        session.updateRemoteSurfaceID(surfaceID)
-                        reconnectableSessionIDs.insert(ObjectIdentifier(session))
-                    case .exited:
-                        // The remote shell ended. Stop reconnecting; the pane
-                        // closes when this graph is published.
-                        exitedTerminalIDs.insert(session.terminalID)
-                        session.markSurfaceResolutionUnavailable()
-                        reconnectableSessionIDs.remove(ObjectIdentifier(session))
-                    case .none, .noPlacement, .unsupported, .failed:
-                        session.markSurfaceResolutionUnavailable()
-                        reconnectableSessionIDs.remove(ObjectIdentifier(session))
-                        allSurfaceIDsResolved = false
-                    }
-                }
-                if allSurfaceIDsResolved {
-                    manualMirrorSurfaceIDsSocketPath = connected.socketPath
-                }
-                closePanes(forExitedTerminals: exitedTerminalIDs)
-            }
-            for session in manualMirrorSessions.values
-            where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
-                session.reconnect(socketPath: connected.socketPath)
-            }
+            guard await reconcileManualMirrorAttachments(
+                connected: connected, link: link, lifecycle: lifecycle, refresh: generation
+            ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let status = await links.status(machineID: machineID)
@@ -662,7 +632,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Closes the panes of terminals the resolver reported as exited. The
     /// graph-driven sweep covers the usual case; this covers a daemon that
     /// still lists an exited terminal because a stale tab row survives it.
-    private func closePanes(forExitedTerminals terminalIDs: Set<String>) {
+    func closePanes(forExitedTerminals terminalIDs: Set<String>) {
         guard !terminalIDs.isEmpty else { return }
         for (panelID, session) in manualMirrorSessions where terminalIDs.contains(session.terminalID) {
             closeManualMirrorPane(panelID: panelID, terminalID: session.terminalID)
