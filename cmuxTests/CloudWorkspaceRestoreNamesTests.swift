@@ -61,8 +61,9 @@ struct CloudWorkspaceRestoreNamesTests {
                                        revision: revision, generation: generation)
             // Cross a real JSON persistence boundary before installing the restored daemon graph.
             let bytes = try JSONSerialization.data(withJSONObject: try #require(checkpoint.snapshotObject()))
+            let object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
             let graph = try #require(CmuxTuiSnapshotParser.state(
-                fromSnapshot: try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any]), machine: machine
+                fromSnapshot: object, machine: machine
             ))
             #expect(provider.installSnapshotIfNewer(graph))
             provider.publish(graph, ports: [])
