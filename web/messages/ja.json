@@ -786,6 +786,11 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "audience": {
+      "label": "料金の対象",
+      "individual": "個人",
+      "team": "チームとエンタープライズ"
+    },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
@@ -800,6 +805,8 @@
     "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
+    "priceMonthlyNote": "月払いは${amount}/月",
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月",
     "free": {
       "name": "Free",
       "price": "$0",
@@ -820,7 +827,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有",
+        "最大 50 台の Cloud VM で、4 vCPU、16 GB RAM、200 GB ディスクを共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -918,10 +925,10 @@
           "enterprise": "カスタム"
         },
         {
-          "label": "すべての Cloud VM で共有するリソース",
+          "label": "共有 Cloud VM プール",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPU をすべての VM で共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPU を、そのユーザーのすべての VM で共有",
+          "pro": "4 vCPU、16 GB RAM、200 GB ディスクをすべての VM で共有",
+          "team": "ユーザーあたり 4 vCPU、16 GB RAM、200 GB ディスクを、そのユーザーの VM で共有",
           "enterprise": "カスタム"
         },
         {
@@ -1000,7 +1007,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有します。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、4 vCPU、16 GB RAM、200 GB ディスクを共有します。Team ではユーザーごとに同じプールが適用されます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1013,7 +1020,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 24 GB RAM と 6 vCPU を共有します。従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、4 vCPU、16 GB RAM、200 GB ディスクのプールを共有します。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
