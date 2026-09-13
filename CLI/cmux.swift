@@ -5041,6 +5041,9 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
+            return
+        }
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -18417,6 +18420,7 @@ struct CMUXCLI {
             and can require one macOS approval. Missing tunnel support fails closed.
 
             Subcommands:
+              guide | --skill           \(Self.guideDescription)
               ls                        List your cloud VMs.
               domains                   \(domainsDescription)
               workspace new <machine> [--name <name>] [--reuse]
@@ -41291,6 +41295,8 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
+          cmux guide | cmux --skill
+          cmux cloud guide | cmux cloud --skill
           Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
           Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
@@ -41298,6 +41304,7 @@ export default CMUXSessionRestore;
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
+          guide | --skill
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]

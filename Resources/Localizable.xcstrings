@@ -1,6 +1,773 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.guide.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read a short guide and find specific methods. No running app, network access, or sign-in is needed to read it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lesen Sie eine kurze Anleitung und finden Sie konkrete Methoden. Dafür sind keine laufende App, Netzwerkverbindung oder Anmeldung nötig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lisez un guide court pour trouver des méthodes précises. Aucune application ouverte, connexion réseau ou connexion au compte n’est nécessaire pour le lire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقرأ دليلاً موجزاً واعثر على طرق محددة. لا تحتاج قراءته إلى تشغيل التطبيق أو اتصال بالشبكة أو تسجيل الدخول."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lea una guía breve para encontrar métodos concretos. No necesita la aplicación abierta, acceso a la red ni iniciar sesión para leerla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閱讀簡短指南，尋找具體操作方法。閱讀時不需要啟動應用程式、網路連線或登入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读简短指南，查找具体操作方法。阅读时不需要启动应用、网络连接或登录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "짧은 가이드를 읽고 구체적인 사용 방법을 찾으세요. 읽는 데 앱 실행, 네트워크 연결 또는 로그인이 필요하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短いガイドを読み、具体的な操作方法を確認できます。読むためにアプリの起動、ネットワーク接続、サインインは必要ありません。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux puts terminals, browsers, and agents in one workspace. Use this guide to choose a method, then read its help before acting. `cmux --skill` prints this same guide."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux vereint Terminals, Browser und Agenten in einem Arbeitsbereich. Wählen Sie mit dieser Anleitung eine Methode und lesen Sie vor der Ausführung deren Hilfe. `cmux --skill` zeigt dieselbe Anleitung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux réunit terminaux, navigateurs et agents dans un espace de travail. Utilisez ce guide pour choisir une méthode, puis lisez son aide avant d’agir. `cmux --skill` affiche le même guide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجمع cmux الطرفيات والمتصفحات والوكلاء في مساحة عمل واحدة. استخدم هذا الدليل لاختيار طريقة، ثم اقرأ تعليماتها قبل التنفيذ. يعرض `cmux --skill` الدليل نفسه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux reúne terminales, navegadores y agentes en un espacio de trabajo. Use esta guía para elegir un método y lea su ayuda antes de actuar. `cmux --skill` muestra la misma guía."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 將終端機、瀏覽器與代理整合在同一個工作區。使用本指南選擇方法，再閱讀該方法的說明後操作。`cmux --skill` 會顯示相同指南。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 将终端、浏览器和代理整合在同一个工作区。使用本指南选择方法，再阅读该方法的帮助后操作。`cmux --skill` 会显示相同指南。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 터미널, 브라우저, 에이전트를 하나의 작업 공간에 모읍니다. 이 가이드로 방법을 선택한 다음 실행 전에 해당 도움말을 읽으세요. `cmux --skill`도 같은 가이드를 표시합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はターミナル、ブラウザ、エージェントを一つのワークスペースにまとめます。このガイドで方法を選び、実行前にそのヘルプを読んでください。`cmux --skill` でも同じガイドを表示します。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.targets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Find your target\n\nA window contains workspaces. A workspace contains split panes. Each pane contains surfaces, such as a terminal or browser tab. Inspect the caller and use the returned IDs. Keep the caller's workspace and surface context; use explicit targets and `--focus false` where supported."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Ziel bestimmen\n\nEin Fenster enthält Arbeitsbereiche. Ein Arbeitsbereich enthält geteilte Bereiche. Jeder Bereich enthält Oberflächen, etwa ein Terminal oder einen Browser-Tab. Prüfen Sie den Aufrufer und verwenden Sie die zurückgegebenen IDs. Behalten Sie den Arbeitsbereichs- und Oberflächenkontext des Aufrufers bei. Geben Sie Ziele und, soweit unterstützt, `--focus false` ausdrücklich an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Identifier la cible\n\nUne fenêtre contient des espaces de travail. Un espace de travail contient des volets divisés. Chaque volet contient des surfaces, comme un terminal ou un onglet de navigateur. Inspectez l’appelant et utilisez les identifiants renvoyés. Conservez le contexte de son espace de travail et de sa surface ; précisez les cibles et utilisez `--focus false` lorsque cette option est prise en charge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## تحديد الهدف\n\nتحتوي النافذة على مساحات عمل. وتحتوي مساحة العمل على أجزاء مقسمة. يحتوي كل جزء على أسطح، مثل طرفية أو علامة تبويب متصفح. افحص سياق المستدعي واستخدم المعرّفات التي يعيدها. حافظ على سياق مساحة العمل والسطح للمستدعي؛ وحدد الأهداف صراحة واستخدم `--focus false` حيث يكون مدعوماً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Identificar el destino\n\nUna ventana contiene espacios de trabajo. Un espacio de trabajo contiene paneles divididos. Cada panel contiene superficies, como un terminal o una pestaña de navegador. Inspeccione el contexto de origen y use los identificadores devueltos. Conserve el contexto del espacio de trabajo y la superficie de origen; indique destinos explícitos y use `--focus false` cuando se admita."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 確認操作目標\n\n視窗包含工作區。工作區包含分割窗格。每個窗格包含終端機或瀏覽器分頁等表面。檢查呼叫端並使用傳回的 ID。保留呼叫端的工作區與表面環境資訊；明確指定目標，並在支援時使用 `--focus false`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 确认操作目标\n\n窗口包含工作区。工作区包含拆分窗格。每个窗格包含终端或浏览器标签页等表面。检查调用方并使用返回的 ID。保留调用方的工作区和表面上下文；明确指定目标，并在支持时使用 `--focus false`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 대상 확인\n\n창에는 작업 공간이 있습니다. 작업 공간에는 분할 창이 있습니다. 각 분할 창에는 터미널이나 브라우저 탭 같은 표면이 있습니다. 호출자의 상태를 확인하고 반환된 ID를 사용하세요. 호출자의 작업 공간과 표면 컨텍스트를 유지하세요. 대상을 명시하고 지원되는 경우 `--focus false`를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 操作対象を確認する\n\nウインドウにはワークスペースがあります。ワークスペースには分割ペインがあります。各ペインにはターミナルやブラウザタブなどのサーフェスがあります。呼び出し元を確認し、返された ID を使ってください。呼び出し元のワークスペースとサーフェスのコンテキストを維持し、対応する操作では対象と `--focus false` を明示してください。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.terminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Work with terminals\n\nCreate a workspace for a task, add panes for parallel work, and read terminal output before sending input. `send` enters text; `send-key` sends keys. Read the screen again to check the result."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Mit Terminals arbeiten\n\nErstellen Sie einen Arbeitsbereich für eine Aufgabe und zusätzliche Bereiche für parallele Arbeit. Lesen Sie die Terminalausgabe, bevor Sie Eingaben senden. `send` gibt Text ein; `send-key` sendet Tasten. Lesen Sie den Bildschirm erneut, um das Ergebnis zu prüfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Utiliser les terminaux\n\nCréez un espace de travail pour une tâche, ajoutez des volets pour les travaux parallèles et lisez la sortie du terminal avant d’envoyer une entrée. `send` saisit du texte ; `send-key` envoie des touches. Relisez l’écran pour vérifier le résultat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## العمل مع الطرفيات\n\nأنشئ مساحة عمل للمهمة وأضف أجزاء للعمل المتوازي، واقرأ مخرجات الطرفية قبل إرسال الإدخال. يُدخل `send` النص، ويرسل `send-key` المفاتيح. اقرأ الشاشة مجدداً للتحقق من النتيجة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Trabajar con terminales\n\nCree un espacio de trabajo para una tarea, añada paneles para el trabajo paralelo y lea la salida del terminal antes de enviar entradas. `send` introduce texto; `send-key` envía teclas. Lea de nuevo la pantalla para comprobar el resultado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 操作終端機\n\n為任務建立工作區，新增窗格以平行作業，並在傳送輸入前閱讀終端機輸出。`send` 輸入文字；`send-key` 傳送按鍵。再次讀取畫面以確認結果。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 操作终端\n\n为任务创建工作区，添加窗格以并行工作，并在发送输入前阅读终端输出。`send` 输入文本；`send-key` 发送按键。再次读取屏幕以检查结果。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 터미널 작업\n\n작업용 작업 공간을 만들고 병렬 작업을 위한 분할 창을 추가하세요. 입력을 보내기 전에 터미널 출력을 읽으세요. `send`는 텍스트를 입력하고 `send-key`는 키를 보냅니다. 화면을 다시 읽어 결과를 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ターミナルを操作する\n\nタスク用のワークスペースを作成し、並行作業用のペインを追加します。入力を送る前にターミナル出力を読んでください。`send` はテキストを入力し、`send-key` はキーを送信します。画面を再度読み、結果を確認してください。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Use a browser\n\nUse `cmux browser` for a browser surface inside cmux. Use `agent-browser` for a separate browser session. Read a snapshot, act on an observed element, then take a fresh snapshot. Check appearance with a screenshot. Keep each tool's target IDs within that tool."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Browser verwenden\n\nVerwenden Sie `cmux browser` für eine Browseroberfläche in cmux. Verwenden Sie `agent-browser` für eine separate Browsersitzung. Lesen Sie einen Snapshot, bedienen Sie ein darin erkanntes Element und erstellen Sie einen neuen Snapshot. Prüfen Sie die Darstellung mit einem Screenshot. Verwenden Sie Ziel-IDs nur im jeweiligen Werkzeug."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Utiliser un navigateur\n\nUtilisez `cmux browser` pour une surface de navigateur dans cmux. Utilisez `agent-browser` pour une session de navigateur distincte. Lisez un instantané, agissez sur un élément observé, puis prenez un nouvel instantané. Vérifiez l’apparence avec une capture d’écran. Utilisez les identifiants de cible uniquement dans leur outil d’origine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## استخدام متصفح\n\nاستخدم `cmux browser` لسطح متصفح داخل cmux. واستخدم `agent-browser` لجلسة متصفح منفصلة. اقرأ لقطة للحالة، ثم تفاعل مع عنصر لاحظته، وبعد ذلك التقط لقطة جديدة. تحقق من المظهر بلقطة شاشة. استخدم معرّفات أهداف كل أداة داخل تلك الأداة فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar un navegador\n\nUse `cmux browser` para una superficie de navegador dentro de cmux. Use `agent-browser` para una sesión de navegador independiente. Lea una instantánea, actúe sobre un elemento observado y tome una nueva instantánea. Compruebe el aspecto con una captura de pantalla. Use los identificadores de destino de cada herramienta solo en esa herramienta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用瀏覽器\n\n使用 `cmux browser` 操作 cmux 內的瀏覽器表面。使用 `agent-browser` 開啟獨立的瀏覽器工作階段。閱讀快照，操作已觀察到的元素，再擷取新快照。使用螢幕截圖檢查外觀。每個工具的目標 ID 僅供該工具使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用浏览器\n\n使用 `cmux browser` 操作 cmux 内的浏览器表面。使用 `agent-browser` 开启独立的浏览器会话。阅读快照，操作已观察到的元素，再获取新快照。使用屏幕截图检查外观。每个工具的目标 ID 仅供该工具使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 브라우저 사용\n\ncmux 내부의 브라우저 표면에는 `cmux browser`를 사용하세요. 별도의 브라우저 세션에는 `agent-browser`를 사용하세요. 스냅샷을 읽고 확인한 요소를 조작한 다음 새 스냅샷을 만드세요. 스크린샷으로 화면 모양을 확인하세요. 각 도구의 대상 ID는 해당 도구에서만 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ブラウザを使う\n\ncmux 内のブラウザサーフェスには `cmux browser` を使います。別のブラウザセッションには `agent-browser` を使います。スナップショットを読み、確認した要素を操作して、新しいスナップショットを取得してください。スクリーンショットで外観を確認します。各ツールの対象 ID は、そのツール内でのみ使ってください。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. Complete setup in Settings > Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## App-Fenster bedienen\n\nVerwenden Sie Computer-Use-Werkzeuge für native Apps oder visuelle Bedienelemente. cmux stellt diese Werkzeuge in Claude-Code- und Codex-Sitzungen bereit, die in cmux gestartet wurden. Schließen Sie die Einrichtung unter Einstellungen > Computer Use ab. Lesen Sie den Skill `cmux-cua` für die Methoden Ihres Agenten: App- oder Fensterzustand prüfen, klicken oder tippen und erneut prüfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Utiliser les fenêtres des applications\n\nUtilisez les outils computer-use pour les applications natives ou les commandes visuelles. cmux fournit ces outils aux sessions Claude Code et Codex lancées dans cmux. Terminez la configuration dans Réglages > Computer Use. Lisez le skill `cmux-cua` pour connaître les méthodes de votre agent : inspectez l’état de l’application ou de la fenêtre, cliquez ou saisissez du texte, puis inspectez à nouveau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## استخدام نوافذ التطبيقات\n\nاستخدم أدوات computer-use للتطبيقات الأصلية أو عناصر التحكم المرئية. يوفر cmux هذه الأدوات لجلسات Claude Code وCodex التي تبدأ داخله. أكمل الإعداد في الإعدادات > Computer Use. اقرأ مهارة `cmux-cua` لمعرفة طرق وكيلك: افحص حالة التطبيق أو النافذة، وانقر أو اكتب، ثم افحص مجدداً."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar ventanas de aplicaciones\n\nUse herramientas computer-use para aplicaciones nativas o controles visuales. cmux proporciona estas herramientas a las sesiones de Claude Code y Codex iniciadas en cmux. Complete la configuración en Ajustes > Computer Use. Lea el skill `cmux-cua` para conocer los métodos de su agente: inspeccione el estado de la aplicación o ventana, haga clic o escriba y vuelva a inspeccionar."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 操作應用程式視窗\n\n使用 computer-use 工具操作原生應用程式或視覺控制項。cmux 會為在其中啟動的 Claude Code 與 Codex 工作階段提供這些工具。請在「設定 > Computer Use」完成設定。閱讀 `cmux-cua` 技能以了解代理的操作方法：檢查應用程式或視窗狀態，點按或輸入，再次檢查。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 操作应用窗口\n\n使用 computer-use 工具操作原生应用或可视控件。cmux 会为在其中启动的 Claude Code 和 Codex 会话提供这些工具。请在“设置 > Computer Use”完成设置。阅读 `cmux-cua` 技能以了解代理的操作方法：检查应用或窗口状态，点击或输入，再次检查。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 앱 창 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 설정 > Computer Use에서 설정을 완료하세요. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 창 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。「設定 > Computer Use」でセットアップを完了してください。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
+          }
+        }
+      }
+    },
+    "cli.guide.overview.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Show work and find more methods\n\nUse Markdown and diff views to show results. Use notifications and progress to report task state. Read the Cloud guide for remote machines. Settings and integration docs list their own methods."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Ergebnisse zeigen und weitere Methoden finden\n\nZeigen Sie Ergebnisse mit Markdown- und Diff-Ansichten. Melden Sie den Aufgabenstatus mit Benachrichtigungen und Fortschrittsanzeigen. Lesen Sie die Cloud-Anleitung für entfernte Rechner. Die Einstellungs- und Integrationsdokumentation führt die jeweiligen Methoden auf."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Montrer le travail et trouver d’autres méthodes\n\nUtilisez les vues Markdown et de différences pour montrer les résultats. Utilisez les notifications et la progression pour indiquer l’état de la tâche. Lisez le guide Cloud pour les machines distantes. Les documents de réglages et d’intégration répertorient leurs propres méthodes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## عرض العمل والعثور على طرق أخرى\n\nاستخدم عرض Markdown وعرض الفروق لإظهار النتائج. استخدم الإشعارات ومؤشر التقدم للإبلاغ عن حالة المهمة. اقرأ دليل Cloud للأجهزة البعيدة. تسرد وثائق الإعدادات والتكامل طرقها الخاصة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Mostrar el trabajo y encontrar más métodos\n\nUse las vistas Markdown y de diferencias para mostrar resultados. Use notificaciones y progreso para comunicar el estado de la tarea. Lea la guía Cloud para máquinas remotas. La documentación de ajustes e integraciones enumera sus propios métodos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 展示工作並尋找更多方法\n\n使用 Markdown 與差異檢視展示結果。使用通知與進度回報任務狀態。遠端機器請參閱 Cloud 指南。設定與整合文件會列出各自的操作方法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 展示工作并查找更多方法\n\n使用 Markdown 和差异视图展示结果。使用通知和进度报告任务状态。远程机器请参阅 Cloud 指南。设置和集成文档会列出各自的操作方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 작업 표시 및 다른 방법 찾기\n\nMarkdown과 차이 보기로 결과를 표시하세요. 알림과 진행률로 작업 상태를 알리세요. 원격 머신은 Cloud 가이드를 읽으세요. 설정 및 연동 문서는 각각의 사용 방법을 안내합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 結果を示し、他の方法を探す\n\nMarkdown ビューと差分ビューで結果を示します。通知と進捗表示でタスクの状態を伝えます。リモートマシンについては Cloud ガイドを読んでください。設定と連携のドキュメントには、それぞれの操作方法があります。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud runs commands, agents, browsers, and desktops on remote machines. Run the commands below from cmux on your Mac. Cloud operations need the app and a signed-in account. `cmux cloud --skill` prints this same guide; `cmux vm` is an alias for `cmux cloud`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud führt Befehle, Agenten, Browser und Desktops auf entfernten Rechnern aus. Führen Sie die folgenden Befehle in cmux auf Ihrem Mac aus. Cloud-Vorgänge benötigen die App und ein angemeldetes Konto. `cmux cloud --skill` zeigt dieselbe Anleitung; `cmux vm` ist ein Alias für `cmux cloud`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud exécute commandes, agents, navigateurs et bureaux sur des machines distantes. Exécutez les commandes ci-dessous depuis cmux sur votre Mac. Les opérations Cloud nécessitent l’application et un compte connecté. `cmux cloud --skill` affiche le même guide ; `cmux vm` est un alias de `cmux cloud`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل cmux Cloud الأوامر والوكلاء والمتصفحات وأسطح المكتب على أجهزة بعيدة. نفّذ الأوامر أدناه من cmux على جهاز Mac لديك. تتطلب عمليات Cloud التطبيق وحساباً مسجلاً دخوله. يعرض `cmux cloud --skill` الدليل نفسه؛ و`cmux vm` اسم بديل لـ `cmux cloud`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud ejecuta comandos, agentes, navegadores y escritorios en máquinas remotas. Ejecute los comandos siguientes desde cmux en su Mac. Las operaciones Cloud requieren la aplicación y una cuenta con sesión iniciada. `cmux cloud --skill` muestra la misma guía; `cmux vm` es un alias de `cmux cloud`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 在遠端機器上執行命令、代理、瀏覽器與桌面。請從 Mac 上的 cmux 執行以下命令。Cloud 操作需要應用程式與已登入的帳號。`cmux cloud --skill` 會顯示相同指南；`cmux vm` 是 `cmux cloud` 的別名。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud 在远程机器上运行命令、代理、浏览器和桌面。请从 Mac 上的 cmux 运行以下命令。Cloud 操作需要应用和已登录的账号。`cmux cloud --skill` 会显示相同指南；`cmux vm` 是 `cmux cloud` 的别名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud는 원격 머신에서 명령, 에이전트, 브라우저, 데스크톱을 실행합니다. 아래 명령은 Mac의 cmux에서 실행하세요. Cloud 작업에는 앱과 로그인한 계정이 필요합니다. `cmux cloud --skill`도 같은 가이드를 표시합니다. `cmux vm`은 `cmux cloud`의 별칭입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud はリモートマシンでコマンド、エージェント、ブラウザ、デスクトップを実行します。以下のコマンドは Mac の cmux から実行してください。Cloud 操作にはアプリとサインイン済みのアカウントが必要です。`cmux cloud --skill` でも同じガイドを表示します。`cmux vm` は `cmux cloud` の別名です。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Choose a machine\n\nInspect existing machines first. Base is a persistent workspace that you can reopen. Use `new` when the task needs a separate machine. Use returned machine, workspace, and terminal IDs in later commands."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Rechner auswählen\n\nPrüfen Sie zuerst vorhandene Rechner. Base ist ein dauerhafter Arbeitsbereich, den Sie erneut öffnen können. Verwenden Sie `new`, wenn die Aufgabe einen separaten Rechner benötigt. Verwenden Sie die zurückgegebenen Rechner-, Arbeitsbereichs- und Terminal-IDs in späteren Befehlen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Choisir une machine\n\nInspectez d’abord les machines existantes. Base est un espace de travail persistant que vous pouvez rouvrir. Utilisez `new` si la tâche nécessite une machine distincte. Utilisez les identifiants de machine, d’espace de travail et de terminal renvoyés dans les commandes suivantes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## اختيار جهاز\n\nافحص الأجهزة الموجودة أولاً. Base مساحة عمل دائمة يمكنك إعادة فتحها. استخدم `new` عندما تحتاج المهمة إلى جهاز منفصل. استخدم معرّفات الجهاز ومساحة العمل والطرفية التي أُعيدت في الأوامر اللاحقة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Elegir una máquina\n\nInspeccione primero las máquinas existentes. Base es un espacio de trabajo persistente que puede volver a abrir. Use `new` cuando la tarea necesite una máquina independiente. Use los identificadores devueltos de máquina, espacio de trabajo y terminal en los comandos posteriores."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 選擇機器\n\n先檢查現有機器。Base 是可再次開啟的持久工作區。任務需要獨立機器時，使用 `new`。在後續命令中使用傳回的機器、工作區與終端機 ID。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 选择机器\n\n先检查现有机器。Base 是可再次打开的持久工作区。任务需要独立机器时，使用 `new`。在后续命令中使用返回的机器、工作区和终端 ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 머신 선택\n\n먼저 기존 머신을 확인하세요. Base는 다시 열 수 있는 영구 작업 공간입니다. 작업에 별도의 머신이 필요하면 `new`를 사용하세요. 이후 명령에는 반환된 머신, 작업 공간, 터미널 ID를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## マシンを選ぶ\n\nまず既存のマシンを確認してください。Base は再度開ける永続的なワークスペースです。タスクに別のマシンが必要な場合は `new` を使います。後続のコマンドでは、返されたマシン、ワークスペース、ターミナルの ID を使ってください。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.work": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Run work and collect results\n\nUse `exec` for a short command on a chosen machine. Use `run` to route a command, or `agent` to start a coding agent. Use `push` and `pull` to transfer files. Use `terminal` methods to send input, read output, or wait for completion."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Arbeit ausführen und Ergebnisse abrufen\n\nVerwenden Sie `exec` für einen kurzen Befehl auf einem ausgewählten Rechner. Verwenden Sie `run`, um einen Befehl zuzuweisen, oder `agent`, um einen Coding-Agenten zu starten. Übertragen Sie Dateien mit `push` und `pull`. Mit den `terminal`-Methoden können Sie Eingaben senden, Ausgaben lesen oder auf den Abschluss warten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Exécuter le travail et récupérer les résultats\n\nUtilisez `exec` pour une commande courte sur une machine choisie. Utilisez `run` pour orienter une commande, ou `agent` pour lancer un agent de programmation. Transférez des fichiers avec `push` et `pull`. Les méthodes `terminal` permettent d’envoyer une entrée, de lire la sortie ou d’attendre la fin."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## تنفيذ العمل وجمع النتائج\n\nاستخدم `exec` لأمر قصير على جهاز تختاره. استخدم `run` لتوجيه أمر، أو `agent` لبدء وكيل برمجة. استخدم `push` و`pull` لنقل الملفات. استخدم طرق `terminal` لإرسال الإدخال أو قراءة المخرجات أو انتظار الاكتمال."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Ejecutar el trabajo y recoger resultados\n\nUse `exec` para un comando breve en una máquina elegida. Use `run` para asignar un comando, o `agent` para iniciar un agente de programación. Use `push` y `pull` para transferir archivos. Los métodos de `terminal` permiten enviar entradas, leer salidas o esperar a que termine el trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 執行工作並收集結果\n\n使用 `exec` 在選定機器上執行短命令。使用 `run` 選擇命令的執行位置，或使用 `agent` 啟動程式設計代理。使用 `push` 與 `pull` 傳輸檔案。使用 `terminal` 方法傳送輸入、讀取輸出或等待完成。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 执行工作并收集结果\n\n使用 `exec` 在选定机器上运行短命令。使用 `run` 选择命令的执行位置，或使用 `agent` 启动编程代理。使用 `push` 和 `pull` 传输文件。使用 `terminal` 方法发送输入、读取输出或等待完成。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 작업 실행 및 결과 수집\n\n선택한 머신에서 짧은 명령을 실행하려면 `exec`를 사용하세요. 명령을 보낼 머신을 선택하려면 `run`을, 코딩 에이전트를 시작하려면 `agent`를 사용하세요. 파일 전송에는 `push`와 `pull`을 사용하세요. `terminal` 메서드로 입력을 보내거나 출력을 읽거나 완료를 기다릴 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 作業を実行し、結果を取得する\n\n選択したマシンで短いコマンドを実行するには `exec` を使います。コマンドの実行先を選ぶには `run`、コーディングエージェントを起動するには `agent` を使います。ファイル転送には `push` と `pull` を使います。`terminal` の操作で入力の送信、出力の読み取り、完了待ちができます。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Use browsers and computer use\n\nFor browser automation on the machine, run `agent-browser` there and read its help. Inspect installed tools with `tools` first. For desktop tasks, use a computer-use-capable agent on the machine; the devbox includes `cua-driver`. Inspect the remote screen, act, then verify. Local computer-use tools target your Mac unless configured for a remote target."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Browser und Computer Use verwenden\n\nFühren Sie für Browserautomatisierung auf dem Rechner dort `agent-browser` aus und lesen Sie dessen Hilfe. Prüfen Sie zuerst mit `tools`, welche Werkzeuge installiert sind. Verwenden Sie für Desktop-Aufgaben einen Computer-Use-fähigen Agenten auf dem Rechner; die Devbox enthält `cua-driver`. Prüfen Sie den entfernten Bildschirm, handeln Sie und kontrollieren Sie das Ergebnis. Lokale Computer-Use-Werkzeuge steuern Ihren Mac, sofern kein entferntes Ziel konfiguriert ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Utiliser les navigateurs et computer use\n\nPour automatiser un navigateur sur la machine, exécutez-y `agent-browser` et lisez son aide. Inspectez d’abord les outils installés avec `tools`. Pour les tâches de bureau, utilisez sur la machine un agent compatible computer-use ; la devbox inclut `cua-driver`. Inspectez l’écran distant, agissez, puis vérifiez. Les outils computer-use locaux ciblent votre Mac, sauf si une cible distante est configurée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## استخدام المتصفحات وcomputer use\n\nلأتمتة المتصفح على الجهاز، شغّل `agent-browser` هناك واقرأ تعليماته. افحص الأدوات المثبتة باستخدام `tools` أولاً. لمهام سطح المكتب، استخدم وكيلاً يدعم computer-use على الجهاز؛ تتضمن devbox أداة `cua-driver`. افحص الشاشة البعيدة، ونفّذ الإجراء، ثم تحقق. تستهدف أدوات computer-use المحلية جهاز Mac لديك ما لم تُضبط لهدف بعيد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar navegadores y computer use\n\nPara automatizar un navegador en la máquina, ejecute allí `agent-browser` y lea su ayuda. Inspeccione primero las herramientas instaladas con `tools`. Para tareas de escritorio, use en la máquina un agente compatible con computer-use; la devbox incluye `cua-driver`. Inspeccione la pantalla remota, actúe y verifique. Las herramientas computer-use locales controlan su Mac salvo que se configuren para un destino remoto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用瀏覽器與 computer use\n\n若要自動操作機器上的瀏覽器，請在該機器執行 `agent-browser` 並閱讀其說明。先使用 `tools` 檢查已安裝的工具。桌面任務請在機器上使用支援 computer-use 的代理；devbox 包含 `cua-driver`。檢查遠端畫面，操作後再驗證。除非設定了遠端目標，否則本機 computer-use 工具會操作您的 Mac。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 使用浏览器和 computer use\n\n要自动操作机器上的浏览器，请在该机器运行 `agent-browser` 并阅读其帮助。先使用 `tools` 检查已安装的工具。桌面任务请在机器上使用支持 computer-use 的代理；devbox 包含 `cua-driver`。检查远程屏幕，操作后再验证。除非配置了远程目标，否则本机 computer-use 工具会操作您的 Mac。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 브라우저 및 computer use 사용\n\n머신에서 브라우저를 자동으로 조작하려면 그 머신에서 `agent-browser`를 실행하고 도움말을 읽으세요. 먼저 `tools`로 설치된 도구를 확인하세요. 데스크톱 작업에는 머신에서 computer-use를 지원하는 에이전트를 사용하세요. devbox에는 `cua-driver`가 포함됩니다. 원격 화면을 확인하고 조작한 다음 검증하세요. 원격 대상을 설정하지 않으면 로컬 computer-use 도구는 Mac을 대상으로 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ブラウザと computer use を使う\n\nマシン上のブラウザを自動操作するには、そのマシンで `agent-browser` を実行し、ヘルプを読んでください。まず `tools` でインストール済みのツールを確認します。デスクトップ作業には、マシン上で computer-use 対応エージェントを使います。devbox には `cua-driver` が含まれます。リモート画面を確認し、操作後に結果を検証してください。ローカルの computer-use ツールは、リモート対象を設定しない限り Mac を操作します。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Open, share, and keep work\n\nUse `open` for a machine's terminal, desktop, or web port. Private web URLs need the Cloud network connection; read `vpn` help. Use `domains` to publish a web port with explicit access rules. Use snapshots and forks to keep or copy machine state. Removing a machine deletes it."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Arbeit öffnen, teilen und sichern\n\nVerwenden Sie `open` für Terminal, Desktop oder Web-Port eines Rechners. Private Web-URLs benötigen die Cloud-Netzwerkverbindung; lesen Sie die Hilfe zu `vpn`. Veröffentlichen Sie mit `domains` einen Web-Port mit ausdrücklichen Zugriffsregeln. Sichern oder kopieren Sie den Rechnerzustand mit Snapshots und Forks. Das Entfernen eines Rechners löscht ihn."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Ouvrir, partager et conserver le travail\n\nUtilisez `open` pour le terminal, le bureau ou un port Web d’une machine. Les URL Web privées nécessitent la connexion réseau Cloud ; lisez l’aide de `vpn`. Utilisez `domains` pour publier un port Web avec des règles d’accès explicites. Les instantanés et les forks conservent ou copient l’état de la machine. Retirer une machine la supprime."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## فتح العمل ومشاركته والاحتفاظ به\n\nاستخدم `open` لطرفية جهاز أو سطح مكتبه أو منفذ الويب الخاص به. تحتاج عناوين الويب الخاصة إلى اتصال شبكة Cloud؛ اقرأ تعليمات `vpn`. استخدم `domains` لنشر منفذ ويب بقواعد وصول صريحة. استخدم اللقطات والتفرعات للاحتفاظ بحالة الجهاز أو نسخها. إزالة الجهاز تحذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Abrir, compartir y conservar el trabajo\n\nUse `open` para el terminal, escritorio o puerto web de una máquina. Las URL web privadas necesitan la conexión de red Cloud; lea la ayuda de `vpn`. Use `domains` para publicar un puerto web con reglas de acceso explícitas. Las instantáneas y las bifurcaciones permiten conservar o copiar el estado de la máquina. Quitar una máquina la elimina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 開啟、分享與保留工作\n\n使用 `open` 開啟機器的終端機、桌面或 Web 連接埠。私人 Web 網址需要 Cloud 網路連線；請閱讀 `vpn` 說明。使用 `domains` 以明確存取規則發布 Web 連接埠。使用快照與分支保留或複製機器狀態。移除機器會將其刪除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 打开、分享和保留工作\n\n使用 `open` 打开机器的终端、桌面或 Web 端口。私有 Web 地址需要 Cloud 网络连接；请阅读 `vpn` 帮助。使用 `domains` 以明确的访问规则发布 Web 端口。使用快照和分支保留或复制机器状态。移除机器会将其删除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 작업 열기, 공유 및 보존\n\n머신의 터미널, 데스크톱 또는 웹 포트에는 `open`을 사용하세요. 비공개 웹 URL에는 Cloud 네트워크 연결이 필요합니다. `vpn` 도움말을 읽으세요. 명시적인 접근 규칙으로 웹 포트를 공개하려면 `domains`를 사용하세요. 스냅샷과 포크로 머신 상태를 보존하거나 복사하세요. 머신을 제거하면 해당 머신이 삭제됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 作業を開く、共有する、保存する\n\nマシンのターミナル、デスクトップ、Web ポートを開くには `open` を使います。プライベートな Web URL には Cloud ネットワーク接続が必要です。`vpn` のヘルプを読んでください。アクセス規則を明示して Web ポートを公開するには `domains` を使います。スナップショットとフォークでマシンの状態を保存またはコピーできます。マシンを削除すると、そのマシンは失われます。"
+          }
+        }
+      }
+    },
+    "cli.guide.cloud.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Find exact methods\n\nRead command help for flags and examples. The full Cloud reference covers machine lifecycle, workspaces, terminals, and transfers. Use `cmux guide` for local workspace, browser, and computer-use methods."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Genaue Methoden finden\n\nLesen Sie die Befehlshilfe für Optionen und Beispiele. Die vollständige Cloud-Referenz behandelt den Lebenszyklus von Rechnern, Arbeitsbereiche, Terminals und Übertragungen. Verwenden Sie `cmux guide` für lokale Arbeitsbereichs-, Browser- und Computer-Use-Methoden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Trouver les méthodes exactes\n\nLisez l’aide des commandes pour les options et les exemples. La référence Cloud complète couvre le cycle de vie des machines, les espaces de travail, les terminaux et les transferts. Utilisez `cmux guide` pour les méthodes locales liées aux espaces de travail, aux navigateurs et à computer-use."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## العثور على الطرق الدقيقة\n\nاقرأ تعليمات الأوامر لمعرفة الخيارات والأمثلة. يغطي مرجع Cloud الكامل دورة حياة الأجهزة ومساحات العمل والطرفيات وعمليات النقل. استخدم `cmux guide` لطرق مساحة العمل والمتصفح وcomputer-use المحلية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Encontrar los métodos exactos\n\nLea la ayuda de cada comando para consultar opciones y ejemplos. La referencia completa de Cloud cubre el ciclo de vida de las máquinas, los espacios de trabajo, los terminales y las transferencias. Use `cmux guide` para los métodos locales de espacios de trabajo, navegadores y computer-use."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 尋找確切方法\n\n閱讀命令說明以了解旗標與範例。完整 Cloud 參考文件涵蓋機器生命週期、工作區、終端機與傳輸。使用 `cmux guide` 了解本機工作區、瀏覽器與 computer-use 方法。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 查找确切方法\n\n阅读命令帮助以了解标志和示例。完整 Cloud 参考文档涵盖机器生命周期、工作区、终端和传输。使用 `cmux guide` 了解本机工作区、浏览器和 computer-use 方法。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 정확한 방법 찾기\n\n플래그와 예시는 명령 도움말을 읽으세요. 전체 Cloud 참조 문서는 머신 수명 주기, 작업 공간, 터미널, 전송을 다룹니다. 로컬 작업 공간, 브라우저, computer-use 방법은 `cmux guide`를 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## 正確な操作方法を探す\n\nフラグと例は各コマンドのヘルプを読んでください。Cloud の完全なリファレンスには、マシンのライフサイクル、ワークスペース、ターミナル、転送が記載されています。ローカルのワークスペース、ブラウザ、computer-use の操作は `cmux guide` を参照してください。"
+          }
+        }
+      }
+    },
     "cloud.portAccess.invalidURL": {
       "extractionState": "manual",
       "localizations": {
