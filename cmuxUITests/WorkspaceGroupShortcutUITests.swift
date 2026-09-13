@@ -12,22 +12,20 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
             try? FileManager.default.removeItem(at: recorder)
         }
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-cmux.flags.override.sidebar-appkit-list-experiment", "YES"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-empty-group-\(UUID().uuidString.prefix(8))"
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = recorder.path
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 12))
 
-        let rows = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "sidebarWorkspace.")
-        )
-        let workspace = rows.firstMatch
+        let sidebar = app.tables.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 10))
+        let workspace = sidebar.rows.firstMatch
         XCTAssertTrue(workspace.waitForExistence(timeout: 10))
-        let workspaceIdentity = workspace.identifier
-        let groups = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH %@", "sidebarWorkspaceGroup.")
-        )
-        XCTAssertEqual(groups.count, 0)
+        XCTAssertEqual(sidebar.rows.count, 1)
+        let group = sidebar.staticTexts["Group 1"].firstMatch
+        XCTAssertFalse(group.exists)
         let before = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: recorder))
         let selectedWorkspaceId = try XCTUnwrap(before["selectedTabId"])
         XCTAssertFalse(selectedWorkspaceId.isEmpty)
@@ -42,10 +40,8 @@ final class WorkspaceGroupShortcutUITests: XCTestCase {
 
         // 3. Observe that no empty workspace group is created (the regression).
         // The fixed behavior must show a new header without adopting the row.
-        XCTAssertTrue(groups.firstMatch.waitForExistence(timeout: 8))
-        XCTAssertEqual(groups.count, 1)
-        XCTAssertEqual(rows.count, 1)
-        XCTAssertEqual(rows.firstMatch.identifier, workspaceIdentity)
+        XCTAssertTrue(group.waitForExistence(timeout: 8))
+        XCTAssertEqual(sidebar.rows.count, 2)
         let after = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: recorder))
         XCTAssertEqual(after["selectedTabId"], selectedWorkspaceId)
         XCTAssertEqual(after["tabCount"], "2", "The empty group owns one generated anchor")
