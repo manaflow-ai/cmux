@@ -42,8 +42,12 @@ extension CmuxTuiSurfaceProvider {
                         let now = Date()
                         if let since = pending.generationMismatchSince,
                            now.timeIntervalSince(since) >= Self.pendingCreationGenerationRecoveryTimeout {
-                            pending.resource.lifecycle = .unavailable
-                            pending.receipt = nil
+                            // The daemon has supplied a newer generation and
+                            // never reported this intent. Retire the local
+                            // optimistic row after the bounded recovery window;
+                            // the user can retry without accumulating phantoms.
+                            completed.append(resourceID)
+                            continue
                         } else {
                             pending.generationMismatchSince = pending.generationMismatchSince ?? now
                         }
