@@ -371,7 +371,7 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
  * on TERM_PROGRAM. cmux-devbox-boot repeats this string byte for byte.
  */
 export const CMUX_TUI_DAEMON_TERMINAL_ENV =
-  'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" CMUX_TUI_GUEST=1';
+  'TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)"';
 
 /** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
 export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
