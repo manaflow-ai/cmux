@@ -14,7 +14,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
-    private var pendingLines: [Data] = []
+    private var pendingInputs: [TerminalManualInput] = []
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
 
@@ -35,11 +35,9 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         queue.async { [self, surfaceID] in
             guard self.surfaceID != surfaceID else { return }
             self.surfaceID = surfaceID
-            // Pending lines already contain the old numeric target. Dropping
-            // them is safer than delivering input to a reused surface slot;
-            // subsequent keystrokes are encoded for the new ID.
-            pendingLines.removeAll(keepingCapacity: true)
-            pendingByteCount = 0
+            // Keep raw input until the new numeric target is known. Re-encoding
+            // here preserves keystrokes typed while initial discovery or a
+            // reconnect was pending without ever delivering the old surface id.
         }
     }
 
@@ -48,8 +46,10 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         queue.async { [self, connection] in
             self.connection = connection
             guard let connection else { return }
-            for line in pendingLines { connection.send(line: line) }
-            pendingLines.removeAll(keepingCapacity: true)
+            for input in pendingInputs {
+                if let line = line(for: input) { connection.send(line: line) }
+            }
+            pendingInputs.removeAll(keepingCapacity: true)
             pendingByteCount = 0
         }
     }
@@ -58,7 +58,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     func invalidate() {
         queue.async { [self] in
             connection = nil
-            pendingLines.removeAll(keepingCapacity: false)
+            pendingInputs.removeAll(keepingCapacity: false)
             pendingByteCount = 0
         }
     }
@@ -69,40 +69,32 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
-            let command: [String: Any]
-            switch input {
-            case .bytes(let bytes):
-                guard !bytes.isEmpty else { return }
-                // Request id zero is reserved for untracked input frames. The
-                // mirror session uses positive ids for handshake/resize state,
-                // so an input acknowledgement can never be mistaken for one
-                // of its state-machine responses.
-                command = commandBuilder.input(
-                    surfaceID: surfaceID,
-                    bytes: bytes,
-                    requestID: 0
-                )
-            case .namedKey(let name):
-                guard let key = Self.protocolKeyName(for: name) else { return }
-                command = commandBuilder.namedKey(
-                    surfaceID: surfaceID,
-                    key: key,
-                    requestID: 0
-                )
-            }
-            guard let line = commandBuilder.line(command) else { return }
+            guard let line = line(for: input) else { return }
             if let connection {
                 connection.send(line: line)
                 return
             }
             guard pendingByteCount + line.count <= pendingByteLimit else {
-                pendingLines.removeAll(keepingCapacity: true)
+                pendingInputs.removeAll(keepingCapacity: true)
                 pendingByteCount = 0
                 return
             }
-            pendingLines.append(line)
+            pendingInputs.append(input)
             pendingByteCount += line.count
         }
+    }
+
+    private func line(for input: TerminalManualInput) -> Data? {
+        let command: [String: Any]
+        switch input {
+        case .bytes(let bytes):
+            guard !bytes.isEmpty else { return nil }
+            command = commandBuilder.input(surfaceID: surfaceID, bytes: bytes, requestID: 0)
+        case .namedKey(let name):
+            guard let key = Self.protocolKeyName(for: name) else { return nil }
+            command = commandBuilder.namedKey(surfaceID: surfaceID, key: key, requestID: 0)
+        }
+        return commandBuilder.line(command)
     }
 
     private static func protocolKeyName(for name: String) -> String? {

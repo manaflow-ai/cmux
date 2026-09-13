@@ -7,7 +7,7 @@ import Foundation
 final class CloudTreeTerminalNavigationCoordinator {
     typealias Run = @MainActor (
         _ label: String,
-        _ operation: @MainActor (SurfaceCatalog) async throws -> Void
+        _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
     ) -> Task<Void, Never>
 
     private let machineName: @MainActor (SurfaceMachineID) -> String
