@@ -25,7 +25,7 @@ function install(directory: string, name: string, revision: number, machineId = 
 function bash(directory: string, command: string) {
   const result = spawnSync("bash", ["--noprofile", "--norc", "-c", command], {
     encoding: "utf8",
-    env: { PATH: process.env.PATH!, HOME: directory },
+    env: { NODE_ENV: "test", PATH: process.env.PATH!, HOME: directory },
   });
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
@@ -42,7 +42,7 @@ describe("Cloud Bash prompt", () => {
     expect(vmPromptIdentity({ ...row, displayName: "$(touch /tmp/injected) `id` \\n" }).name).toMatch(/^[a-z0-9-]+$/);
   });
 
-  test("an open shell reads a renamed machine on its next prompt without commands or hooks", () => {
+  test("an open shell reads a renamed machine using only builtins", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
     // Evaluate Bash's real prompt expansion in one shell. Empty PATH makes
@@ -50,14 +50,74 @@ describe("Cloud Bash prompt", () => {
     const output = bash(directory, `
       . '${directory}/prompt.bash'
       PATH=/does-not-exist
+      __cmux_prompt_name
       eval 'printf "%s\\n" "'"$PS1"'"'
       printf '%s\\n' renamed-box > '${directory}/vm-name'
+      __cmux_prompt_name
       eval 'printf "%s\\n" "'"$PS1"'"'
       printf 'hook=%s\\n' "\${PROMPT_COMMAND-}"
     `);
     expect(output).toContain("@brave-blue-otter");
     expect(output).toContain("@renamed-box");
-    expect(output).toContain("hook=\n");
+    expect(output).toContain("hook=__cmux_prompt_name\n");
+  });
+
+  test("preserves existing prompt commands, exit status, and repeated sourcing", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    expect(bash(directory, `
+      PROMPT_COMMAND=(':' 'printf user-hook')
+      . '${directory}/prompt.bash'
+      . '${directory}/prompt.bash'
+      false
+      __cmux_prompt_name
+      printf '%s|' "$?"
+      printf '%s|' "\${PROMPT_COMMAND[@]}"
+    `)).toBe("1|__cmux_prompt_name|:|printf user-hook|");
+  });
+
+  test("renders successive prompts in a real interactive Bash terminal", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const result = spawnSync("python3", ["-c", String.raw`
+import fcntl, os, pathlib, pty, select, signal, struct, subprocess, sys, termios, time
+root = pathlib.Path(sys.argv[1])
+(root / ".inputrc").write_text("set enable-bracketed-paste off\n")
+(root / ".hushlogin").touch()
+master, slave = pty.openpty()
+fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+def setup():
+    os.setsid()
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+shell = subprocess.Popen(["bash", "--noprofile", "--rcfile", str(root / "prompt.bash"), "-i"],
+    stdin=slave, stdout=slave, stderr=slave, preexec_fn=setup,
+    env={"PATH": os.environ["PATH"], "HOME": str(root), "TERM": "xterm-256color"})
+os.close(slave)
+def until(marker):
+    output = b""
+    deadline = time.monotonic() + 3
+    while marker not in output:
+        if time.monotonic() > deadline: raise AssertionError(repr(output))
+        if select.select([master], [], [], 0.1)[0]: output += os.read(master, 65536)
+try:
+    until(b"@brave-blue-otter")
+    (root / "vm-name").write_text("renamed-box\n")
+    os.write(master, b"false\n")
+    until(b"@renamed-box")
+    os.write(master, b"printf 'STATUS=%s\\n' \"$?\"\n")
+    until(b"STATUS=1")
+    os.write(master, b"PS1='custom> '\n")
+    until(b"\r\ncustom> ")
+    (root / "vm-name").write_text("third-name\n")
+    os.write(master, b":\n")
+    until(b"\r\ncustom> ")
+finally:
+    os.killpg(shell.pid, signal.SIGKILL)
+    shell.wait()
+    os.close(master)
+`, directory], { encoding: "utf8", timeout: 15_000 });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
   });
 
   test("user Bash settings and a custom prompt survive updates", () => {

@@ -38,6 +38,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
+  "cmux-prompt.bash",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
   "codex-managed.toml",
