@@ -3432,10 +3432,34 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn every_catalog_provider_installs_and_reports_ready_in_a_real_home() {
         let root = tempfile::tempdir().unwrap();
-        let context = context(root.path());
+        let mut context = context(root.path());
+        // Hermes activation requires its CLI, unlike file-only providers.
+        // Keep the executable and its enabled state inside this test's home.
+        let binary = root.path().join("hermes");
+        atomic_write(
+            &binary,
+            br#"#!/bin/sh
+state="${0%/*}/hermes-enabled"
+case "$*" in
+  'plugins list --enabled --user --no-bundled --json')
+    if [ -f "$state" ]; then
+      printf '[{"name":"cmux-tui-journal"}]\n'
+    else
+      printf '[]\n'
+    fi ;;
+  'plugins enable cmux-tui-journal') : > "$state" ;;
+  'plugins disable cmux-tui-journal') /bin/rm -f "$state" ;;
+  *) exit 64 ;;
+esac
+"#,
+            Some(0o755),
+        )
+        .unwrap();
+        context.path = Some(root.path().as_os_str().to_owned());
         for provider in PROVIDERS {
             let plan = Plan { action: Action::Install, providers: vec![provider.id.into()] };
             let result = run_with_context(&plan, &context);
@@ -3448,6 +3472,22 @@ mod tests {
                 provider.id, result.value
             );
         }
+        assert!(root.path().join("hermes-enabled").exists());
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(!root.path().join("hermes-enabled").exists());
+    }
+
+    #[test]
+    fn hermes_install_requires_its_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        let error = result.value["errors"][0].as_str().unwrap();
+        assert!(error.contains("Hermes Agent executable is unavailable"));
     }
 
     #[cfg(unix)]
