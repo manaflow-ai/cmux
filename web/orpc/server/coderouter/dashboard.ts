@@ -42,6 +42,10 @@ export const coderouterDashboardProcedure = os
         (signal) => verifySubrouterRequest(context.request, signal, { allowCookie: true, listAllTeams: true }),
       );
       if (!user) return emptyDashboard("missing");
+      // The outer oRPC context and the team resolver must identify the same
+      // Stack user. This closes mixed-cookie/bearer requests before any team
+      // or hosted tenant data is loaded.
+      if (user.id !== context.user.id) return emptyDashboard("missing");
       const teams = authorizedSubrouterTeams(user);
       if (teams.length === 0) return emptyDashboard("noTeams");
       const requested = input.team?.trim();
