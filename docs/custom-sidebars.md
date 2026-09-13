@@ -165,7 +165,7 @@ Rules of the runtime:
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
   live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
-  move_up/move_down/move_top, close_others, set/clear color and description),
+  move_up/move_down/move_top/move_bottom, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
   (pin/unpin/ungroup/delete), `workspace.group.collapse` / `.expand`.
 - Actions: `cmux(method, params)`, `openURL(url)`, `log(message)` anywhere in

@@ -197,6 +197,62 @@ extension WorkspacesModel {
 
     /// Hoist promoted (non-anchor) members to the front of their group's
     /// member run, right after the anchor, preserving each group's position.
+    /// Mirror of ``moveWorkspaceGroupMembersAfterAnchors(workspaceIds:)`` for the
+    /// downward direction: the named members sink to the end of their group run
+    /// instead of hoisting behind the anchor. The anchor itself never moves.
+    func moveWorkspaceGroupMembersToGroupEnd(workspaceIds: [UUID]) {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        var sunkIdsByGroupId: [UUID: [UUID]] = [:]
+        for workspaceId in workspaceIds {
+            guard let tab = tabsById[workspaceId],
+                  let groupId = tab.groupId,
+                  let group = groupsById[groupId],
+                  tab.id != group.anchorWorkspaceId else {
+                continue
+            }
+            sunkIdsByGroupId[groupId, default: []].append(workspaceId)
+        }
+        guard !sunkIdsByGroupId.isEmpty else { return }
+
+        var replacementMembersByGroupId: [UUID: [Tab]] = [:]
+        for (groupId, sunkIds) in sunkIdsByGroupId {
+            guard let group = groupsById[groupId] else { continue }
+            let orderedMembers = anchorFirst(
+                tabs.filter { $0.groupId == groupId },
+                anchorId: group.anchorWorkspaceId
+            )
+            guard let anchor = orderedMembers.first(where: { $0.id == group.anchorWorkspaceId }) else { continue }
+            var emittedSunkIds = Set<UUID>()
+            // Preserve the caller's relative order among the sunk members.
+            let sunkMembers = sunkIds.compactMap { id -> Tab? in
+                guard emittedSunkIds.insert(id).inserted else { return nil }
+                return tabsById[id]
+            }
+            let sunkIdSet = Set(sunkMembers.map(\.id))
+            let remainingMembers = orderedMembers.filter {
+                $0.id != group.anchorWorkspaceId && !sunkIdSet.contains($0.id)
+            }
+            replacementMembersByGroupId[groupId] = [anchor] + remainingMembers + sunkMembers
+        }
+        guard !replacementMembersByGroupId.isEmpty else { return }
+
+        var emittedGroupIds = Set<UUID>()
+        var reordered: [Tab] = []
+        reordered.reserveCapacity(tabs.count)
+        for tab in tabs {
+            if let groupId = tab.groupId,
+               let replacementMembers = replacementMembersByGroupId[groupId] {
+                if emittedGroupIds.insert(groupId).inserted {
+                    reordered.append(contentsOf: replacementMembers)
+                }
+            } else {
+                reordered.append(tab)
+            }
+        }
+        tabs = reordered
+    }
+
     func moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [UUID]) {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
