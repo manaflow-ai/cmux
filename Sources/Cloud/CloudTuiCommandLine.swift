@@ -201,6 +201,20 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `terminal <term_id> process show` (spec `terminal.process.get`): reads
+    /// the foreground process cwd live from the PTY's controlling terminal.
+    static func processInfoArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "process", "show"]
+    }
+
+    /// Extracts the live foreground cwd. The sibling `cwd` field is the spawn
+    /// directory and is stale after the shell changes directory.
+    static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
+        guard let cwd = result["foreground_cwd"] as? String else { return nil }
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec
     /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
     /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
@@ -260,8 +274,11 @@ struct CloudTuiCommandLine: Sendable {
     /// Resolves a stable terminal resource ID to the current generation's
     /// numeric surface handle. This is preferred over walking the legacy tree
     /// because it also works while a terminal has no visible tab placement.
-    /// The private command accepts the 32-character payload without the
-    /// public `term_` prefix.
+    ///
+    /// The full public `term_…` id is sent. A current daemon maps it through
+    /// its registry; a daemon that only knows UUIDv4 host ids rejects both
+    /// spellings the same way (`invalid_terminal_id`), and the resolver then
+    /// reads the authoritative snapshot instead.
     static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
         let payload = terminalID.hasPrefix("term_")
             ? String(terminalID.dropFirst("term_".count))
@@ -275,7 +292,7 @@ struct CloudTuiCommandLine: Sendable {
         let request: [String: Any] = [
             "id": 1,
             "cmd": "resolve-terminal",
-            "terminal_id": payload,
+            "terminal_id": "term_" + payload,
         ]
         return rawCommandArguments(socketPath: socketPath, request: request)
     }

@@ -19,15 +19,19 @@ import {
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
+import { verifyCodexCredential, verifyStoredCodexCredential } from "./codexSignature";
 
 export async function addAccount(
   teamId: string,
   credential: CodeRouterCredential,
   keys?: CredentialKeyService,
+  verify: typeof verifyCodexCredential = verifyCodexCredential,
+  verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
   if (credential.provider === "codex") {
+    await verify(credential);
     credential = withCodexOwner(credential);
-    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys);
+    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys, verifyStored);
   }
   const existing = await findAccountByProviderIdentity(
     teamId,
@@ -74,13 +78,14 @@ export async function addAccount(
 }
 
 /** Legacy workspace-only rows are adopted from their own encrypted credentials. */
-export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService): Promise<void> {
+export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService, verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential): Promise<void> {
   const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId);
   if (!legacy) return;
   const encrypted = await encryptedCredentialForAccount(teamId, legacy.id);
   if (!encrypted) throw new Error("legacy Codex credential is unavailable");
   const credential = await decryptCredential(encrypted, keys);
   if (credential.provider !== "codex" || credential.accountId !== workspaceId) throw new Error("legacy Codex identity does not match its record");
+  await verify(credential);
   const migrated = await bindCodexOwnerIdentity({
     teamId, accountId: legacy.id, expectedKey: workspaceId,
     expectedRevision: encrypted.credentialRevision, credential: withCodexOwner(credential),
