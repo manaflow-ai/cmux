@@ -9,11 +9,8 @@ import Testing
 
 /// The machine row's context menu is where the Cloud sidebar offers a
 /// machine's verbs, so it lists only verbs the product honors end to end.
-/// Disk resize is not one of them yet
-/// (https://github.com/manaflow-ai/cmux/issues/12156): the menu used to grow
-/// an "Increase Disk" submenu whose targets fired an unsupported resize. This
-/// pins the exact verb list a machine row offers and proves the surviving
-/// verbs still reach their closures.
+/// Disk resize is a supported grow-only operation for Freestyle and must be
+/// discoverable from this menu (https://github.com/manaflow-ai/cmux/issues/12406).
 @MainActor
 @Suite("Cloud tree machine context menu")
 struct CloudTreeMachineMenuTests {
@@ -34,8 +31,16 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
-    @Test("A machine's menu lists its verbs with no disk resize item or submenu")
-    func machineMenuOffersOnlySupportedVerbs() throws {
+    @Test("CLI disk resize parser enforces grow-only allocation steps")
+    func cliDiskResizeParserValidatesFreestyleSteps() {
+        #expect(CMUXCLI.parseCloudVMDiskMb("64G") == 64 * 1024)
+        #expect(CMUXCLI.parseCloudVMDiskMb("128 GiB") == nil)
+        #expect(CMUXCLI.parseCloudVMDiskMb("66G") == nil)
+        #expect(CMUXCLI.parseCloudVMDiskMb("260G") == nil)
+    }
+
+    @Test("A machine's menu exposes grow-only resource resize and wires its targets")
+    func machineMenuOffersSupportedVerbs() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
@@ -59,6 +64,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
+            Self.title("cloud.operation.kind.resize", "Resize machine"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -71,12 +77,34 @@ struct CloudTreeMachineMenuTests {
         try Self.choose(Self.title("machines.menu.privateNetwork", "Private Network Access…"), in: menu)
         #expect(recorder.vpnSetupCount == 1)
         #expect(recorder.vpnSetupWindow === window)
-        // Every verb is a leaf: nothing opens a submenu of targets.
-        #expect(menu.items.allSatisfy { $0.submenu == nil })
+        let resizeRoot = try #require(menu.items.first { $0.title == Self.title("cloud.operation.kind.resize", "Resize machine") })
+        let resizeMenu = try #require(resizeRoot.submenu)
+        let diskRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseDisk", "Increase Disk") })
+        let diskMenu = try #require(diskRoot.submenu)
+        #expect(diskMenu.items.map(\.title) == [
+            Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to 128 GiB"),
+            Self.title("machines.menu.resizeToGiB", "Increase to 256 GiB"),
+        ])
+        #expect(resizeMenu.items.map(\.title) == [
+            Self.title("machines.menu.increaseDisk", "Increase Disk"),
+            Self.title("machines.menu.increaseCPU", "Increase CPU"),
+            Self.title("machines.menu.increaseMemory", "Increase Memory"),
+        ])
 
         // The verbs that stay are still wired, not merely titled.
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 64 GiB"), in: diskMenu)
+        #expect(recorder.resizes == [(Self.machineID, 64)])
+        let cpuRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseCPU", "Increase CPU") })
+        let cpuMenu = try #require(cpuRoot.submenu)
+        try Self.choose(Self.title("machines.menu.resizeToVCPUs", "Increase to 8 vCPUs"), in: cpuMenu)
+        #expect(recorder.cpuResizes == [(Self.machineID, 8)])
+        let memoryRoot = try #require(resizeMenu.items.first { $0.title == Self.title("machines.menu.increaseMemory", "Increase Memory") })
+        let memoryMenu = try #require(memoryRoot.submenu)
+        try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to 16 GiB"), in: memoryMenu)
+        #expect(recorder.memoryResizes == [(Self.machineID, 16)])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -132,7 +160,7 @@ struct CloudTreeMachineMenuTests {
             dragGroup: group
         )
         let coordinator = CloudTreeOutlineView.Coordinator(
-            machineActions: Self.machineActions,
+            machineActions: Self.machineActions(recording: recorder),
             nodeActions: Self.nodeActions(recording: recorder),
             expansionStore: CloudTreeExpansionStore(
                 defaults: UserDefaults(suiteName: "cloud-tree-owner-\(UUID().uuidString)")!
@@ -227,6 +255,9 @@ struct CloudTreeMachineMenuTests {
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append($0) },
             promptRename: { _, _ in },
+            resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
+            resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
+            resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {}
         )
     }
@@ -267,4 +298,7 @@ private final class CloudTreeMenuVerbRecorder {
     var deletions: [String] = []
     var projectRemoteViewCount = 0
     var ownerNavigations: [(machine: SurfaceMachineID, group: SurfaceResourceGroup, resource: SurfaceResourceID, view: SurfaceRemoteView?, openIn: UUID?)] = []
+    var resizes: [(String, Int)] = []
+    var cpuResizes: [(String, Int)] = []
+    var memoryResizes: [(String, Int)] = []
 }

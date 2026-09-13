@@ -94,6 +94,9 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var viewReattachToken: UInt64 = 0
 
     @Published var agentHibernationPhase: AgentHibernationPanelPhase = .live
+    /// A native cloud pane's live attachment state (nil for local terminals).
+    /// Written only by the owning cloud session; the view shows it.
+    var cloudAttachment: CloudTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -112,22 +115,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     var displayIcon: String? {
         "terminal.fill"
-    }
-
-    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
-        switch await surface.readSelection(
-            maxBytes: SurfaceSelectionSnapshot.maximumTextBytes
-        ) {
-        case .none:
-            return .snapshot(.none(kind: .terminal))
-        case .selected(let text):
-            return .snapshot(.selected(
-                kind: .terminal,
-                text: SurfaceSelectionSnapshot.boundedText(text)
-            ))
-        case .unavailable:
-            return .unavailable
-        }
     }
 
     func updateShellActivityState(_ state: PanelShellActivityState) {
