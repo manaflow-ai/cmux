@@ -2054,8 +2054,12 @@ final class BrowserPanel: Panel, ObservableObject {
         webContentState.recoveryURL
     }
 
-    func isCurrentWebViewObservation(generation: UInt64, webView: WKWebView) -> Bool {
-        generation == webViewObservationGeneration && self.webView === webView
+    func webViewObservationValidator(for webView: WKWebView) -> @MainActor () -> Bool {
+        let generation = webViewObservationGeneration
+        return { [weak self, weak webView] in
+            guard let self, let webView else { return false }
+            return generation == self.webViewObservationGeneration && self.webView === webView
+        }
     }
     /// Whether the failed WebContent view may be mounted in the portal.
     /// WebKit can still deliver process-swap IPC after its termination callback,

@@ -225,12 +225,8 @@ extension BrowserPanel {
     }
 
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let observedGeneration = webViewObservationGeneration
         let handler = ReactGrabMessageHandler(
-            isCurrent: { [weak self, weak webView] in
-                guard let self, let webView else { return false }
-                return self.isCurrentWebViewObservation(generation: observedGeneration, webView: webView)
-            }
+            isCurrent: webViewObservationValidator(for: webView)
         ) { [weak self] message in
             self?.handleReactGrabBridgeMessage(message)
         }
