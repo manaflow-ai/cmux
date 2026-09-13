@@ -167,8 +167,31 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "元のマシンの RAM 容量を確認できませんでした。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
+      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
+      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
+      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+    }},
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -473,6 +496,12 @@
         "annualPrice": "${monthly}/月（年払い）",
         "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Go プランは有効です。次回更新日は {date} です。",
+        "pendingBody": "Go プランは {date} に終了します。",
+        "monthlyPrice": "${amount}/月"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
@@ -507,6 +536,13 @@
         "free": "無料",
         "pro": "Pro",
         "loading": "読み込み中…"
+      },
+      "max": {
+        "name": "cmux Max",
+        "activeBody": "Max プランは有効です。次回更新日は {date} です。",
+        "pendingBody": "Max プランは {date} に終了します。",
+        "monthlyPrice": "${amount}/月",
+        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
       }
     },
     "testflight": {
@@ -791,18 +827,22 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "categories": {
+      "individual": {
+        "title": "個人向け",
+        "description": "無料で始めて、必要に応じて Cloud の容量を追加できます。"
+      },
+      "business": {
+        "title": "チームとビジネス向け",
+        "description": "組織向けの一元請求、管理、コントロール。"
+      }
+    },
     "alreadyPaid": "購入済みですか？Founder's Edition を接続する",
     "perMonth": "/月",
-    "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
-    "perUserMonthBilledYearly": "/ユーザー/月（年払い）",
     "billingPeriod": "請求期間",
     "monthly": "月払い",
-    "annual": "年払い",
-    "saveAnnual": "{discount}%割引",
-    "annualComparePrice": "${monthly}/月",
     "teamMonthlyComparePrice": "${monthly}/ユーザー/月",
-    "teamAnnualComparePrice": "${monthly}/ユーザー/月",
     "currentPlan": "現在のプラン",
     "manageBilling": "請求を管理",
     "free": {
@@ -819,13 +859,24 @@
         "Discord と GitHub でのコミュニティサポート"
       ]
     },
+    "go": {
+      "name": "Go",
+      "cta": "Go を入手",
+      "featuresLead": "集中作業向けの小さな Cloud VM:",
+      "features": [
+        "アクティブな Cloud VM 1 台",
+        "2 vCPU、4 GiB RAM、16 GiB ディスク",
+        "実行中の VM を含めて合計 2 台の VM を保存",
+        "毎月 40 VM 時間を含み、上限で VM は一時停止します"
+      ]
+    },
     "pro": {
       "name": "Pro",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有",
+        "最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -835,6 +886,15 @@
       ],
       "hostedNetworkingFeatures": [
         "iOS アプリから Mac に接続するホスト型ネットワーク、Tailscale の設定不要"
+      ]
+    },
+    "max": {
+      "name": "Max",
+      "cta": "Max を入手",
+      "featuresLead": "Pro のすべてに加えて:",
+      "features": [
+        "マシンごとに最大 64 GB RAM",
+        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
       ]
     },
     "team": {
@@ -867,131 +927,176 @@
           "label": "ネイティブ macOS ターミナル、オープンソース",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "自分のキーで使うローカル CLI エージェント",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "縦型タブ、分割、通知、ソケット API",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "セッション履歴",
           "free": "ローカル",
           "pro": "無制限",
+          "max": "無制限",
           "team": "無制限",
           "enterprise": "無制限",
-          "vault": true
+          "vault": true,
+          "go": "ローカル"
         },
         {
           "label": "cmux Vault: クラウドセッションバックアップ",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "すべてのセッションを横断検索",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
           "pro": "50",
+          "max": "50",
           "team": "ユーザーごとに 50",
-          "enterprise": "カスタム"
+          "enterprise": "カスタム",
+          "go": "1"
         },
         {
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
-          "pro": "24 GB RAM と 6 vCPU をすべての VM で共有",
-          "team": "ユーザーあたり 24 GB RAM と 6 vCPU を、そのユーザーのすべての VM で共有",
-          "enterprise": "カスタム"
+          "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
+          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
+          "enterprise": "カスタム",
+          "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
+        },
+        {
+          "label": "最大の Cloud VM",
+          "free": "24 GB RAM",
+          "pro": "24 GB RAM",
+          "max": "64 GB RAM",
+          "team": "24 GB RAM",
+          "enterprise": "カスタム",
+          "go": "4 GiB RAM"
         },
         {
           "label": "ワークスペース",
           "free": "無制限",
           "pro": "無制限",
+          "max": "無制限",
           "team": "無制限",
-          "enterprise": "無制限"
+          "enterprise": "無制限",
+          "go": "無制限"
         },
         {
           "label": "iOS アプリ",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Mac に接続するネットワーク",
           "free": "持ち込み",
           "pro": "ホスト型",
+          "max": "ホスト型",
           "team": "ホスト型",
           "enterprise": "セルフホスト",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "持ち込み"
         },
         {
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "セルフホストとエアギャップ実行",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 と SLA",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "サポート",
           "free": "コミュニティ",
           "pro": "メール",
+          "max": "メール",
           "team": "優先",
-          "enterprise": "専任"
+          "enterprise": "専任",
+          "go": "コミュニティ"
         }
       ]
     },
@@ -1005,7 +1110,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPU を共有します。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 50 台の Cloud VM で、24 GB RAM と 6 vCPUを共有します。Team ではユーザーごとに同じプールが適用されます。"
+        },
+        {
+          "q": "Max では何が追加されますか?",
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1018,7 +1127,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM で、ユーザーあたり 24 GB RAM と 6 vCPU を共有します。従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "有料プランは月払いです。Pro は月額 $50、Max は月額 $200、Team はユーザーあたり月額 $60 です。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -1026,7 +1135,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team はユーザーあたり月額 $60 で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1037,11 +1146,20 @@
     "billingError": "チェックアウトの開始中に問題が発生しました。しばらくしてからもう一度お試しください。",
     "billingUnavailable": "現在、決済をご利用いただけません。時間をおいてお試しください。",
     "billingCancelled": "チェックアウトはキャンセルされました。請求は発生していません。",
+    "billingAnnualUnavailable": "新規サブスクリプションでは年払いをご利用いただけません。以下から月払いのプランをお選びください。",
+    "billingPlanUnavailable": "このプランはまだご利用いただけません。以下から Pro または Max をお選びください。",
     "billingInvalidPlan": "指定されたプランはご利用いただけません。以下からプランをお選びください。",
     "signedOutNotice": "サインインしていません。サインインすると、現在のプランの確認や購入済みプランの復元ができます。",
     "signedOutSignIn": "サインイン",
     "billingInvalidRelay": "アプリのチェックアウトリンクの有効期限が切れているか、検証できませんでした。cmuxに戻ってもう一度お試しください。",
-    "welcomeTeam": "cmux Team のご購入が完了しました。"
+    "welcomeTeam": "cmux Team のご購入が完了しました。",
+    "audience": {
+      "label": "料金の対象",
+      "individual": "個人",
+      "team": "チームとエンタープライズ"
+    },
+    "priceMonthlyNote": "月払いは${amount}/月",
+    "priceMonthlyPerUserNote": "月払いは${amount}/ユーザー/月"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",

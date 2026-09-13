@@ -34,6 +34,7 @@ export const VM_LEDGER_TO_POSTHOG_EVENT = {
   "vm.exec": "cloud_vm_exec",
   "vm.forked": "cloud_vm_forked",
   "vm.resumed": "cloud_vm_resumed",
+  "vm.paused": "cloud_vm_paused",
   "vm.snapshot.created": "cloud_vm_snapshot_created",
   "vm.open_port": "cloud_vm_port_opened",
   "vm.base.opened": "cloud_vm_base_opened",
@@ -94,6 +95,10 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
   }),
   "vm.resumed": (m) => ({
     source: str(m.source) ?? "unknown",
+  }),
+  "vm.paused": (m) => ({
+    source: enumValue(m.source, ["user", "go_hours_limit"]) ?? "unknown",
+    used_seconds: int(m.usedSeconds), automated: bool(m.automated),
   }),
   "vm.snapshot.created": (m) => ({
     named: bool(m.named),

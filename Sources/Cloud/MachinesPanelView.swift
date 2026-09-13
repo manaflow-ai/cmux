@@ -464,6 +464,9 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
+            lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )

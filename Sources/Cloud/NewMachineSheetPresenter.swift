@@ -63,11 +63,15 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
-    /// already holds.
+    /// `plan`, `memoryOptionsMb`, `lockedMemoryOptionsMb` and
+    /// `memoryUpgradePlanId` come from whatever fleet page the caller already
+    /// holds (`VMPlanLimits`).
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int],
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanId: String? = nil,
+        memoryUpgradePlansByMb: [String: String]? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -82,6 +86,9 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
             mode: .newMachine,
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
+            lockedMemoryOptionsMb: lockedMemoryOptionsMb,
+            memoryUpgradePlanId: memoryUpgradePlanId,
+            memoryUpgradePlansByMb: memoryUpgradePlansByMb,
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -97,6 +104,10 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                 })
             }
         )
+        model.refreshPlan = { [weak model] in
+            guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
+            model?.applyPage(page)
+        }
         present(model: model, preferredWindow: preferredWindow)
     }
 
@@ -134,12 +145,19 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                     mode: .newMachine,
                     plan: plan,
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
+                    lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
+                    memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
                         self.finishSelection(selectionID, request: request)
                         return true
                     }
                 )
+                model.refreshPlan = { [weak model] in
+                    guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
+                    model?.applyPage(page)
+                }
                 model.onFinished = { [weak self] outcome in
                     if case .cancelled = outcome {
                         self?.finishSelection(selectionID, request: nil)

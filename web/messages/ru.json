@@ -22,8 +22,31 @@
       "title": "Требуется cmux Pro",
       "message": "Для Cloud VM требуется план cmux Pro.",
       "action": "Перейдите на cmux Pro на {upgradeUrl}, чтобы создавать Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Для машин с {memory} ГиБ нужен cmux {plan}. Ваш тариф поддерживает до {max} ГиБ.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Не удалось проверить объём ОЗУ исходной машины.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Этот размер машины недоступен. Выберите до {max} ГиБ.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
+      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
+      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
+      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+    }},
   "billingRecovery": {
     "message": "Если мы нашли аккаунт, проверьте электронную почту, чтобы узнать дальнейшие действия"
   },

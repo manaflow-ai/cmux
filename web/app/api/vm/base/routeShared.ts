@@ -102,6 +102,7 @@ export async function runBaseRoute(input: {
     provider,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
+    imageSize: imageSelection.size,
     baseName: parsed.body.name,
     modelPlane: vmModelPlaneGatewayFor({
       teamId: entitlements.billingTeamId,

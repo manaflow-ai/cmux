@@ -167,8 +167,31 @@
       "title": "cmux Pro required",
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "The source machine’s RAM size could not be verified.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
+      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
+      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
+      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+    }},
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
@@ -473,6 +496,12 @@
         "annualPrice": "${monthly}/mo, billed annually",
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Your Go plan is active. It renews on {date}.",
+        "pendingBody": "Your Go plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
@@ -507,6 +536,13 @@
         "free": "Free",
         "pro": "Pro",
         "loading": "Loading…"
+      },
+      "max": {
+        "name": "cmux Max",
+        "activeBody": "Your Max plan is active. It renews on {date}.",
+        "pendingBody": "Your Max plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo",
+        "upsell": "Run machines with up to 64 GB RAM on Max for $200 per month, billed monthly."
       }
     },
     "testflight": {
@@ -791,18 +827,22 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "categories": {
+      "individual": {
+        "title": "For individuals",
+        "description": "Start free, then add cloud capacity as your work grows."
+      },
+      "business": {
+        "title": "For teams and businesses",
+        "description": "Shared billing, administration, and controls for your organization."
+      }
+    },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
-    "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
-    "perUserMonthBilledYearly": "/user/mo, billed yearly",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
-    "annual": "Annual",
-    "saveAnnual": "Save {discount}%",
-    "annualComparePrice": "${monthly}/mo",
     "teamMonthlyComparePrice": "${monthly}/user/mo",
-    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -817,6 +857,17 @@
         "Browser panels, a scriptable socket API, and custom skills",
         "Local session history",
         "Community support on Discord and GitHub"
+      ]
+    },
+    "go": {
+      "name": "Go",
+      "cta": "Get Go",
+      "featuresLead": "A small Cloud VM for focused work:",
+      "features": [
+        "1 active Cloud VM",
+        "2 vCPU, 4 GiB RAM, and 16 GiB disk",
+        "2 saved VMs in total, including the running VM",
+        "40 included VM-hours each month; VMs pause at the limit"
       ]
     },
     "pro": {
@@ -835,6 +886,15 @@
       ],
       "hostedNetworkingFeatures": [
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
+      ]
+    },
+    "max": {
+      "name": "Max",
+      "cta": "Get Max",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Up to 64 GB RAM per machine",
+        "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
       ]
     },
     "team": {
@@ -867,131 +927,176 @@
           "label": "Native macOS terminal, open source",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Local CLI agents with your own keys",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Vertical tabs, splits, notifications, socket API",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Session history",
           "free": "Local",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
           "enterprise": "Unlimited",
-          "vault": true
+          "vault": true,
+          "go": "Local"
         },
         {
           "label": "cmux Vault: cloud session backup",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Search across all your sessions",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud agents on Cloud VMs",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
           "pro": "50",
+          "max": "50",
           "team": "50 per user",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "1"
         },
         {
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
+          "max": "64 GB RAM and 16 vCPUs per VM",
           "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
+        },
+        {
+          "label": "Largest Cloud VM",
+          "free": "24 GB RAM",
+          "pro": "24 GB RAM",
+          "max": "64 GB RAM",
+          "team": "24 GB RAM",
+          "enterprise": "Custom",
+          "go": "4 GiB RAM"
         },
         {
           "label": "Workspaces",
           "free": "Unlimited",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
-          "enterprise": "Unlimited"
+          "enterprise": "Unlimited",
+          "go": "Unlimited"
         },
         {
           "label": "iOS app",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Networking to reach your Mac",
           "free": "Bring your own",
           "pro": "Hosted",
+          "max": "Hosted",
           "team": "Hosted",
           "enterprise": "Self-hosted",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "Bring your own"
         },
         {
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Self-hosted and air-gapped execution",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Audit logs: sessions, network, browser",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Volume pricing",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 and an SLA",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Support",
           "free": "Community",
           "pro": "Email",
+          "max": "Email",
           "team": "Priority",
-          "enterprise": "Dedicated"
+          "enterprise": "Dedicated",
+          "go": "Community"
         }
       ]
     },
@@ -1005,7 +1110,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same pool per user."
+        },
+        {
+          "q": "What does Max add?",
+          "a": "Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. It includes everything in Pro and unlocks Cloud VMs with 32 GB or 64 GB RAM. Pro, Team, and Free machines top out at 24 GB RAM."
         },
         {
           "q": "What is cmux Vault?",
@@ -1018,7 +1127,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
+          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -1026,7 +1135,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo, or $48/user/mo when billed annually, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -1037,11 +1146,20 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
+    "billingAnnualUnavailable": "Annual billing is not available for new subscriptions. Choose a monthly plan below.",
+    "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
     "signedOutSignIn": "Sign in",
     "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
-    "welcomeTeam": "Your cmux Team purchase is complete."
+    "welcomeTeam": "Your cmux Team purchase is complete.",
+    "audience": {
+      "label": "Pricing audience",
+      "individual": "Individual",
+      "team": "Team & Enterprise"
+    },
+    "priceMonthlyNote": "${amount}/mo when billed monthly",
+    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",

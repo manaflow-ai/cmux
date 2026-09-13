@@ -16,28 +16,38 @@ import {
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
+  MAX_PLAN_ID,
+  GO_PLAN_ID,
+  PRO_PLAN_ID,
   isStripePortalRecoverable,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
   stripeBillingStatusForUser,
+  type PersonalPlanId,
 } from "../../../../services/billing/pro";
 import { captureBillingError } from "../../../../services/errors";
 import {
   isStripeBillingConfigured,
+  resolveMaxPrice,
+  resolveGoPrice,
   resolveProPrice,
   resolveTeamPrice,
   stripe,
 } from "../../../../services/billing/stripe";
 import {
-  billingInterval,
+  CHECKOUT_BILLING_INTERVAL,
   type BillingInterval,
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
+  forwardCheckoutAttribution,
   type CheckoutAttribution,
 } from "../../../../services/analytics/checkoutAttribution";
+import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
+import { personalPortalSession } from "../../../../services/billing/personalPortal";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -60,6 +70,52 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
 }
 
+// Action codes are stable across locales. The fallback action contains only
+// invariant command syntax or a URL, which older CLI clients can still use.
+function nativeCheckoutError(error: "unauthorized" | "invalid_plan" | "billing_unavailable" | "plan_unavailable") {
+  const actions = {
+    unauthorized: { actionCode: "auth_login", action: "cmux auth login", status: 401 },
+    invalid_plan: { actionCode: "choose_plan", action: "cmux billing checkout --plan <go|pro|max>", status: 400 },
+    billing_unavailable: { actionCode: "open_pricing", action: "https://cmux.com/pricing", status: 503 },
+    plan_unavailable: { actionCode: "plan_unavailable", action: "cmux billing checkout --plan pro", status: 403 },
+  } as const;
+  const { status, ...action } = actions[error];
+  return NextResponse.json({ error, ...action }, { status });
+}
+
+async function goPlanUnavailable(userID: string, plan: unknown): Promise<boolean> {
+  return plan === "go" && !(await isGoPlanEnabled(userID));
+}
+
+/** Native/CLI checkout binds the purchaser to the app's authenticated account. */
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!parseNativeStackTokens(request)) return nativeCheckoutError("unauthorized");
+  try {
+    const user = await verifyRequest(request);
+    if (!user || user.isAnonymous) return nativeCheckoutError("unauthorized");
+    const body = await request.json();
+    if (body?.plan !== "go" && body?.plan !== "max" && body?.plan !== "pro") return nativeCheckoutError("invalid_plan");
+    if (await goPlanUnavailable(user.id, body.plan)) return nativeCheckoutError("plan_unavailable");
+    const app = await checkoutStackServerApp();
+    if (!app || !isStripeBillingConfigured()) return nativeCheckoutError("billing_unavailable");
+    const attribution = checkoutAttributionFromRequest({ searchParams: new URLSearchParams({ cmux_source: "cli_billing_checkout", cmux_client: "cli" }) });
+    const scheme = validatedNativeCallbackScheme(typeof body.cmux_scheme === "string" ? body.cmux_scheme : null, request);
+    const response = await stripePersonalCheckout(request, app, body.plan, "month", scheme, attribution, user.id);
+    const destination = response.headers.get("location");
+    if (!destination) throw new Error("Checkout destination is unavailable");
+    const url = new URL(destination);
+    if (url.pathname === "/api/billing/portal" && url.origin === requestOrigin(request)) {
+      const portal = await personalPortalSession({ userId: user.id, origin: requestOrigin(request), target: body.plan, attribution });
+      return NextResponse.json({ url: portal.url, plan: body.plan, flow: "portal" });
+    }
+    if (url.searchParams.has("billing")) return nativeCheckoutError("billing_unavailable");
+    return NextResponse.json({ url: destination, plan: body.plan, flow: url.searchParams.has("welcome") ? "already_active" : "checkout" });
+  } catch (error) {
+    captureBillingError(error, { route: "/api/billing/checkout", method: "POST" });
+    return nativeCheckoutError("billing_unavailable");
+  }
+}
+
 async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (
     isAppStoreDistributionMode({
@@ -71,9 +127,12 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   }
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
-  const interval = checkoutBillingInterval(
-    request.nextUrl.searchParams.get("interval"),
-  );
+  const intervalError = unavailableIntervalResponse(request);
+  if (intervalError) return intervalError;
+  if (plan === GO_PLAN_ID && !(await isGoPlanEnabled())) {
+    return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
+  }
+  const interval = CHECKOUT_BILLING_INTERVAL;
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
   const hasRelayAssertion =
@@ -117,18 +176,16 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   if (!plan) {
     return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
   }
-  if (!interval) {
-    return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
-  }
 
   if (!isStripeBillingConfigured()) {
     return NextResponse.redirect(new URL("/pricing?billing=unavailable", requestOrigin(request)));
   }
 
-  if (plan === "pro") {
-    return stripeProCheckout(
+  if (plan === "go" || plan === "pro" || plan === "max") {
+    return stripePersonalCheckout(
       request,
       stackServerApp,
+      plan,
       interval,
       callbackScheme,
       attribution,
@@ -143,22 +200,33 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       attribution,
     );
   }
-  // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
-  // unreachable but keeps GET returning a NextResponse instead of possibly-undefined.
+  // checkoutPlan only yields "go" | "pro" | "max" | "team" | null (null handled above);
+  // this is unreachable but keeps GET returning a NextResponse.
   return NextResponse.redirect(new URL("/pricing?billing=invalid_plan", requestOrigin(request)));
 }
 
-async function stripeProCheckout(
+/**
+ * Personal checkout for Pro or Max. Both bill the same Stripe customer, so an
+ * account with an active personal subscription never gets a second one: a
+ * Pro subscriber asking for Max is sent to the Billing Portal's plan-switch
+ * flow (Stripe prorates and confirms), and every other active or recoverable
+ * state goes to the plain portal as before.
+ */
+// oxlint-disable-next-line complexity -- Checkout handles account deletion, recovery, attribution, and three personal plans at one billing boundary.
+async function stripePersonalCheckout(
   request: NextRequest,
   stackServerApp: CheckoutStackServerApp,
+  plan: PersonalPlanId,
   interval: BillingInterval,
   callbackScheme: string,
   attribution: CheckoutAttribution,
+  authenticatedUserId?: string,
 ) {
   try {
-    const user =
+    const user = authenticatedUserId ? await stackServerApp.getUser(authenticatedUserId) :
       (await stackServerApp.getUser({ or: "return-null" })) ??
       (await stackServerApp.getUser({ or: "anonymous" }));
+    if (!user) throw new Error("Checkout account is unavailable");
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
@@ -167,16 +235,25 @@ async function stripeProCheckout(
     const stackUserId = checkoutPrincipalId(user.id, "user");
 
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
-    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     // Keep stale Upgrade links from opening a second subscription. Any
     // currently active row (even behind a newer canceled one) means the portal
     // is the right destination; the portal also recovers past-due/unpaid and
     // cancel-at-period-end states, but it cannot start a new subscription
     // after a terminal cancellation.
-    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
-      return NextResponse.redirect(new URL("/api/billing/portal", requestOrigin(request)));
+    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+      const portalURL = new URL("/api/billing/portal", requestOrigin(request));
+      if (
+        plan !== GO_PLAN_ID && stripeBillingStatus.hasActiveSubscription &&
+        stripeBillingStatus.activePlanId !== plan
+      ) {
+        portalURL.searchParams.set("flow", "switch_plan");
+        portalURL.searchParams.set("plan", plan);
+      }
+      forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
+      return NextResponse.redirect(portalURL);
     }
-    if (status.isPro) {
+    const status = await resolveProPlanStatus(user, { stripeBillingStatus });
+    if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 
@@ -187,7 +264,7 @@ async function stripeProCheckout(
     cancelUrl.searchParams.set("interval", interval);
     const metadata = {
       stackUserId,
-      plan: "pro",
+      plan,
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
@@ -198,7 +275,11 @@ async function stripeProCheckout(
       mode: "subscription",
       line_items: [
         {
-          price: await resolveProPrice(interval),
+          price: plan === MAX_PLAN_ID
+            ? await resolveMaxPrice()
+            : plan === GO_PLAN_ID
+              ? await resolveGoPrice()
+              : await resolveProPrice(interval),
           quantity: 1,
         },
       ],
@@ -221,7 +302,7 @@ async function stripeProCheckout(
     deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
       sessionId: session.id,
       subject: { scope: "user", stackUserId },
-      plan: "pro",
+      plan,
       billingInterval: interval,
       attribution,
       signedIn: !user.isAnonymous,
@@ -231,7 +312,7 @@ async function stripeProCheckout(
   } catch (error) {
     captureBillingError(error, {
       route: "/api/billing/checkout",
-      plan: "pro",
+      plan,
       interval,
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
@@ -449,16 +530,18 @@ async function checkoutTeamSeatCount(team: CheckoutTeamCustomer): Promise<number
   return Math.max(1, users.length);
 }
 
-function checkoutPlan(raw: string | null): "pro" | "team" | null {
+function checkoutPlan(raw: string | null): "go" | "pro" | "max" | "team" | null {
   if (!raw) return "pro";
   const plan = raw.trim().toLowerCase();
-  if (plan === "pro" || plan === "team") return plan;
+  if (plan === "go" || plan === "pro" || plan === "max" || plan === "team") return plan;
   return null;
 }
 
-function checkoutBillingInterval(raw: string | null): BillingInterval | null {
-  if (raw === null) return billingInterval(raw);
-  return raw === "month" || raw === "year" ? raw : null;
+function unavailableIntervalResponse(request: NextRequest): NextResponse | null {
+  const raw = request.nextUrl.searchParams.get("interval");
+  if (raw === null || raw === CHECKOUT_BILLING_INTERVAL) return null;
+  const error = raw === "year" ? "annual_unavailable" : "invalid_plan";
+  return NextResponse.redirect(new URL(`/pricing?billing=${error}`, requestOrigin(request)));
 }
 
 async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> {

@@ -22,8 +22,31 @@
       "title": "ต้องใช้ cmux Pro",
       "message": "Cloud VM ต้องใช้แผน cmux Pro",
       "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "เครื่องขนาด {memory} GiB ต้องใช้ cmux {plan} แผนของคุณรองรับสูงสุด {max} GiB",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "ไม่สามารถตรวจสอบขนาด RAM ของเครื่องต้นทางได้",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
+      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
+      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
+      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
+      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+    }},
   "billingRecovery": {
     "message": "หากเราพบบัญชี โปรดตรวจสอบอีเมลเพื่อดูขั้นตอนถัดไป"
   },

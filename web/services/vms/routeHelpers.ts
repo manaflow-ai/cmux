@@ -22,6 +22,7 @@ import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
   resolveVmEntitlements,
+  upgradePlanForMemory,
   type VmEntitlements,
 } from "./entitlements";
 import {
@@ -38,6 +39,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { goCapacityConstraint } from "./goUsage";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -55,6 +57,8 @@ import {
   vmArtifactUnavailableCopy,
   vmRequestLocale,
   vmRequiresProCopy,
+  vmMemoryErrorCopy,
+  vmGoLimitCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
@@ -470,6 +474,50 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
 }
 
 /**
+ * A machine size the ladder offers but the caller's plan does not include
+ * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
+ * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
+ * plus the plan that unlocks the size, and it is never silently coerced.
+ */
+export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: Locale): Promise<Response> {
+  const copy = await vmMemoryErrorCopy("memoryUnavailable", locale, { max: maxMemoryMb / 1024 });
+  return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
+}
+
+export async function vmMemoryRequiresPlanResponse(input: {
+  readonly memoryMb: number;
+  readonly maxMemoryMb: number;
+  readonly planId: string;
+  readonly upgradePlanId: string;
+}, locale: Locale = "en"): Promise<Response> {
+  const memoryGb = Math.round(input.memoryMb / 1024);
+  const maxGb = Math.round(input.maxMemoryMb / 1024);
+  const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
+  const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
+  const copy = await vmMemoryErrorCopy("memoryPlan", locale, {
+    memory: memoryGb, max: maxGb, plan: upgradeName, planId: input.upgradePlanId, upgradeUrl,
+  });
+  return vmErrorResponse({
+    error: "vm_memory_requires_plan",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: "billing",
+    retryable: false,
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId },
+    extra: {
+      upgradeRequired: true,
+      upgradeUrl,
+      upgradePlanId: input.upgradePlanId,
+      planId: input.planId,
+      memoryMb: input.memoryMb,
+      maxMemoryMb: input.maxMemoryMb,
+    },
+  });
+}
+
+/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
@@ -482,6 +530,7 @@ export function vmActiveLimitExceededResponse(input: {
   readonly phase?: VmLifecyclePhase;
 }): Response {
   const paid = isPaidVmPlan(input.planId);
+  if (input.planId === "go") return goLimitResponse("active");
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
     return vmErrorResponse({
@@ -646,7 +695,49 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
+export function goLimitResponse(kind: "saved" | "active" | "hours"): Response {
+  const message = kind === "hours"
+    ? "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved."
+    : kind === "saved" ? "Go includes two saved VMs in total, including the running VM."
+      : "Go includes one running VM at a time.";
+  const next = kind === "hours" ? "Wait for your next billing month"
+    : kind === "saved" ? "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM"
+      : "Run `cmux vm pause <id>` to pause the running VM";
+  return vmErrorResponse({
+    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
+    status: 402, message,
+    action: `${next}, or run \`cmux billing checkout --plan pro\` to upgrade. Review the price before you pay.`,
+    phase: "billing", retryable: false,
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  });
+}
+
+async function localizedGoLimitResponse(
+  kind: "saved" | "active" | "hours",
+  locale: Locale,
+): Promise<Response> {
+  const copy = await vmGoLimitCopy(kind, locale);
+  return vmErrorResponse({
+    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    phase: "billing",
+    retryable: false,
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  });
+}
+
 export const vmWorkflowErrorResponders = {
+  VmMemoryPlanError: async (error, context) => {
+    if (error.memoryMb === null) {
+      const copy = await vmMemoryErrorCopy("memoryUnknown", context.locale);
+      return vmErrorResponse({ error: "vm_memory_size_unknown", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing", retryable: false });
+    }
+    const upgradePlanId = upgradePlanForMemory(error.memoryMb, error.planId);
+    if (!upgradePlanId) return vmMemoryUnavailableResponse(error.maxMemoryMb, context.locale);
+    return vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId }, context.locale);
+  },
   VmOperationUnsupportedError: (error, context) => vmUnsupportedOperationResponse(error, context.locale),
   VmProviderOperationError: (error, context) => {
     // A driver may report "unsupported" from inside a provider call; that is
@@ -799,8 +890,10 @@ export const vmWorkflowErrorResponders = {
       phase: "create",
       retryable: true,
     }),
-  VmDatabaseError: (error) =>
-    vmErrorResponse({
+  VmDatabaseError: (error, context) => {
+    const limit = goCapacityConstraint(error.cause);
+    if (limit && limit !== "period") return localizedGoLimitResponse(limit, context.locale);
+    return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
       message: "Cloud VM state is temporarily unavailable.",
@@ -811,7 +904,8 @@ export const vmWorkflowErrorResponders = {
       displayTitle: "Cloud VM state is unavailable",
       displayMessage: "Retrying is safe. The VM state database did not answer this request.",
       details: { operation: error.operation },
-    }),
+    });
+  },
   VmBillingError: (error) =>
     vmErrorResponse({
       error: "vm_billing_unavailable",
@@ -835,6 +929,17 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
+  VmUsageLimitExceededError: (_error, context) => localizedGoLimitResponse("hours", context.locale),
+  VmSavedLimitExceededError: (_error, context) => localizedGoLimitResponse("saved", context.locale),
+  VmGoShapeError: async (_error, context) => {
+    const copy = await vmGoLimitCopy("shape", context.locale);
+    return vmErrorResponse({
+      error: "vm_resources_require_pro", status: 402, phase: "billing",
+      message: copy.message,
+      action: copy.action,
+      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+    });
+  },
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,

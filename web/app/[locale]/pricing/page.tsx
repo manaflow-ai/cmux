@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
@@ -5,6 +6,8 @@ import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import {
+  MAX_CHECKOUT_URL,
+  GO_CHECKOUT_URL,
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
@@ -17,7 +20,11 @@ import {
 } from "../../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
-import { resolveProPlanStatus } from "../../../services/billing/pro";
+import {
+  MAX_PLAN_ID,
+  GO_PLAN_ID,
+  resolveProPlanStatus,
+} from "../../../services/billing/pro";
 import {
   buildAlternates,
   openGraphDefaults,
@@ -33,6 +40,7 @@ import {
   DisabledButton,
   FeatureList,
   PlanCard,
+  PricingCategorySection,
   PricingCompareTable,
   PrimaryLink,
   SecondaryLink,
@@ -44,16 +52,17 @@ import {
 } from "../../components/pricing-shared";
 import {
   PricingCheckoutButton,
-  PricingIntervalProvider,
-  PricingIntervalSelector,
-  PricingIntervalValue,
-} from "../../components/pricing-interval-selector";
+  PricingView,
+} from "../../components/pricing-checkout";
+import { PricingAudienceSelector } from "../../components/pricing-audience-selector";
 import {
+  MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
-  proBillingInterval,
 } from "../../../services/billing/plans";
 import { isVaultEnabled } from "../../../services/vault/config";
+import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -94,6 +103,7 @@ export async function generateMetadata({
   };
 }
 
+// oxlint-disable-next-line complexity -- Pricing presentation keeps all five plan actions and billing states together.
 export default async function PricingPage({
   params,
   searchParams,
@@ -105,8 +115,13 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const goPlanEnabled = await isGoPlanEnabled();
   const canManageBilling = snapshot.billingManagement === "stripe";
-  const interval = proBillingInterval(firstParam(query.interval) ?? "year");
+  // Max satisfies every "is Pro" check, so the Pro card must not call a Max
+  // subscriber's plan current; only the Max card does.
+  const isMax = snapshot.planId === MAX_PLAN_ID;
+  const isGo = snapshot.planId === GO_PLAN_ID;
+  const isProCurrent = snapshot.isPro && !isMax && !isGo;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
   // is attributed to the surface that sent the visitor here.
@@ -116,22 +131,13 @@ export default async function PricingPage({
   };
   const proCheckoutURL = withCheckoutAttribution(PRO_CHECKOUT_URL, attribution);
   const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
-  const proCheckoutHrefs = {
-    month: withCheckoutInterval(proCheckoutURL, "month"),
-    year: withCheckoutInterval(proCheckoutURL, "year"),
-  };
-  const teamCheckoutHrefs = {
-    month: withCheckoutInterval(teamCheckoutURL, "month"),
-    year: withCheckoutInterval(teamCheckoutURL, "year"),
-  };
-  const annualComparePrice = t("annualComparePrice", {
-    monthly: PRO_PRICING_USD.year.monthlyEquivalent,
-  });
+  // Max is monthly only: one checkout link, no interval parameter.
+  const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
+  const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
+  const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
+  const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
-  });
-  const teamAnnualComparePrice = t("teamAnnualComparePrice", {
-    monthly: TEAM_PRICING_USD.year.monthlyEquivalent,
   });
 
   const freeFeatures = t.raw("free.features") as string[];
@@ -148,6 +154,7 @@ export default async function PricingPage({
     hostedNetworking: proNetworkingFeatures,
     visibility: featureVisibility,
   });
+  const maxFeatures = t.raw("max.features") as string[];
   const teamFeatures = t.raw("team.features") as string[];
   const enterpriseFeatures = t.raw("enterprise.features") as string[];
   const compareRows = visibleCompareRows(
@@ -172,21 +179,21 @@ export default async function PricingPage({
           <ProWelcomeBanner />
         </Suspense>
 
-        <PricingIntervalProvider initialInterval={interval}>
+        <PricingView surface="public_pricing">
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <PricingIntervalSelector
-            billingPeriodLabel={t("billingPeriod")}
-            monthlyLabel={t("monthly")}
-            annualLabel={t("annual")}
-            savingsLabel={t("saveAnnual", {
-              discount: PRO_PRICING_USD.year.discountPercent,
-            })}
-            surface="public_pricing"
-          />
-
-          {/* Tier cards */}
-          <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-4 items-stretch">
+          <PricingAudienceSelector
+            individualLabel={t("audience.individual")}
+            teamLabel={t("audience.team")}
+            ariaLabel={t("audience.label")}
+            individual={
+<PricingCategorySection
+            showHeading={false}
+            id="individual-pricing-category"
+            title={t("categories.individual.title")}
+            description={t("categories.individual.description")}
+            columns={goPlanEnabled ? "four" : "three"}
+          >
             {/* Free */}
             <PlanCard
               name={t("free.name")}
@@ -200,40 +207,57 @@ export default async function PricingPage({
               <FeatureList items={freeFeatures} />
             </PlanCard>
 
+            {goPlanEnabled ? <>
+            {/* Go: one small, capped Cloud VM for focused work. */}
+            <PlanCard
+              name={t("go.name")}
+              price={`$${GO_PRICING_USD.month.billedAmount}`}
+              period={t("perMonth")}
+              badge={isGo ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null}
+            >
+              {isGo ? (
+                <div className="space-y-2">
+                  <DisabledButton>{t("currentPlan")}</DisabledButton>
+                  {canManageBilling ? <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink> : null}
+                </div>
+              ) : (
+                <PricingCheckoutButton
+                  href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+                  location="pricing_page"
+                  plan="go"
+                >
+                  {t("go.cta")}
+                </PricingCheckoutButton>
+              )}
+              <p className="mt-5 text-sm font-medium">{t("go.featuresLead")}</p>
+              <FeatureList items={t.raw("go.features") as string[]} />
+            </PlanCard>
+            </> : null}
+
             {/* Pro */}
             <PlanCard
               name={t("pro.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
-                  annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perMonth")}
-                  annual={t("perMonthBilledYearly")}
-                />
-              }
+              price={`$${PRO_PRICING_USD.month.billedAmount}`}
+              period={t("perMonth")}
               badge={
-                snapshot.isPro ? (
+                isProCurrent ? (
                   <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
                 ) : null
               }
             >
-              {snapshot.isPro ? (
+              {isProCurrent ? (
                 <div className="space-y-2">
                   <DisabledButton>{t("currentPlan")}</DisabledButton>
                   <SecondaryLink href="/api/billing/portal">
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
-              ) : canManageBilling ? (
+              ) : (canManageBilling && !isGo) || isMax ? (
                 <SecondaryLink href="/api/billing/portal">
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
+                <ProCtaLink checkoutHref={proCheckoutHref}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -241,24 +265,61 @@ export default async function PricingPage({
               <FeatureList items={proFeatures} />
             </PlanCard>
 
+            {/* Max: larger machines on the monthly personal plan.
+                A Pro subscriber sees checkout; the server routes an active
+                Pro subscription to the Stripe portal upgrade flow. */}
+            <PlanCard
+              name={t("max.name")}
+              price={`$${MAX_PRICING_USD.month.billedAmount}`}
+              period={t("perMonth")}
+              badge={
+                isMax ? (
+                  <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+                ) : null
+              }
+            >
+              {isMax ? (
+                <div className="space-y-2">
+                  <DisabledButton>{t("currentPlan")}</DisabledButton>
+                  <SecondaryLink href="/api/billing/portal">
+                    {t("manageBilling")}
+                  </SecondaryLink>
+                </div>
+              ) : canManageBilling && !snapshot.isPro ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
+              ) : (
+                <PricingCheckoutButton
+                  href={maxCheckoutHref}
+                  location="pricing_page"
+                  plan="max"
+                >
+                  {t("max.cta")}
+                </PricingCheckoutButton>
+              )}
+              <p className="mt-5 text-sm font-medium">{t("max.featuresLead")}</p>
+              <FeatureList items={maxFeatures} />
+            </PlanCard>
+
+          </PricingCategorySection>
+            }
+            team={
+<PricingCategorySection
+            showHeading={false}
+            id="team-enterprise-pricing-category"
+            title={t("categories.business.title")}
+            description={t("categories.business.description")}
+            columns="two"
+          >
             {/* Team */}
             <PlanCard
               name={t("team.name")}
-              price={
-                <PricingIntervalValue
-                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
-                  annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
-                />
-              }
-              period={
-                <PricingIntervalValue
-                  monthly={t("perUserMonth")}
-                  annual={t("perUserMonthBilledYearly")}
-                />
-              }
+              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+              period={t("perUserMonth")}
             >
               <PricingCheckoutButton
-                hrefs={teamCheckoutHrefs}
+                href={teamCheckoutHref}
                 location="pricing_page"
                 plan="team"
               >
@@ -281,7 +342,9 @@ export default async function PricingPage({
               </p>
               <FeatureList items={enterpriseFeatures} />
             </PlanCard>
-          </div>
+          </PricingCategorySection>
+            }
+          />
 
           <p className="mt-6 text-sm text-muted">
             <Link
@@ -298,26 +361,21 @@ export default async function PricingPage({
           <section className="mt-16">
             <PricingCompareTable
               rows={compareRows}
+              showGo={goPlanEnabled}
               names={{
                 free: t("free.name"),
+                go: t("go.name"),
                 pro: t("pro.name"),
+                max: t("max.name"),
                 team: t("team.name"),
                 enterprise: t("enterprise.name"),
               }}
               prices={{
                 free: t("free.price"),
-                pro: (
-                  <PricingIntervalValue
-                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
-                    annual={annualComparePrice}
-                  />
-                ),
-                team: (
-                  <PricingIntervalValue
-                    monthly={teamMonthlyComparePrice}
-                    annual={teamAnnualComparePrice}
-                  />
-                ),
+                go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
+                pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
+                max: maxComparePrice,
+                team: teamMonthlyComparePrice,
                 enterprise: t("enterprise.price"),
               }}
               actions={{
@@ -327,15 +385,15 @@ export default async function PricingPage({
                   </PrimaryLink>
                 ),
                 pro: (
-                  snapshot.isPro ? (
+                  isProCurrent ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                  ) : canManageBilling ? (
+                  ) : (canManageBilling && !isGo) || isMax ? (
                     <SecondaryLink href="/api/billing/portal" size="compact">
                       {t("manageBilling")}
                     </SecondaryLink>
                   ) : (
                     <ProCtaLink
-                      checkoutHrefs={proCheckoutHrefs}
+                      checkoutHref={proCheckoutHref}
                       size="compact"
                       location="pricing_compare_header"
                     >
@@ -343,9 +401,27 @@ export default async function PricingPage({
                     </ProCtaLink>
                   )
                 ),
+                max: (
+                  isMax ? (
+                    <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : canManageBilling && !snapshot.isPro ? (
+                    <SecondaryLink href="/api/billing/portal" size="compact">
+                      {t("manageBilling")}
+                    </SecondaryLink>
+                  ) : (
+                    <PricingCheckoutButton
+                      href={maxCheckoutHref}
+                      location="pricing_compare_header"
+                      plan="max"
+                      size="compact"
+                    >
+                      {t("max.cta")}
+                    </PricingCheckoutButton>
+                  )
+                ),
                 team: (
                   <PricingCheckoutButton
-                    hrefs={teamCheckoutHrefs}
+                    href={teamCheckoutHref}
                     location="pricing_compare_header"
                     plan="team"
                     size="compact"
@@ -361,7 +437,7 @@ export default async function PricingPage({
               }}
             />
           </section>
-        </PricingIntervalProvider>
+        </PricingView>
 
         {/* FAQ */}
         <section className="mt-16 border-t border-border pt-10">
@@ -414,21 +490,29 @@ export default async function PricingPage({
   );
 }
 
-async function currentPlanSnapshot(): Promise<{
+type PlanSnapshot = {
+  planId: "free" | "go" | "pro" | "max";
   isPro: boolean;
   billingManagement: "stripe" | "none";
-}> {
+};
+
+async function currentPlanSnapshot(): Promise<PlanSnapshot> {
   if (!isStackConfigured()) {
-    return { isPro: false, billingManagement: "none" };
+    return { planId: "free", isPro: false, billingManagement: "none" };
   }
 
+  await connection();
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { isPro: false, billingManagement: "none" };
+    return { planId: "free", isPro: false, billingManagement: "none" };
   }
 
   const status = await resolveProPlanStatus(user);
-  return { isPro: status.isPro, billingManagement: status.billingManagement };
+  return {
+    planId: status.planId,
+    isPro: status.isPro,
+    billingManagement: status.billingManagement,
+  };
 }
 
 function firstParam(value: string | string[] | undefined): string | null {

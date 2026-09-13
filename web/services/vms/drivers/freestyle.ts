@@ -934,6 +934,9 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            ...(options.runtimeBudgetSeconds !== undefined ? {
+              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
+            } : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1078,6 +1081,20 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
+    const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
+    if (remainingSeconds === null) {
+      await vm.update({ maxRunTotalSeconds: -1, automaticRestart: true });
+      return;
+    }
+    const data = await vm.data();
+    const used = data.totalRunSeconds;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || !Number.isFinite(remainingSeconds) || remainingSeconds < 0) {
+      throw new ProviderError("freestyle", "setRuntimeBudget", new Error("Provider runtime counter is unavailable"));
+    }
+    await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
   }
 
   async resume(vmId: string): Promise<VMHandle> {

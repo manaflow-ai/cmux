@@ -24,6 +24,22 @@ struct NewMachineSheet: View {
         .padding(24)
         .frame(width: 500)
         .accessibilityIdentifier("NewMachineSheet")
+        .confirmationDialog(
+            String(format: String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@"), NewMachineModel.planDisplayName(model.selectedUpgradePlanId)),
+            isPresented: $model.showsMaxUpgrade,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
+                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
+            }
+        } message: {
+            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
+            + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await model.refreshPlan?() }
+        }
+
     }
 
     private var header: some View {
@@ -61,20 +77,45 @@ struct NewMachineSheet: View {
             }
 
             if let selectedSize = model.selectedSize {
-                Picker(selection: $model.memoryMb) {
+                Menu {
                     ForEach(model.memoryOptions, id: \.self) { memoryMb in
                         if let size = MachineSizeOption(memoryMb: memoryMb) {
-                            Text(size.menuTitle).tag(memoryMb)
+                            Button(size.menuTitle) { model.selectSize(memoryMb) }
+                        }
+                    }
+                    ForEach(model.lockedMemoryOptions, id: \.self) { memoryMb in
+                        if let size = MachineSizeOption(memoryMb: memoryMb) {
+                            Button { model.selectSize(memoryMb) } label: {
+                                Label(model.lockedSizeMenuTitle(size), systemImage: "lock.fill")
+                            }
+                            .disabled(model.upgradePlan(for: memoryMb) == nil)
+                            .accessibilityIdentifier("NewMachineSheet.size.locked.\(memoryMb)")
                         }
                     }
                 } label: {
                     Text(selectedSize.menuTitle)
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
                 .accessibilityIdentifier("NewMachineSheet.size")
                 .accessibilityLabel(String(localized: "machines.new.size.accessibilityLabel", defaultValue: "RAM size"))
                 .accessibilityValue(selectedSize.menuTitle)
+            }
+
+            if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(note)
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
+                    Spacer(minLength: 0)
+                    Button(upgradeTitle) {
+                        model.selectedUpgradePlanId = model.memoryUpgradePlanId ?? "max"
+                        model.showsMaxUpgrade = true
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("NewMachineSheet.size.upgrade")
+                }
             }
         }
         .accessibilityIdentifier("NewMachineSheet.sizeSection")

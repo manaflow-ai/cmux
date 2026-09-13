@@ -197,6 +197,12 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             localized: "cloudVM.error.requiresPro.action",
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
+    case "vm_memory_requires_plan":
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: .max)
+        return String(format: String(
+            localized: "cloudVM.error.memoryRequiresPlan.action",
+            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+        ), checkout.absoluteString)
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -370,6 +376,14 @@ struct VMPlanLimits {
     var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
+    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Max); nil when the control plane predates the field and the client
+    /// mirror decides.
+    var lockedMemoryOptionsMb: [Int]? = nil
+    /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
+    var memoryUpgradePlanId: String? = nil
+    var memoryUpgradePlansByMb: [String: String]? = nil
+    var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
@@ -862,6 +876,11 @@ actor VMClient {
                     freeAccessWindowDays: freeAccessWindowDays,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                    memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                        .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                    memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
             }
@@ -1244,6 +1263,21 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    /// Creates a payment confirmation URL for the signed-in app account.
+    func billingCheckout(plan: String) async throws -> [String: Any] {
+        let (data, http) = try await request("POST", path: "/api/billing/checkout", jsonBody: [
+            "plan": plan
+        ])
+        try ensureOK(http, data: data)
+        let result = try decodeJSONObject(data)
+        guard let rawURL = result["url"] as? String,
+              let url = URL(string: rawURL),
+              url.scheme == "https" || url.scheme == "http" else {
+            throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
+        }
+        return result
+    }
+
     func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]

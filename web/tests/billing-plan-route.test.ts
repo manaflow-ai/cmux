@@ -107,6 +107,22 @@ describe("billing plan route", () => {
     expect(response.billingManagement).toBe("none");
   });
 
+  test("reports max as subscriptionPlanId while keeping planId at pro for older clients", async () => {
+    currentUser = planUser();
+    // Personal snapshot: subscription rows, then the active-plan query.
+    stripeSubscriptionResults = [
+      [{ id: "sub_max", status: "active", cancelAtPeriodEnd: false, plan: "max" }],
+      [{ plan: "max" }],
+    ];
+
+    const response = await planResponse();
+
+    expect(response.planId).toBe("pro");
+    expect(response.subscriptionPlanId).toBe("max");
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("stripe");
+  });
+
   test("reports Stripe management for an active Team subscription row", async () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },

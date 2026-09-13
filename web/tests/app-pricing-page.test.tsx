@@ -6,6 +6,9 @@ import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 import { withAccountMutationLeaseSupport } from
   "./helpers/account-mutation-db-mock";
 
+const nextServer = { ...await import("next/server") };
+mock.module("next/server", () => ({ ...nextServer, connection: async () => undefined }));
+
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
@@ -55,7 +58,7 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
+        where: () => Object.assign(Promise.resolve(table === stripeSubscriptions ? stripeSubscriptionRows : []), {
           limit: async () => (table === stripeSubscriptions ? stripeSubscriptionRows : []),
         }),
       }),
@@ -96,10 +99,21 @@ describe("app pricing page", () => {
     expect(html).toContain(
       "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test",
     );
+    expect(html).toContain(
+      "http://localhost:9210/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
+    );
+    expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
-    expect(html).not.toContain("/mo.");
     expect(html).toContain("$50");
+    expect(html).toContain("$200");
+    expect(html).toContain("$10");
+    expect(html).toContain("Get Go");
+    expect(html).toContain("For individuals");
+    expect(html).toContain("For teams and businesses");
+    expect(html).toContain("Get Max");
+    expect(html).toContain("Up to 64 GB RAM per machine");
+    expect(html).toContain("Largest Cloud VM");
     expect(html).toContain("$60/user/mo");
     expect(html).toContain(
       "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs",
@@ -107,8 +121,13 @@ describe("app pricing page", () => {
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
     expect(html).toContain("text-3xl font-medium tabular-nums tracking-tight");
-    expect(html).toContain("sm:grid-cols-2 lg:grid-cols-4");
+    expect(html).toContain("md:grid-cols-2 lg:grid-cols-4");
+    expect(html).toContain("$10");
+    expect(html).toContain("Get Go");
+    expect(html).toContain("For individuals");
+    expect(html).toContain("For teams and businesses");
     expect(html.split("api/billing/checkout?plan=pro")).toHaveLength(2);
+    expect(html.split("api/billing/checkout?plan=max")).toHaveLength(2);
     expect(html.split("api/billing/checkout?plan=team")).toHaveLength(2);
     expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
@@ -167,7 +186,7 @@ describe("app pricing page", () => {
     );
   });
 
-  test("renders annual pricing and preserves native checkout context", async () => {
+  test("renders monthly pricing and preserves native checkout context", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -181,26 +200,30 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("$40");
-    expect(html).toContain("$48");
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
-    expect(html).toContain("/mo, billed yearly");
-    expect(html).toContain("/user/mo, billed yearly");
-    expect(html).not.toContain("/mo.");
+    expect(html).not.toContain("/mo, billed yearly");
+    expect(html).not.toContain("/user/mo, billed yearly");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
-    expect(html).toContain("$48/user/mo");
+    expect(html).toContain("$60/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
+    // Max ignores the annual selector: still $200 /mo, never billed yearly.
+    expect(html).toContain("$200");
+    expect(html).toContain("$200 /mo");
+    expect(html).not.toContain("$200/mo, billed yearly");
+    expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
+      "http://localhost:9210/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
     );
     expect(html).toContain(
-      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=year&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
+      "http://localhost:9210/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_scheme=cmux-dev-test&amp;interval=month&amp;cmux_source=app_pricing&amp;cmux_client=mac&amp;cmux_placement=app_pricing",
     );
-    expect(html).toContain('role="radiogroup"');
-    expect(html).toContain('<button type="button" role="radio" aria-checked="true"');
+    expect(html).not.toContain('role="radiogroup"');
+    expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");
     expect(html).toContain('data-cmux-app-theme="true"');
     expect(html).toContain("--ghostty-background:#112233");
@@ -208,14 +231,12 @@ describe("app pricing page", () => {
     expect(html).toContain("--cmux-product-blue:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
     expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
-    expect(html).toContain("mx-auto mt-6 flex w-fit");
-    expect(html).toContain(
-      '<span class="ml-1.5 text-xs font-medium" style="color:inherit">Save 20%</span>',
-    );
+    expect(html).toContain('data-testid="pricing-controls"');
+    expect(html).not.toContain("Save 20%");
     expect(html).toContain('href="/enterprise?cmux_external_browser=1"');
   });
 
-  test("uses the product accent for the inactive annual savings label", async () => {
+  test("does not advertise annual savings", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
         cmux_app: "1",
@@ -225,9 +246,7 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain(
-      '<span class="ml-1.5 text-xs font-medium" style="color:var(--cmux-product-blue-on-background, var(--cmux-product-blue, #0088ff))">Save 20%</span>',
-    );
+    expect(html).not.toContain("Save 20%");
   });
 
   test("removes external purchase links in App Store distribution mode", async () => {
@@ -269,7 +288,7 @@ describe("app pricing page", () => {
   test("hides the billing portal link for Pro users in App Store distribution mode", async () => {
     stackConfigured = true;
     currentUser = proUser;
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -288,7 +307,7 @@ describe("app pricing page", () => {
   test("renders Manage billing for Stripe-managed Pro users", async () => {
     stackConfigured = true;
     currentUser = proUser;
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -301,6 +320,9 @@ describe("app pricing page", () => {
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    // A Pro subscriber can still upgrade to Max from the app.
+    expect(html).toContain("api/billing/checkout?plan=max");
+    expect(html).toContain("Get Max");
   });
 
   for (const [name, params, message] of [

@@ -71635,57 +71635,237 @@
     "cli.browser.download.error.invalidArguments": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Invalid browser download arguments: %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザダウンロードの引数が無効です: %@" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器下载参数无效：%@" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ungültige Browser-Download-Argumente: %@" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Arguments de téléchargement du navigateur invalides : %@" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "وسيطات تنزيل المتصفح غير صالحة: %@" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Argumentos de descarga del navegador no válidos: %@" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器下載引數無效：%@" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 다운로드 인수가 올바르지 않습니다: %@" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid browser download arguments: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザダウンロードの引数が無効です: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器下载参数无效：%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Browser-Download-Argumente: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arguments de téléchargement du navigateur invalides : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيطات تنزيل المتصفح غير صالحة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumentos de descarga del navegador no válidos: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器下載引數無效：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 다운로드 인수가 올바르지 않습니다: %@"
+          }
+        }
       }
     },
     "cli.browser.download.error.surfaceRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "browser download requires a surface handle" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザのダウンロードにはサーフェスハンドルが必要です" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "浏览器下载需要 surface 句柄" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Browser-Downloads benötigen einen Surface-Handle" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Le téléchargement du navigateur nécessite un descripteur de surface" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تنزيل المتصفح معرّف سطح" } },
-        "es": { "stringUnit": { "state": "translated", "value": "La descarga del navegador requiere un identificador de superficie" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瀏覽器下載需要 surface 控點" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "브라우저 다운로드에는 surface 핸들이 필요합니다" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser download requires a surface handle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのダウンロードにはサーフェスハンドルが必要です"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器下载需要 surface 句柄"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Downloads benötigen einen Surface-Handle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le téléchargement du navigateur nécessite un descripteur de surface"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب تنزيل المتصفح معرّف سطح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descarga del navegador requiere un identificador de superficie"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器下載需要 surface 控點"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 다운로드에는 surface 핸들이 필요합니다"
+          }
+        }
       }
     },
     "cli.browser.download.list.empty": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "No recent downloads." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "最近のダウンロードはありません。" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "没有最近的下载。" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Keine aktuellen Downloads." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Aucun téléchargement récent." } },
-        "ar": { "stringUnit": { "state": "translated", "value": "لا توجد تنزيلات حديثة." } },
-        "es": { "stringUnit": { "state": "translated", "value": "No hay descargas recientes." } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "沒有最近的下載。" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "최근 다운로드가 없습니다." } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recent downloads."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近のダウンロードはありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有最近的下载。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aktuellen Downloads."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun téléchargement récent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد تنزيلات حديثة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay descargas recientes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有最近的下載。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 다운로드가 없습니다."
+          }
+        }
       }
     },
     "cli.browser.download.list.entry": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   path: %5$@\n   bytes: %6$@\n   path_exists: %7$@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   パス: %5$@\n   バイト: %6$@\n   パスの存在: %7$@" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路径：%5$@\n   字节：%6$@\n   路径存在：%7$@" } },
-        "de": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   Pfad: %5$@\n   Bytes: %6$@\n   Pfad vorhanden: %7$@" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID : %4$@\n   chemin : %5$@\n   octets : %6$@\n   chemin présent : %7$@" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   المعرّف: %4$@\n   المسار: %5$@\n   البايتات: %6$@\n   المسار موجود: %7$@" } },
-        "es": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   ruta: %5$@\n   bytes: %6$@\n   ruta existente: %7$@" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路徑：%5$@\n   位元組：%6$@\n   路徑存在：%7$@" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   경로: %5$@\n   바이트: %6$@\n   경로 존재: %7$@" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   path: %5$@\n   bytes: %6$@\n   path_exists: %7$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   パス: %5$@\n   バイト: %6$@\n   パスの存在: %7$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路径：%5$@\n   字节：%6$@\n   路径存在：%7$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   Pfad: %5$@\n   Bytes: %6$@\n   Pfad vorhanden: %7$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID : %4$@\n   chemin : %5$@\n   octets : %6$@\n   chemin présent : %7$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   المعرّف: %4$@\n   المسار: %5$@\n   البايتات: %6$@\n   المسار موجود: %7$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   id: %4$@\n   ruta: %5$@\n   bytes: %6$@\n   ruta existente: %7$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID：%4$@\n   路徑：%5$@\n   位元組：%6$@\n   路徑存在：%7$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld. %2$@ %3$@\n   ID: %4$@\n   경로: %5$@\n   바이트: %6$@\n   경로 존재: %7$@"
+          }
+        }
       }
     },
     "cli.browser.error.operationFailed": {
@@ -525001,6 +525181,419 @@
           "stringUnit": {
             "state": "translated",
             "value": "ОЗП"
+          }
+        }
+      }
+    },
+    "pricing.native.go.price": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$10"
+          }
+        }
+      }
+    },
+    "pricing.native.go.cta": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Go"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go を入手"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取 Go"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go abonnieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اشترك في Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取得 Go"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 받기"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.vm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブな Cloud VM 1 台、2 vCPU、4 GiB RAM、16 GiB ディスク"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台活跃云端虚拟机，2 个 vCPU、4 GiB 内存、16 GiB 磁盘"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 aktive Cloud-VM, 2 vCPU, 4 GiB RAM, 16 GiB Speicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 VM cloud active, 2 vCPU, 4 Go de RAM, 16 Go de disque"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلة Cloud VM نشطة واحدة، و2 vCPU، و4 GiB RAM، و16 GiB قرص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 VM cloud activa, 2 vCPU, 4 GiB de RAM y 16 GiB de disco"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台使用中的 Cloud VM、2 個 vCPU、4 GiB RAM、16 GiB 磁碟"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 Cloud VM 1개, 2 vCPU, 4 GiB RAM, 16 GiB 디스크"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 saved VMs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存 VM 2 台"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 台已保存的虚拟机"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 gespeicherte VMs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 VM enregistrées"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آلتان افتراضيتان محفوظتان"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 VM guardadas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 台已儲存的 VM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 VM 2개"
+          }
+        }
+      }
+    },
+    "pricing.native.go.feature.hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 included VM-hours each month; pauses at the limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎月 40 VM 時間を含み、上限で一時停止"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月包含 40 个虚拟机小时，达到上限后暂停"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 VM-Stunden pro Monat, Pause am Limit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 heures de VM incluses par mois, pause à la limite"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 ساعة VM مشمولة كل شهر، وتتوقف عند الحد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "40 horas de VM incluidas al mes; pausa al alcanzar el límite"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每月包含 40 個 VM 小時，達到上限時暫停"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매월 VM 40시간 포함, 한도에 도달하면 일시 중지"
+          }
+        }
+      }
+    },
+    "featureFlags.goPlan.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows and sells the $10/month Go personal Cloud VM plan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "月額10ドルの個人向け Go Cloud VM プランを表示して販売します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt und verkauft den persönlichen Go-Cloud-VM-Plan für 10 $/Monat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche et vend le forfait Cloud VM personnel Go à 10 $/mois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض ويبيع خطة Go الشخصية لـ Cloud VM بسعر 10 دولارات شهريًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra y vende el plan personal Go de Cloud VM por 10 $ al mes."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示並銷售每月 10 美元的 Go 個人 Cloud VM 方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示并销售每月 10 美元的 Go 个人云虚拟机方案。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "월 $10 Go 개인 Cloud VM 요금제를 표시하고 판매합니다."
+          }
+        }
+      }
+    },
+    "featureFlags.goPlan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go プラン"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go-Plan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forfait Go"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطة Go"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan Go"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 方案"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go 요금제"
           }
         }
       }
