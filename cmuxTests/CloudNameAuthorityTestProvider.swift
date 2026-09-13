@@ -29,7 +29,7 @@ final class CloudNameAuthorityTestProvider: SurfaceAgentNaming {
             summary: VMSummary(id: machine.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
             links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: catalog
         )
-        graph = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+        let snapshot: [String: Any] = [
             "cursor": ["generation": "fixture", "revision": "1"],
             "workspaces": ["a", "b"].map { ["id": $0, "name": "Same workspace"] },
             "screens": ["a", "b"].map { ["id": "screen_" + $0, "workspace_id": $0] },
@@ -41,7 +41,9 @@ final class CloudNameAuthorityTestProvider: SurfaceAgentNaming {
             },
             "terminals": ["a", "b"].map { ["id": "term_" + $0, "title": "terminal", "lifecycle": "running"] },
             "browsers": [], "agents": []
-        ], machine: machine))
+        ]
+        let state = CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine)
+        graph = try #require(state)
     }
 
     @discardableResult

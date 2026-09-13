@@ -1821,12 +1821,8 @@ mod tests {
         });
         let validator = jsonschema::validator_for(&legacy_schema).unwrap();
         let snapshot = public_session_snapshot(&mux).unwrap();
-        let observed = snapshot["tabs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|value| value["id"] == tab)
-            .unwrap();
+        let observed =
+            snapshot["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap();
         for value in [&renamed["value"], observed] {
             assert!(validator.is_valid(value), "tab response broke a released SDK: {value}");
             assert_eq!(value["name"], "Logs / 東京");
