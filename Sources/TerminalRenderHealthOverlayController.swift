@@ -14,7 +14,9 @@ final class TerminalRenderHealthOverlayController {
         self.surface?.onRenderHealthChanged = nil
         self.surface = surface
         surface.onRenderHealthChanged = { [weak self] health in
-            self?.apply(health)
+            Task { @MainActor [weak self] in
+                self?.apply(health)
+            }
         }
         apply(surface.renderHealth)
     }

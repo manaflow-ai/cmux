@@ -96,7 +96,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
         didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
     }
-    @MainActor var onRenderHealthChanged: (@MainActor (TerminalSurfaceRenderHealth) -> Void)?
+    var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
     let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
