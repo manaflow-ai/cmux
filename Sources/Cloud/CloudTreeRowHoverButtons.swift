@@ -18,7 +18,7 @@ struct CloudTreeRowHoverButtons: View {
                     setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
                 )
             } label: {
-                Image(systemName: "ellipsis")
+                Image(systemName: "gearshape")
                     .font(.system(size: 11, weight: .medium))
                     .frame(width: 22, height: 20)
                     .contentShape(Rectangle())
