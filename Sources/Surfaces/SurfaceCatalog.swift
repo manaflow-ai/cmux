@@ -130,7 +130,7 @@ final class SurfaceCatalog {
     private(set) var projections: Set<SurfaceProjection> = []
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
-    private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
+    private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
 
     /// Accepted revisioned graphs shared by providers, socket, and agent callers.
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
@@ -142,6 +142,9 @@ final class SurfaceCatalog {
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
     let sidebarOrganization: CloudSidebarOrganizationStore
+    lazy var sidebarNotifications = CloudSidebarNotificationCoordinator { [weak self] machine, resources in
+        self?.flushSidebarNotifications(on: machine, resources: resources)
+    }
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
     private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
@@ -1469,13 +1472,7 @@ final class SurfaceCatalog {
             if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        let orderedResources = resources.values.sorted { lhs, rhs in
-            if lhs.machine != rhs.machine { return lhs.machine.rawValue < rhs.machine.rawValue }
-            if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
-            let li = lhs.remoteWorkspace?.index ?? -1, ri = rhs.remoteWorkspace?.index ?? -1
-            if li != ri { return li < ri }
-            return lhs.id.key < rhs.id.key
-        }
+        let orderedResources = resources.values.sorted { $0.catalogPrecedes($1) }
         return SurfaceCatalogSnapshot(
             machines: orderedMachines,
             resources: orderedResources,

@@ -116,6 +116,35 @@ struct CloudSidebarNotificationTests {
         }
     }
 
+    @Test("Notification bursts coalesce once per machine in newest-terminal order")
+    func notificationsCoalesceByMachine() {
+        let a = SurfaceResourceID(machine: .cloud("one"), kind: .terminal, key: "a")
+        let b = SurfaceResourceID(machine: .cloud("one"), kind: .terminal, key: "b")
+        let c = SurfaceResourceID(machine: .cloud("two"), kind: .terminal, key: "c")
+        var calls: [(SurfaceMachineID, [SurfaceResourceID])] = []
+        let coordinator = CloudSidebarNotificationCoordinator { calls.append(($0, $1)) }
+        for resource in [a, b, c, a, c] { coordinator.enqueue(resource) }
+        #expect(calls.isEmpty)
+        coordinator.flush()
+        #expect(calls.count == 2)
+        #expect(calls.first?.0 == a.machine)
+        #expect(calls.first?.1 == [b, a])
+        #expect(calls.last?.1 == [c])
+        coordinator.flush()
+        #expect(calls.count == 2)
+    }
+
+    @Test("Queued notifications reconcile resource liveness before changing order")
+    func queuedNotificationCannotRaiseDeletedResource() {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.catalog.raiseCloudSidebarNotification(machineID: fixture.machine.rawValue, terminalID: "term_ws_2")
+        _ = fixture.catalog.replaceResources([fixture.snapshot().resources[0]], on: fixture.machine, from: fixture.provider)
+        fixture.catalog.sidebarNotifications.flush()
+        #expect(fixture.catalog.sidebarOrganization.state.groups.isEmpty)
+        #expect(fixture.catalog.sidebarNodes(on: fixture.machine).allSatisfy { $0.machine == fixture.machine })
+    }
+
     private func notification(_ id: String, terminal: String) -> CloudVMNotificationRow {
         CloudVMNotificationRow(id: id, title: "Fixture notification", subtitle: nil, body: "", level: "info",
                                createdAtMs: 1, terminalID: terminal, readBy: [])

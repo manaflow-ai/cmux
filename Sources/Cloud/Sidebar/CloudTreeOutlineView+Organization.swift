@@ -51,7 +51,7 @@ extension CloudTreeOutlineView.Coordinator {
     private func dropAction(_ outlineView: NSOutlineView, info: any NSDraggingInfo,
                             parent: Any?, index: Int) -> (String, CloudSidebarOrganizationAction)? {
         guard let source = info.draggingSource as? NSOutlineView, source === outlineView,
-              let id = info.draggingPasteboard.string(forType: CloudSidebarDragItem.type),
+              let id = info.draggingPasteboard.string(forType: .cloudSidebarRow),
               let parent = parent as? CloudTreeNode, index >= 0, index <= parent.children.count,
               CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: id)?.id == parent.id else { return nil }
         let pinned = organization.state.isPinned(id, parent: parent.id)

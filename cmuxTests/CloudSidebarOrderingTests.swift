@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -100,7 +101,26 @@ struct CloudSidebarOrderingTests {
         let outline = try #require(writer.outlineView)
         let folder = try #require(folders.first)
         let drag = try #require(writer.outlineView(outline, pasteboardWriterForItem: folder) as? NSPasteboardItem)
-        #expect(drag.string(forType: CloudSidebarDragItem.type) == folder.id)
+        #expect(drag.string(forType: .cloudSidebarRow) == folder.id)
+    }
+
+    @Test("Folder drags use the shared provisional owner without exposing pane projection")
+    func folderDragRetainsAndReleasesSharedOwner() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
+        var writer: CloudTreeSurfaceDragPasteboardWriter? = try #require(fixture.coordinator.outlineView(outline, pasteboardWriterForItem: folder) as? CloudTreeSurfaceDragPasteboardWriter)
+        let id = try #require(writer?.dragID)
+        #expect(writer?.sourceViewForDrag === outline)
+        let pasteboard = NSPasteboard(name: .init("sidebar-folder-\(UUID().uuidString)"))
+        #expect(pasteboard.writeObjects([try #require(writer)]))
+        #expect(pasteboard.string(forType: .cloudSidebarRow) == folder.id)
+        #expect(fixture.transferRegistry.resolve(from: pasteboard) == nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: id) != nil)
+        writer = nil
+        #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
     }
 
     @Test("A menu opened before a remote deletion cannot mutate the obsolete row")
@@ -148,6 +168,7 @@ final class CloudSidebarOrderingFixture {
     let defaultsName = "cloud-sidebar-ordering-\(UUID().uuidString)"
     let catalog: SurfaceCatalog
     let provider: CloudPlacementTestProvider
+    let transferRegistry = TabDragTransferRegistry()
     let coordinator: CloudTreeOutlineView.Coordinator
     let container: CloudTreeContainerView
     let window: NSWindow
@@ -169,7 +190,7 @@ final class CloudSidebarOrderingFixture {
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}
             ),
             expansionStore: CloudTreeExpansionStore(defaults: defaults), organization: catalog.sidebarOrganization,
-            tabDragTransferRegistry: { nil }
+            tabDragTransferRegistry: { [transferRegistry] in transferRegistry }
         )
         container = CloudTreeContainerView(coordinator: coordinator)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 560), styleMask: [.titled], backing: .buffered, defer: false)

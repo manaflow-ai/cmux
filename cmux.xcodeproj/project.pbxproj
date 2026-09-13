@@ -758,7 +758,7 @@
 		D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */; };
 		AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */; };
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
-		C7F02E58014C4D1B8D0A720E /* CloudSidebarDragItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA855590AA614A2C853C96A2 /* CloudSidebarDragItem.swift */; };
+		1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */; };
 		084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */; };
 		BEDA293E177041CCBF7677A0 /* CloudSidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */; };
 		E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */; };
@@ -2106,6 +2106,7 @@
 		D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */; };
 		D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7769000000000000000000A /* NotificationsPopoverResizeView.swift */; };
 		4EA21505A40D88F1B597B3BD /* NotificationTextSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */; };
+		C7F02E58014C4D1B8D0A720E /* NSPasteboard+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */; };
 		C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */ = {isa = PBXBuildFile; fileRef = C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */; };
 		2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */; };
 		D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */; };
@@ -2863,6 +2864,7 @@
 		A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */; };
 		EE1DE3F7E67DF1366F214AC7 /* SurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAED489C1C23533995AF55EA /* SurfaceProvider.swift */; };
 		58FE3B39F41CF68A632CA083 /* SurfaceRemotePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */; };
+		733F8CFB9036496EB237A178 /* SurfaceResource+CatalogOrdering.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */; };
 		F96CAE8A14774122A5F8613B /* SurfaceResourceDragPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */; };
 		3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */; };
 		842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */; };
@@ -4424,7 +4426,7 @@
 		A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudProviderRefreshCoordinator.swift"; sourceTree = "<group>"; };
 		5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProviderRefreshCoordinatorTests.swift; sourceTree = "<group>"; };
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
-		DA855590AA614A2C853C96A2 /* CloudSidebarDragItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarDragItem.swift"; sourceTree = "<group>"; };
+		E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarNotificationCoordinator.swift"; sourceTree = "<group>"; };
 		4131D7D8B63047F39B5069DC /* CloudSidebarNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarNotificationTests.swift"; sourceTree = "<group>"; };
 		085F162E8AAD4EFF953FC07E /* CloudSidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarOrderingTests.swift; sourceTree = "<group>"; };
 		57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarOrganizationAction.swift"; sourceTree = "<group>"; };
@@ -5666,6 +5668,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D77690000000000000000008 /* NotificationsPopoverResizeHandle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeHandle.swift; sourceTree = "<group>"; };
 		D7769000000000000000000A /* NotificationsPopoverResizeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/NotificationsPopoverResizeView.swift; sourceTree = "<group>"; };
 		B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTextSanitizer.swift; sourceTree = "<group>"; };
+		DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/NSPasteboard+CloudSidebar.swift"; sourceTree = "<group>"; };
 		C01E00080000000000000002 /* NSTextView+FilePreviewTabWidth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/NSTextView+FilePreviewTabWidth.swift"; sourceTree = "<group>"; };
 		719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NSView+WindowPointHitTest.swift"; sourceTree = "<group>"; };
 		D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/NSWindow+CmuxPeerWindow.swift"; sourceTree = "<group>"; };
@@ -6410,6 +6413,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionMaterialization.swift; sourceTree = "<group>"; };
 		AAED489C1C23533995AF55EA /* SurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProvider.swift; sourceTree = "<group>"; };
 		CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceRemotePlacement.swift"; sourceTree = "<group>"; };
+		FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SurfaceResource+CatalogOrdering.swift"; sourceTree = "<group>"; };
 		48A1307BCCDB493F49179E0B /* SurfaceResourceDragPayload.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceResourceDragPayload.swift; sourceTree = "<group>"; };
 		627B5FB396A1BF22407E8B45 /* SurfaceResourceDragRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceResourceDragRegistry.swift; sourceTree = "<group>"; };
 		842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentBindingGenerationTests.swift; sourceTree = "<group>"; };
@@ -7705,7 +7709,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A4C74749FA907F50D653EF65 /* CloudTreeNSOutlineView.swift */,
 				47E286761D314959F64AA002 /* CloudTreeCellView.swift */,
 				53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */,
-				DA855590AA614A2C853C96A2 /* CloudSidebarDragItem.swift */,
+				DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */,
 				57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */,
 				416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */,
 				4EF7BCD47CC347BC8A5660AD /* CloudSidebarOrganizationStore.swift */,
@@ -7719,6 +7723,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C621745E616B46C2A15DEBAA /* TerminalController+CloudSidebar.swift */,
 				967FB1138CEB42A88FD2B008 /* TerminalNotificationStore+CloudSidebar.swift */,
 				7C4E0550C4414C31B7893FDF /* CloudSidebarRowSnapshot.swift */,
+				E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */,
+				FC6ACCF8253744008F186C73 /* SurfaceResource+CatalogOrdering.swift */,
 				B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */,
 				0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */,
 				A7BA0E69E17F61ECF69C9025 /* CloudAgentSkillLauncher.swift */,
@@ -11933,7 +11939,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */,
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
-				C7F02E58014C4D1B8D0A720E /* CloudSidebarDragItem.swift in Sources */,
+				1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */,
 				E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */,
 				EA77C4C7290347248E593CF4 /* CloudSidebarOrganizationState.swift in Sources */,
 				3E825519877E4FD58D1E91AC /* CloudSidebarOrganizationStore.swift in Sources */,
@@ -12692,6 +12698,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D77690000000000000000007 /* NotificationsPopoverResizeHandle.swift in Sources */,
 				D77690000000000000000009 /* NotificationsPopoverResizeView.swift in Sources */,
 				4EA21505A40D88F1B597B3BD /* NotificationTextSanitizer.swift in Sources */,
+				C7F02E58014C4D1B8D0A720E /* NSPasteboard+CloudSidebar.swift in Sources */,
 				C01E00080000000000000001 /* NSTextView+FilePreviewTabWidth.swift in Sources */,
 				2A692BD3A1A8A856F0AC1263 /* NSView+WindowPointHitTest.swift in Sources */,
 				D36090020000000000000001 /* NSWindow+CmuxPeerWindow.swift in Sources */,
@@ -13184,6 +13191,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */,
 				EE1DE3F7E67DF1366F214AC7 /* SurfaceProvider.swift in Sources */,
 				58FE3B39F41CF68A632CA083 /* SurfaceRemotePlacement.swift in Sources */,
+				733F8CFB9036496EB237A178 /* SurfaceResource+CatalogOrdering.swift in Sources */,
 				F96CAE8A14774122A5F8613B /* SurfaceResourceDragPayload.swift in Sources */,
 				3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */,
 				883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */,

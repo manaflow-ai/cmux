@@ -31,22 +31,38 @@ final class CloudSidebarOrganizationStore {
     /// their chosen order, matching the left sidebar. Called only by the admitted notification effect, never by
     /// an unread-set refresh, so reconnect and clear cannot replay a move.
     func raiseNotification(resource: SurfaceResourceID, nodes: [CloudTreeNode]) {
-        guard !resource.machine.isLocal else { return }
-        var next = state
-        func visit(_ parent: CloudTreeNode) -> Bool {
-            let matching = Set(parent.children.filter { child in
-                child.dragResource?.id == resource || visit(child)
-            }.map(\.id))
-            let siblings = parent.children.filter(\.canOrganize).map(\.id)
-            // Lifting several views of one terminal must retain their relative
-            // order; repeated notifications must never flip the same folders.
-            for id in next.ordered(siblings, parent: parent.id).reversed()
-                where matching.contains(id) && !next.isPinned(id, parent: parent.id) {
-                _ = next.apply(.top, id: id, siblings: siblings, parent: parent.id)
+        raiseNotifications(resources: [resource], nodes: nodes)
+    }
+
+    func raiseNotifications(resources: [SurfaceResourceID], nodes: [CloudTreeNode]) {
+        var siblings: [String: [String]] = [:]
+        var placements: [SurfaceResourceID: [String: Set<String>]] = [:]
+        func visit(_ parent: CloudTreeNode) -> Set<SurfaceResourceID> {
+            var descendants = Set<SurfaceResourceID>()
+            siblings[parent.id] = parent.children.filter(\.canOrganize).map(\.id)
+            for child in parent.children {
+                let resources: Set<SurfaceResourceID>
+                if let resource = child.dragResource, resource.kind == .terminal { resources = [resource.id] }
+                else { resources = visit(child) }
+                descendants.formUnion(resources)
+                if child.canOrganize {
+                    for resource in resources { placements[resource, default: [:]][parent.id, default: []].insert(child.id) }
+                }
             }
-            return !matching.isEmpty
+            return descendants
         }
-        for node in nodes where node.machine == resource.machine { _ = visit(node) }
+        for node in nodes { _ = visit(node) }
+        var next = state
+        for resource in resources where !resource.machine.isLocal {
+            for (parent, matching) in placements[resource] ?? [:] {
+                let ids = siblings[parent] ?? []
+                // Reverse application raises matching siblings as one stable block.
+                for id in next.ordered(ids, parent: parent).reversed()
+                    where matching.contains(id) && !next.isPinned(id, parent: parent) {
+                    _ = next.apply(.top, id: id, siblings: ids, parent: parent)
+                }
+            }
+        }
         if next != state { commit(next) }
     }
 

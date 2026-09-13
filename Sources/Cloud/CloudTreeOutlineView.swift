@@ -865,10 +865,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            if let node = item as? CloudTreeNode, node.canOrganize, !node.isDragSource {
-                return CloudSidebarDragItem(nodeID: node.id)
-            }
-            guard let node = item as? CloudTreeNode, node.isDragSource,
+            guard let node = item as? CloudTreeNode, node.isDragSource || node.canOrganize,
                   let group = node.dragGroup, let lead = group.resources.first,
                   let transferRegistry = tabDragTransferRegistry() else { return nil }
             // Do not mutate the outline while AppKit is asking for this
@@ -886,7 +883,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 registration: registration,
                 sourceView: outlineView,
                 coordinator: self,
-                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil
+                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil,
+                exposesProjection: node.isDragSource
             )
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
                 dragID: dragID,
@@ -1082,7 +1080,7 @@ final class CloudTreeContainerView: NSView {
         // only anymore.
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
-        outlineView.registerForDraggedTypes([CloudSidebarDragItem.type])
+        outlineView.registerForDraggedTypes([.cloudSidebarRow])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }
