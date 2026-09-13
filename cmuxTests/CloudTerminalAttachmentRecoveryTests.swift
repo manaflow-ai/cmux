@@ -224,16 +224,30 @@ import Testing
         }
     }
 
-    /// Simulated daemon latency must overlap across panes without an unbounded fan-out.
+    /// Hold the first requests until all four arrive, without relying on response timing.
     @Test
     func batchResolutionOverlapsAtMostFourDaemonRequests() async {
-        let runner = DelayedResolutionRunner()
+        let runner = GatedResolutionRunner()
         let resolver = CloudTerminalAttachmentResolver(commandRunner: runner, socketPath: Self.socketPath)
         let ids = Set((0..<12).map { number in
             let suffix = String(number, radix: 16)
             return "term_" + String(repeating: "0", count: 32 - suffix.count) + suffix
         })
-        let resolutions = await resolver.resolve(terminalIDs: ids)
+        async let resolving = resolver.resolve(terminalIDs: ids)
+        let arrived = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await runner.waitForArrivals(4) }
+            group.addTask {
+                // A failure deadline bounds a broken resolver; readiness comes from arrivals.
+                do { try await Task.sleep(for: .seconds(10)) } catch { return false }
+                return false
+            }
+            let arrived = await group.next() ?? false
+            group.cancelAll()
+            return arrived
+        }
+        #expect(arrived, "The resolver must start four requests before any response is released")
+        await runner.release()
+        let resolutions = await resolving
         #expect(resolutions.count == ids.count)
         #expect(resolutions.values.allSatisfy { $0 == .resolved(17) })
         #expect(await runner.maximumActive > 1)
@@ -243,18 +257,45 @@ import Testing
 
     // MARK: - Fixtures
 
-    private actor DelayedResolutionRunner: CloudTuiCommandRunning {
+    private actor GatedResolutionRunner: CloudTuiCommandRunning {
         private var active = 0
         private(set) var maximumActive = 0
         private(set) var calls = 0
+        private let arrivals: AsyncStream<Void>
+        private let arrivalContinuation: AsyncStream<Void>.Continuation
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var released = false
+
+        init() {
+            let stream = AsyncStream<Void>.makeStream()
+            arrivals = stream.stream
+            arrivalContinuation = stream.continuation
+        }
+
+        func waitForArrivals(_ count: Int) async -> Bool {
+            var iterator = arrivals.makeAsyncIterator()
+            for _ in 0..<count {
+                guard let _ = await iterator.next() else { return false }
+            }
+            return true
+        }
+
+        func release() {
+            released = true
+            let pending = waiters
+            waiters.removeAll()
+            for waiter in pending { waiter.resume() }
+        }
 
         func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
             active += 1
             calls += 1
             maximumActive = max(maximumActive, active)
             defer { active -= 1 }
-            // This is the fake transport's response latency, not a wait for test state.
-            try await Task.sleep(for: .milliseconds(50))
+            arrivalContinuation.yield(())
+            if !released {
+                await withCheckedContinuation { waiters.append($0) }
+            }
             return Data(#"{"ok":true,"data":{"surface":17,"lifecycle":"running"}}"#.utf8)
         }
     }
