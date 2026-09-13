@@ -74,7 +74,7 @@ describe("cmux-tui daemon source", () => {
     const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
     expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
     expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/cmux-tui-hook/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/agent hooks are unavailable/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
   });
 
@@ -96,7 +96,7 @@ describe("cmux-tui install and daemon commands", () => {
     // Skip the download when the installed copy already matches the pin.
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     // The download is verified against the same pin before it replaces anything.
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_TMP" '${URL}'`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`wget -q -O "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
     expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');

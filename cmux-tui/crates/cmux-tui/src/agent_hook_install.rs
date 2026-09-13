@@ -55,6 +55,7 @@ const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Builds the helper command embedded in a provider's native hook config.
 fn helper_command(provider: &str, event: &str) -> String {
     format!("cmux-tui-hook {provider} {event}")
 }

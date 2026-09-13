@@ -280,7 +280,7 @@ function pinnedFile(sha256: string, path: string): string {
 
 function fetchTo(path: string, url: string): string {
   return (
-    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${path} ${shellQuote(url)}; ` +
+    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o ${path} ${shellQuote(url)}; ` +
     `elif command -v wget >/dev/null 2>&1; then wget -q -O ${path} ${shellQuote(url)}; ` +
     `else false; fi`
   );
