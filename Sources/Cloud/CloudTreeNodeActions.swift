@@ -64,8 +64,10 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        @discardableResult
-        func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) -> Task<Void, Never> {
+        let run: @MainActor (
+            _ label: String,
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+        ) -> Task<Void, Never> = { label, operation in
             onWillMutate(label)
             return Task { @MainActor in
                 defer { onDidMutate() }
@@ -372,7 +374,6 @@ struct CloudTreeNodeActions {
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
         return actions
     }
-
     /// The local workspace's title: the remote workspace's own name — what a
     /// person actually named it, or typed into its terminal — never the
     /// machine's raw provider id. `hostName` (the machine's friendly label)

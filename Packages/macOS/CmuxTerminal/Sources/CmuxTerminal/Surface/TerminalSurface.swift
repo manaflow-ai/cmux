@@ -93,12 +93,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-
     /// Presentation state for the current runtime renderer. This distinguishes a
     /// renderer Ghostty created from one cmux has actually presented in a real
     /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-
+    @Published public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted
+    let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.

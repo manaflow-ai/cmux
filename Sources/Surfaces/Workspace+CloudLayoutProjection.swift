@@ -45,7 +45,7 @@ extension Workspace {
                                     tabs: [SurfaceResourcePlacement: TabID]) -> Bool {
         switch (layout, live) {
         case (.leaf(let placements), .pane(let pane)):
-            return placements.compactMap { tabs[$0]?.id.uuidString } == pane.tabs.map(\.id)
+            return placements.compactMap { tabs[$0]?.uuid.uuidString } == pane.tabs.map(\.id)
         case (.split(let direction, _, let first, let second), .split(let split)):
             let orientation = direction == .right || direction == .left ? "horizontal" : "vertical"
             return split.orientation == orientation && cloudLayoutMatches(first, live: split.first, tabs: tabs)
