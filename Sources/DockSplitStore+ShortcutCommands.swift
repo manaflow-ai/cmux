@@ -18,6 +18,7 @@ enum DockShortcutCommand {
     case focusPane(NavigationDirection)
     case cyclePaneFocus(forward: Bool)
     case togglePaneZoom
+    case resizePane(ResizeDirection)
     case equalizeSplits
     case focusHistoryBack
     case focusHistoryForward
@@ -85,12 +86,10 @@ extension DockSplitStore {
         case .togglePaneZoom:
             guard let pane = bonsplitController.focusedPaneId else { return false }
             return toggleDockPaneZoom(inPane: pane)
+        case .resizePane(let direction):
+            return resizeFocusedPane(direction: direction)
         case .equalizeSplits:
-            let result = PaneLayoutService().equalizeSplits(
-                in: bonsplitController.treeSnapshot(),
-                controller: bonsplitController
-            )
-            return result.foundSplit && result.allSucceeded
+            return equalizeDockSplits()
         case .focusHistoryBack:
             return focusHistoryNavigation.navigateBack()
         case .focusHistoryForward:
