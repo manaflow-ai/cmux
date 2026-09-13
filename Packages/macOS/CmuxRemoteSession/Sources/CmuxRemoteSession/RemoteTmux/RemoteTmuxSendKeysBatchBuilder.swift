@@ -33,8 +33,28 @@ public struct RemoteTmuxSendKeysBatchBuilder: Sendable {
         self.maximumBytesPerCommand = max(1, maximumBytesPerCommand)
     }
 
+    /// Combined framing one `send-keys -H` command can add: the
+    /// `send-keys -t %` prefix, a ten-digit pane identifier (`Int32` range), the
+    /// ` -H ` separator, and the terminating newline.
+    private static let maximumCommandFramingByteCount =
+        "send-keys -t %".utf8.count + 10 + " -H ".utf8.count + 1
+
+    /// Largest framed batch this policy can hand to the connection writer for
+    /// one fully admitted input, including per-command framing and newlines.
+    public var maximumFramedBatchByteCount: Int {
+        let commandCount =
+            (maximumInputBytes + maximumBytesPerCommand - 1) / maximumBytesPerCommand
+        return commandCount * Self.maximumCommandFramingByteCount + maximumInputBytes * 3
+    }
+
     /// Pending writer capacity required for one fully encoded maximum-size batch.
-    public var writerPendingByteLimit: Int { maximumInputBytes * 4 }
+    ///
+    /// Keeps the historical four-bytes-per-input-byte budget for the default
+    /// policy, and grows past it when per-command framing dominates — a policy
+    /// with small chunks must never hand the writer a batch it rejects.
+    public var writerPendingByteLimit: Int {
+        max(maximumInputBytes * 4, maximumFramedBatchByteCount)
+    }
 
     private static let lowercaseHexDigits = Array("0123456789abcdef".utf8)
 

@@ -71,8 +71,28 @@ import Testing
             "send-keys -t %3 -H 45 46",
         ])
         #expect(try decodedBytes(from: commands, paneID: 3) == payload)
-        #expect(injected.writerPendingByteLimit == 24)
         #expect(injected.commands(paneID: 3, data: payload + Data([0x47])) == nil)
+    }
+
+    @Test func writerBudgetCoversTheFramedBatchOfAMaximumInput() throws {
+        let defaultPolicy = RemoteTmuxSendKeysBatchBuilder()
+        #expect(defaultPolicy.writerPendingByteLimit == defaultPolicy.maximumInputBytes * 4)
+
+        // Per-command framing dominates when chunks are tiny, so the four-bytes
+        // -per-input-byte budget alone would under-size writer admission.
+        let injected = RemoteTmuxSendKeysBatchBuilder(
+            maximumInputBytes: 6,
+            maximumBytesPerCommand: 2
+        )
+        let maximumInput = Data(repeating: 0x5A, count: injected.maximumInputBytes)
+        let commands = try #require(injected.commands(paneID: 999_999, data: maximumInput))
+        let framedByteCount = commands.reduce(into: 0) { total, command in
+            total += command.utf8.count + 1
+        }
+
+        #expect(framedByteCount > injected.maximumInputBytes * 4)
+        #expect(injected.writerPendingByteLimit >= framedByteCount)
+        #expect(injected.writerPendingByteLimit >= injected.maximumFramedBatchByteCount)
     }
 }
 

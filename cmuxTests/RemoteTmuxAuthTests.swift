@@ -302,6 +302,29 @@ import Testing
         #expect(try decodeHexArguments(from: emission.commands, paneId: 7) == data)
     }
 
+    @Test @MainActor func sendKeysAdmitsAFullyFramedBatchFromAnInjectedPolicy() async throws {
+        let injected = RemoteTmuxSendKeysBatchBuilder(
+            maximumInputBytes: 6,
+            maximumBytesPerCommand: 2
+        )
+        let data = Data([0x41, 0x42, 0x43, 0x44, 0x45, 0x46])
+
+        let emission = try await captureSendKeysWire(
+            paneId: 3,
+            data: data,
+            maxPendingBytes: injected.writerPendingByteLimit,
+            sendKeysBatchBuilder: injected
+        )
+
+        #expect(emission.accepted)
+        #expect(emission.commands == [
+            "send-keys -t %3 -H 41 42",
+            "send-keys -t %3 -H 43 44",
+            "send-keys -t %3 -H 45 46",
+        ])
+        #expect(try decodeHexArguments(from: emission.commands, paneId: 3) == data)
+    }
+
     @Test @MainActor func pastePaneRejectsDisconnectedControlStream() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         #expect(connection.pastePane(paneId: 1, text: "/tmp/image.png") == false)
@@ -467,11 +490,13 @@ import Testing
     private func captureSendKeysWire(
         paneId: Int,
         data: Data,
-        maxPendingBytes: Int
+        maxPendingBytes: Int,
+        sendKeysBatchBuilder: RemoteTmuxSendKeysBatchBuilder = RemoteTmuxSendKeysBatchBuilder()
     ) async throws -> (accepted: Bool, commands: [String]) {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@input-transport"),
-            sessionName: "input-transport"
+            sessionName: "input-transport",
+            sendKeysBatchBuilder: sendKeysBatchBuilder
         )
         let bootstrapPipe = Pipe()
         let bootstrapWriter = RemoteTmuxControlPipeWriter(
