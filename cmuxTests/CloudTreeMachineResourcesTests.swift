@@ -91,4 +91,13 @@ struct CloudTreeMachineResourcesTests {
             #expect(CloudTreeMachineRowContent(machine: machine(), style: style).inlineFact == nil)
         }
     }
+
+    @Test @MainActor func inlineMetricsDoNotAddAStackedMachineRow() {
+        for style in CloudTreeStyle.presets {
+            #expect(
+                style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false),
+                "inline CPU/RAM/Disk readings share the machine row instead of adding a second metrics row"
+            )
+        }
+    }
 }
