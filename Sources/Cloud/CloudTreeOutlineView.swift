@@ -789,6 +789,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if machine.freeAccess == .expired {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
+                if machine.isDefault {
+                    let defaultItem = item(String(localized: "machines.menu.defaultMachine", defaultValue: "Default Machine")) { }
+                    defaultItem.isEnabled = false
+                    items.append(defaultItem)
+                } else {
+                    items.append(item(String(localized: "machines.menu.setDefaultMachine", defaultValue: "Set as Default Machine")) {
+                        actions.setDefault(id)
+                    })
+                }
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
                 items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {
