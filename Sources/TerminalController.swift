@@ -4232,7 +4232,11 @@ class TerminalController {
                 case .destinationNotFound:
                     return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
                 default:
-                    break
+                    // Preserve the catalog's actionable ownership or transport detail.
+                    // Falling through to the generic VM message hides whether the
+                    // machine is disconnected, the surface is stale, or the provider
+                    // cannot perform this operation.
+                    return v2Error(id: id, code: "vm_error", message: catalogError.localizedDescription)
                 }
             }
             if let vmError = error as? VMClientError,

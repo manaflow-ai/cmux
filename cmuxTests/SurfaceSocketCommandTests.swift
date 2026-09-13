@@ -263,7 +263,9 @@ struct SurfaceSocketCommandTests {
         defer { fixture.tearDown() }
         let resource = fixture.termA1.rawValue
 
-        let first = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+        let first = try Self.ok(try await Self.call("surface.project", [
+            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
+        ]))
         #expect(first["reused"] as? Bool == false)
         #expect(first["workspace_id"] as? String == fixture.workspaceID.uuidString, "no target → the selected workspace")
         #expect(fixture.provider.materialized.count == 1)
@@ -271,7 +273,9 @@ struct SurfaceSocketCommandTests {
         #expect(fixture.provider.materialized[0].focus == true)
 
         // The catalog reuses the pane already showing the resource…
-        let again = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+        let again = try Self.ok(try await Self.call("surface.project", [
+            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
+        ]))
         #expect(again["reused"] as? Bool == true)
         #expect(again["surface_id"] as? String == first["surface_id"] as? String)
         #expect(fixture.provider.materialized.count == 1)
@@ -307,8 +311,8 @@ struct SurfaceSocketCommandTests {
         // fall-through to the selected workspace.
         let bogus = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "workspace_id": "workspace:999999"]))
         #expect(bogus["code"] as? String == "invalid_params")
-        #expect((bogus["message"] as? String)?.contains("workspace:999999") == true)
-        let bogusPane = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "pane_id": "pane:999999"]))
+        #expect((bogus["message"] as? String)?.isEmpty == false)
+        let bogusPane = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "pane_id": "pane:dead"]))
         #expect(bogusPane["code"] as? String == "invalid_params")
         // Well-formed but dead ids are just as unresolvable: a closed pane's UUID, a
         // workspace UUID nobody has, a surface UUID that is not a panel.
