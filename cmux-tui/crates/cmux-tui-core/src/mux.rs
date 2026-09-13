@@ -10016,6 +10016,8 @@ impl Mux {
             }
         }
         if let Some(terminal_id) = runtime.terminal_public_id() {
+            #[cfg(unix)]
+            self.image_pastes.close_terminal(terminal_id.as_str());
             self.purge_terminal_side_tables(terminal_id);
         }
     }
@@ -14318,8 +14320,6 @@ impl Mux {
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
-        #[cfg(unix)]
-        self.image_pastes.close_surface(id);
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id));
             return;
@@ -14517,6 +14517,10 @@ impl Mux {
         drop(state);
         drop(registry);
         if !replayed {
+            #[cfg(unix)]
+            if let Some(terminal_id) = &public_terminal_id {
+                self.image_pastes.close_terminal(terminal_id.as_str());
+            }
             if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
                 // exit latch that already committed above.

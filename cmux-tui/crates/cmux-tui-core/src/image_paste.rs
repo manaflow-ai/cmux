@@ -1,6 +1,6 @@
 //! Bounded temporary image ownership for the authenticated terminal control channel.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -31,13 +31,15 @@ struct Upload {
     size: usize,
     received: usize,
     committed: bool,
+    cleanup_pending: bool,
     deadline: Instant,
 }
 
 #[derive(Default)]
 struct State {
     uploads: HashMap<(u64, String), Upload>,
-    recovered: Vec<(Instant, ImagePasteFile)>,
+    recovery: Option<crate::image_paste_recovery::ImagePasteRecovery>,
+    next_recovery: Option<Instant>,
     worker_started: bool,
     stopped: bool,
 }
@@ -54,18 +56,19 @@ pub(crate) struct ImagePasteStore {
 
 impl Default for ImagePasteStore {
     fn default() -> Self {
-        Self::from_recovered(ImagePasteFile::recover())
+        Self::with_recovery(Some(crate::image_paste_recovery::ImagePasteRecovery::default()))
     }
 }
 
 impl ImagePasteStore {
-    fn from_recovered(recovered: Vec<(Instant, ImagePasteFile)>) -> Self {
+    fn with_recovery(recovery: Option<crate::image_paste_recovery::ImagePasteRecovery>) -> Self {
         let store = Self { shared: Arc::new(Shared::default()) };
         {
             let mut state = store.shared.state.lock().unwrap();
-            state.recovered = recovered;
-            Self::reap(&mut state, Instant::now());
-            if !state.recovered.is_empty() {
+            state.recovery = recovery;
+            if let Some(recovery) = &mut state.recovery {
+                let delay = recovery.scan(&HashSet::new());
+                state.next_recovery = Some(Instant::now() + delay);
                 let _ = store.start_worker(&mut state);
             }
         }
@@ -81,11 +84,22 @@ impl ImagePasteStore {
                     let mut state = shared.state.lock().unwrap();
                     while !state.stopped {
                         Self::reap(&mut state, Instant::now());
+                        if state.next_recovery.is_some_and(|deadline| deadline <= Instant::now()) {
+                            let active: HashSet<_> = state
+                                .uploads
+                                .values()
+                                .map(|upload| upload.file.directory().to_owned())
+                                .collect();
+                            if let Some(recovery) = &mut state.recovery {
+                                let delay = recovery.scan(&active);
+                                state.next_recovery = Some(Instant::now() + delay);
+                            }
+                        }
                         if let Some(deadline) = state
                             .uploads
                             .values()
                             .map(|upload| upload.deadline)
-                            .chain(state.recovered.iter().map(|(deadline, _)| *deadline))
+                            .chain(state.next_recovery)
                             .min()
                         {
                             let wait = deadline.saturating_duration_since(Instant::now());
@@ -117,18 +131,27 @@ impl ImagePasteStore {
             !state.uploads.contains_key(&(owner.client, id.to_owned())),
             "image-duplicate-upload"
         );
+        let recovered = state.recovery.as_ref();
+        anyhow::ensure!(
+            recovered.is_none_or(|recovery| recovery.ready),
+            "image-storage-unavailable"
+        );
         let reserved: usize = state
             .uploads
             .values()
             .map(|upload| upload.size)
-            .chain(state.recovered.iter().map(|(_, file)| file.size()))
-            .sum();
+            .sum::<usize>()
+            .saturating_add(recovered.map_or(0, |recovery| recovery.retained_bytes));
         let client_count =
             state.uploads.values().filter(|upload| upload.owner.client == owner.client).count();
         anyhow::ensure!(
-            state.uploads.len() + state.recovered.len() < MAX_ENTRIES
+            state
+                .uploads
+                .len()
+                .saturating_add(recovered.map_or(0, |recovery| recovery.retained_count))
+                < MAX_ENTRIES
                 && client_count < 8
-                && reserved + size <= MAX_RETAINED_BYTES,
+                && reserved.saturating_add(size) <= MAX_RETAINED_BYTES,
             "image-capacity-limit"
         );
         let file = ImagePasteFile::create(extension)
@@ -143,6 +166,7 @@ impl ImagePasteStore {
                 size,
                 received: 0,
                 committed: false,
+                cleanup_pending: false,
                 deadline: Instant::now() + UPLOAD_TTL,
             },
         );
@@ -201,34 +225,39 @@ impl ImagePasteStore {
 
     pub(crate) fn cancel(&self, owner: &ImagePasteOwner, id: &str) -> anyhow::Result<()> {
         let mut state = self.shared.state.lock().unwrap();
-        if let Some(upload) = state.uploads.get(&(owner.client, id.to_owned())) {
+        if let Some(upload) = state.uploads.get_mut(&(owner.client, id.to_owned())) {
             anyhow::ensure!(&upload.owner == owner, "image-owner-mismatch");
             anyhow::ensure!(!upload.committed, "image-already-pasted");
+            upload.cleanup_pending = true;
+            upload.deadline = Instant::now();
         }
-        state.uploads.remove(&(owner.client, id.to_owned()));
+        Self::reap(&mut state, Instant::now());
         self.shared.changed.notify_one();
         Ok(())
     }
 
     pub(crate) fn disconnect(&self, client: u64) {
-        // A completed attachment may still be read by the agent after reconnect.
-        // Unpublished bytes go away immediately; published files retain their TTL.
-        self.shared
-            .state
-            .lock()
-            .unwrap()
+        let mut state = self.shared.state.lock().unwrap();
+        for upload in state
             .uploads
-            .retain(|_, upload| upload.owner.client != client || upload.committed);
+            .values_mut()
+            .filter(|upload| upload.owner.client == client && !upload.committed)
+        {
+            upload.cleanup_pending = true;
+            upload.deadline = Instant::now();
+        }
+        Self::reap(&mut state, Instant::now());
         self.shared.changed.notify_one();
     }
 
-    pub(crate) fn close_surface(&self, surface: u64) {
-        self.shared
-            .state
-            .lock()
-            .unwrap()
-            .uploads
-            .retain(|_, upload| upload.owner.surface != surface);
+    pub(crate) fn close_terminal(&self, terminal: &str) {
+        let mut state = self.shared.state.lock().unwrap();
+        for upload in state.uploads.values_mut().filter(|upload| upload.owner.terminal == terminal)
+        {
+            upload.cleanup_pending = true;
+            upload.deadline = Instant::now();
+        }
+        Self::reap(&mut state, Instant::now());
         self.shared.changed.notify_one();
     }
 
@@ -242,18 +271,23 @@ impl ImagePasteStore {
             .get_mut(&(owner.client, id.to_owned()))
             .ok_or_else(|| anyhow::anyhow!("image-upload-expired"))?;
         anyhow::ensure!(&upload.owner == owner, "image-owner-mismatch");
+        anyhow::ensure!(!upload.cleanup_pending, "image-upload-expired");
         Ok(upload)
     }
 
     fn reap(state: &mut State, now: Instant) {
-        state.uploads.retain(|_, upload| upload.deadline > now);
-        state.recovered.retain_mut(|(deadline, file)| {
-            if *deadline <= now {
-                file.expire();
-                false
-            } else {
-                true
+        state.uploads.retain(|_, upload| {
+            if upload.deadline > now {
+                return true;
             }
+            upload.cleanup_pending = true;
+            if upload.file.remove_owned() {
+                return false;
+            }
+            // A failed deletion still occupies disk. Keep the full reservation
+            // charged and prohibit append/commit until cleanup succeeds.
+            upload.deadline = now + Duration::from_secs(1);
+            true
         });
     }
 }

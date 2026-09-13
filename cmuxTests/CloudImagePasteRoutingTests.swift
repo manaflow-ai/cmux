@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminal
+import CmuxCore
 import GhosttyKit
 import Testing
 
@@ -11,6 +12,21 @@ import Testing
 
 @Suite("Cloud clipboard image routing")
 struct CloudImagePasteRoutingTests {
+    @Test @MainActor
+    func legacyCloudSSHWorkspaceKeepsItsExistingUploadRoute() throws {
+        let workspace = Workspace()
+        let id = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: id))
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test@host", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, managedCloudVMID: "vm-legacy-test", terminalStartupCommand: nil
+        )
+        workspace.activeRemoteTerminalSurfaceIds.insert(id)
+        #expect(workspace.cloudVMID == "vm-legacy-test")
+        #expect(panel.surface.resolvedImageTransferTarget(in: workspace) == .remote(.workspaceRemote))
+    }
+
     @Test @MainActor
     func queuedImagePasteHoldsLaterInputAndReleasesItOnCompletion() {
         let surface = TerminalSurface(tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -98,5 +114,11 @@ struct CloudImagePasteRoutingTests {
             let urls = [URL(fileURLWithPath: path)]
             #expect(TerminalImageTransferPlanner.plan(fileURLs: urls, target: .cloud) == .pasteCloudImages(urls))
         }
+    }
+
+    @Test
+    func cloudPlainTextPasteRetainsTheExistingTextPath() {
+        #expect(TerminalImageTransferPlanner.plan(preparedContent: .insertText("ordinary clipboard text"), target: .cloud)
+            == .insertText("ordinary clipboard text"))
     }
 }

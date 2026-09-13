@@ -126,11 +126,6 @@ extension GhosttyApp {
                   !Task.isCancelled else {
                 return
             }
-            if !inputAdmission.reservesInput,
-               requestTerminalSurface.resolvedImageTransferTarget() == .cloud {
-                completeClipboardRequest(with: "")
-                return
-            }
 
             guard let pasteboard = terminalPasteboard.pasteboard(for: location) else {
                 completeClipboardRequest(with: "")
@@ -187,6 +182,11 @@ extension GhosttyApp {
                     target: target
                 )
                 if case .pasteCloudImages = plan {
+                    guard inputAdmission.reservesInput else {
+                        preparedContent.cleanupTransferredTemporaryFiles(using: terminalPasteboard)
+                        completeClipboardRequest(with: "")
+                        return
+                    }
                     // The daemon pastes on the authenticated lease. Complete the
                     // Ghostty request empty so no Mac path enters manual I/O.
                     requestTerminalSurface.pasteCloudImages(

@@ -3864,5 +3864,7 @@ lost commit acknowledgement as uncertain delivery and must not retry it blindly.
 The policy is 20 MiB per PNG/JPEG/GIF/WebP image, eight images per connection,
 32 retained uploads and 128 MiB reserved per daemon. Pending uploads expire in
 two minutes; committed uploads expire in ten minutes. Ownership receipts permit
-restart cleanup with a twelve-minute ceiling from creation. See
+restart cleanup with a twelve-minute expiry from creation and recurring bounded
+recovery sweeps. Receipts match a persistent random file ownership marker as well
+as inode identity; the filesystem must support extended attributes. See
 [Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.

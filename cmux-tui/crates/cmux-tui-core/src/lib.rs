@@ -17,6 +17,12 @@ mod event_bus;
 mod image_paste;
 #[cfg(unix)]
 mod image_paste_file;
+#[cfg(unix)]
+mod image_paste_ownership;
+#[cfg(unix)]
+mod image_paste_recovery;
+#[cfg(unix)]
+mod image_paste_storage;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

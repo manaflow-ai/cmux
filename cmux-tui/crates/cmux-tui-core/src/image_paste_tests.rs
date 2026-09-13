@@ -22,7 +22,7 @@ fn prepared(store: &ImagePasteStore) -> std::path::PathBuf {
 
 #[test]
 fn cloud_image_paste_remote_file_is_readable_and_only_pasted_once() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     let path = prepared(&store);
     let mut pasted = String::new();
     store
@@ -36,13 +36,13 @@ fn cloud_image_paste_remote_file_is_readable_and_only_pasted_once() {
     assert!(store.commit(&owner(), ID, |_| panic!("must not double paste")).is_err());
     store.disconnect(1);
     assert!(path.exists(), "a reconnect must not remove an attachment an agent may be reading");
-    store.close_surface(17);
+    store.close_terminal("term_1");
     assert!(!path.exists());
 }
 
 #[test]
 fn cloud_image_paste_cancellation_and_connection_end_remove_unpublished_bytes() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     let path = prepared(&store);
     store.cancel(&owner(), ID).unwrap();
     assert!(!path.exists());
@@ -55,7 +55,7 @@ fn cloud_image_paste_cancellation_and_connection_end_remove_unpublished_bytes() 
 
 #[test]
 fn cloud_image_paste_rejects_foreign_identity_and_out_of_order_chunks() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     let path = prepared(&store);
     for foreign in [
         ImagePasteOwner { client: 2, ..owner() },
@@ -73,7 +73,7 @@ fn cloud_image_paste_rejects_foreign_identity_and_out_of_order_chunks() {
 
 #[test]
 fn cloud_image_paste_rejects_size_type_bad_data_and_incomplete_upload() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     for size in [0, MAX_IMAGE_BYTES + 1, usize::MAX] {
         assert!(store.begin(owner(), ID, "image/png", size).is_err());
     }
@@ -91,7 +91,7 @@ fn cloud_image_paste_rejects_size_type_bad_data_and_incomplete_upload() {
 
 #[test]
 fn cloud_image_paste_expiry_and_drop_cleanup_preserve_user_files() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     let path = prepared(&store);
     let directory = path.parent().unwrap().to_owned();
     let unrelated = directory.join("user-notes.txt");
@@ -119,7 +119,7 @@ fn cloud_image_paste_expiry_and_drop_cleanup_preserve_user_files() {
 #[test]
 fn cloud_image_paste_cleanup_does_not_follow_a_replacement_symlink() {
     use std::os::unix::fs::symlink;
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     let path = prepared(&store);
     let directory = path.parent().unwrap().to_owned();
     let user_file = directory.join("user-file");
@@ -136,11 +136,58 @@ fn cloud_image_paste_cleanup_does_not_follow_a_replacement_symlink() {
 
 #[test]
 fn cloud_image_paste_reservations_are_bounded_before_receiving_bytes() {
-    let store = ImagePasteStore::from_recovered(Vec::new());
+    let store = ImagePasteStore::with_recovery(None);
     for id in 0..6 {
         store.begin(owner(), &format!("{id:032x}"), "image/png", MAX_IMAGE_BYTES).unwrap();
     }
     assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
     store.disconnect(1);
     store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
+}
+
+#[test]
+fn cloud_image_paste_failed_cleanup_keeps_its_reservation_and_cannot_commit() {
+    let store = ImagePasteStore::with_recovery(None);
+    let mut blockers = Vec::new();
+    for index in 0..6 {
+        let id = format!("{index:032x}");
+        store.begin(owner(), &id, "image/png", MAX_IMAGE_BYTES).unwrap();
+        let directory = store.shared.state.lock().unwrap().uploads[&(1, id.clone())]
+            .file
+            .directory()
+            .to_owned();
+        let blocker = directory.join(".cleanup-image");
+        fs::write(&blocker, "user file must not be replaced").unwrap();
+        store.cancel(&owner(), &id).unwrap();
+        assert_eq!(
+            store
+                .commit(&owner(), &id, |_| panic!("cancelled upload committed"))
+                .unwrap_err()
+                .to_string(),
+            "image-upload-expired"
+        );
+        assert_eq!(fs::read_to_string(&blocker).unwrap(), "user file must not be replaced");
+        blockers.push(blocker);
+    }
+    assert_eq!(store.shared.state.lock().unwrap().uploads.len(), 6);
+    assert!(store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).is_err());
+    for blocker in blockers {
+        fs::remove_file(blocker).unwrap();
+    }
+    ImagePasteStore::reap(
+        &mut store.shared.state.lock().unwrap(),
+        Instant::now() + Duration::from_secs(2),
+    );
+    assert!(store.shared.state.lock().unwrap().uploads.is_empty());
+    store.begin(owner(), ID, "image/png", MAX_IMAGE_BYTES).unwrap();
+}
+
+#[test]
+fn cloud_image_paste_already_removed_file_does_not_hold_storage_forever() {
+    let store = ImagePasteStore::with_recovery(None);
+    let path = prepared(&store);
+    fs::remove_file(&path).unwrap();
+    store.cancel(&owner(), ID).unwrap();
+    assert!(store.shared.state.lock().unwrap().uploads.is_empty());
+    assert!(!path.parent().unwrap().exists());
 }

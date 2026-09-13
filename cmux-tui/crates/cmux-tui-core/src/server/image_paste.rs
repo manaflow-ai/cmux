@@ -38,7 +38,9 @@ impl ImagePasteRequest {
             .resolve_terminal(&terminal_id)
             .map_err(|_| anyhow::anyhow!("image-link-unavailable"))?
             .ok_or_else(|| anyhow::anyhow!("image-link-unavailable"))?;
-        anyhow::ensure!(resolved.surface == Some(surface_id), "image-owner-mismatch");
+        // A terminal can have several leased views. Its representative placement
+        // is not an authorization boundary; the requested view's public identity
+        // and current connection-owned lease were checked above.
         let owner = crate::image_paste::ImagePasteOwner {
             client,
             surface: surface_id,

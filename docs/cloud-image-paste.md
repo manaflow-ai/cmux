@@ -39,20 +39,31 @@ rollout. Reconnect after updating so capabilities belong to the new connection.
   memory and explicit ordering. Uploads use the transport's bulk lane; commit shares the ordered keyboard lane.
 - At most eight images per connection, 32 retained uploads, and 128 MiB reserved
   on a daemon. Pending uploads reserve their entire declared size before bytes
-  arrive. Recovered files count against the same storage limits.
+  arrive. Recovered files count against the same storage limits. Failed deletion
+  keeps the reservation charged and the upload retired until a safe retry succeeds.
 - The daemon chooses a random, private `cmux-image-…` directory below its temporary
-  directory, mode 0700, and a `clipboard.<extension>` file, mode 0600. The terminal
+  directory inside a verified private per-UID namespace, mode 0700, and a
+  `clipboard.<extension>` file, mode 0600. Unsafe writable ancestors are refused. The terminal
   process normally has the same Unix owner as its daemon. The protocol accepts
   no destination path and returns no path in transfer acknowledgements.
 - Every request requires the same connection-owned lease, public terminal ID,
   surface, and authoritative workspace ownership. Reconnect, replacement, and
   workspace changes invalidate an in-flight transfer instead of retargeting it.
+  A terminal may have several valid leased views; the resolver’s representative
+  view is not treated as a separate authorization requirement.
 - Uncommitted uploads expire after two minutes or on disconnect/cancellation.
   Committed images survive link reconnect for ten minutes so an agent can finish
-  reading them, and are removed on terminal exit or daemon shutdown.
+  reading them, and are removed on terminal exit or daemon shutdown. Cleanup uses
+  the public terminal identity, so closing a view preserves the attachment while
+  closing the terminal or keeping its final screen after exit removes it.
 - A private, synced ownership receipt permits cleanup after a daemon crash. On
-  restart, the reaper checks the recorded directory/file inodes and enforces a
-  maximum of twelve minutes from upload creation (two to transfer, ten to read).
+  restart, the reaper checks the recorded directory/file inodes **and a random
+  persistent ownership marker on the file**; inode reuse cannot claim a replacement.
+  The temporary filesystem must support extended attributes; uploads fail closed
+  when that ownership proof cannot be stored. Expiry is twelve minutes from upload
+  creation (two to transfer, ten to read), reconciled by recurring recovery sweeps.
+  Sweeps continue across 64-entry batches and repeat every 30 seconds after a full
+  pass. Transient cleanup failures retain the receipt and can be retried.
   A stopped VM cannot run cleanup; the deadline is reconciled when its daemon
   restarts. Recovery does not claim arbitrary paths or follow symlinks.
 - Cleanup removes only owned entries. Replacement files, replacement symlinks,
@@ -65,6 +76,10 @@ acknowledgement means delivery is uncertain. cmux asks the user to inspect the
 agent before retrying; it does not retry automatically or delete a potentially
 delivered attachment. Multi-image clipboard selections are separate transactions,
 so an earlier image may already be attached if a later image fails.
+
+The OS security boundary is the VM Unix account. Separate agents running as that
+account can access its files; the protocol’s session/lease checks are not a separate
+per-agent filesystem sandbox. This matches existing authenticated Cloud file operations.
 
 No image contents or source paths are included in transfer diagnostics. Errors are
 stable codes, localized on the Mac in all nine supported locales. The existing

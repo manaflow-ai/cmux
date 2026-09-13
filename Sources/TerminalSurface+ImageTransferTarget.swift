@@ -2,11 +2,15 @@ import CmuxTerminal
 
 extension TerminalSurface {
     @MainActor
-    func resolvedImageTransferTarget(mode: TerminalImageTransferMode = .paste) -> TerminalImageTransferTarget {
+    func resolvedImageTransferTarget(
+        mode: TerminalImageTransferMode = .paste,
+        in workspace: Workspace? = nil
+    ) -> TerminalImageTransferTarget {
         // The bound session remains authoritative even during reconnect, before
         // its local workspace or a fresh remote numeric surface can be resolved.
-        if mode == .paste, isManagedCloudImageTarget { return .cloud }
-        guard let workspace = owningWorkspace() else { return .local }
+        let workspace = workspace ?? owningWorkspace()
+        if mode == .paste, isManagedCloudImageTarget(in: workspace) { return .cloud }
+        guard let workspace else { return .local }
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
@@ -22,11 +26,13 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private var isManagedCloudImageTarget: Bool {
+    private func isManagedCloudImageTarget(in workspace: Workspace?) -> Bool {
         if hostedView.cloudTerminalOverlay.session != nil { return true }
-        guard let workspace = owningWorkspace() else { return false }
+        guard let workspace else { return false }
         if workspace.cloudProjectedResource(forPanel: id)?.id.machine.cloudMachineID != nil { return true }
         if (workspace.panels[id] as? TerminalPanel)?.cloudAttachment != nil { return true }
-        return workspace.cloudVMID != nil && workspace.isRemoteTerminalSurface(id)
+        // A VM label alone also describes legacy SSH workspaces. Their existing
+        // SSH upload path remains authoritative until a native Cloud view exists.
+        return false
     }
 }
