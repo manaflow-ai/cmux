@@ -6,12 +6,12 @@ final class GuiModeWorkspaceCoordinator {
     static let commandPaletteCommandId = "palette.newGuiMode"
 
     @discardableResult
-    func createHomeWorkspace(in tabManager: TabManager) -> Workspace {
-        let workspace = tabManager.addWorkspace(
+    func createHomeWorkspace(in tabManager: TabManager) -> Workspace? {
+        guard let workspace = tabManager.addWorkspaceIfActive(
             title: String(localized: "guiMode.workspace.home.title", defaultValue: "GUI Mode"),
             select: true,
             autoRefreshMetadata: false
-        )
+        ) else { return nil }
         _ = installGuiPanel(in: workspace, state: .home)
         return workspace
     }
@@ -31,12 +31,12 @@ final class GuiModeWorkspaceCoordinator {
               let location = app.workspaceContainingPanel(panelId: sourcePanelId, preferredWorkspaceId: preferredWorkspaceId) else {
             throw AgentSessionBridgeError.invalidRequest
         }
-        let workspace = location.tabManager.addWorkspace(
+        guard let workspace = location.tabManager.addWorkspaceIfActive(
             title: Self.taskWorkspaceTitle(prompt: trimmedPrompt),
             workingDirectory: location.workspace.currentDirectory,
             select: true,
             autoRefreshMetadata: false
-        )
+        ) else { throw AgentSessionBridgeError.invalidRequest }
         do {
             guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             guard let guiPanel = installGuiPanel(
@@ -52,8 +52,8 @@ final class GuiModeWorkspaceCoordinator {
                 orientation: .horizontal,
                 insertFirst: false,
                 workingDirectory: location.workspace.currentDirectory,
-                initialCommand: providerID.launchCommand,
-                initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID)
+                initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID),
+                initialCommand: providerID.launchCommand
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }

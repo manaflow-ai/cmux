@@ -38,7 +38,7 @@ struct GuiModeTests {
     @MainActor
     func coordinatorCreatesGuiPanel() throws {
         let manager = TabManager()
-        let workspace = GuiModeWorkspaceCoordinator().createHomeWorkspace(in: manager)
+        let workspace = try #require(GuiModeWorkspaceCoordinator().createHomeWorkspace(in: manager))
         let panel = try #require(workspace.panels.values.compactMap { $0 as? AgentSessionPanel }.first)
         #expect(panel.rendererKind == .guiMode)
         #expect(panel.guiModeState == .home)
