@@ -39,7 +39,7 @@ extension Workspace {
             ? (insertFirst ? .left : .right)
             : (insertFirst ? .up : .down)
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
             focus: focus
         )
@@ -48,12 +48,12 @@ extension Workspace {
     /// Routes a bonsplit UI split (the pane-divider split button) whose source pane
     /// projects a cloud resource: the already-created empty pane receives the machine's
     /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
-    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID) -> Bool {
+    func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
         guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
-            focus: true
+            focus: true, splitDirection: orientation == .horizontal ? .right : .down
         )
     }
 
@@ -62,7 +62,7 @@ extension Workspace {
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
         return routeCloudPaneTerminalCreate(
-            near: resource,
+            near: resource, sourcePanelID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) },
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
             focus: focus
         )
@@ -75,18 +75,29 @@ extension Workspace {
     /// nothing, because the user's gesture otherwise looks dead.
     private func routeCloudPaneTerminalCreate(
         near resource: SurfaceResource,
+        sourcePanelID: UUID?,
         destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        splitDirection: SurfaceSplitDirection? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
         let machine = resource.machine
+        let scope = catalog.beginProjectionMutation(for: [resource.id])
         Task { @MainActor in
+            defer { catalog.endProjectionMutation(scope) }
             do {
-                let created = try await provider.createTerminal(
-                    command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID
-                )
+                let created: SurfaceResource
+                let source = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+                let direction: SurfaceSplitDirection?
+                if case .split(_, _, let requested) = destination { direction = requested }
+                else { direction = splitDirection }
+                if let sourceTabID = source?.remoteTabID, let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
+                    created = try await layoutProvider.createTerminal(nearTabID: sourceTabID, splitDirection: direction)
+                } else {
+                    created = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                }
                 _ = try await catalog.project(
                     created.id,
                     into: destination,
@@ -426,88 +437,6 @@ final class CloudWorkspaceRenameService {
                 cmuxDebugLog("cloud.rename.terminal.failed panel=\(panelID) error=\(String(describing: error))")
                 #endif
             }
-        }
-    }
-
-    /// Applies daemon-owned names to every local projection that carries an
-    /// exact remote identity. A remote observation uses `.remote` and disables
-    /// both local transport propagations.
-    ///
-    /// While a local intent is in flight, a different remote value stays visible
-    /// until the command succeeds or rolls back. This avoids a polling race
-    /// without creating a second durable source of truth.
-    @MainActor
-    func reconcileRemoteState(
-        machine: SurfaceMachineID,
-        state: CloudVMState,
-        catalog: SurfaceCatalog
-    ) {
-        guard case .cloud = machine, catalog.cloudStates[machine] == state else { return }
-        let snapshot = catalog.snapshot
-        // Synchronizable snapshots reject duplicate identity rows at the parser
-        // boundary. Keep these defensive maps total for legacy callers that may
-        // construct a value directly; missing relationships still fail closed
-        // below instead of selecting a placement by array order.
-        let workspacesByID = state.workspaces.reduce(into: [String: CloudVMWorkspaceState]()) {
-            $0[$1.id] = $1
-        }
-        let tabsByID = state.tabs.reduce(into: [String: CloudVMTabState]()) {
-            $0[$1.id] = $1
-        }
-        let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
-            $0[$1.id] = $1
-        }
-        let localWorkspaces = environment.workspaces()
-        let localWorkspacesByID = Dictionary(
-            localWorkspaces.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        for workspace in localWorkspaces {
-            guard let binding = workspace.cloudVMBinding,
-                  binding.vmID == machine.cloudMachineID,
-                  let remoteID = binding.remoteWorkspaceID,
-                  let remote = workspacesByID[remoteID]
-            else { continue }
-
-            let intentKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
-                continue
-            }
-            // Pending user edits are protected above; confirmed names belong to
-            // the daemon. A generated machine prefix must not become a local alias.
-            let displayName = remote.name
-            let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-            _ = manager?.setCustomTitle(
-                tabId: workspace.id,
-                title: displayName,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
-        }
-
-        for projection in snapshot.projections where projection.resource.machine == machine {
-            guard let workspace = localWorkspacesByID[projection.workspaceID],
-                  workspace.panels[projection.panelID] != nil,
-                  let resource = resourcesByID[projection.resource],
-                  resource.kind == .terminal
-            else { continue }
-
-            _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.title)
-            let tabID = remoteTabID(for: projection, resource: resource)
-            guard let tabID, let tab = tabsByID[tabID] else { continue }
-            let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
-                continue
-            }
-            _ = workspace.setPanelCustomTitle(
-                panelId: projection.panelID,
-                title: tab.name,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
         }
     }
 

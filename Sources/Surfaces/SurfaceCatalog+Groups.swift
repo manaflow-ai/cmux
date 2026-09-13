@@ -146,6 +146,8 @@ extension SurfaceCatalog {
         focus: Bool,
         paneLookup: PaneLookup = { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) }
     ) async throws -> [SurfaceProjection] {
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
         let group = try currentCloudWorkspace(group)?.group ?? group
         var projected: [SurfaceProjection] = []
         var firstError: Error?
@@ -279,6 +281,8 @@ extension SurfaceCatalog {
         host: NewWorkspaceHost,
         layout: SurfaceProjectionLayout? = nil
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
         let current = try currentCloudWorkspace(group)
         let group = current?.group ?? group
         let title = current?.group.title ?? title

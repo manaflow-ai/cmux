@@ -14489,7 +14489,7 @@ extension Workspace: BonsplitDelegate {
         // machine (Workspace+CloudPaneRouting). The new pane already exists and is empty;
         // the machine's terminal arrives as its first tab when the projection materializes.
         if let sourcePanelId,
-           routeCloudPaneUISplit(from: sourcePanelId, into: newPane) {
+           routeCloudPaneUISplit(from: sourcePanelId, into: newPane, orientation: orientation) {
             scheduleTerminalGeometryReconcile()
             return
         }

@@ -1,6 +1,18 @@
 import Foundation
 
 extension SurfaceCatalog {
+    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+        guard cloudStates[machine] == state else { return }
+        cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
+        cloudWorkspaceProjectionCoordinator.request(machine: machine, catalog: self)
+        cloudWorkspaceRenameService.reconcileRemoteState(
+            machine: machine,
+            state: state,
+            catalog: self
+        )
+    }
+
+
     /// Geometry is a projection of the installed graph, just like its catalog rows.
     /// A refresh or event must pass the provider's ordering fence before either
     /// consumer sees it. No network read is permitted at this projection boundary.
@@ -34,4 +46,19 @@ extension SurfaceCatalog {
               cloudStateObservations[state.machine]?.freshness == .current else { return }
         cloudWorkspaceRenameService.reconcileRemoteState(machine: state.machine, state: state, catalog: self)
     }
+    func beginProjectionMutation(for resources: [SurfaceResourceID]) -> [SurfaceMachineID: UUID] {
+        Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map {
+            ($0, cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: $0))
+        })
+    }
+
+    func endProjectionMutation(_ tokens: [SurfaceMachineID: UUID]) {
+        for (machine, token) in tokens { cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: self) }
+    }
+
+    func requestCloudWorkspaceProjection(_ workspaceID: UUID) {
+        guard let binding = cloudWorkspaceProjectionCoordinator.environment.bindings()[workspaceID] else { return }
+        cloudWorkspaceProjectionCoordinator.request(machine: .cloud(binding.vmID), catalog: self)
+    }
+
 }

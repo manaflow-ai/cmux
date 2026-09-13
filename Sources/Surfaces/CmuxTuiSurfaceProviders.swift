@@ -613,9 +613,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         closePanesForVanishedRemoteTerminals(observation: observation)
     }
 
-    /// Applies a contiguous event to the catalog's canonical graph. Row-local changes rebuild
-    /// only their affected terminal, browser, or display rows. A topology change crosses a
-    /// relationship boundary and uses the authoritative complete publication path.
+    /// Patches affected rows; topology changes use complete publication.
     private func publishDelta(
         _ state: CloudVMState,
         impact: CloudVMStateDeltaImpact,
@@ -654,7 +652,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: observationWithPendingWrites()
         )
         if reconcileTitles {
-            catalog.reconcileCloudRemoteState(machine: machine, state: state)
+            catalog.cloudWorkspaceRenameService.reconcileRemoteState(
+                machine: machine, state: state, catalog: catalog, affectedResources: affected, workspaceNamesChanged: false
+            )
         }
         // Only restored terminals need materialization; ordinary title events do not.
         if changed.contains(where: { $0.kind == .terminal && !previousIDs.contains($0) }) {
@@ -1133,7 +1133,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return recordCreatedTerminal(created, workspaceID: resolvedWorkspaceID, name: name, cwd: cwd)
     }
 
-    private func recordCreatedTerminal(
+    func recordCreatedTerminal(
         _ created: CmuxTuiSnapshotParser.CreatedTerminalPath,
         workspaceID: String,
         name: String?,
@@ -2017,12 +2017,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 await link.setEventsCursor(next.cursor)
                 info.linkState = .connected
                 info.linkError = nil
-                let titlesChanged = current.workspaces != next.workspaces || current.tabs != next.tabs || current.terminals != next.terminals
                 publishDelta(
                     next,
                     impact: application.impact,
                     ports: portsCache?.ports ?? [],
-                    reconcileTitles: titlesChanged
+                    reconcileTitles: true
                 )
                 syncNotifications(from: next)
             }

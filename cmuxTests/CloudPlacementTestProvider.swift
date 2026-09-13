@@ -29,6 +29,10 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+        SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+                          remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+    }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")
     }
