@@ -1713,6 +1713,8 @@
               "newTab",
               "newBrowserWorkspace",
               "newGuiMode",
+              "newCloudWorkspace",
+              "newCloudMachine",
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",

@@ -5,10 +5,11 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case newWorkspace = "cmux.newWorkspace"
     case newAgentChat = "cmux.newAgentChat"
     case cloudVM = "cmux.cloudvm"
+    case newCloudWorkspace = "cmux.newCloudWorkspace"
+    case newCloudMachine = "cmux.newCloudMachine"
     case mobileConnect = "cmux.mobileconnect"
     case newTerminal = "cmux.newTerminal"
     case newBrowser = "cmux.newBrowser"
-    case newGuiMode = "cmux.newGuiMode"
     case newSimulator = "cmux.newSimulator"
     case splitRight = "cmux.splitRight"
     case splitDown = "cmux.splitDown"
@@ -23,6 +24,10 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
              "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
              "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
             self = .cloudVM
+        case "cmux.newCloudWorkspace", "newCloudWorkspace":
+            self = .newCloudWorkspace
+        case "cmux.newCloudMachine", "newCloudMachine":
+            self = .newCloudMachine
         case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
              "cmux.connectPhone", "connectPhone":
             self = .mobileConnect
@@ -30,8 +35,6 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newTerminal
         case "cmux.newBrowser", "newBrowser":
             self = .newBrowser
-        case "cmux.newGuiMode", "newGuiMode", "guiMode", "gui-mode":
-            self = .newGuiMode
         case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
             self = .newSimulator
         case "cmux.splitRight", "splitRight":
@@ -55,6 +58,10 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.newAgentChat.title", defaultValue: "New agent chat"), ["create", "new", "agent", "chat", "browser", "codex", "claude"])
         case .cloudVM:
             return (String(localized: "command.cloudVM.title", defaultValue: "Open Base"), ["base", "cloud", "vm", "virtual", "machine", "remote"])
+        case .newCloudWorkspace:
+            return (String(localized: "command.newCloudWorkspace.title", defaultValue: "New Cloud Workspace"), ["new", "create", "cloud", "vm", "machine", "workspace", "remote"])
+        case .newCloudMachine:
+            return (String(localized: "command.newCloudMachine.title", defaultValue: "New Cloud Machine"), ["new", "create", "cloud", "vm", "machine", "workspace", "remote"])
         case .mobileConnect:
             return (
                 String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing"),
@@ -64,8 +71,6 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return (String(localized: "command.newTerminalTab.title", defaultValue: "New Terminal Tab"), ["new", "terminal", "tab", "surface"])
         case .newBrowser:
             return (String(localized: "command.newBrowserTab.title", defaultValue: "New Browser Tab"), ["new", "browser", "tab", "surface"])
-        case .newGuiMode:
-            return (String(localized: "command.newGuiMode.title", defaultValue: "Open GUI Mode"), ["new", "gui", "mode", "agent", "codex"])
         case .newSimulator:
             return (String(localized: "command.newSimulatorPane.title", defaultValue: "New Simulator Pane"), ["new", "simulator", "iphone", "ipad", "ios", "surface"])
         case .splitRight:
@@ -83,14 +88,16 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "message"
         case .cloudVM:
             return "cloud"
+        case .newCloudWorkspace:
+            return "cloud.fill"
+        case .newCloudMachine:
+            return "cloud"
         case .mobileConnect:
             return "iphone"
         case .newTerminal:
             return "terminal"
         case .newBrowser:
             return "globe"
-        case .newGuiMode:
-            return "sparkles.rectangle.stack"
         case .newSimulator:
             return "iphone.gen3"
         case .splitRight:
@@ -102,7 +109,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect, .newSimulator, .newGuiMode:
+        case .newWorkspace, .newAgentChat, .cloudVM, .newGuiMode, .newCloudWorkspace, .newCloudMachine, .mobileConnect, .newSimulator:
             return nil
         case .newTerminal:
             return .newTerminal
@@ -114,4 +121,25 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return .splitDown
         }
     }
+}
+
+extension CmuxSurfaceTabBarBuiltInAction {
+    /// The user-editable shortcut that triggers the same behavior as this
+    /// built-in action. Menus that list built-in actions read the live
+    /// `KeyboardShortcutSettings` value through this mapping, so a rebind or
+    /// an unbind in Settings or `cmux.json` shows up the next time the menu
+    /// opens. Actions with no cmux-owned shortcut return nil.
+    var shortcutAction: KeyboardShortcutSettings.Action? {
+        switch self {
+        case .newWorkspace: return .newTab
+        case .newCloudWorkspace: return .newCloudWorkspace
+        case .newCloudMachine: return .newCloudMachine
+        case .newTerminal: return .newSurface
+        case .newBrowser: return .openBrowser
+        case .splitRight: return .splitRight
+        case .splitDown: return .splitDown
+        case .newAgentChat, .cloudVM, .mobileConnect, .newSimulator: return nil
+        }
+    }
+
 }
