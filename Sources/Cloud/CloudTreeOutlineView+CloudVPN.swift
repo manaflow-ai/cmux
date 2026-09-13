@@ -19,7 +19,13 @@ extension CloudTreeOutlineView.Coordinator {
 
 extension CloudTreeOutlineView.Coordinator {
     func outlineViewColumnDidResize(_ notification: Notification) {
-        guard showsCloudVPNWarning, let outlineView else { return }
+        guard let outlineView else { return }
+        updateCloudVPNRowHeights(in: outlineView)
+    }
+
+    /// Re-measures wrapping Ports guidance for the resized outline.
+    func updateCloudVPNRowHeights(in outlineView: NSOutlineView) {
+        guard showsCloudVPNWarning else { return }
         let rows = IndexSet((0..<outlineView.numberOfRows).filter {
             (outlineView.item(atRow: $0) as? CloudTreeNode)?.isPortsEmptyPlaceholder == true
         })
