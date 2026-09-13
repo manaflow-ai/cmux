@@ -6,20 +6,8 @@ import Foundation
 /// `session.creation.resolve` command returns this same state machine so the
 /// client can retry only when the daemon explicitly says that doing so is safe.
 struct CloudTuiCreationResolution: Equatable, Sendable {
-    enum State: String, Equatable, Sendable {
-        case pending
-        case created
-        case notApplied = "not_applied"
-        case indeterminate
-    }
-
-    enum Recovery: String, Equatable, Sendable {
-        case retrySameIdempotencyKey = "retry_same_idempotency_key"
-        case retryNewIdempotencyKey = "retry_new_idempotency_key"
-        case wait
-        case none
-        case doNotRetry = "do_not_retry"
-    }
+    typealias State = CloudTuiCreationResolutionState
+    typealias Recovery = CloudTuiCreationRecovery
 
     let correlationKey: String
     let state: State
@@ -97,31 +85,4 @@ struct CloudTuiCreationResolution: Equatable, Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
-}
-
-/// Backoff used while a daemon is still executing a correlated creation.
-///
-/// This is an explicit progress wait, rather than a settling delay: the loop
-/// ends only at a durable creation state or caller cancellation.
-struct CloudTuiCreationRecoveryPolicy: Equatable, Sendable {
-    let delays: [Duration]
-
-    init(delays: [Duration]) {
-        precondition(!delays.isEmpty)
-        precondition(delays.allSatisfy { $0 > .zero })
-        self.delays = delays
-    }
-
-    static let standard = Self(delays: [
-        .seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(30),
-    ])
-
-    func delay(afterAttempts attempts: Int) -> Duration {
-        delays[min(max(attempts, 1), delays.count) - 1]
-    }
-
-    /// A pending receipt is progress, but it cannot hold an operation forever.
-    /// The extra attempts cover a normal reconnect without making a permanently
-    /// lost daemon response an unbounded task.
-    var maximumResolutionAttempts: Int { delays.count + 2 }
 }

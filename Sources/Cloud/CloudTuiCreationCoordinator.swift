@@ -13,10 +13,7 @@ private let cloudTerminalCreationCoordinatorLogger = Logger(
 /// live link. One correlation key spans every resolution and one attempt key is
 /// reused until the daemon explicitly authorizes a replacement.
 struct CloudTuiCreationCoordinator: Sendable {
-    enum Failure: Error, Equatable, Sendable {
-        case outcomeUnknown
-        case unsupported
-    }
+    typealias Failure = CloudTuiCreationFailure
 
     typealias AttemptArguments = @Sendable (_ idempotencyKey: String) -> [String]
 

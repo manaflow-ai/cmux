@@ -8,35 +8,6 @@ private let cloudTerminalReadinessLogger = Logger(
     category: "CloudTerminalPresentation"
 )
 
-/// Pure ordering fence for one terminal presentation generation.
-///
-/// Replay and rendering can arrive in either order around reconnects. The gate
-/// only opens when attachment state is true, replay has been applied through the
-/// caller's condition, and a frame newer than the generation baseline has been
-/// presented. It is small enough to exercise without constructing Ghostty.
-struct CloudTerminalReadinessGate: Equatable, Sendable {
-    private(set) var baselineFrame: UInt64 = 0
-    private(set) var firstPresentedFrame: UInt64? = nil
-
-    mutating func begin(baselineFrame: UInt64) {
-        self.baselineFrame = baselineFrame
-        firstPresentedFrame = nil
-    }
-
-    mutating func check(
-        attachmentReady: Bool,
-        rendererPresented: Bool,
-        frameSequence: UInt64
-    ) -> Bool {
-        guard firstPresentedFrame == nil,
-              attachmentReady,
-              rendererPresented,
-              frameSequence > baselineFrame else { return false }
-        firstPresentedFrame = frameSequence
-        return true
-    }
-}
-
 /// Event-driven readiness for a Cloud terminal handoff.
 ///
 /// Readiness is established by the first presented frame that satisfies the
@@ -45,12 +16,7 @@ struct CloudTerminalReadinessGate: Equatable, Sendable {
 @MainActor
 @Observable
 final class CloudTerminalReadiness {
-    enum Phase: Equatable, Sendable {
-        case idle
-        case waiting
-        case ready
-        case ended
-    }
+    typealias Phase = CloudTerminalReadinessPhase
 
     private(set) var phase: Phase = .idle
     var isLoading: Bool { phase == .waiting }
@@ -61,6 +27,7 @@ final class CloudTerminalReadiness {
     private var onReady: (@MainActor () -> Void)?
     private var onEnded: (@MainActor () -> Void)?
     private var onTimedOut: (@MainActor () -> Void)?
+    // The task is created and cancelled on MainActor; ARC deinit is nonisolated.
     private nonisolated(unsafe) var deadlineTask: Task<Void, Never>?
     private let clock: any Clock<Duration>
     private let deadline: Duration
