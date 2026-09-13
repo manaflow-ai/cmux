@@ -933,25 +933,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
-    /// died with the link ("cmux-tui link exited with status …": a dropped tunnel kills
-    /// the whole client run). Safe here because every close verb is idempotent — a
-    /// second attempt against an already-closed target is `selector.not_found`, which
-    /// the callers already tolerate. Non-idempotent verbs (create, run) must not use it.
-    private func runCloseCommand(_ arguments: (_ socketPath: String) -> [String]) async throws -> Data {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        do {
-            return try await link.run(arguments: arguments(connected.socketPath))
-        } catch {
-            // selector.not_found is a real answer, not a transport failure.
-            if Self.isSelectorNotFound(error) { throw error }
-            let reconnected = try await links.connected(machineID: machineID)
-            guard let fresh = await links.link(machineID: machineID) else { throw error }
-            return try await fresh.run(arguments: arguments(reconnected.socketPath))
-        }
-    }
-
     // MARK: Headless terminal I/O (agent primitives; no pane involved)
 
     /// Type `text` into the remote terminal exactly as given (no newline appended).
@@ -1035,19 +1016,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// `workspace <id> close`: its tabs go with it, its terminals detach into the pool
-    /// (`spec/cli.md`: only `terminal close` kills) — the protocol contract, and what
-    /// the sidebar's "Close Workspace (Keep Terminals)" promises. Callers wanting the
-    /// full delete (`vm.workspace_delete`, the sidebar's "Delete Workspace and
-    /// Terminals…") go through `CloudTreeNodeActions.deleteWorkspaceAndTerminals`,
-    /// which closes each terminal first.
-    func closeRemoteWorkspace(id: String) async throws {
-        _ = try await runCloseCommand { CloudTuiCommandLine.closeWorkspaceArguments(socketPath: $0, workspaceID: id) }
-        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
-        catalog.updateMachine(info, from: self)
-        scheduleRefresh()
-    }
-
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
     /// command's output text.
     static func isSelectorNotFound(_ error: Error) -> Bool {
@@ -1122,7 +1090,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cwd: cwd,
             command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
         )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit))
+        let data: Data
+        do { data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv, onExit: onExit)) }
+        catch {
+            guard Self.isSelectorNotFound(error) else { throw error }
+            throw requestedWorkspace.map { ProviderError.remoteWorkspaceNotFound($0) } ?? ProviderError.noWorkspaceOnMachine(machineID)
+        }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
             throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
@@ -2082,6 +2055,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
+    func removeRemoteWorkspaceFromInfo(_ id: String) {
+        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
+    }
+
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }

@@ -6,6 +6,9 @@ extension CmuxTuiSurfaceProvider {
         case notSignedIn
         case machineAsleep(String)
         case noWorkspaceOnMachine(String)
+        case remoteWorkspaceNotFound(String)
+        case remotePlacementUnavailable(String)
+        case remoteTabNotFound(String)
         case terminalNotCreated(String)
         case invalidSnapshot(String)
         case snapshotOnly(String)
@@ -24,6 +27,30 @@ extension CmuxTuiSurfaceProvider {
                 return "\(id) is asleep; open it (`cmux vm shell \(id)`) to wake it before listing its terminals."
             case .noWorkspaceOnMachine(let id):
                 return "\(id) has no cmux-tui workspace yet."
+            case .remoteWorkspaceNotFound(let id):
+                return String(
+                    format: String(
+                        localized: "surfaceCatalog.error.destinationNotFound",
+                        defaultValue: "Destination not found: %@."
+                    ),
+                    "remote workspace \(id)"
+                )
+            case .remotePlacementUnavailable(let id):
+                return String(
+                    format: String(
+                        localized: "surfaceCatalog.error.destinationNotFound",
+                        defaultValue: "Destination not found: %@."
+                    ),
+                    "a pane in remote workspace \(id)"
+                )
+            case .remoteTabNotFound(let id):
+                return String(
+                    format: String(
+                        localized: "surfaceCatalog.error.destinationNotFound",
+                        defaultValue: "Destination not found: %@."
+                    ),
+                    "remote tab \(id)"
+                )
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
             case .invalidSnapshot(let id):

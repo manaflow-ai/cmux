@@ -40,10 +40,27 @@ final class CloudPlacementCoordinator {
         return remote
     }
 
-    /// A bound workspace wins over a stale anchor snapshot after a pane transfer.
-    func creationWorkspaceID(in localWorkspaceID: UUID, near resource: SurfaceResource) -> String? {
-        boundRemoteWorkspaceID(forLocalWorkspace: localWorkspaceID, on: resource.machine)
-            ?? (resource.remoteWorkspaces.first(where: \.focused) ?? resource.remoteWorkspaces.first)?.id
+    /// Selects the remote workspace for a new terminal without reviving a deleted
+    /// binding or guessing between several live placements. A binding remains
+    /// authoritative when the resource still proves that placement exists; a
+    /// selected projection may then provide the exact placement for a mixed layout.
+    func creationWorkspaceID(
+        in localWorkspaceID: UUID,
+        near resource: SurfaceResource,
+        preferredRemoteWorkspaceID: String? = nil
+    ) -> String? {
+        let candidates = Set(resource.remoteWorkspaces.map(\.id))
+        if let bound = boundRemoteWorkspaceID(forLocalWorkspace: localWorkspaceID, on: resource.machine),
+           candidates.isEmpty || candidates.contains(bound) {
+            return bound
+        }
+        if let preferred = preferredRemoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !preferred.isEmpty,
+           candidates.contains(preferred) {
+            return preferred
+        }
+        guard candidates.count == 1 else { return nil }
+        return candidates.first
     }
 
     func confirmPlacement(_ placement: SurfaceRemotePlacement, on machine: SurfaceMachineID) {

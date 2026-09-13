@@ -248,13 +248,9 @@ final class SurfaceCatalog {
     }
 
     /// Applies an accepted daemon snapshot to all local projections with exact IDs.
-    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState, observation: CloudVMStateObservation? = nil) {
         cloudPlacementCoordinator.reconcileRemoteState(state, catalog: self)
-        cloudWorkspaceRenameService.reconcileRemoteState(
-            machine: machine,
-            state: state,
-            catalog: self
-        )
+        cloudWorkspaceRenameService.reconcileRemoteState(machine: machine, state: state, catalog: self, observation: observation ?? cloudStateObservations[machine] ?? .current)
     }
 
     /// Persists the machine and remote workspace identity behind a local workspace.

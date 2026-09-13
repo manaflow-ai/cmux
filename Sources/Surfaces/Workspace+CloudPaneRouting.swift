@@ -41,6 +41,7 @@ extension Workspace {
         return routeCloudPaneTerminalCreate(
             near: resource,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
+            preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: panelID)?.remoteWorkspaceID,
             focus: focus
         )
     }
@@ -53,6 +54,7 @@ extension Workspace {
         return routeCloudPaneTerminalCreate(
             near: resource,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
+            preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
             focus: true
         )
     }
@@ -61,9 +63,13 @@ extension Workspace {
     /// resource to that machine. Returns false when the pane is not cloud-anchored.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
+        let preferredRemoteWorkspaceID = bonsplitController.selectedTab(inPane: paneID)?.id
+            .flatMap(panelIdFromSurfaceId)
+            .flatMap { SurfaceCatalog.shared.projection(forPanel: $0)?.remoteWorkspaceID }
         return routeCloudPaneTerminalCreate(
             near: resource,
             destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
+            preferredRemoteWorkspaceID: preferredRemoteWorkspaceID,
             focus: focus
         )
     }
@@ -76,12 +82,26 @@ extension Workspace {
     private func routeCloudPaneTerminalCreate(
         near resource: SurfaceResource,
         destination: SurfaceDestination,
+        preferredRemoteWorkspaceID: String?,
         focus: Bool
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource)
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(
+            in: id,
+            near: resource,
+            preferredRemoteWorkspaceID: preferredRemoteWorkspaceID
+        )
         let machine = resource.machine
+        guard let remoteWorkspaceID else {
+            Task { @MainActor in
+                Self.presentCloudPaneCreationFailure(
+                    machine: machine,
+                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
+                )
+            }
+            return true
+        }
         Task { @MainActor in
             do {
                 let created = try await provider.createTerminal(
@@ -156,6 +176,12 @@ struct CloudWorkspaceRenameEnvironment {
 /// remote ordering and accepted cloud snapshots; this service only resolves local
 /// owners, applies titles, and submits intents through that catalog.
 final class CloudWorkspaceRenameService {
+    enum BindingReconciliation: Equatable {
+        case keep
+        case clear
+        case rebind(machine: SurfaceMachineID, remoteWorkspaceID: String)
+    }
+
     let environment: CloudWorkspaceRenameEnvironment
 
     init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
@@ -429,106 +455,6 @@ final class CloudWorkspaceRenameService {
                 #endif
             }
         }
-    }
-
-    /// Applies daemon-owned names to every local projection that carries an
-    /// exact remote identity. A remote observation uses `.remote` and disables
-    /// both local transport propagations.
-    ///
-    /// While a local intent is in flight, a different remote value stays visible
-    /// until the command succeeds or rolls back. This avoids a polling race
-    /// without creating a second durable source of truth.
-    @MainActor
-    func reconcileRemoteState(
-        machine: SurfaceMachineID,
-        state: CloudVMState,
-        catalog: SurfaceCatalog
-    ) {
-        guard case .cloud = machine else { return }
-        let snapshot = catalog.snapshot
-        // Synchronizable snapshots reject duplicate identity rows at the parser
-        // boundary. Keep these defensive maps total for legacy callers that may
-        // construct a value directly; missing relationships still fail closed
-        // below instead of selecting a placement by array order.
-        let workspacesByID = state.workspaces.reduce(into: [String: CloudVMWorkspaceState]()) {
-            $0[$1.id] = $1
-        }
-        let tabsByID = state.tabs.reduce(into: [String: CloudVMTabState]()) {
-            $0[$1.id] = $1
-        }
-        let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
-            $0[$1.id] = $1
-        }
-        let localWorkspaces = environment.workspaces()
-        let localWorkspacesByID = Dictionary(
-            localWorkspaces.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-
-        for workspace in localWorkspaces {
-            guard let binding = workspace.cloudVMBinding,
-                  binding.vmID == machine.cloudMachineID,
-                  let remoteID = binding.remoteWorkspaceID,
-                  let remote = workspacesByID[remoteID]
-            else { continue }
-
-            let intentKey = CloudRenameCoordinator.Key.workspace(machine: machine, id: remoteID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != remote.name {
-                continue
-            }
-            let displayName = workspaceDisplayName(
-                machine: machine,
-                remoteName: remote.name,
-                currentTitleSource: workspace.effectiveCustomTitleSource,
-                currentCustomTitle: workspace.customTitle
-            )
-            let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
-            _ = manager?.setCustomTitle(
-                tabId: workspace.id,
-                title: displayName,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
-        }
-
-        for projection in snapshot.projections where projection.resource.machine == machine {
-            guard let workspace = localWorkspacesByID[projection.workspaceID],
-                  workspace.panels[projection.panelID] != nil,
-                  let resource = resourcesByID[projection.resource],
-                  resource.kind == .terminal
-            else { continue }
-
-            let tabID = remoteTabID(for: projection, resource: resource)
-            guard let tabID, let tab = tabsByID[tabID] else { continue }
-            let intentKey = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
-            if let pending = catalog.cloudRenameCoordinator.pendingName(for: intentKey), pending != (tab.name ?? "") {
-                continue
-            }
-            _ = workspace.setPanelCustomTitle(
-                panelId: projection.panelID,
-                title: tab.name,
-                source: .remote,
-                propagateToRemoteTmux: false,
-                propagateToCloud: false
-            )
-        }
-    }
-
-    private func workspaceDisplayName(
-        machine: SurfaceMachineID,
-        remoteName: String,
-        currentTitleSource: Workspace.CustomTitleSource?,
-        currentCustomTitle: String?
-    ) -> String {
-        // Preserve the machine prefix only for a title this feature created.
-        // A user-entered title remains exact after the daemon echoes it.
-        let prefix = "\(machine.rawValue): "
-        if currentTitleSource == .remote,
-           currentCustomTitle?.hasPrefix(prefix) == true {
-            return prefix + remoteName
-        }
-        return remoteName
     }
 
     /// Records which machine + remote workspace a just-opened local workspace stands
