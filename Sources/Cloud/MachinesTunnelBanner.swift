@@ -62,8 +62,8 @@ struct MachinesTunnelBanner: View {
 
     private var helpText: String {
         String(
-            localized: "cloudTree.tunnel.help",
-            defaultValue: "The cmux Cloud Tunnel is a macOS network extension that gives every app on this Mac a route to your Cloud VM network. cmux itself does not need it: terminals, Ports, and Desktop use the built-in user-space tunnel."
+            localized: "cloud.vpn.setup.howItWorks.body",
+            defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection."
         )
     }
 }

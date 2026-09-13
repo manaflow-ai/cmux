@@ -48,12 +48,11 @@ struct CloudTreeNodeActions {
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
-    /// Copy a link that works from any app on this Mac for a machine port: the
-    /// loopback forward over the user-space hub, started if needed. The private
-    /// address is only reachable with `cmux vpn up`, so it is not what "Copy
-    /// Link" hands out.
+    /// Copy the machine port's private URL without changing network state.
+    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
 
     @MainActor
     static func bound(
@@ -63,13 +62,18 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
-        refresh: @escaping @MainActor () -> Void
+        refresh: @escaping @MainActor () -> Void,
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }
     ) -> CloudTreeNodeActions {
         func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) {
             onWillMutate(label)
             Task { @MainActor in
                 do {
-                    try await operation(catalog())
+                    if let recorder = AppDelegate.shared?.cloudOperations {
+                        try await recorder.perform(.workspace) { try await operation(catalog()) }
+                    } else {
+                        try await operation(catalog())
+                    }
                 } catch {
                     // Human wording first: the panel now shows this text inline, and a
                     // raw enum dump ("noProvider(cloud(\"m\"))") explains nothing there.
@@ -96,7 +100,7 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
-        return CloudTreeNodeActions(
+        var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
                 // Row selection and refresh notifications can otherwise change the
@@ -264,11 +268,19 @@ struct CloudTreeNodeActions {
                 } else {
                     run(openingLabel(machine)) { catalog in
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
+                        // Clicking a workspace row opens its layout: the machine screen's
+                        // splits, ratios and tabs, when the daemon reports them (nil → grid).
+                        let layout: SurfaceProjectionLayout? = if let remoteWorkspaceID = routedGroup.remoteWorkspaceID {
+                            await CloudWorkspaceLayoutTranslator.fetch(machine: machine, workspaceID: remoteWorkspaceID, catalog: catalog)
+                        } else {
+                            nil
+                        }
                         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app
+                            host: .app,
+                            layout: layout
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID,
@@ -356,6 +368,8 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.refreshMachine = refreshMachine
+        return actions
     }
 
     /// The local workspace's title: the remote workspace's own name — what a
@@ -388,13 +402,17 @@ struct CloudTreeNodeActions {
         provider: any SurfaceProvider,
         catalog: SurfaceCatalog,
         name: String?,
-        focus: Bool
+        focus: Bool,
+        openLocally: Bool = true,
+        existingWorkspace: SurfaceRemoteWorkspace? = nil
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
-        opened: (workspaceID: UUID, projections: [SurfaceProjection])
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        let workspace = try await provider.createRemoteWorkspace(name: name)
+        let workspace: SurfaceRemoteWorkspace
+        if let existingWorkspace { workspace = existingWorkspace }
+        else { workspace = try await provider.createRemoteWorkspace(name: name) }
         await provider.refresh()
         let existing = catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
@@ -405,6 +423,10 @@ struct CloudTreeNodeActions {
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
+        // Headless staging (`cmux vm workspace new --no-open`): the machine workspace and
+        // its starter terminal are created, but nothing local is created or focused. A
+        // later layout apply may target this workspace only when it is still empty.
+        guard openLocally else { return (workspace, terminal, nil) }
         let placement = SurfaceResourcePlacement(
             resource: terminal.id,
             remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },

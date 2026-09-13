@@ -4,12 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
-  CMUX_CLOUD_LAYOUT,
+  CMUX_TUI_DAEMON_TERMINAL_ENV,
+  CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
+  cmuxTuiAgentHooksInstallCommand,
+  cmuxTuiAsDaemonUser,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiPinnedManifestUrl,
+  cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
   cmuxTuiManifestUrl,
-  cmuxTuiPersistentMountWait,
+  cmuxTuiRunCommand,
   parseCmuxTuiManifest,
   cmuxTuiAttachBundleCommand,
   cmuxTuiTrustedListenerProbe,
@@ -20,6 +26,8 @@ const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
 const COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
 const MANIFEST = `https://files.cmux.com/cmux-tui/${COMMIT}/manifest.json`;
 const URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-x86_64-unknown-linux-musl`;
+const HOOK_SHA = "9f2e4c1a7b3d5e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7";
+const HOOK_URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-hook-x86_64-unknown-linux-musl`;
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -51,719 +59,203 @@ describe("cmux-tui daemon source", () => {
     const source = parseCmuxTuiManifest(MANIFEST, {
       commit: COMMIT,
       builtAt: "2026-08-19T07:05:35Z",
-      binaries: { "cmux-tui-aarch64-apple-darwin": "a".repeat(64), "cmux-tui-x86_64-unknown-linux-musl": SHA.toUpperCase() },
+      binaries: {
+        "cmux-tui-aarch64-apple-darwin": "a".repeat(64),
+        "cmux-tui-x86_64-unknown-linux-musl": SHA.toUpperCase(),
+        "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA.toUpperCase(),
+      },
     });
-    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z" });
+    // The hook helper comes from the same commit as the daemon: a machine
+    // never pairs a daemon with a helper of another generation.
+    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA });
   });
 
-  test("fails closed on a manifest without a commit or without the musl build", () => {
-    expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/commit/);
-    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA } })).toThrow(/musl/);
+  test("fails closed on a manifest without a commit, without the musl build, or without the hook helper", () => {
+    const both = { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA };
+    expect(() => parseCmuxTuiManifest(MANIFEST, { binaries: both })).toThrow(/commit/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-gnu": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } })).toThrow(/musl/);
+    expect(() => parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA } })).toThrow(/cmux-tui-hook/);
     expect(() => parseCmuxTuiManifest(MANIFEST, "nonsense")).toThrow();
+  });
+
+  test("a pinned manifest is the commit's sibling of the rolling pointer", () => {
+    expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(MANIFEST);
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/deadbeef/manifest.json" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://files.example/tui/${COMMIT}/manifest.json`));
+    expect(() => cmuxTuiPinnedManifestUrl("abc")).toThrow(/full sha/);
   });
 });
 
 describe("cmux-tui install and daemon commands", () => {
-  test("installs onto the persistent volume, verifies the pin before and after download, and probes the binary", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
-    expect(command).toContain("mkdir -p '/root/.cmux/bin'");
+  test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
+    // One runtime selection, shared with the daemon launch, so install and
+    // launch can never disagree about where the binary lives.
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    expect(command).toContain('mkdir -p "$(dirname "$CMUX_TUI_BIN")"');
     // Skip the download when the installed copy already matches the pin.
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     // The download is verified against the same pin before it replaces anything.
-    // A stock base image has no curl yet: install it, else fall back to busybox wget.
-    expect(command).toContain("command -v curl >/dev/null 2>&1 || apk add --no-cache curl");
-    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o '/root/.cmux/bin/cmux-tui.tmp' '${URL}'`);
-    expect(command).toContain(`else wget -q -O '/root/.cmux/bin/cmux-tui.tmp' '${URL}'; fi`);
-    expect(command).toContain(`'${SHA}' '/root/.cmux/bin/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1 && chmod 755`);
-    expect(command).toContain("ln -sfn '/root/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
-    expect(command.endsWith("'/root/.cmux/bin/cmux-tui' --version")).toBe(true);
+    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_TMP" '${URL}'`);
+    expect(command).toContain(`wget -q -O "$CMUX_TUI_TMP" '${URL}'`);
+    expect(command).toContain(`'${SHA}' "$CMUX_TUI_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
+    // Only the nodes the install created; never a walk of the state tree.
+    expect(command).toContain('chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
+    expect(command).not.toContain("chown -R");
+    expect(command).toContain('"$CMUX_TUI_BIN" --version');
+  });
+
+  test("installs the hook helper beside the daemon from the same pin and writes the Claude Code and Codex hooks as the daemon user", () => {
+    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
+    const command = cmuxTuiInstallCommand(source);
+    // Beside the binary: the one place `agent hook install` finds it without a PATH search.
+    expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
+    expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`curl -fsSL --retry 3 --retry-delay 2 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
+    expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
+    // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
+    // settings are invisible to the terminals the daemon spawns.
+    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex >/dev/null');
+    expect(command).toContain(install);
+    expect(command.indexOf('"$CMUX_TUI_BIN" --version')).toBeLessThan(command.indexOf(install));
+    // And proven, not assumed: helper installed and byte-equal to the pin,
+    // every provider config carrying the cmux marker, codex trust state written.
+    expect(command).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
+    expect(command).toContain('cmp -s "$CMUX_TUI_HOOK_BIN" "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
+    // Structured status, not a text grep: a user-edited entry reports partial and is repaired.
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex'));
+    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex"])');
+    expect(command).not.toContain("grep -q cmux-tui-journal-hook");
+  });
+
+  test("the pinned manifest URL keeps the mirror's origin and query and handles a root-level pointer", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://mirror.example/manifest.json?token=abc" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://mirror.example/${COMMIT}/manifest.json?token=abc`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/manifest.json?x=1" }, () =>
+      expect(cmuxTuiPinnedManifestUrl(COMMIT)).toBe(`https://files.example/tui/${COMMIT}/manifest.json?x=1`));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/index.json" }, () =>
+      expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
+  });
+
+  test("the hooks-only install never touches the daemon binary", () => {
+    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
+    const command = cmuxTuiAgentHooksInstallCommand(source);
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    expect(command).toContain(HOOK_URL);
+    expect(command).not.toContain(URL);
+    expect(command).not.toContain("ln -sfn");
+    expect(command).not.toContain("--version");
+    expect(command).toContain("agent hook install claude codex");
+    expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
+    expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });
 
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
   // image) rejects `-s` ("invalid option -- 's'"), which failed every create with a 502.
   test("the pin check never uses the BusyBox-only sha256sum -s flag", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     expect(command).not.toMatch(/sha256sum[^|&;]*\s-s\b/);
     expect(command).not.toContain("--status");
     expect(command).toContain("sha256sum -c >/dev/null 2>&1");
   });
 
-  test("the daemon serves /v1/link on its own port from the persistent home", () => {
+  test("the pin check reads the same binary the daemon runs", () => {
+    const command = cmuxTuiPinCheckCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    expect(command).toContain('test -x "$CMUX_TUI_BIN"');
+    expect(command).toContain(`'${SHA}' "$CMUX_TUI_BIN" | sha256sum -c`);
+  });
+
+  test("the daemon drops to the work user and serves /v1/link on its own port", () => {
     const command = cmuxTuiDaemonCommand();
-    expect(command.startsWith("cd /root && env HOME=/root")).toBe(true);
+    // Terminals must be non-root shells: agents refuse root
+    // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    // setpriv, not runuser or su: it EXECs in place, so the daemon is the
+    // direct child of its supervisor. With a wrapper in between, SIGTERM never
+    // reached the daemon (it was SIGKILLed, and its next start rejected the
+    // half-written shutdown record), and `pgrep -f` matched the wrapper first.
+    expect(command).toContain(
+      `exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash ${CMUX_TUI_DAEMON_TERMINAL_ENV} "$CMUX_TUI_BIN"`,
+    );
+    expect(command).not.toContain("runuser");
+    expect(command).toContain('cd "$CMUX_TUI_HOME"');
+    expect(command).toContain(`printf '%s\\n' "$CMUX_TUI_LAYOUT" > ${CMUX_TUI_LAYOUT_MARKER_PATH}`);
     expect(command).toContain("server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind --remote-ws-trusted-carrier");
   });
 
-  test("with the cloud layout the install lands in the cmux home and hands the bin dir to the user", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null }, CMUX_CLOUD_LAYOUT);
-    expect(command).toContain("elif mountpoint -q '/cmux/home'");
-    expect(command).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
-    expect(command).toContain(`'${SHA}' \"$CMUX_TUI_BIN\" | sha256sum -c >/dev/null 2>&1; then :; else`);
-    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
-    expect(command).toContain('chown cmux:cmux "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
-    expect(command).not.toContain("chown -R");
-    expect(command).toContain("if command -v curl >/dev/null 2>&1; then curl -fsSL");
-    expect(command).toContain("elif command -v wget >/dev/null 2>&1; then wget -q");
-    expect(command).not.toContain("apk add --no-cache curl");
-    expect(command).toContain('"$CMUX_TUI_BIN" --version');
-    expect(command).toContain("CMUX_TUI_HOME='/home/cmux'");
+  test("driver-side cmux-tui calls read the daemon's own state, not root's", () => {
+    const command = cmuxTuiRunCommand("server status --session cloud");
+    expect(command).toContain(cmuxTuiLayoutSelector());
+    expect(command).toContain('setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME"');
+    expect(command).toContain('"$CMUX_TUI_BIN" server status --session cloud');
   });
 
-  test("with the cloud layout the daemon drops to the cmux user, never for pre-layout volumes", () => {
-    const command = cmuxTuiDaemonCommand(undefined, CMUX_CLOUD_LAYOUT);
-    // Terminals must be non-root shells: agents refuse root
-    // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
-    expect(command).toContain(
-      "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start",
-    );
-    expect(command).toContain("&& runuser -u cmux -- test -w /home/cmux 2>/dev/null; then cmux_tui_view_lost=0;");
-    expect(command).toContain("cd /home/cmux 2>/dev/null || exit 75; exec runuser -u cmux -- env HOME=/home/cmux");
-    expect(command).toContain("runuser -u cmux -- env HOME=/home/cmux");
-    expect(command).toContain("cmux_tui_backing_expected=0");
-    expect(command).toContain("if mountpoint -q /cmux/home 2>/dev/null; then cmux_tui_backing_expected=1; fi");
-    expect(command).toContain("findmnt --poll=umount,move,remount --first-only");
-    expect(command).toContain("--mountpoint /home/cmux");
-    expect(command).toContain("--mountpoint /cmux/home");
-    expect(command).toContain("kill -USR1");
-    expect(command).toContain("exit 75");
-    expect(command).toContain("printf 'user\\n' > /etc/cmux/daemon-layout");
-    expect(command).toContain("printf 'root\\n' > /etc/cmux/daemon-layout");
-    // A sandbox born before the layout change still has its persistent volume (data
-    // AND daemon state) at /root; it must keep the root daemon until resurrection.
-    expect(command).toContain("if mountpoint -q /root 2>/dev/null; then { mkdir -p /etc/cmux 2>/dev/null; printf 'root\\n'");
-    expect(command).toContain("exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start");
-    expect(command).toContain("exec env HOME=/root TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /root/.cmux/bin/cmux-tui server start");
-    // Volume mounted but the identity view missing (bindfs failed): home on the
-    // persistent backing path as root, never the writable-but-disposable rootfs dir.
-    expect(command).toContain("elif mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null; then ");
-    expect(command).toContain("cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /cmux/home/.cmux/bin/cmux-tui server start");
-    expect(command).toContain("elif [ -x /root/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /root/.cmux/bin/cmux-tui server start");
-    // No user, no runuser, or an unusable home (bindfs view missing over the
-    // root-squashing volume): fall back to root instead of crash-looping.
-    expect(command).toContain(
-      "[ \"$(id -u cmux 2>/dev/null || echo -1)\" = \"1001\" ] && command -v bash >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
-    );
-    expect(command).toContain("(! mountpoint -q /cmux/home 2>/dev/null || mountpoint -q /home/cmux 2>/dev/null)");
-    expect(command).toContain("cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION=\"$(cat /etc/cmux/ghostty-version 2>/dev/null)\" /home/cmux/.cmux/bin/cmux-tui server start");
-    // If the work user is unavailable even after setup, keep root fallback state on
-    // the mounted volume instead of the disposable /home/cmux rootfs directory.
-    expect(command).toContain(
-      "if ! mountpoint -q /cmux/home 2>/dev/null; then exit 75; fi; cd /cmux/home 2>/dev/null || exit 75; if [ -x /cmux/home/.cmux/bin/cmux-tui ]; then exec env HOME=/cmux/home",
-    );
-    // Both root fallbacks leave a breadcrumb so the degraded state is findable.
-    expect(command.split("/etc/cmux/root-session-fallback").length - 1).toBe(2);
+  test("the work user is used only when it can do the job it promises", () => {
+    const selector = cmuxTuiLayoutSelector();
+    expect(selector).toContain("id -u cmux");
+    expect(selector).toContain("command -v setpriv");
+    expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux");
+    // Passwordless sudo is part of the promise: a session that cannot escalate
+    // is worse than a root session, so a broken sudoers picks the root layout.
+    expect(selector).toContain("setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true");
+    // No PAM session per probe: the supervisor evaluates this on every restart.
+    expect(selector).not.toContain("runuser");
+    expect(selector).toContain("CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root");
   });
 
-  test("a volume-backed daemon fails closed while its persistent mount is absent", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-volume-missing-"));
-    const fakeBin = join(root, "fake-bin");
+  /** Runs a shell snippet with `bin` first on PATH and returns its stdout. */
+  function runWithStubs(snippet: string, stubs: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-layout-"));
+    const fakeBin = join(root, "bin");
     mkdirSync(fakeBin, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", "#!/bin/sh\nexit 1\n");
-    // Make the failure deterministic even on a host that happens to have findmnt.
-    writeExecutable("findmnt", "#!/bin/sh\nexit 1\n");
-    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: join(root, "backing") } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
-    let child: ReturnType<typeof spawn> | undefined;
     try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: { ...process.env, PATH: [fakeBin, process.env.PATH || ""].join(":"), HOME: root },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("missing-volume guard timed out"));
-        }, 2_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("does not wait forever for a late persistent mount", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-mount-timeout-"));
-    const fakeBin = join(root, "fake-bin");
-    mkdirSync(fakeBin, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", "#!/bin/sh\nexit 1\n");
-    // An implementation that omits findmnt's timeout hangs forever here. The
-    // bounded implementation receives the timeout option and exits through
-    // the daemon's restartable failure path.
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll --timeout'; exit 0 ;;",
-      "  --poll=*)",
-      "    has_timeout=0",
-      "    for argument in \"$@\"; do case \"$argument\" in --timeout=*) has_timeout=1 ;; esac; done",
-      "    if [ \"$has_timeout\" -eq 1 ]; then sleep 0.05; exit 1; fi",
-      "    while :; do sleep 1; done",
-      "    ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    const layout = {
-      user: "cmux",
-      home: join(root, "home"),
-      volumeBackingPath: join(root, "backing"),
-    } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: { ...process.env, PATH: [fakeBin, process.env.PATH || ""].join(":") },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("persistent mount wait timed out"));
-        }, 2_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("accepts a mount that arrives during the poll handoff", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-mount-handoff-"));
-    const fakeBin = join(root, "fake-bin");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ] && [ -e \"$CMUX_TEST_STATE/mounted\" ]; then exit 0; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll --timeout'; exit 0 ;;",
-      "  --poll=*) : > \"$CMUX_TEST_STATE/mounted\"; exit 1 ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: backing } as const;
-    const command = `${cmuxTuiPersistentMountWait(layout, true)} printf ready`;
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, process.env.PATH || ""].join(":"),
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      const result = await new Promise<{ code: number; stdout: string }>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("mount handoff test timed out"));
-        }, 2_000);
-        let stdout = "";
-        child?.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve({ code: code ?? -1, stdout });
-        });
-      });
-      expect(result).toEqual({ code: 0, stdout: "ready" });
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("fails closed when the mount poller returns an error", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-poll-failure-"));
-    const fakeBin = join(root, "fake-bin");
-    const home = join(root, "home");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(join(home, ".cmux", "bin"), { recursive: true });
-    mkdirSync(backing, { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ] || [ \"$path\" = \"$CMUX_TEST_HOME\" ]; then exit 0; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    // A supported findmnt that fails at runtime must restart the supervisor,
-    // not make its polling loop consume a CPU indefinitely.
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
-      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; exit 1 ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("id", [
-      "#!/bin/sh",
-      "if [ \"$1\" = \"-u\" ] && [ \"$2\" = \"cmux\" ]; then printf '1001\\n'; exit 0; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("sudo", "#!/bin/sh\nexit 0\n");
-    writeExecutable("runuser", [
-      "#!/bin/sh",
-      "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"--\" ]; do shift; done",
-      "[ \"$#\" -gt 0 ] && shift",
-      "[ \"$1\" = \"env\" ] && shift",
-      "while [ \"$#\" -gt 0 ]; do",
-      "  case \"$1\" in *=*) export \"$1\"; shift ;; *) break ;; esac",
-      "done",
-      "exec \"$@\"",
-      "",
-    ].join("\n"));
-    const daemonBinary = join(home, ".cmux", "bin", "cmux-tui");
-    writeFileSync(daemonBinary, [
-      "#!/bin/sh",
-      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
-      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      // Keep the fake daemon alive without monopolizing a CPU while Bun runs
-      // other isolated test files concurrently on the small CI runner.
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"));
-    chmodSync(daemonBinary, 0o755);
-    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout, { persistentVolumeExpected: true });
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, process.env.PATH || ""].join(":"),
-          CMUX_TEST_HOME: home,
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("findmnt failure supervisor test timed out"));
-        }, 2_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      expect(existsSync(join(state, "daemon-term"))).toBe(true);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("selects the persistent binary for layout installs", () => {
-    const command = cmuxTuiInstallCommand(
-      { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
-      CMUX_CLOUD_LAYOUT,
-    );
-    expect(command).toContain("mountpoint -q '/cmux/home'");
-    expect(command).toContain("CMUX_TUI_HOME='/cmux/home'");
-    expect(command).toContain('CMUX_TUI_BIN=\"$CMUX_TUI_HOME/.cmux/bin/cmux-tui\"');
-    expect(command).toContain('CMUX_TUI_TMP=\"$CMUX_TUI_BIN.tmp\"');
-  });
-
-  test("restarts away from a lost bindfs view instead of keeping the disposable home", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-view-"));
-    const fakeBin = join(root, "fake-bin");
-    const home = join(root, "home");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(join(home, ".cmux", "bin"), { recursive: true });
-    mkdirSync(backing, { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then exit 0; fi",
-      "if [ \"$path\" = \"$CMUX_TEST_HOME\" ]; then [ ! -e \"$CMUX_TEST_STATE/view-unmounted\" ]; exit $?; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
-      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/view-unmounted\"; exit 0 ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("id", [
-      "#!/bin/sh",
-      "if [ \"$1\" = \"-u\" ] && [ \"$2\" = \"cmux\" ]; then printf '1001\\n'; exit 0; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("sudo", "#!/bin/sh\nexit 0\n");
-    writeExecutable("runuser", [
-      "#!/bin/sh",
-      "while [ \"$#\" -gt 0 ] && [ \"$1\" != \"--\" ]; do shift; done",
-      "[ \"$#\" -gt 0 ] && shift",
-      "[ \"$1\" = \"env\" ] && shift",
-      "while [ \"$#\" -gt 0 ]; do",
-      "  case \"$1\" in *=*) export \"$1\"; shift ;; *) break ;; esac",
-      "done",
-      "exec \"$@\"",
-      "",
-    ].join("\n"));
-    const daemonBinary = join(home, ".cmux", "bin", "cmux-tui");
-    writeFileSync(daemonBinary, [
-      "#!/bin/sh",
-      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
-      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      // Keep the fake daemon in shell code so its TERM trap runs reliably when
-      // the supervisor switches away from the lost view.
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"));
-    chmodSync(daemonBinary, 0o755);
-    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout);
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, process.env.PATH || ""].join(":"),
-          CMUX_TEST_HOME: home,
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("mount-loss supervisor test timed out"));
-        }, 8_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      expect(existsSync(join(state, "daemon-term"))).toBe(true);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("force-stops a daemon that ignores TERM after mount loss", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-unresponsive-daemon-"));
-    const fakeBin = join(root, "fake-bin");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
-      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/backing-unmounted\"; exit 0 ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
-    writeFileSync(daemonBinary, [
-      "#!/bin/sh",
-      "trap ':' TERM INT HUP",
-      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"));
-    chmodSync(daemonBinary, 0o755);
-    const layout = { user: "cmux", home: join(root, "home"), volumeBackingPath: backing } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout);
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, process.env.PATH || ""].join(":"),
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("unresponsive daemon shutdown timed out"));
-        }, 8_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("supervises the root fallback while its backing mount is present", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-backing-"));
-    const fakeBin = join(root, "fake-bin");
-    const home = join(root, "home");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    writeExecutable("findmnt", [
-      "#!/bin/sh",
-      "case \"$1\" in",
-      "  --help) printf '%s\\n' '--poll'; exit 0 ;;",
-      "  --poll=*) while [ ! -e \"$CMUX_TEST_STATE/daemon-ready\" ]; do sleep 0.01; done; : > \"$CMUX_TEST_STATE/backing-unmounted\"; exit 0 ;;",
-      "esac",
-      "exit 1",
-      "",
-    ].join("\n"));
-    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
-    writeFileSync(daemonBinary, [
-      "#!/bin/sh",
-      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
-      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"));
-    chmodSync(daemonBinary, 0o755);
-    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout);
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, process.env.PATH || ""].join(":"),
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: "ignore",
-      });
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("backing-loss supervisor test timed out"));
-        }, 8_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
-      });
-      expect(exitCode).toBe(75);
-      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      expect(existsSync(join(state, "daemon-term"))).toBe(true);
-    } finally {
-      child?.kill("SIGKILL");
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  test("keeps the root fallback alive without findmnt when the backing mount is present", async () => {
-    const root = mkdtempSync(join(tmpdir(), "cmux-tui-backing-no-findmnt-"));
-    const fakeBin = join(root, "fake-bin");
-    const home = join(root, "home");
-    const backing = join(root, "backing");
-    const state = join(root, "state");
-    mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(join(backing, ".cmux", "bin"), { recursive: true });
-    mkdirSync(state, { recursive: true });
-    const writeExecutable = (name: string, contents: string) => {
-      const file = join(fakeBin, name);
-      writeFileSync(file, contents);
-      chmodSync(file, 0o755);
-    };
-    writeExecutable("mountpoint", [
-      "#!/bin/sh",
-      "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then if [ -e \"$CMUX_TEST_STATE/daemon-ready\" ]; then : > \"$CMUX_TEST_STATE/fallback-watch-ready\"; fi; [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
-      "exit 1",
-      "",
-    ].join("\n"));
-    // Simulate an older image where the util-linux mount poller was not repaired.
-    writeExecutable("findmnt", "#!/bin/sh\nexit 127\n");
-    const daemonBinary = join(backing, ".cmux", "bin", "cmux-tui");
-    writeFileSync(daemonBinary, [
-      "#!/bin/sh",
-      "trap ': > \"$CMUX_TEST_STATE/daemon-term\"; exit 0' TERM INT HUP",
-      ": > \"$CMUX_TEST_STATE/daemon-ready\"",
-      "while :; do sleep 0.05; done",
-      "",
-    ].join("\n"));
-    chmodSync(daemonBinary, 0o755);
-    const layout = { user: "cmux", home, volumeBackingPath: backing } as const;
-    const command = cmuxTuiDaemonCommand(undefined, layout);
-    let child: ReturnType<typeof spawn> | undefined;
-    try {
-      child = spawn("/bin/sh", ["-c", command], {
-        env: {
-          ...process.env,
-          PATH: [fakeBin, "/bin", "/usr/bin"].join(":"),
-          CMUX_TEST_BACKING: backing,
-          CMUX_TEST_STATE: state,
-        },
-        stdio: "ignore",
-      });
-      const readyDeadline = Date.now() + 2_000;
-      while (!existsSync(join(state, "daemon-ready")) && Date.now() < readyDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
+      for (const [name, body] of Object.entries(stubs)) {
+        const file = join(fakeBin, name);
+        writeFileSync(file, body);
+        chmodSync(file, 0o755);
       }
-      expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      const watcherDeadline = Date.now() + 2_000;
-      while (!existsSync(join(state, "fallback-watch-ready")) && Date.now() < watcherDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
-      expect(existsSync(join(state, "fallback-watch-ready"))).toBe(true);
-      // Missing findmnt must select a bounded direct mount check, not signal the
-      // supervisor before the daemon has a chance to serve the mounted home.
-      expect(child.exitCode).toBeNull();
-      writeFileSync(join(state, "backing-unmounted"), "");
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          child?.kill("SIGKILL");
-          reject(new Error("no-findmnt fallback supervisor test timed out"));
-        }, 3_000);
-        child?.once("error", (error) => {
-          clearTimeout(timer);
-          reject(error);
-        });
-        child?.once("exit", (code) => {
-          clearTimeout(timer);
-          resolve(code ?? -1);
-        });
+      const result = spawnSync("/bin/sh", ["-c", snippet], {
+        env: { ...process.env, PATH: [fakeBin, "/usr/bin", "/bin"].join(":") },
+        encoding: "utf8",
       });
-      expect(exitCode).toBe(75);
-      expect(existsSync(join(state, "daemon-term"))).toBe(true);
+      expect(result.status).toBe(0);
+      return (result.stdout ?? "").trim();
     } finally {
-      child?.kill("SIGKILL");
       rmSync(root, { recursive: true, force: true });
     }
+  }
+
+  const report = '; printf %s:%s:%s "$CMUX_TUI_USER" "$CMUX_TUI_HOME" "$CMUX_TUI_BIN"';
+
+  test("a machine with a usable work user runs its sessions as that user", () => {
+    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+      id: "#!/bin/sh\nexit 0\n",
+      setpriv: "#!/bin/sh\nexit 0\n",
+      sudo: "#!/bin/sh\nexit 0\n",
+    });
+    expect(out).toBe("cmux:/home/cmux:/home/cmux/.cmux/bin/cmux-tui");
   });
 
-  test("pins the binary in the same persistent location used by layout installs", () => {
-    const command = cmuxTuiPinCheckCommand(
-      { url: URL, sha256: SHA, commit: COMMIT, builtAt: null },
-      CMUX_CLOUD_LAYOUT,
-    );
-    expect(command).toContain("elif mountpoint -q '/cmux/home'");
-    expect(command).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
-    expect(command).toContain('test -x "$CMUX_TUI_BIN"');
+  test("a machine from a pre-work-user image keeps its root daemon and /root state", () => {
+    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+      // No such user: an image baked before the work user existed.
+      id: "#!/bin/sh\nexit 1\n",
+      setpriv: "#!/bin/sh\nexit 0\n",
+    });
+    expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
+  });
+
+  test("a work user without passwordless sudo falls back to root rather than trapping the session", () => {
+    const out = runWithStubs(`${cmuxTuiLayoutSelector()}${report}`, {
+      id: "#!/bin/sh\nexit 0\n",
+      // the writability probe passes, the `sudo -n true` probe does not.
+      setpriv: '#!/bin/sh\ncase "$*" in *sudo*) exit 1;; esac\nexit 0\n',
+      sudo: "#!/bin/sh\nexit 0\n",
+    });
+    expect(out).toBe("root:/root:/root/.cmux/bin/cmux-tui");
   });
 });
 
@@ -775,6 +267,15 @@ describe("cmux-tui attach bundle", () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
+    // The bundle reads the daemon's state, so it runs every call as the
+    // daemon's user. This host has no setpriv (and no such user); the stub
+    // makes the drop-to-user a pass-through so the rest of the bundle is
+    // exercised as written.
+    const fakeBin = join(root, "bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const setpriv = join(fakeBin, "setpriv");
+    writeFileSync(setpriv, ["#!/bin/sh", "while [ $# -gt 0 ]; do case \"$1\" in --*) shift;; *) break;; esac; done", 'exec "$@"', ""].join("\n"));
+    chmodSync(setpriv, 0o755);
     writeFileSync(binary, [
       "#!/bin/sh",
       "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_CALLS\"",
@@ -789,7 +290,11 @@ describe("cmux-tui attach bundle", () => {
     try {
       const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
         encoding: "utf8",
-        env: { ...process.env, CMUX_TEST_CALLS: callsPath },
+        env: {
+          ...process.env,
+          CMUX_TEST_CALLS: callsPath,
+          PATH: [fakeBin, process.env.PATH || ""].join(":"),
+        },
         timeout: 5_000,
       });
       expect(result.error).toBeUndefined();

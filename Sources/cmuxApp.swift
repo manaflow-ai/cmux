@@ -15,35 +15,6 @@ import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
 
-/// The process entry point. When the binary is launched with a worker flag
-/// (the app re-executes its own binary so a crash or hang in paste preparation,
-/// the Simulator, interpreter, or renderer kills only the worker process), run
-/// that worker instead of the app:
-/// - the paste worker resolves providers and prepares images before any app or
-///   SwiftUI startup;
-/// - the Simulator worker owns private frameworks and remote display state;
-/// - the render worker hosts its own faceless AppKit session and shares the
-///   rendered layer tree with the host;
-/// - the interpreter worker (stage-1 fallback path) runs before any
-///   AppKit/SwiftUI setup.
-@main
-enum CmuxMain {
-    static func main() {
-        AppHostProcessReceipt.writeIfRequired()
-#if DEBUG
-        // Bonsplit's `dlog` and the app's `cmuxDebugLog` resolve the same
-        // debug log file. Route bonsplit through the shared writer so the
-        // file has exactly one serialized append path (single O_APPEND
-        // handle, monotonic #<seq> line prefixes); with two independent
-        // appenders, concurrent lines interleaved and landed out of order.
-        Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
-#endif
-        CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
-        SurfaceResumeApprovalStore.preloadSigningSecret()
-        cmuxApp.main()
-    }
-}
-
 struct cmuxApp: App {
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
@@ -319,12 +290,19 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
+        let cloudWorkspaceCoordinator = Self.makeCloudWorkspaceCoordinator(auth: authComposition)
+        let cloudWorkspaceOperationController = CloudWorkspaceOperationController(
+            isAvailable: { cloudWorkspaceCoordinator.isAvailable }
+        )
         appDelegate.configure(
             tabManager: tabManager,
             notificationStore: notificationStore,
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            cloudWorkspaceCoordinator: cloudWorkspaceCoordinator,
+            cloudWorkspaceOperationController: cloudWorkspaceOperationController,
+            newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )
@@ -866,6 +844,15 @@ struct cmuxApp: App {
                         // the browser-availability gate identical to the
                         // shared action path.
                         activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                    }
+                }
+
+                if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
+                    splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "menu.newCloudWorkspace")
+                    }
+                    splitCommandButton(title: String(localized: "menu.file.newCloudMachine", defaultValue: "New Cloud Machine"), shortcut: menuShortcut(for: .newCloudMachine)) {
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
                     }
                 }
 
@@ -1651,6 +1638,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
+    "cmux.sudo.approval",
 ]
 
 /// Returns whether the given window should handle the standard close shortcut
@@ -5345,7 +5333,17 @@ enum TelemetrySettings {
     // live in `CmuxSettings` (`AppCatalogSection().sendAnonymousTelemetry`) as the
     // single source of truth; this anchor only freezes that read for the lifetime
     // of the launch.
-    static let enabledForCurrentLaunch = AppCatalogSection().sendAnonymousTelemetry.value(in: .standard)
+    static let enabledForCurrentLaunch = resolveEnabled(
+        userOptIn: AppCatalogSection().sendAnonymousTelemetry.value(in: .standard),
+        policy: ManagedDevicePolicy()
+    )
+
+    /// `DisableTelemetry` (MDM) wins over the user opt-in. Frozen for the
+    /// launch like the opt-in itself, so a profile pushed mid-session applies
+    /// at the next launch; Settings shows the managed state immediately.
+    static func resolveEnabled(userOptIn: Bool, policy: ManagedDevicePolicy) -> Bool {
+        userOptIn && !policy.isEnforced(.disableTelemetry)
+    }
 }
 
 @MainActor

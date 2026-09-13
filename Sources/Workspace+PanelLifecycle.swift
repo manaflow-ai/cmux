@@ -360,6 +360,14 @@ extension Workspace {
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
@@ -434,8 +442,10 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        clearCloudMaterializationFailure(surfaceID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -501,12 +511,11 @@ extension Workspace {
                         preservesTerminalForTransfer
                 )
         }
-        untrackRemoteTerminalSurface(panelId)
-        if closePanel {
-            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
-        }
-        discardRemoteDirectoryTrustState(panelId: panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        retireRemoteTerminalLifecycle(
+            panelId: panelId,
+            preservesRemoteTerminalTracking: preservesRemoteTerminalTracking,
+            closesPanel: closePanel
+        )
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)

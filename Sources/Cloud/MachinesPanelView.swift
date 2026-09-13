@@ -1,3 +1,4 @@
+import CmuxCloudMachines
 import AppKit
 import CmuxSettings
 import SwiftUI
@@ -23,13 +24,13 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
+/// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
@@ -38,6 +39,18 @@ struct MachinesPanelView: View {
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
+    var tabManager: TabManager? = nil
+
+
+    init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
+        self.chromeBackgroundColor = chromeBackgroundColor
+        self.tabManager = tabManager
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(defaultMachineStore: defaultMachineStore))
+    }
+
+    init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
+        self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -68,6 +81,9 @@ struct MachinesPanelView: View {
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
         }
+        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
+            if let id { viewModel.setDefaultMachine(id: id) }
+        }
         .onDisappear {
             viewModel.stopPolling()
         }
@@ -80,11 +96,37 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        if let banner = tunnelStatus.banner {
+        if tunnelStatus.status?.state != .up {
+            Button {
+                AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tunnelStatus.status?.state == .up
+                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
+                            .cmuxFont(size: 12, weight: .medium)
+                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
+                            .cmuxFont(size: 11)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.system(size: 10))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("CloudVPNSetupEntryButton")
+        }
+        if let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
             MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
                 SystemExtensionSettingsLink.open()
             }
         }
+
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -130,6 +172,7 @@ struct MachinesPanelView: View {
                     }
                     .foregroundColor(.orange.opacity(0.9))
                     .help(viewModel.lastErrorDescription ?? "")
+                    .cloudErrorCopyMenu(viewModel.lastErrorDescription)
                 } else if let treeError = viewModel.treeErrorDescription {
                     // The message itself, not a generic label: a failed tree verb (New
                     // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
@@ -144,6 +187,7 @@ struct MachinesPanelView: View {
                     }
                     .foregroundColor(.orange.opacity(0.9))
                     .help(treeError)
+                    .cloudErrorCopyMenu(treeError)
                 } else if let plan = viewModel.plan {
                     MachinePlanMeter(plan: plan)
                 }
@@ -415,10 +459,9 @@ struct MachinesPanelView: View {
 
     /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
     /// instead of launching a create that the backend would only paywall.
-    /// Otherwise the New Machine sheet collects the base-machine size, and its
-    /// Create runs the same `cmux vm new` path the CLI and palette use. The
-    /// create itself shows up here as a pending row (`viewModel.pendingCreates`),
-    /// never as panel chrome tied to this view's lifetime.
+    /// Otherwise the New Machine sheet collects the size; its Create runs the
+    /// same `cmux vm new` path the CLI and palette use, and shows up here as a
+    /// pending row (`viewModel.pendingCreates`), not as panel chrome.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -437,6 +480,9 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
+        machineActions.setDefault = { [weak viewModel] id in
+            viewModel?.setDefaultMachine(id: id)
+        }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -447,7 +493,7 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
@@ -530,6 +576,7 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
+        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -711,6 +758,7 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
+    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -719,6 +767,8 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    /// Persist the machine used by Cmd+Y.
+    var setDefault: @MainActor (String) -> Void = { _ in }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 
@@ -727,6 +777,7 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
+            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {
@@ -810,7 +861,7 @@ struct MachineRowActions {
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
-        // `vm new` mints a fresh machine with its own persistent home and
+        // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
@@ -846,11 +897,12 @@ struct MachineRowActions {
             presentOutputOnSuccess: presentOutputOnSuccess,
             onCancellationReady: onCancellationReady,
             onCompletion: { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        })
+        )
     }
 
     @MainActor

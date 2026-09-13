@@ -139,6 +139,9 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef
@@ -212,6 +215,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxSimulator">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBroker">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBrokerUI">
       </FileRef>
       <FileRef
          location = "group:CmuxSwiftRender">

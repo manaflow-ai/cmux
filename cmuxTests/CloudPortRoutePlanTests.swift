@@ -7,82 +7,127 @@ import Testing
 @testable import cmux
 #endif
 
-/// The Ports/Desktop open path decides its route from the machine alone: a
-/// private address always means the user-space hub, never the Network
-/// Extension, on every build.
+@MainActor
 @Suite
 struct CloudPortRoutePlanTests {
     private let machine = SurfaceMachineID.cloud("vm-1")
 
-    @Test("a port on a machine with a private address forwards through the hub")
-    func portForwardsThroughHub() {
-        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000, directURL: "http://10.0.0.7:3000")
-        let plan = CloudPortRoutePlan.plan(resource: resource, privateAddress: "10.0.0.7", supportsControlPlanePreviews: true)
-        #expect(plan == .hubForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 3000), remoteURL: "http://10.0.0.7:3000"))
+    @Test("A port open uses the private address without starting forwarding")
+    func privateAddressIsDefault() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
+        #expect(CloudPortRoutePlan.plan(resource: resource, privateAddress: "10.0.0.7") == .privateDirect(remoteURL: "http://10.0.0.7:3000"))
     }
 
-    @Test("the route does not depend on the tunnel backend: an unentitled build plans the same forward")
-    func independentOfNetworkExtension() {
-        let backend = CloudTunnelBackendSelector(
-            networkExtensionCapabilities: { [] },
-            canInstallSystemExtensions: { false },
-            bundledExtensionIdentifier: { nil }
-        ).select()
-        #expect(backend == .unavailable(.entitlementMissing))
-        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 8080)
-        let plan = CloudPortRoutePlan.plan(resource: resource, privateAddress: "10.0.0.7", supportsControlPlanePreviews: false)
-        #expect(plan == .hubForward(target: CloudPortForwardTarget(host: "10.0.0.7", port: 8080), remoteURL: "http://10.0.0.7:8080"))
-    }
-
-    @Test("the desktop keeps its noVNC path and query on the forward")
-    func desktopKeepsQuery() throws {
-        let resource = CmuxTuiSnapshotParser.display(machine: machine, directURL: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.0.0.7"))
-        let plan = CloudPortRoutePlan.plan(resource: resource, privateAddress: "10.0.0.7", supportsControlPlanePreviews: true)
-        guard case .hubForward(let target, let remoteURL) = plan else {
-            Issue.record("expected a hub forward, got \(plan)")
+    @Test("Missing private addresses never fall back to a public or local forward")
+    func noAutomaticFallback() {
+        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
+        guard case .unsupported = CloudPortRoutePlan.plan(resource: resource, privateAddress: nil) else {
+            Issue.record("A missing private address must show connection guidance")
             return
         }
-        #expect(target == CloudPortForwardTarget(host: "10.0.0.7", port: CmuxTuiSnapshotParser.desktopPort))
-        let local = try #require(CloudPortRoutePlan.localURL(rewriting: remoteURL, toLoopbackPort: 54_321))
-        #expect(local.host() == "127.0.0.1")
-        #expect(local.port == 54_321)
-        #expect(local.path() == "/vnc.html")
-        #expect(local.query()?.contains("autoconnect=1") == true)
     }
 
-    @Test("a stale private URL is rewritten onto the loopback listener host and port")
-    func rewriteReplacesHostAndPort() throws {
-        let local = try #require(CloudPortRoutePlan.localURL(rewriting: "http://[fd60:1e5e:6720::3]:3000/app?x=1#frag", toLoopbackPort: 40_000))
-        #expect(local.absoluteString == "http://127.0.0.1:40000/app?x=1#frag")
+    @Test("Private routing keeps paths, ports, queries, and fragments")
+    func privateURLKeepsComponents() {
+        #expect(CloudPortRoutePlan.privateURL("https://localhost:8443/a%20b?q=%2F#frag", address: "fd12::7")?.absoluteString == "https://[fd12::7]:8443/a%20b?q=%2F#frag")
+        #expect(CloudPortRoutePlan.privateURL("http://10.0.0.4:3000/path", address: "10.0.0.7")?.host == "10.0.0.7")
     }
 
-    @Test("forwarded pages reject non-web schemes", arguments: [
-        "javascript:alert(1)", "file:///etc/passwd", "custom://machine/action"
-    ])
-    func rejectsNonWebURLs(_ remoteURL: String) {
-        #expect(CloudPortRoutePlan.localURL(rewriting: remoteURL, toLoopbackPort: 40_000) == nil)
+    @Test("Explicit forwards preserve URL components and reject TLS host replacement")
+    func explicitForwardURL() {
+        #expect(CloudPortRoutePlan.localURL(rewriting: "http://10.0.0.7:3000/path?x=1#frag", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path?x=1#frag")
+        #expect(CloudPortRoutePlan.localURL(rewriting: "https://10.0.0.7:8443", toLoopbackPort: 41000) == nil)
+        #expect(CloudPortRoutePlan.localURL(rewriting: "file:///tmp/file", toLoopbackPort: 41000) == nil)
     }
 
-    @Test("an https private URL is never rewritten onto the raw TCP loopback forward")
-    func httpsIsRejected() {
-        #expect(CloudPortRoutePlan.localURL(rewriting: "https://10.0.0.7:8443/", toLoopbackPort: 40_001) == nil)
-        #expect(CloudPortRoutePlan.localURL(rewriting: "http://10.0.0.7:8080/", toLoopbackPort: 40_001)?.absoluteString == "http://127.0.0.1:40001/")
+    @Test("Opening and copying wait for VPN without creating a listener")
+    func passiveOpenThenVPN() async {
+        var forwards = 0
+        var wakes = 0
+        let model = makeModel(wake: { wakes += 1 }, forward: { _ in forwards += 1; return 41000 })
+        let page = CloudBrowserAccessState()
+        page.configure(model: model, url: URL(string: "http://10.0.0.7:3000/path")!)
+        #expect(!page.showsPage)
+        #expect(page.nextURL() == nil)
+        #expect(forwards == 0 && wakes == 0)
+        model.acceptTunnelState(.up)
+        #expect(await wait { model.phase == .direct })
+        #expect(wakes == 1 && forwards == 0)
+        let url = page.nextURL()
+        #expect(url?.absoluteString == "http://10.0.0.7:3000/path")
+        #expect(!page.showsPage, "Native loading UI remains until WebKit finishes")
+        page.didCommit(url: url)
+        page.didFinish(url: url)
+        #expect(page.showsPage)
+        model.acceptTunnelState(.off)
+        #expect(!page.showsPage && page.nextURL() == nil)
+        #expect(forwards == 0)
+        await model.retire()
     }
 
-    @Test("no private address but a preview capability asks the control plane")
-    func controlPlaneFallback() {
-        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
-        #expect(CloudPortRoutePlan.plan(resource: resource, privateAddress: nil, supportsControlPlanePreviews: true) == .controlPlanePreview(port: 3000))
-        #expect(CloudPortRoutePlan.plan(resource: resource, privateAddress: " ", supportsControlPlanePreviews: true) == .controlPlanePreview(port: 3000))
+    @Test("Forwarding is explicit, visible across panes, and can be stopped")
+    func explicitForwardAndStop() async {
+        var starts = 0
+        var stops = 0
+        let model = makeModel(forward: { _ in starts += 1; return 42000 }, stop: { stops += 1 })
+        let store = CloudPortAccessStore()
+        let first = store.model(machineID: "vm-1", target: model.target) { model }
+        let second = store.model(machineID: "vm-1", target: model.target) { Issue.record("Duplicate port model"); return model }
+        #expect(first === second)
+        model.forward()
+        #expect(await wait { model.phase == .forwarded(42000) })
+        #expect(starts == 1 && model.localAddress == "127.0.0.1:42000")
+        #expect(second.prefersForwarding)
+        await model.stop()
+        #expect(stops == 1 && model.localAddress == nil && model.phase == .needsVPN)
+        await store.remove(machineID: "vm-1")
+        #expect(model.phase == .closed && store.models.isEmpty)
     }
 
-    @Test("neither an address nor a preview capability is a named refusal, not a silent failure")
-    func unsupportedNamesTheMachine() {
-        let resource = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
-        guard case .unsupported(let reason) = CloudPortRoutePlan.plan(resource: resource, privateAddress: nil, supportsControlPlanePreviews: false) else {
-            Issue.record("expected unsupported")
-            return
-        }
-        #expect(reason.contains("vm-1"))
+    @Test("A failed load returns to native connection UI")
+    func failedLoadShowsControls() async {
+        let model = makeModel()
+        model.acceptTunnelState(.up)
+        #expect(await wait { model.phase == .direct })
+        let state = CloudBrowserAccessState()
+        let url = URL(string: "http://10.0.0.7:3000")!
+        state.configure(model: model, url: url)
+        _ = state.nextURL()
+        state.didFail(url: url, message: "Connection refused")
+        #expect(!state.showsPage && state.error == "Connection refused")
+        state.retry()
+        #expect(state.error == nil)
+        await model.retire()
+    }
+
+    @Test("A canceled forward cannot publish a late local address")
+    func stopDuringStart() async {
+        let started = CloudLinkFirstValue<Bool>()
+        let resume = CloudLinkFirstValue<Bool>()
+        let model = makeModel(forward: { _ in
+            started.resolve(true)
+            _ = await resume.result
+            return 43000
+        })
+        model.forward()
+        _ = await started.result
+        await model.stop()
+        resume.resolve(true)
+        #expect(model.phase == .needsVPN && model.localAddress == nil)
+        await model.retire()
+    }
+
+    private func makeModel(
+        wake: @escaping @MainActor () async throws -> Void = {},
+        forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
+        stop: @escaping @MainActor () async -> Void = {}
+    ) -> CloudPortAccessModel {
+        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: 3000), coordinator: nil, wake: wake, startForward: forward, stopForward: stop)
+    }
+
+    private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        return condition()
     }
 }

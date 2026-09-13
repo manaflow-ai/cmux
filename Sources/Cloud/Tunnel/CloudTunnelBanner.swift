@@ -1,8 +1,8 @@
 import Foundation
 
-/// What the Machines panel says about the explicit system-wide Cloud VPN
+/// What the setup pane says about the explicit system-wide Cloud VPN
 /// (`cmux vpn up`) while it is doing anything at all. Nil when the tunnel is
-/// off or this build cannot run it: nothing in the panel depends on it, so
+/// off or this build cannot run it: ordinary Cloud use does not depend on it, so
 /// there is nothing to say.
 ///
 /// Pure projection of ``CloudTunnelStatus`` so the copy and the "open System
@@ -23,6 +23,11 @@ struct CloudTunnelBanner: Equatable, Sendable {
 
     /// Only the approval wait sends the user somewhere.
     var opensSystemSettings: Bool { kind == .awaitingApproval }
+
+    /// The Machines panel uses its setup row as the persistent connected state.
+    /// Keep transient states visible so approval and failure guidance remains
+    /// discoverable, while avoiding a permanent connected banner.
+    var showsInMachinesPanel: Bool { kind != .connected }
 
     init?(status: CloudTunnelStatus) {
         guard status.backend.isNetworkExtension else { return nil }

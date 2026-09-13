@@ -22,6 +22,7 @@ struct CloudLoopbackPortForwardTests {
         private let lock = NSLock()
         private var targets: [CloudPortForwardTarget] = []
         private var _replyCode: UInt8 = SocksV5Client.replySucceeded
+        private var _refusedHosts: Set<String> = []
         private var _silent = false
         let accepted = CloudLinkFirstValue<Bool>()
         private var _closesAfterReplyHeader = false
@@ -31,6 +32,10 @@ struct CloudLoopbackPortForwardTests {
         var replyCode: UInt8 {
             get { lock.withLock { _replyCode } }
             set { lock.withLock { _replyCode = newValue } }
+        }
+        var refusedHosts: Set<String> {
+            get { lock.withLock { _refusedHosts } }
+            set { lock.withLock { _refusedHosts = newValue } }
         }
         /// Accept the socket and never answer, like a hub that hung.
         var silent: Bool {
@@ -105,7 +110,7 @@ struct CloudLoopbackPortForwardTests {
                 }
                 let port = Int(rest[addressLength]) << 8 | Int(rest[addressLength + 1])
                 lock.withLock { targets.append(CloudPortForwardTarget(host: host, port: port)) }
-                let code = replyCode
+                let code: UInt8 = refusedHosts.contains(host) ? 0x05 : replyCode
                 if closesAfterReplyHeader {
                     try await connection.sendAll(Data([SocksV5Client.version, code, 0x00, SocksV5Client.addressTypeIPv4]))
                     connection.cancel()
@@ -158,13 +163,13 @@ struct CloudLoopbackPortForwardTests {
         }
     }
 
-    private static func client(port: UInt16) async throws -> NWConnection {
+    static func client(port: UInt16) async throws -> NWConnection {
         let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
         try await connection.startAndWaitUntilReady(queue: DispatchQueue(label: "cmux.tests.forward-client"))
         return connection
     }
 
-    private static func waitUntil(timeout: Duration = .seconds(10), _ predicate: @Sendable () async -> Bool) async -> Bool {
+    static func waitUntil(timeout: Duration = .seconds(10), _ predicate: @Sendable () async -> Bool) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
@@ -417,13 +422,13 @@ struct CloudLoopbackPortForwardTests {
             return summary
         }
         let addressed = CmuxTuiSurfaceProvider(summary: summary(address: "10.0.0.7"), links: links, catalog: catalog, portForwards: forwarder)
-        let url = try #require(try await addressed.localPortURL(port: 3000))
-        #expect(url.hasPrefix("http://127.0.0.1:"))
-        #expect(try await addressed.portLinkURL(port: 3000) == url, "Copy Link and vm.port_open hand out the pane's loopback URL")
-        #expect(await forwarder.localPort(machineID: "vm-1", port: 3000) != nil)
+        #expect(try await addressed.localPortURL(port: 3000) == nil)
+        #expect(try await addressed.portLinkURL(port: 3000) == "http://10.0.0.7:3000")
+        #expect(await forwarder.count == 0, "Opening or copying a private link must not create a forward")
 
         let unaddressed = CmuxTuiSurfaceProvider(summary: summary(address: nil), links: links, catalog: catalog, portForwards: forwarder)
-        #expect(try await unaddressed.localPortURL(port: 3000) == nil, "no private address means the control-plane preview route, not an error")
+        #expect(try await unaddressed.localPortURL(port: 3000) == nil)
+        await #expect(throws: (any Error).self) { _ = try await unaddressed.portLinkURL(port: 3000) }
         await forwarder.closeAll()
     }
 
@@ -436,9 +441,7 @@ struct CloudLoopbackPortForwardTests {
         summary.capabilities.ports = false
         let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog)
         #expect(!provider.capabilities.ports)
-        await #expect(throws: (any Error).self) {
-            _ = try await provider.localPortURL(port: 3000)
-        }
+        #expect(try await provider.localPortURL(port: 3000) == nil)
         await #expect(throws: (any Error).self, "no route is an error, never an empty link") {
             _ = try await provider.portLinkURL(port: 3000)
         }

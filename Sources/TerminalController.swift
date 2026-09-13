@@ -170,6 +170,7 @@ class TerminalController {
             maximumConcurrentWaiters:
                 maximumConcurrentReloadConfigurationWaiters
         )
+    private nonisolated let agentHookDeliveryQueue: AgentHookDeliveryQueue
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all
     /// windows), constructed at this app-hub composition point and injected into each
     /// `WorkspaceRemoteSessionController`; ownership moves to the composition root with the
@@ -466,6 +467,7 @@ class TerminalController {
         ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         panelArtifactAuthorizationStore: PanelArtifactAuthorizationStore? = nil,
+        agentHookDeliveryQueue: AgentHookDeliveryQueue = AgentHookDeliveryQueue(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
@@ -478,6 +480,7 @@ class TerminalController {
         self.socketPasswordFileWatcher = socketPasswordFileWatcher
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
+        self.agentHookDeliveryQueue = agentHookDeliveryQueue
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
         self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
@@ -1590,6 +1593,79 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "agent.hook.enqueue":
+            let hookParams: [String: Any]
+            if request.params["relay_backed"] as? Bool == true,
+               request.params["caller_tty"] != nil {
+                hookParams = v2MainSync {
+                    self.agentHookParametersResolvingRelayTTY(request.params)
+                }
+            } else {
+                hookParams = request.params
+            }
+            guard let localSocketPath = currentSocketPathForRemoteRestore(),
+                  let event = AgentHookDeliveryEvent(
+                      params: hookParams,
+                      deliverySocketPath: localSocketPath
+                  ) else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidEvent",
+                        defaultValue: "Invalid agent hook event"
+                    )
+                )
+            }
+            guard agentHookDeliveryQueue.enqueue(event) else {
+                return v2Error(
+                    id: request.id,
+                    code: "queue_full",
+                    message: String(
+                        localized: "socket.agentHook.error.queueFull",
+                        defaultValue: "Agent hook delivery queue is full"
+                    )
+                )
+            }
+            return v2Ok(id: request.id, result: ["queued": true])
+        case "agent.hook.barrier":
+            let hookParams: [String: Any]
+            if request.params["relay_backed"] as? Bool == true,
+               request.params["caller_tty"] != nil {
+                hookParams = v2MainSync {
+                    self.agentHookParametersResolvingRelayTTY(request.params)
+                }
+            } else {
+                hookParams = request.params
+            }
+            guard let localSocketPath = currentSocketPathForRemoteRestore(),
+                  let orderingKey = AgentHookDeliveryEvent.orderingKey(
+                      params: hookParams,
+                      deliverySocketPath: localSocketPath
+                  ) else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.agentHook.error.invalidBarrier",
+                        defaultValue: "Invalid agent hook barrier"
+                    )
+                )
+            }
+            guard agentHookDeliveryQueue.waitForPriorDeliveries(
+                orderingKey: orderingKey,
+                timeout: 18
+            ) else {
+                return v2Error(
+                    id: request.id,
+                    code: "barrier_timeout",
+                    message: String(
+                        localized: "socket.agentHook.error.barrierTimeout",
+                        defaultValue: "Agent hook barrier timed out"
+                    )
+                )
+            }
+            return v2Ok(id: request.id, result: ["completed": true])
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.navigate", "browser.back", "browser.forward", "browser.reload",
@@ -2816,6 +2892,7 @@ class TerminalController {
         // surface.refresh/health/resume.set/get/clear, debug.terminals, surface.send_text/
         // send_key/report_tty/report_pwd/report_shell_state/ports_kick/clear_history/
         // trigger_flash/read_text handled by ControlCommandCoordinator.
+
         // Panes
         // pane.* handled by ControlCommandCoordinator.
 
@@ -3045,6 +3122,7 @@ class TerminalController {
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
+            "vm.diagnostics",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -3060,7 +3138,6 @@ class TerminalController {
             "vm.base_reset",
             "vm.status",
             "vm.stats",
-            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",
@@ -4108,6 +4185,7 @@ class TerminalController {
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
+        transportUnsupportedMachineID: String? = nil,
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
         let semaphore = DispatchSemaphore(value: 0)
@@ -4132,6 +4210,34 @@ class TerminalController {
         case .success(let payload):
             return v2Ok(id: id, result: payload)
         case .failure(let error):
+            if case VMClientError.disabledByManagedPolicy = error {
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudFileDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudFileDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_file_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if case VMClientError.lifecycleUnsupported = error {
+                return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
+            }
+            if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
+            }
+            if let combinedError = error as? CloudEnvDelivery.OperationAndCleanupError {
+                return v2Error(id: id, code: "vm_env_delivery_failed", message: combinedError.localizedDescription)
+            }
+            if let catalogError = error as? SurfaceCatalogError {
+                switch catalogError {
+                case .nothingToOpen:
+                    return v2Error(id: id, code: "not_ready", message: catalogError.localizedDescription)
+                case .destinationNotFound:
+                    return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
+                default:
+                    break
+                }
+            }
             if let vmError = error as? VMClientError,
                Self.isCloudVMAuthenticationError(vmError) {
                 // Keep the auth boundary explicit for every VM verb. The CLI
@@ -4158,10 +4264,44 @@ class TerminalController {
                     message: message
                 )
             }
+            if let vmError = error as? VMClientError,
+               let machineID = transportUnsupportedMachineID,
+               Self.isCloudVMTransportUnsupportedError(vmError) {
+                // `vm.cmux_remote_info` is the shared attach path for `vm shell`,
+                // `vm open`, `vm tui`, and the sidebar, so the message names the
+                // machine and the missing transport rather than guessing the
+                // caller, and points at commands that do not need that transport.
+                let alternative = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported.useExec",
+                        defaultValue: "Use `cmux vm exec %1$@ -- <command>`; `cmux vm ssh %1$@` works where the provider offers SSH."
+                    ),
+                    machineID,
+                    machineID
+                )
+                let message = String(
+                    format: String(
+                        localized: "socket.cloudVM.transportUnsupported",
+                        defaultValue: "%1$@ offers no `%2$@` transport (its provider has no cmux-tui daemon route), so cmux cannot attach a terminal to it. %3$@"
+                    ),
+                    machineID,
+                    "cmux-remote",
+                    alternative
+                )
+                return v2Error(
+                    id: id,
+                    code: "transport_unsupported",
+                    message: message,
+                    data: Self.cloudVMBackendErrorData(error)
+                )
+            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: String(
+                    localized: "socket.cloudVM.requestFailed",
+                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+                ),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4199,9 +4339,20 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
             return false
         }
+    }
+
+    private nonisolated static func isCloudVMTransportUnsupportedError(_ error: VMClientError) -> Bool {
+        guard case let .httpStatus(status, body) = error, status == 501 else {
+            return false
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            return false
+        }
+        return object["error"] as? String == "vm_attach_transport_unsupported"
     }
 
     nonisolated func v2AsyncResultCall(
@@ -5292,7 +5443,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect"
+            "set_color", "clear_color", "mobile_connect", "cloud_vpn_setup"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5301,6 +5452,23 @@ class TerminalController {
         ])
 
         v2MainSync {
+            if action == "cloud_vpn_setup" {
+                // Pane creation belongs to the main actor. The socket focus
+                // policy controls selection, just as for the mobile setup pane.
+                guard let workspace = AppDelegate.shared?.openCloudVPNSetupWorkspace(
+                    preferredTabManager: tabManager,
+                    focus: v2FocusAllowed()
+                ) else {
+                    result = .err(code: "unavailable", message: String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable"), data: nil)
+                    return
+                }
+                result = .ok([
+                    "action": action,
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id)
+                ])
+                return
+            }
             if action == "mobile_connect" {
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
@@ -7133,52 +7301,11 @@ class TerminalController {
                 channel: .javaScript
             ))
         }
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
 
         var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {
