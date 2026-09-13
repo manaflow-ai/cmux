@@ -11,7 +11,7 @@ import Testing
 struct CloudWorkspaceRestoreNamesTests {
     @Test("Checkpoint names survive restore, delayed publications, and refresh",
           arguments: ["snapshot", "delta", "topology"], [false, true])
-    func restoredNamesSurviveRefresh(path: String, daemonRestarted: Bool) throws {
+    func restoredNamesSurviveRefresh(path: String, daemonRestarted: Bool) async throws {
         let machine = SurfaceMachineID.cloud("restore-\(UUID().uuidString)")
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         let source = Workspace()
@@ -47,60 +47,65 @@ struct CloudWorkspaceRestoreNamesTests {
         )
         catalog.register(provider)
         defer {
-            provider.stop()
             catalog.unregister(machine: machine)
             manager.tabs = []
             for panel in source.panels.values { panel.close() }
             for panel in restored.panels.values { panel.close() }
         }
-        let stale = try state(machine, workspace: "Old workspace", names: ["Old build", "Old logs"], revision: 10)
-        #expect(provider.installSnapshotIfNewer(stale))
-        let generation = daemonRestarted ? "restored-daemon" : "daemon"
-        let revision: UInt64 = daemonRestarted ? 1 : 11
-        let checkpoint = try state(machine, workspace: try #require(saved.customTitle), names: names,
-                                   revision: revision, generation: generation)
-        // Cross a real JSON persistence boundary before installing the restored daemon graph.
-        let bytes = try JSONSerialization.data(withJSONObject: try #require(checkpoint.snapshotObject()))
-        let graph = try #require(CmuxTuiSnapshotParser.state(
-            fromSnapshot: try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any]), machine: machine
-        ))
-        #expect(provider.installSnapshotIfNewer(graph))
-        provider.publish(graph, ports: [])
-        for (index, panel) in restoredPanels.enumerated() {
-            catalog.record(SurfaceProjection(
-                resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\(index)"),
-                workspaceID: restored.id, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_\(index)"
+        do {
+            let stale = try state(machine, workspace: "Old workspace", names: ["Old build", "Old logs"], revision: 10)
+            #expect(provider.installSnapshotIfNewer(stale))
+            let generation = daemonRestarted ? "restored-daemon" : "daemon"
+            let revision: UInt64 = daemonRestarted ? 1 : 11
+            let checkpoint = try state(machine, workspace: try #require(saved.customTitle), names: names,
+                                       revision: revision, generation: generation)
+            // Cross a real JSON persistence boundary before installing the restored daemon graph.
+            let bytes = try JSONSerialization.data(withJSONObject: try #require(checkpoint.snapshotObject()))
+            let graph = try #require(CmuxTuiSnapshotParser.state(
+                fromSnapshot: try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any]), machine: machine
             ))
-        }
-        provider.publish(graph, ports: [])
-        expectNames(saved.customTitle, names, workspace: restored, panels: restoredPanels)
-
-        // A callback that installed its old graph before restore resumes after a link await.
-        if path == "snapshot" {
-            provider.publish(stale, ports: [])
-        } else {
-            provider.publishDelta(stale, impact: CloudVMStateDeltaImpact(
-                resourceIDs: Set((0..<2).map { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\($0)") }),
-                requiresFullResourceRebuild: path == "topology"
-            ), ports: [], reconcileTitles: true)
-        }
-        #expect(catalog.cloudStates[machine] == graph)
-        expectNames(saved.customTitle, names, workspace: restored, panels: restoredPanels)
-        let resaved = try roundTrip(restored.sessionSnapshot(includeScrollback: false))
-        #expect(resaved.customTitle == saved.customTitle)
-        #expect(restoredPanels.map { id in resaved.panels.first { $0.id == id }?.customTitle } == names)
-        for _ in 0..<2 {
             #expect(provider.installSnapshotIfNewer(graph))
             provider.publish(graph, ports: [])
+            for (index, panel) in restoredPanels.enumerated() {
+                catalog.record(SurfaceProjection(
+                    resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\(index)"),
+                    workspaceID: restored.id, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_\(index)"
+                ))
+            }
+            provider.publish(graph, ports: [])
             expectNames(saved.customTitle, names, workspace: restored, panels: restoredPanels)
+
+            // A callback that installed its old graph before restore resumes after a link await.
+            if path == "snapshot" {
+                provider.publish(stale, ports: [])
+            } else {
+                provider.publishDelta(stale, impact: CloudVMStateDeltaImpact(
+                    resourceIDs: Set((0..<2).map { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\($0)") }),
+                    requiresFullResourceRebuild: path == "topology"
+                ), ports: [], reconcileTitles: true)
+            }
+            #expect(catalog.cloudStates[machine] == graph)
+            expectNames(saved.customTitle, names, workspace: restored, panels: restoredPanels)
+            let resaved = try roundTrip(restored.sessionSnapshot(includeScrollback: false))
+            #expect(resaved.customTitle == saved.customTitle)
+            #expect(restoredPanels.map { id in resaved.panels.first { $0.id == id }?.customTitle } == names)
+            for _ in 0..<2 {
+                #expect(provider.installSnapshotIfNewer(graph))
+                provider.publish(graph, ports: [])
+                expectNames(saved.customTitle, names, workspace: restored, panels: restoredPanels)
+            }
+            // The restored snapshot must not pin names against a later deliberate remote edit or clear.
+            let later = try state(machine, workspace: "Other client", names: ["New build", nil],
+                                  revision: revision + 1, generation: generation)
+            #expect(provider.installSnapshotIfNewer(later))
+            provider.publish(later, ports: [])
+            expectNames("Other client", ["New build", nil], workspace: restored, panels: restoredPanels)
+            #expect(manager.selectedTabId == restored.id)
+        } catch {
+            await provider.stop()
+            throw error
         }
-        // The restored snapshot must not pin names against a later deliberate remote edit or clear.
-        let later = try state(machine, workspace: "Other client", names: ["New build", nil],
-                              revision: revision + 1, generation: generation)
-        #expect(provider.installSnapshotIfNewer(later))
-        provider.publish(later, ports: [])
-        expectNames("Other client", ["New build", nil], workspace: restored, panels: restoredPanels)
-        #expect(manager.selectedTabId == restored.id)
+        await provider.stop()
     }
 
     private func roundTrip(_ snapshot: SessionWorkspaceSnapshot) throws -> SessionWorkspaceSnapshot {
