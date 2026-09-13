@@ -217,7 +217,7 @@ extension CMUXCLI {
 
     private func browserDownloadTextValue(_ value: Any?) -> String {
         guard let value, !(value is NSNull) else { return "<unavailable>" }
-        let text = String(describing: value)
+        let text = BrowserValueTextFormatter().string(from: value)
         return text.unicodeScalars.map { scalar in
             switch scalar.value {
             case 9: return "\\t"
