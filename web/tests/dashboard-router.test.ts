@@ -27,6 +27,7 @@ describe("dashboard TanStack Router", () => {
       "/coderouter",
       "/testflight",
       "/billing",
+      "/billing/success",
       "/team",
       "/vault",
       "/vault/sessions",

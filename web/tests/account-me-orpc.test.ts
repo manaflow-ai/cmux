@@ -5,6 +5,7 @@ import { call } from "@orpc/server";
 
 import { accountMeProcedure } from "../orpc/server/account/me";
 import { cloudDevicesProcedure } from "../orpc/server/cloud/devices";
+import { testflightStatusProcedure } from "../orpc/server/testflight/status";
 import { generateOpenAPIDocument } from "../orpc/server/openapi";
 
 // The two checked-in specs the Swift client and /api/openapi.json ship must
@@ -62,6 +63,12 @@ describe("account.me", () => {
   test("rejects unauthenticated Cloud device reads at the procedure boundary", async () => {
     await expect(
       call(cloudDevicesProcedure, undefined, { context: context(null) }),
+    ).rejects.toThrow();
+  });
+
+  test("rejects unauthenticated TestFlight reads at the procedure boundary", async () => {
+    await expect(
+      call(testflightStatusProcedure, undefined, { context: context(null) }),
     ).rejects.toThrow();
   });
 

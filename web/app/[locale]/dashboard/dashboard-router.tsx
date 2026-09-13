@@ -11,15 +11,20 @@ import {
   Link as TanStackLink,
   redirect,
 } from "@tanstack/react-router";
-import { QueryClient, QueryClientProvider, useSuspenseQuery } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { AccountSettings } from "@stackframe/stack";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
 import { orpc } from "@/orpc/query";
+import { Link as LocalizedLink } from "@/i18n/navigation";
 import { DashboardShell } from "./dashboard-shell";
 import { CloudDeviceActions } from "./cloud/device-actions";
+import { SessionsTable } from "./vault/sessions/sessions-table";
+import { CopyButton } from "./vault/copy-button";
+import { TranscriptViewer } from "./vault/sessions/[id]/transcript-viewer";
+import { formatBytes, formatDate, truncateMiddle } from "@/services/vault/format";
 
 export type DashboardRouterContext = {
   queryClient: QueryClient;
@@ -57,23 +62,28 @@ const testflightRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/testflight",
   validateSearch: z.object({ testflight: z.string().optional() }),
-  component: routeSlot,
+  component: DashboardTestflightRoute,
 });
 const billingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/billing",
   validateSearch: z.object({ billing: z.string().optional(), interval: z.string().optional() }),
+  component: DashboardBillingRoute,
+});
+const billingSuccessRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/billing/success",
   component: routeSlot,
 });
 const teamRoute = createRoute({ getParentRoute: () => rootRoute, path: "/team", component: DashboardTeamRoute });
-const vaultRoute = createRoute({ getParentRoute: () => rootRoute, path: "/vault", component: routeSlot });
+const vaultRoute = createRoute({ getParentRoute: () => rootRoute, path: "/vault", component: DashboardVaultOverviewRoute });
 const vaultSessionsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/vault/sessions",
   validateSearch: z.object({ q: z.string().optional(), cursor: z.string().optional(), before: z.string().optional() }),
-  component: routeSlot,
+  component: DashboardVaultSessionsRoute,
 });
-const vaultSessionRoute = createRoute({ getParentRoute: () => rootRoute, path: "/vault/sessions/$id", component: routeSlot });
+const vaultSessionRoute = createRoute({ getParentRoute: () => rootRoute, path: "/vault/sessions/$id", component: DashboardVaultSessionRoute });
 const vaultCliAuthRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/vault/cli-auth",
@@ -106,6 +116,7 @@ const routeTree = rootRoute.addChildren([
   coderouterRoute,
   testflightRoute,
   billingRoute,
+  billingSuccessRoute,
   teamRoute,
   vaultRoute,
   vaultSessionsRoute,
@@ -237,6 +248,226 @@ function DashboardTeamRoute() {
       <AccountSettings />
     </div>
   );
+}
+
+function DashboardVaultOverviewRoute() {
+  const t = useTranslations("vault.overview");
+  const { locale } = rootRoute.useRouteContext();
+  const { data } = useSuspenseQuery(orpc.dashboard.vault.overview.queryOptions());
+  const agentCounts = [...data.rows]
+    .sort((a, b) => b.sessionCount - a.sessionCount)
+    .map((row) => `${row.sessionCount.toLocaleString(locale)} ${row.agent}`)
+    .join(" · ");
+
+  return (
+    <div data-testid="dashboard-router-vault" className="mx-auto w-full max-w-6xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      </div>
+      {data.rows.length === 0 ? (
+        <div className="border border-border p-3"><h2 className="text-sm font-medium">{t("emptyTitle")}</h2><p className="mt-1 text-muted">{t("emptyBody")}</p><code className="mt-3 inline-block border border-border bg-code-bg px-3 py-1.5 font-mono text-xs">cmux-vault sync</code></div>
+      ) : (
+        <>
+          <div className="grid border border-border sm:grid-cols-2 lg:grid-cols-4">
+            <VaultMetric label={t("totalSessions")} value={data.totals.sessionCount.toLocaleString(locale)} />
+            <VaultMetric label={t("totalRawBytes")} value={formatBytes(data.totals.rawBytes, locale)} />
+            <VaultMetric label={t("totalCompressedBytes")} value={formatBytes(data.totals.compressedBytes, locale)} />
+            <VaultMetric label={t("latestUpload")} value={data.totals.lastUploadedAt ? formatDate(new Date(data.totals.lastUploadedAt), locale) : t("never")} />
+          </div>
+          <p className="mt-2 font-mono text-xs text-muted">{agentCounts}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function VaultMetric({ label, value }: { label: string; value: string }) {
+  return <div className="border-b border-border p-3 sm:border-r lg:border-b-0"><p className="text-xs text-muted">{label}</p><p className="mt-2 font-mono text-xs tabular-nums">{value}</p></div>;
+}
+
+function DashboardVaultSessionsRoute() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const q = params.get("q") ?? "";
+  const cursor = params.get("cursor") ?? undefined;
+  const before = params.get("before") ?? undefined;
+  const { data } = useSuspenseQuery(orpc.dashboard.vault.sessions.queryOptions({
+    input: { q: q || undefined, cursor, before },
+  }));
+
+  return (
+    <SessionsTable
+      initialQuery={q}
+      initialRows={data.sessions}
+      initialNextCursor={data.nextCursor ?? null}
+      initialNowIso={new Date().toISOString()}
+    />
+  );
+}
+
+function DashboardVaultSessionRoute() {
+  const t = useTranslations("vault.detail");
+  const { locale } = rootRoute.useRouteContext();
+  const location = useLocation();
+  const id = decodeURIComponent(location.pathname.split("/").at(-1) ?? "");
+  const { data } = useSuspenseQuery(orpc.dashboard.vault.session.queryOptions({ input: { id } }));
+  const cwd = data.cwd ?? t("unknownCwd");
+  const resumeCommand = `cmux-vault resume ${data.agentSessionId}`;
+
+  return (
+    <div className="relative h-[calc(100vh-2.75rem)] min-h-0 overflow-hidden bg-background">
+      <LocalizedLink href="/dashboard/vault/sessions" className="absolute left-4 top-4 z-10 border border-border bg-background px-3 py-1.5 text-foreground">{t("backToSessions")}</LocalizedLink>
+      <aside className="absolute right-4 top-4 z-10 w-80 max-w-[calc(100%-2rem)] border border-border bg-background">
+        <details open>
+          <summary className="cursor-pointer px-3 py-2 font-medium">{t("detailsSummary")}</summary>
+          <div className="max-h-[calc(100vh-6rem)] overflow-y-auto border-t border-border p-3 font-mono text-xs">
+            <div className="grid gap-3">
+              <div className="grid gap-2"><div className="flex min-w-0 items-center gap-2"><span className="border border-border px-2 py-1 font-medium">{data.agent}</span><span className="min-w-0 truncate" title={data.agentSessionId}>{data.agentSessionId}</span></div><CopyButton value={data.agentSessionId} label={t("copySessionId")} copiedLabel={t("copiedSessionId")} /></div>
+              <VaultMetadata label={t("cwd")} value={cwd} />
+              <VaultMetadata label={t("rawSize")} value={formatBytes(data.sizeBytes, locale)} />
+              <VaultMetadata label={t("compressedSize")} value={data.compressedSizeBytes == null ? t("unknownSize") : formatBytes(data.compressedSizeBytes, locale)} />
+              <VaultMetadata label={t("firstUploaded")} value={formatDate(new Date(data.firstUploadedAt), locale)} />
+              <VaultMetadata label={t("lastUploaded")} value={formatDate(new Date(data.lastUploadedAt), locale)} />
+              <div className="grid gap-2"><code className="block overflow-x-auto border border-border bg-code-bg px-3 py-1.5">{resumeCommand}</code><CopyButton value={resumeCommand} label={t("copyCommand")} copiedLabel={t("copiedCommand")} /></div>
+              {data.downloadUrl ? <div className="grid gap-2"><a href={data.downloadUrl} rel="nofollow" className="border border-border bg-background px-3 py-1.5 text-foreground">{t("downloadLink")}</a><p className="text-muted">{t("downloadExpires")}</p></div> : <p className="text-muted">{t("downloadUnavailable")}</p>}
+              <details className="border border-border"><summary className="cursor-pointer px-3 py-2 font-medium">{t("snapshotsSummary", { count: data.snapshots.length })}</summary><div className="border-t border-border">{data.snapshots.map((snapshot) => <div key={snapshot.sha256} className="grid gap-1 border-b border-border p-2"><div className="font-mono" title={snapshot.sha256}>{truncateMiddle(snapshot.sha256, 22)}</div><div className="font-mono text-muted">{formatBytes(snapshot.compressedSizeBytes ?? snapshot.sizeBytes, locale)} · {formatDate(new Date(snapshot.uploadedAt), locale)}</div></div>)}</div></details>
+            </div>
+          </div>
+        </details>
+      </aside>
+      <TranscriptViewer sessionId={data.id} initialMessages={data.messages} complete={data.transcriptComplete} />
+    </div>
+  );
+}
+
+function VaultMetadata({ label, value }: { label: string; value: string }) {
+  return <div><div className="text-xs text-muted">{label}</div><div className="mt-1 break-words font-mono text-xs">{value}</div></div>;
+}
+
+function DashboardTestflightRoute() {
+  const t = useTranslations("dashboard.testflight");
+  const queryClient = useQueryClient();
+  const location = useLocation();
+  const { data } = useSuspenseQuery(orpc.dashboard.testflight.status.queryOptions());
+  const [banner, setBanner] = useState<string | null>(() => {
+    const value = new URLSearchParams(location.search).get("testflight");
+    return ["joined", "left", "error", "ineligible", "needs_email", "unavailable"].includes(value ?? "") ? value : null;
+  });
+  const mutation = useMutation({
+    mutationFn: async (action: "join" | "leave") => {
+      const body = new FormData();
+      body.set("action", action);
+      const response = await fetch("/api/testflight", { method: "POST", body });
+      if (!response.ok) throw new Error("TestFlight update failed");
+      return action;
+    },
+    onSuccess: async (action) => {
+      setBanner(action === "join" ? "joined" : "left");
+      await queryClient.invalidateQueries({ queryKey: orpc.dashboard.testflight.status.queryKey() });
+    },
+    onError: () => setBanner("error"),
+  });
+
+  return (
+    <div data-testid="dashboard-router-testflight" className="mx-auto w-full max-w-5xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      </div>
+      {banner ? <div className="mb-3 border border-border bg-background p-3 text-sm">{t(`banners.${banner}`)}</div> : null}
+      {data.status === "ineligible" ? (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("notEligible.title")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("notEligible.body")}</p>
+          <LocalizedLink href="/pricing" className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground">{t("actions.viewPricing")}</LocalizedLink>
+        </section>
+      ) : data.status === "needs_email" ? (
+        <section className="border border-border p-3"><h2 className="text-sm font-medium">{t("needsEmail.title")}</h2><p className="mt-2 max-w-2xl text-muted">{t("needsEmail.body")}</p></section>
+      ) : data.status === "unavailable" ? (
+        <section className="border border-border p-3"><h2 className="text-sm font-medium">{t("unavailable.title")}</h2><p className="mt-2 max-w-2xl text-muted">{t("unavailable.body")}</p></section>
+      ) : data.status === "joinable" ? (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("join.title")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("join.body", { email: data.email ?? "" })}</p>
+          <button type="button" disabled={mutation.isPending} onClick={() => mutation.mutate("join")} className="mt-4 border border-foreground bg-foreground px-3 py-1.5 text-background">{t("actions.join")}</button>
+        </section>
+      ) : (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("enrolled.title")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("enrolled.body", { email: data.email ?? "" })}</p>
+          <div className="mt-4 grid border border-border sm:grid-cols-2">
+            <TestflightMetric label={t("details.email")} value={data.email ?? ""} />
+            <TestflightMetric label={t("details.status")} value={data.state ?? t("details.enrolled")} />
+          </div>
+          <p className="mt-3 max-w-2xl text-muted">{t("enrolled.lapseNote")}</p>
+          <button type="button" disabled={mutation.isPending} onClick={() => mutation.mutate("leave")} className="mt-4 border border-border bg-background px-3 py-1.5 text-foreground">{t("actions.leave")}</button>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function DashboardBillingRoute() {
+  const t = useTranslations("dashboard.billing");
+  const { locale } = rootRoute.useRouteContext();
+  const location = useLocation();
+  const { data } = useSuspenseQuery(orpc.dashboard.billing.status.queryOptions());
+  const banner = new URLSearchParams(location.search).get("billing");
+  const personal = data.personal;
+  const personalDate = personal.subscription?.currentPeriodEnd
+    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(personal.subscription.currentPeriodEnd))
+    : t("dates.unknown");
+
+  return (
+    <div data-testid="dashboard-router-billing" className="mx-auto w-full max-w-5xl px-3 py-4">
+      <div className="mb-4 border-b border-border pb-3">
+        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
+        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
+      </div>
+      {banner && ["cancelled", "resumed", "nosub", "error"].includes(banner) ? <div className="mb-3 border border-border bg-background p-3 text-sm">{t(`banners.${banner}`)}</div> : null}
+      {personal.planId === "free" && !data.team?.subscription ? (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("free.name")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p>
+          <LocalizedLink href="/pricing" className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground">{t("actions.viewPricing")}</LocalizedLink>
+        </section>
+      ) : personal.isPro && personal.subscription ? (
+        <section className="border border-border p-3">
+          <h2 className="text-sm font-medium">{t("pro.name")}</h2>
+          <p className="mt-2 max-w-2xl text-muted">
+            {personal.subscription.cancelAtPeriodEnd ? t("pro.pendingBody", { date: personalDate }) : t("pro.activeBody", { date: personalDate })}
+          </p>
+          <div className="mt-4 grid border border-border sm:grid-cols-2"><BillingMetric label={personal.subscription.cancelAtPeriodEnd ? t("details.endsOn") : t("details.renewsOn")} value={personalDate} /><BillingMetric label={t("details.price")} value={personal.subscription.priceId ?? t("dates.unknown")} /></div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {personal.subscription.cancelAtPeriodEnd ? <form method="post" action="/api/billing/subscription"><input type="hidden" name="action" value="resume" /><button type="submit" className="border border-border bg-foreground px-3 py-1.5 text-background">{t("actions.resume")}</button></form> : <details className="border border-border px-3 py-1.5"><summary className="cursor-pointer">{t("actions.cancelSummary")}</summary><form method="post" action="/api/billing/subscription" className="mt-3"><input type="hidden" name="action" value="cancel" /><label className="flex items-start gap-2 text-muted"><input required type="checkbox" name="confirm" value="yes" /><span>{t("cancel.checkbox")}</span></label><button type="submit" className="mt-3 border border-border px-3 py-1.5">{t("actions.confirmCancel")}</button></form></details>}
+            {personal.billingManagement === "stripe" ? <BillingPortalLink href="/api/billing/portal">{t("actions.manageBilling")}</BillingPortalLink> : null}
+          </div>
+        </section>
+      ) : personal.hasPaidManualGrant ? (
+        <section className="border border-border p-3"><h2 className="text-sm font-medium">{t("pro.name")}</h2><p className="mt-2 max-w-2xl text-muted">{t("pro.grantedBody")}</p></section>
+      ) : (
+        <section className="border border-border p-3"><h2 className="text-sm font-medium">{t("free.name")}</h2><p className="mt-2 max-w-2xl text-muted">{t("free.body")}</p><LocalizedLink href="/pricing" className="mt-3 inline-block border border-border bg-background px-3 py-1.5 text-foreground">{t("actions.viewPricing")}</LocalizedLink></section>
+      )}
+      {data.team?.subscription ? <section className="mt-3 border border-border p-3"><h2 className="text-sm font-medium">{t("team.name")}</h2><p className="mt-2 max-w-2xl text-muted">{t("team.activeBody", { date: data.team.subscription.currentPeriodEnd ? new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date(data.team.subscription.currentPeriodEnd)) : t("dates.unknown"), team: data.team.name })}</p>{data.team.hasCustomer ? <BillingPortalLink href="/api/billing/portal?scope=team">{t("actions.manageBilling")}</BillingPortalLink> : null}</section> : null}
+    </div>
+  );
+}
+
+function BillingMetric({ label, value }: { label: string; value: string }) {
+  return <div className="border-b border-border p-3 sm:border-b-0 sm:border-r"><p className="text-xs text-muted">{label}</p><p className="mt-2 font-mono text-xs tabular-nums">{value}</p></div>;
+}
+
+function BillingPortalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  // The portal endpoint creates a session and must perform a document navigation.
+  return <a href={href} className="inline-block border border-border bg-background px-3 py-1.5 text-foreground">{children}</a>;
+}
+
+function TestflightMetric({ label, value }: { label: string; value: string }) {
+  return <div className="border-b border-border p-3 sm:border-b-0 sm:border-r"><p className="text-xs text-muted">{label}</p><p className="mt-2 font-mono text-xs tabular-nums">{value}</p></div>;
 }
 
 function DeviceFact({ label, value }: { label: string; value: string }) {

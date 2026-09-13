@@ -9,10 +9,13 @@ for (const destination of [
   "/dashboard/testflight",
   "/dashboard/cloud",
   "/dashboard/billing",
+  "/dashboard/billing/success",
   "/dashboard/team",
   "/dashboard/vault",
   "/dashboard/vault/sessions",
+  "/dashboard/vault/sessions/not-a-uuid",
   "/dashboard/vault/cli-auth",
+  "/dashboard/navigation-fixture",
   "/dashboard/subrouter",
   "/dashboard/ai-accounts",
 ] as const) {
