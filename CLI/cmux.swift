@@ -3812,9 +3812,12 @@ final class SocketClient {
                     close()
                     throw CLIError(message: timeoutMessage)
                 }
-                // A closed peer wakes poll too. Let the SIGPIPE-protected write
-                // report its errno so telemetry can classify expected disconnects.
-                guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR | POLLNVAL) != 0 else {
+                if descriptor.revents & Int16(POLLNVAL) != 0 {
+                    close()
+                    throw CLIError(message: "\(failureMessage) (\(String(cString: strerror(EBADF))), errno \(EBADF))")
+                }
+                // Let a protected write resolve HUP/ERR to errno for telemetry.
+                guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR) != 0 else {
                     continue
                 }
 
