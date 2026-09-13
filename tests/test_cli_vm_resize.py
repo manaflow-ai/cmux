@@ -121,6 +121,13 @@ class VMResizeTests(unittest.TestCase):
             self.assertIn("memory=6 GiB", result.stdout)
             self.assertIn("disk=68 GiB", result.stdout)
 
+    def test_disk_suffix_is_converted_before_sending_the_resize(self) -> None:
+        with ResizeSocket({"disk_total_mb": 65536}) as server:
+            result = self.run_cli(server.path, ["vm", "resize", "existing-vm", "--disk", "64G", "--json"])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(len(server.requests), 1)
+            self.assertEqual(server.requests[0]["params"], {"id": "existing-vm", "storage_mb": 65536})
+
     def test_json_preserves_provider_confirmation(self) -> None:
         confirmed = {"id": "existing-vm", "state": "running", "cpus": 8, "memory_total_mb": 8192, "disk_total_mb": 69632}
         with ResizeSocket(confirmed) as server:
@@ -134,6 +141,8 @@ class VMResizeTests(unittest.TestCase):
             [], ["existing-vm"], ["", "--disk", "64"],
             ["existing-vm", "--disk"], ["existing-vm", "--disk", "66"],
             ["existing-vm", "--disk", "0"], ["existing-vm", "--disk", "260"],
+            ["existing-vm", "--disk", "128 GiB"], ["existing-vm", "--disk", "66G"],
+            ["existing-vm", "--disk", "260G"],
             ["existing-vm", "--disk", "64.5"], ["existing-vm", "--disk", "64", "extra"],
             ["existing-vm", "--cpu", "0"], ["existing-vm", "--cpu", "33"],
             ["existing-vm", "--cpu", "1.5"], ["existing-vm", "--cpu", "-1"],
