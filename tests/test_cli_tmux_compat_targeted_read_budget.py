@@ -47,10 +47,11 @@ READ_PLANE_SWIFT = (
 )
 
 # These assertions are about how many reads a command issues, never about how
-# fast it runs, so the timeout only has to stop a hung process. Keep it far
-# above any plausible CLI latency on a loaded shared runner, and allow an
-# override for slower environments.
-CLI_TIMEOUT_SECONDS = float(os.environ.get("CMUX_CLI_TEST_TIMEOUT_SECONDS", "300"))
+# fast it runs, so nothing here may fail on elapsed time. Hangs are caught by
+# the `timeout-minutes` guard on the CI job that runs these scripts; set
+# CMUX_CLI_TEST_TIMEOUT_SECONDS to add a local one when running by hand.
+_cli_timeout = os.environ.get("CMUX_CLI_TEST_TIMEOUT_SECONDS")
+CLI_TIMEOUT_SECONDS = float(_cli_timeout) if _cli_timeout else None
 
 
 def read_polling_burst() -> int:
