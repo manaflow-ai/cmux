@@ -47,7 +47,7 @@ export class VmResizePlanLimitError extends Data.TaggedError("VmResizePlanLimitE
   readonly upgradePlanId?: string;
 }> {}
 
-/** A grow-only disk resize is already running for this machine. */
+/** Another resize owns or has superseded this machine's resource reservation. */
 export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
   readonly vmId: string;
 }> {}

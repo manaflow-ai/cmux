@@ -12,6 +12,11 @@ The current server reports `protocol:12` from `identify` and `ping`. Clients mus
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
+Byte viewers that keep their own theme advertise `terminal-color-overrides-v1`
+using `set-client-info` before `attach-surface`. Supporting servers then add
+application-authored special-color provenance to that attachment's color
+sidecars (see `events.md`); unadvertised attachments keep the legacy wire shape.
+
 ## Unix Socket
 
 | Field | Value |

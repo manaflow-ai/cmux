@@ -164,14 +164,14 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x += Self.leadingMargin
-        if treeStyle.machineRowLayout == .twoLine,
-           let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow {
+        if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
+           treeStyle.machineRowLayout == .twoLine || node.structureTag == "machine" {
             // Multi-line machine rows: the chevron centers on the name line (first
             // line, after the row's top padding), not on the row's vertical middle,
             // so it reads with the name and the status dot. NSTableView is flipped.
             let rowFrame = rect(ofRow: row)
             let nameLineCenter = rowFrame.minY
-                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding)
+                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding + (treeStyle.machineBand ? 4 : 0))
                 + GlobalFontMagnification.scaledSize(treeStyle.machineNameLineHeight) / 2
             frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
         }
