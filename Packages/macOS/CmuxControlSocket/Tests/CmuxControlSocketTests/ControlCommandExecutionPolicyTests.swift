@@ -44,7 +44,7 @@ struct ControlCommandExecutionPolicyTests {
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
-            "browser.download.wait", "system.top", "system.memory",
+            "browser.download.list", "browser.download.wait", "system.top", "system.memory",
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "debug.mobile.transport.disconnect",

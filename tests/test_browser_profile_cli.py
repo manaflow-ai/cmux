@@ -75,6 +75,8 @@ class FakeCmuxState:
                     },
                 ],
             }
+        if method == "browser.download.wait":
+            return {"downloaded": True}
         raise RuntimeError(f"unexpected method: {method}")
 
 
@@ -282,6 +284,13 @@ def main() -> int:
             if len(list_calls) != 2 or list_calls[0][1].get("limit") != 2 or list_calls[1][1].get("limit") is not None:
                 raise AssertionError(f"download list dispatch/limit mismatch: {list_calls!r}")
 
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "wait", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"explicit wait path was not preserved: {state.calls[-1]!r}")
+            run_cli(cli, socket_path, ["browser", SURFACE_ID, "download", "--path", "extensionless-name"])
+            if state.calls[-1] != ("browser.download.wait", {"surface_id": SURFACE_ID, "path": "extensionless-name"}):
+                raise AssertionError(f"--path wait was not preserved: {state.calls[-1]!r}")
+
             calls_before_invalid = len(state.calls)
             assert_cli_fails(
                 cli,
@@ -291,6 +300,20 @@ def main() -> int:
             )
             if len(state.calls) != calls_before_invalid:
                 raise AssertionError("unknown download verb reached the socket")
+            for invalid_args, expected in [
+                (["list", "--limit", "0"], "--limit must be an integer between 1 and 25"),
+                (["list", "--limit"], "--limit requires an integer between 1 and 25"),
+                (["list", "--timeout-ms", "100"], "Unexpected argument"),
+            ]:
+                calls_before_invalid = len(state.calls)
+                assert_cli_fails(
+                    cli,
+                    socket_path,
+                    ["browser", SURFACE_ID, "download", *invalid_args],
+                    expected,
+                )
+                if len(state.calls) != calls_before_invalid:
+                    raise AssertionError(f"invalid list arguments reached the socket: {invalid_args!r}")
         finally:
             server.shutdown()
             server.server_close()

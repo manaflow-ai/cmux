@@ -100,7 +100,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.restore.admit",
         // Releases only the tokenized claim owned by a failed restore exec.
         "agent.restore.release",
-        "browser.download.wait",
+        "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -316,7 +316,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // controlResolveOnMain hop (known-ref refresh + routing resolution +
         // snapshot witness + ref minting in payload order) and build/encode
         // the JSON reply on the worker. None are focus-intent.
-        "surface.list",
+        "surface.list", "browser.download.list",
         "surface.current",
         "workspace.list",
         "workspace.current",
