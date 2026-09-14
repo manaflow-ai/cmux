@@ -1995,10 +1995,14 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
+            // `hiddenDelay` treats an out-of-range override as invalid rather than clamping it:
+            // `resolvedHiddenDelay` returns Optional and answers nil outside
+            // [minimumHiddenDelay, maximumHiddenDelay], so the env/stored/default chain falls
+            // through to the default exactly as it does for a missing or unparsable value.
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
-                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
@@ -2160,11 +2164,10 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertTrue(
+            waitForBrowserPanelLoadingToSettle(panel),
+            "Timed out waiting for about:blank to load and the loading indicator to clear"
+        )
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
@@ -2209,11 +2212,10 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertTrue(
+            waitForBrowserPanelLoadingToSettle(panel),
+            "Timed out waiting for about:blank to load and the loading indicator to clear"
+        )
 
         panel.noteWebViewVisibility(true, reason: "test.visible.first")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
@@ -2256,11 +2258,10 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertTrue(
+            waitForBrowserPanelLoadingToSettle(panel),
+            "Timed out waiting for about:blank to load and the loading indicator to clear"
+        )
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
