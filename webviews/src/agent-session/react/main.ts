@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { activityGlyph } from "../shared/activityGlyph";
-import { callNative, subscribeToAgentEvents } from "../shared/bridge";
+import { callNative, NativeBridgeError, subscribeToAgentEvents } from "../shared/bridge";
 import { makeClientId } from "../shared/ids";
 import {
   CODEX_BUTTON_BASE,
@@ -73,6 +73,7 @@ import {
   GuiModeModeToggle,
   GuiModeWelcome,
 } from "../../gui-mode/GuiModeSessionChrome";
+import { executeGuiModeTerminal } from "../../gui-mode/bridge";
 
 const h = React.createElement;
 
@@ -296,6 +297,7 @@ function SessionSurface({
   const [terminalCommandStatus, setTerminalCommandStatus] = useState("");
   const [terminalCommandPending, setTerminalCommandPending] = useState(false);
   const terminalPanelId = useRef<string | undefined>(undefined);
+  const terminalRequestId = useRef<string | undefined>(undefined);
   const [guiModelId, setGuiModelId] = useState(guiModeContext.selectedModelId ?? "gpt-6-astra");
   const [guiReasoningEffort, setGuiReasoningEffort] = useState(
     guiModeContext.selectedReasoningEffort ?? "extra-high",
@@ -372,15 +374,17 @@ function SessionSurface({
       if (command.length === 0 || terminalCommandPending) return;
       setTerminalCommandPending(true);
       setTerminalCommandStatus(command);
-      void callNative<{ panelId: string }>("guiMode.executeTerminal", {
-        command,
-        requestId: makeClientId(),
-        terminalPanelId: terminalPanelId.current,
-      }).then((result) => {
+      const requestId = terminalRequestId.current ?? makeClientId();
+      terminalRequestId.current = requestId;
+      void executeGuiModeTerminal(command, requestId, terminalPanelId.current).then((result) => {
         terminalPanelId.current = result.panelId;
+        terminalRequestId.current = undefined;
         dispatch({ type: "setInput", input: "" });
       }).catch((error) => {
         dispatch({ type: "failed", message: messageForError(error, state) });
+        if (!(error instanceof NativeBridgeError && error.code === "timeout")) {
+          terminalRequestId.current = undefined;
+        }
       }).finally(() => setTerminalCommandPending(false));
       return;
     }

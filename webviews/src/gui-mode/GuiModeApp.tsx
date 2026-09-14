@@ -96,6 +96,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [includeCurrentFolder, setIncludeCurrentFolder] = useState(false);
   const terminalPanelId = useRef<string | null>(null);
+  const terminalRequestId = useRef<string | null>(null);
   const [terminalStatus, setTerminalStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -126,9 +127,12 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
     setError("");
     setTerminalStatus("");
     if (mode === "terminal") {
-      void executeGuiModeTerminal(trimmedPrompt, makeGuiModeRequestId(), terminalPanelId.current ?? undefined)
+      const requestId = terminalRequestId.current ?? makeGuiModeRequestId();
+      terminalRequestId.current = requestId;
+      void executeGuiModeTerminal(trimmedPrompt, requestId, terminalPanelId.current ?? undefined)
         .then((result) => {
           terminalPanelId.current = result.panelId;
+          terminalRequestId.current = null;
           setPrompt("");
           setTerminalStatus(trimmedPrompt);
         })
@@ -325,7 +329,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
                       },
                       onChange: setPermissionMode,
                     }),
-                    isSubmitting
+                    isSubmitting && mode !== "terminal"
                       ? h("button", {
                         className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full gui-mode-cancel`,
                         onClick: cancel,

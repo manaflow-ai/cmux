@@ -130,13 +130,11 @@ export async function executeGuiModeTerminal(
   requestId: string = makeGuiModeRequestId(),
   terminalPanelId?: string,
 ): Promise<{ workspaceId: string; panelId: string }> {
-  // Terminal creation has a visible native side effect. Keep the request pending
-  // until native reconciliation completes so a slow split cannot be duplicated.
-  return callNative<{ workspaceId: string; panelId: string }>("guiMode.executeTerminal", {
-    command,
-    requestId,
-    terminalPanelId,
-  });
+  return callNativeWithTimeout<{ workspaceId: string; panelId: string }>(
+    "guiMode.executeTerminal",
+    { command, requestId, terminalPanelId },
+    5000,
+  );
 }
 
 export async function cancelGuiModeSubmit(requestId: string): Promise<{ cancelled: true }> {

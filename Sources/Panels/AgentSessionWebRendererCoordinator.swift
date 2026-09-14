@@ -24,6 +24,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isGuiModeSubmitPending = false
     private var guiModeSubmitRequestID: String?
     private var guiModeTerminalPanelID: UUID?
+    private var guiModeTerminalResults: [String: [String: String]] = [:]
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -372,6 +373,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guiModeSubmitRequestID = nil
             return ["cancelled": true]
         case "guiMode.executeTerminal":
+            let requestID = request.string("requestId") ?? request.id
+            if let cachedResult = guiModeTerminalResults[requestID] {
+                return cachedResult
+            }
             let result = try Self.handleGuiModeTerminal(
                 request,
                 rendererKind: rendererKind,
@@ -381,6 +386,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             )
             if let panelID = result["panelId"], let value = UUID(uuidString: panelID) {
                 guiModeTerminalPanelID = value
+            }
+            guiModeTerminalResults[requestID] = result
+            if guiModeTerminalResults.count > 32 {
+                guiModeTerminalResults.removeValue(forKey: guiModeTerminalResults.keys.sorted().first ?? requestID)
             }
             return result
         case "app.pickFiles":
