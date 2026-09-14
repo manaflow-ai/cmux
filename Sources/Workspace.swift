@@ -11549,7 +11549,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return shortcuts
     }
-
     private func copyIdentifiersToPasteboard(surfaceId: UUID) {
         let paneId = paneId(forPanelId: surfaceId)?.id
         WorkspaceSurfaceIdentifierClipboardText.copy(
@@ -11561,9 +11560,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         )
     }
-
     // MARK: - Portal Lifecycle
-
     /// Hide all terminal portal views for this workspace.
     /// Called before the workspace is unmounted to prevent portal-hosted terminal
     /// views from covering browser panes in the newly selected workspace.
@@ -11575,15 +11572,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
     }
-
     func hideAllBrowserPortalViews() {
         for panel in panels.values {
             guard let browser = panel as? BrowserPanel else { continue }
             browser.hideBrowserPortalView(source: "workspaceRetire")
         }
     }
-
-    func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
+    func setPortalRenderingEnabled(
+        _ enabled: Bool,
+        reason: String,
+        parkDetachedViews: Bool = true
+    ) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
@@ -11596,9 +11595,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
-            TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
+            if parkDetachedViews {
+                TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
+            }
             hideAllBrowserPortalViews()
-            TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: id)
             BrowserWindowPortalRegistry.hideWebViews(forWorkspaceID: id)
         }
     }

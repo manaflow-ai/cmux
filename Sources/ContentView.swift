@@ -3587,7 +3587,6 @@ struct ContentView: View {
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
     }
-
     private func resolvedMountedWorkspaceIds(tabs: [Workspace], selectedId: UUID?) -> [UUID] {
         let pinnedIds = tabManager.mountedBackgroundWorkspaceLoadIds
             .union(tabManager.debugPinnedWorkspaceLoadIds)
@@ -3600,7 +3599,6 @@ struct ContentView: View {
             maxMounted: max(WorkspaceMountPlan.maxMountedWorkspaces, selectedCount + pinnedIds.count)
         ).mountedWorkspaceIds
     }
-
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
@@ -3612,9 +3610,16 @@ struct ContentView: View {
             previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
             mountedWorkspaceIds: Set(mountedWorkspaceIds), orderedWorkspaceIds: orderedTabIds
         ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
+        TerminalWindowPortalRegistry.parkHostedViews(
+            forWorkspaceIDs: Set(portalRenderingChanges.lazy.filter { !$0.isEnabled }.map(\.workspaceId))
+        )
         let workspacesById = Dictionary(currentTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for change in portalRenderingChanges {
-            workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
+            workspacesById[change.workspaceId]?.setPortalRenderingEnabled(
+                change.isEnabled,
+                reason: "workspaceMount",
+                parkDetachedViews: false
+            )
         }
         tabManager.workspaceSwitchCoordinator.selectionDidReconcile(
             workspaceID: effectiveSelectedId.flatMap { mountedWorkspaceIds.contains($0) ? $0 : nil }
@@ -3639,25 +3644,21 @@ struct ContentView: View {
         }
 #endif
     }
-
     private func addTab() {
         tabManager.addWorkspaceIfActive()
         sidebarSelectionState.selection = .tabs
     }
-
     private func updateWindowGlassTint() {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         windowChrome.backdropController.updateGlassTint(to: window, color: tintColor)
     }
-
     private func startWorkspaceHandoffIfNeeded(
         newSelectedId: UUID?
     ) -> UUID? {
         let oldSelectedId = previousSelectedWorkspaceId
         previousSelectedWorkspaceId = newSelectedId
-
         guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
             if let newSelectedId,
                oldSelectedId == newSelectedId,
@@ -3670,7 +3671,6 @@ struct ContentView: View {
             workspaceSwitchPortalSignalRouter.clearSources()
             return nil
         }
-
         let presentationTarget = workspaceSwitchPresentationTarget(
             for: newSelectedId,
             sourceWorkspaceID: oldSelectedId

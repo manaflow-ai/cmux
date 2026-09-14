@@ -35,7 +35,7 @@ extension TerminalWindowPortalLifecycleTests {
         realizeWindowLayout(window)
 
         XCTAssertTrue(surface.hostedView.superview != nil)
-        portal.parkHostedViews(forWorkspaceID: surface.tabId)
+        portal.parkEntries(forWorkspaceID: surface.tabId)
 
         XCTAssertNil(
             surface.hostedView.superview,

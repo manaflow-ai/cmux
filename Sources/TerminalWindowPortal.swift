@@ -1521,7 +1521,13 @@ final class WindowTerminalPortal: NSObject {
         }
     }
     func parkEntries(forWorkspaceID workspaceID: UUID) {
-        let ids = entriesByHostedId.compactMap { id, entry in entry.workspaceID == workspaceID ? id : nil }
+        parkEntries(forWorkspaceIDs: [workspaceID])
+    }
+    func parkEntries(forWorkspaceIDs workspaceIDs: Set<UUID>) {
+        let ids = entriesByHostedId.compactMap { id, entry in
+            guard let workspaceID = entry.workspaceID else { return nil }
+            return workspaceIDs.contains(workspaceID) ? id : nil
+        }
         for id in ids {
             guard var entry = entriesByHostedId[id] else { continue }
             entry.visibleInUI = false; entry.awaitingGeometrySettlement = false; entry.transientRecoveryRetriesRemaining = 0
@@ -1631,13 +1637,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
             detachHostedView(withId: previousHostedId)
         }
-
         if let oldEntry = entriesByHostedId[hostedId],
            let oldAnchor = oldEntry.anchorView,
            oldAnchor !== anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(oldAnchor))
         }
-
         hostedByAnchorId[anchorId] = hostedId
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
@@ -1648,7 +1652,6 @@ final class WindowTerminalPortal: NSObject {
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
-
         let didChangeAnchor: Bool = {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
@@ -1673,9 +1676,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
         _ = synchronizeHostFrameToReference()
-
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
         if let seededFrame = seededFrameInHost(for: anchorView),
@@ -1703,7 +1704,6 @@ final class WindowTerminalPortal: NSObject {
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
         hostedView.reconcileGeometryNow()
-
         if hostedView.superview !== hostView {
 #if DEBUG
             cmuxDebugLog(
@@ -1725,14 +1725,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
-
         ensureDividerOverlayOnTop()
-
         synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
         scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
-
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
         // Anchor geometry callbacks fire for every layout pass — including
         // the passes our own syncs run — and treating each one as a
@@ -1776,7 +1773,6 @@ final class WindowTerminalPortal: NSObject {
         if let primaryHostedId {
             synchronizeHostedView(withId: primaryHostedId, syncLayout: syncLayout)
         }
-
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
@@ -1800,7 +1796,6 @@ final class WindowTerminalPortal: NSObject {
             scheduleDeferredFullSynchronizeAll()
         }
     }
-
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
         // During a live window resize this pass would re-reconcile every
         // visible surface once per resize tick, right after
@@ -2907,7 +2902,12 @@ enum TerminalWindowPortalRegistry {
     }
 
     static func parkHostedViews(forWorkspaceID workspaceID: UUID) {
-        portalsByWindowId.values.forEach { $0.parkEntries(forWorkspaceID: workspaceID) }
+        parkHostedViews(forWorkspaceIDs: [workspaceID])
+    }
+
+    static func parkHostedViews(forWorkspaceIDs workspaceIDs: Set<UUID>) {
+        guard !workspaceIDs.isEmpty else { return }
+        portalsByWindowId.values.forEach { $0.parkEntries(forWorkspaceIDs: workspaceIDs) }
     }
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
