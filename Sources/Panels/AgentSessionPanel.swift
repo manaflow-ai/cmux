@@ -52,9 +52,7 @@ final class AgentSessionPanel: Panel {
         guiModePage: GuiModePanelPage = .home
     ) -> String {
         if rendererKind == .guiMode {
-            return guiModePage == .taskWorktreePR
-                ? String(localized: "guiMode.task.panel.title", defaultValue: "/task-worktree-pr")
-                : String(localized: "guiMode.panel.title", defaultValue: "GUI Mode")
+            return String(localized: "guiMode.panel.title", defaultValue: "GUI Mode")
         }
         let format = String(localized: "agentSession.panel.title", defaultValue: "%@ · %@")
         return String(format: format, provider.displayName, rendererKind.displayName)

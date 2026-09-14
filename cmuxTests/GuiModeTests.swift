@@ -21,6 +21,7 @@ struct GuiModeTests {
             CmuxSurfaceTabBarBuiltInAction.splitDown.configID,
         ])
         #expect(CmuxSurfaceTabBarBuiltInAction(configID: "gui-mode") == .newGuiMode)
+        #expect(AgentSessionPanel.title(provider: .codex, rendererKind: .guiMode, guiModePage: .taskWorktreePR) == "GUI Mode")
     }
 
     @Test("GUI shortcut is mnemonic and does not reuse the G action family")

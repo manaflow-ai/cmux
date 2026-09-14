@@ -336,7 +336,9 @@ function SessionSurface({
   const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
   const shouldShowIdeContextIndicator = workspaceContextItem != null && isAutoContextOn;
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
-  const isSingleLineComposer = composerLayout.isSingleLine;
+  // GUI Mode keeps the editor in the Codex multiline layout so long prompts
+  // grow naturally instead of being clipped by the footer controls.
+  const isSingleLineComposer = !isGuiMode && composerLayout.isSingleLine;
   const footerCollapse = useMeasuredFooterControlCollapse([
     {
       canHideLabel: reasoningEffortLabel != null,
