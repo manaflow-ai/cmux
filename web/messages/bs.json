@@ -3868,5 +3868,11 @@
         "action": "Upravljaj planom"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-mail",
+    "emailUnavailable": "e-mail nije dostupan",
+    "organization": "Organizacija",
+    "personalAccount": "lični račun"
   }
 }

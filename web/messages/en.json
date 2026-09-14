@@ -5528,5 +5528,11 @@
       "message": "Publication email grant",
       "action": "Send email and optional expiresAt."
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Email",
+    "emailUnavailable": "email unavailable",
+    "organization": "Organization",
+    "personalAccount": "personal account"
   }
 }

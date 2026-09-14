@@ -28,8 +28,18 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"(?:test runner .*?(?:timed out|hung|failed)|"
     r"unexpected exit|communication with the test runner|"
     r"testmanagerd.*invalidated|Couldn't communicate with a helper|"
-    r"Fatal error:|Program crashed|Signal \d+|SIG[A-Z]+|"
+    r"Fatal error:|Program crashed|\*\*\*\s+Signal\s+\d+\b|"
     r"Idle timed out|Post-test timed out)",
+    re.IGNORECASE,
+)
+_APP_HOST_SIGNAL_RE = re.compile(
+    r"(?:\*\*\*[^\n]*\bSignal\s+\d+\b|"
+    r"(?:received|terminated|killed|stopped|crashed|aborted|exited)[^\n]*"
+    r"\bsignal\s+\d+\b|^\s*signal\s+\d+\b|"
+    r"(?:\*\*\*[^\n]*|(?:received|terminated|killed|stopped|crashed)[^\n]*)"
+    r"\bSIG(?:ABRT|ALRM|BUS|CHLD|CONT|FPE|HUP|ILL|INT|IO|IOT|KILL|PIPE|POLL|"
+    r"PROF|QUIT|SEGV|STOP|SYS|TERM|TRAP|TSTP|TTIN|TTOU|URG|USR1|USR2|"
+    r"VTALRM|XCPU|XFSZ)\b)",
     re.IGNORECASE,
 )
 _ASSERTION_RE = re.compile(
@@ -77,7 +87,9 @@ def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
                 and "program crashed" not in cleaned.lower()
             ):
                 compile_line = cleaned
-        if app_host_line is None and _APP_HOST_FAILURE_RE.search(raw_line):
+        if app_host_line is None and (
+            _APP_HOST_FAILURE_RE.search(raw_line) or _APP_HOST_SIGNAL_RE.search(raw_line)
+        ):
             app_host_line = _clean_line(raw_line)
         if assertion_line is None and _ASSERTION_RE.search(raw_line):
             assertion_line = _clean_line(raw_line)
