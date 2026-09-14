@@ -4,7 +4,7 @@ on:
     paths:
       - Sources/Cloud/CloudMachineLink.swift
       - Sources/Cloud/CloudCommand*.swift
-      - cmuxTests/CloudCommandDeadlineTests.swift
+      - cmuxTests/CloudCommandDeadline*.swift
       - tests/fixtures/cloud-command-deadlines/**
       - tests/run_cloud_command_deadline_tests.sh
       - .github/workflows/cloud-command-deadlines.yml

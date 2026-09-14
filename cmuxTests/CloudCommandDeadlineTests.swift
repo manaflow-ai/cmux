@@ -9,7 +9,7 @@ import Testing
 @testable import CloudCommandFixture
 #endif
 
-@Suite struct CloudCommandDeadlineTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct CloudCommandDeadlineTests {
     @Test(arguments: [false, true])
     func termIgnoringCommandFinishes(cancel: Bool) async throws {
         try await checkFixture(descendant: false, cancel: cancel)
@@ -35,6 +35,112 @@ import Testing
             #expect(output == "stderr")
         }
     }
+
+    @Test func drainsLargeConcurrentOutputWithoutChangingBytes() async throws {
+        let link = CloudMachineLink(
+            machineID: "fixture", clientURL: URL(fileURLWithPath: "/bin/sh"), paths: CloudTuiClientPaths()
+        )
+        let output = try await link.run(arguments: [
+            "-c", "head -c 1048576 /dev/zero >&2 & head -c 1048576 /dev/zero; wait"
+        ])
+        #expect(output == Data(repeating: 0, count: 1_048_576))
+    }
+
+    @Test func rejectsExpiredDeadlineAndOversizedInputBeforeSpawn() async throws {
+        let link = CloudMachineLink(
+            machineID: "fixture", clientURL: URL(fileURLWithPath: "/does/not/exist"), paths: CloudTuiClientPaths()
+        )
+        await #expect(throws: CloudMachineLink.LinkError.self) {
+            _ = try await link.run(arguments: [], timeout: .zero)
+        }
+        do {
+            _ = try await link.run(arguments: [], input: Data(repeating: 0, count: 1_025))
+            Issue.record("oversized input must be rejected before spawning")
+        } catch CloudMachineLink.LinkError.inputTooLarge {}
+    }
+
+    @Test func expiryWinsWhenEOFArrivesBeforeTimerResumes() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-command-wake-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = root.appendingPathComponent("exit-gate")
+        try #require(mkfifo(gate.path, 0o600) == 0)
+        let fd = open(gate.path, O_RDWR | O_NONBLOCK)
+        try #require(fd >= 0)
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        let clock = CloudCommandDeadlineClock()
+        let link = CloudMachineLink(
+            machineID: "fixture", clientURL: URL(fileURLWithPath: "/bin/sh"),
+            paths: CloudTuiClientPaths(home: root), commandClock: clock
+        )
+        let command = Task {
+            try await link.run(arguments: ["-c", "read value < '\(gate.path)'; printf complete"], timeout: .seconds(30))
+        }
+        #expect(await clock.timerRegistered.result == true)
+        clock.advanceWithoutWakingTimer(by: .seconds(600))
+        try handle.write(contentsOf: Data("exit\n".utf8))
+        do {
+            _ = try await command.value
+            Issue.record("EOF after the deadline cannot turn an expired command into success")
+        } catch CloudMachineLink.LinkError.commandTimedOut {}
+    }
+
+    #if canImport(CloudCommandFixture)
+    @Test func repeatedCommandsReleaseEveryCaptureDescriptor() async throws {
+        let link = CloudMachineLink(
+            machineID: "fixture", clientURL: URL(fileURLWithPath: "/bin/sh"), paths: CloudTuiClientPaths()
+        )
+        _ = try await link.run(arguments: ["-c", "printf warmup"])
+        let before = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
+        for _ in 0..<24 {
+            _ = try await link.run(arguments: ["-c", "printf normal; printf diagnostic >&2"])
+        }
+        let after = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
+        print("COMMAND_FD_PROOF beforeBytes=\(before) afterBytes=\(after) iterations=24")
+        #expect(after <= before, "capture descriptors must be closed before each command returns")
+    }
+
+    @Test func appSuspensionDoesNotAcceptExpiredSuccessOnResume() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-command-stop-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ready = root.appendingPathComponent("ready")
+        try #require(mkfifo(ready.path, 0o600) == 0)
+        let fd = open(ready.path, O_RDWR | O_NONBLOCK)
+        try #require(fd >= 0)
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var lines = CloudLinkPipe.lines(from: handle).makeAsyncIterator()
+        let link = CloudMachineLink(
+            machineID: "fixture", clientURL: URL(fileURLWithPath: "/bin/sh"), paths: CloudTuiClientPaths(home: root)
+        )
+        let started = ContinuousClock.now
+        let active = SuspendingClock.now
+        let command = Task {
+            try await link.run(arguments: ["-c", "echo ready > '\(ready.path)'; sleep 0.1; printf complete"], timeout: .milliseconds(300))
+        }
+        #expect(await lines.next() == "ready")
+        // Only the disposable standalone test executable is suspended. The helper
+        // resumes it even if signalled; this test is excluded from app-host builds.
+        let resume = Process()
+        resume.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let parent = getpid()
+        resume.arguments = ["-c", "trap 'kill -CONT \(parent)' EXIT; kill -STOP \(parent); sleep 0.6; kill -CONT \(parent)"]
+        resume.standardInput = FileHandle.nullDevice
+        resume.standardOutput = FileHandle.nullDevice
+        resume.standardError = FileHandle.nullDevice
+        let exited = CloudLinkFirstValue<Bool>()
+        resume.terminationHandler = { _ in exited.resolve(true) }
+        try resume.run()
+        do {
+            _ = try await command.value
+            Issue.record("a child exit delivered on resume must still honor the elapsed deadline")
+        } catch CloudMachineLink.LinkError.commandTimedOut {}
+        #expect(await exited.result == true)
+        print("COMMAND_SUSPEND_PROOF stopSeconds=0.6 continuous=\(started.duration(to: .now)) systemActive=\(active.duration(to: .now))")
+    }
+    #endif
 
     private func checkFixture(descendant: Bool, cancel: Bool) async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-command-\(UUID())")

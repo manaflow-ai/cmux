@@ -23,5 +23,5 @@ for source in "$ROOT"/Sources/Cloud/CloudCommand*.swift; do
     [[ -f "$source" ]] && cp "$source" "$DEST/Sources/CloudCommandFixture/"
 done
 cp "$ROOT/tests/fixtures/cloud-command-deadlines/StandaloneDependencies.swift" "$DEST/Sources/CloudCommandFixture/"
-cp "$ROOT/cmuxTests/CloudCommandDeadlineTests.swift" "$DEST/Tests/CloudCommandFixtureTests/"
+cp "$ROOT/cmuxTests/CloudCommandDeadlineClock.swift" "$ROOT/cmuxTests/CloudCommandDeadlineTests.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 swift test --package-path "$DEST" --filter CloudCommandDeadlineTests -Xswiftc -warnings-as-errors
