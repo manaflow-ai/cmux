@@ -218,6 +218,8 @@ extension Workspace {
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections), CloudMachinesFeature.offMainIsEnabled() else { return false }
+        // An optimistic pane whose creation failed replays its own request.
+        if retryReservedCloudTerminalPane(surfaceId: surfaceId) { return true }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
