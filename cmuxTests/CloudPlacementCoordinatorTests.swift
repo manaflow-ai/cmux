@@ -478,7 +478,7 @@ struct CloudPlacementCoordinatorTests {
         catalog.moveProjections(panelID: panel, to: main)
         release.yield(())
         release.finish()
-        await repair.value
+        _ = await repair.value
         await coordinator.waitForPendingMutations()
         #expect(provider.moved.map { $0.tab + "->" + $0.workspace } == ["tab_repaired->ws_main"])
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
@@ -527,7 +527,7 @@ struct CloudPlacementCoordinatorTests {
         catalog.endProjections(panelID: panel)
         release.yield(())
         release.finish()
-        await repair.value
+        _ = await repair.value
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.closedTabs == ["tab_repaired"])
         #expect(catalog.resources[term.id] != nil)
