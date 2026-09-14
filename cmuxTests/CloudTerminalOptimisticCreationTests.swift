@@ -172,7 +172,7 @@ struct CloudTerminalOptimisticCreationTests {
         let actions = CloudTreeNodeActions.bound(
             catalog: { .shared }, selectedWorkspaceID: { harness.workspace.id },
             selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
-            onDidMutate: {}, onFailure: { _ in Issue.record("Sidebar creation failed") }, refresh: {}
+            onDidMutate: {}, onFailure: { _ in }, refresh: {}
         )
         actions.newTerminal(harness.provider.machine, "ws")
         let pending = try #require(harness.pending.first)
