@@ -46,6 +46,25 @@ struct CloudTerminalStartupLatencyTests {
     }
 
     @Test
+    func unresolvedPaneKeepsAConnectionStatusWhileSurfaceIsResolved() {
+        #expect(
+            CloudManualMirrorPresentation(
+                phase: .idle,
+                replayReceived: false,
+                rendererReady: false,
+                surfaceResolutionPending: true
+            ).connectionState == .connecting
+        )
+        #expect(
+            CloudManualMirrorPresentation(
+                phase: .idle,
+                replayReceived: false,
+                rendererReady: false
+            ).connectionState == nil
+        )
+    }
+
+    @Test
     func revealRequiresAFrameNewerThanTheHiddenEpisode() {
         var readiness = CloudTerminalStartupReadiness()
         readiness.begin(baselineFrame: 7)
