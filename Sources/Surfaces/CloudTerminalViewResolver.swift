@@ -41,7 +41,7 @@ struct CloudTerminalViewResolver: Sendable {
                 } else if tabs[tabID] == terminalID {
                     live[tabID] = terminalID
                 } else {
-                    results[tabID] = .retryable("the requested tab is no longer present", failure: .notReady)
+                    results[tabID] = .retryable("the requested tab is no longer present", failure: .missingTab)
                 }
             }
             guard !live.isEmpty else { return results }

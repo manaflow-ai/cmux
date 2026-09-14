@@ -17,12 +17,20 @@ enum CloudTuiSurfaceIDResolution: Equatable, Sendable {
     /// reason that says nothing about the terminal itself.
     case retryable(String, failure: Failure = .notReady)
 
+    /// Whether this retryable result proves that the requested tab identity is stale.
+    var isMissingTab: Bool {
+        if case .retryable(_, failure: .missingTab) = self { return true }
+        return false
+    }
+
     /// Safe display categories; free-form daemon diagnostics stay in private logs.
     enum Failure: Equatable, Sendable {
         case transportUnavailable
         case invalidResponse
         case rejected
         case notReady
+        /// An authoritative graph no longer assigns the requested tab to this terminal.
+        case missingTab
 
         var localizedDescription: String {
             switch self {
@@ -32,7 +40,7 @@ enum CloudTuiSurfaceIDResolution: Equatable, Sendable {
                 return String(localized: "cloudTree.attachmentFailure.invalidResponse", defaultValue: "the machine returned an unusable response")
             case .rejected:
                 return String(localized: "cloudTree.attachmentFailure.rejected", defaultValue: "the machine could not attach the terminal")
-            case .notReady:
+            case .notReady, .missingTab:
                 return String(localized: "cloudTree.attachmentFailure.notReady", defaultValue: "the terminal is not ready to attach")
             }
         }

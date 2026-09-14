@@ -29,6 +29,7 @@ struct CloudTerminalViewResolverTests {
         let resolver = CloudTerminalViewResolver(commandRunner: runner, socketPath: "/fixture")
         let first = await resolver.resolve(terminalByTab: ["tab_a": "term_live"])
         guard case .retryable = first["tab_a"] else { Issue.record("missing tab must remain retryable"); return }
+        #expect(first["tab_a"]?.isMissingTab == true)
         #expect(await runner.calls == 1, "do not ask for another tab's surface")
         await runner.replace(snapshot: try snapshot(tabs: ["tab_a"]), tree: try tree(tabs: [
             ["tab_resource_id": "tab_a", "terminal_resource_id": "term_live", "surface": 41]
@@ -44,6 +45,7 @@ struct CloudTerminalViewResolverTests {
         let result = await CloudTerminalViewResolver(commandRunner: runner, socketPath: "/fixture")
             .resolve(terminalByTab: ["tab_a": "term_live"])
         guard case .retryable = result["tab_a"] else { Issue.record("changed ownership must be rejected"); return }
+        #expect(result["tab_a"]?.isMissingTab == false, "a tree race must be retried before repairing placement")
     }
 
     private func snapshot(tabs: [String]) throws -> Data {

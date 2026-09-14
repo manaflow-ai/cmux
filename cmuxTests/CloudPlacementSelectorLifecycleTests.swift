@@ -80,7 +80,7 @@ struct CloudPlacementSelectorLifecycleTests {
             #expect(resolved.placement == replacement)
         } catch let CmuxTuiSurfaceProvider.ProviderError.terminalAttachTimedOut(_, failure) {
             #expect(scenario != .restored)
-            #expect(failure == .notReady)
+            #expect(failure == .missingTab)
         } catch {
             Issue.record("unexpected materialization error: \(error)")
         }

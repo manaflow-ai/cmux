@@ -107,6 +107,8 @@ extension CmuxTuiSurfaceProvider {
     /// does not answer in time is retried on the bounded materialize schedule
     /// and then reported as "did not answer", never as "not created": the
     /// terminal keeps running on the machine either way.
+    /// Only restoration may repair a captured tab: an explicit user selection
+    /// stays exact even if the same terminal has another live view.
     func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
@@ -118,11 +120,13 @@ extension CmuxTuiSurfaceProvider {
         ensureRemoteView: @escaping @MainActor (String?) async throws -> SurfaceRemotePlacement
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: commandRunner, socketPath: socketPath, correlationID: correlationID)
+        let log = CloudTerminalAttachmentLog(correlationID: correlationID)
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
         var projectedPlacement: SurfaceRemotePlacement?
         var targetTabID = remoteTabID
+        var repairedStaleTab = false
         while true {
             try Task.checkCancellation()
             let resolution: CloudTuiSurfaceIDResolution
@@ -132,12 +136,12 @@ extension CmuxTuiSurfaceProvider {
             } else {
                 resolution = await resolver.resolve(terminalID: terminalID)
             }
-            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            log.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
             if resolution == .noPlacement, targetTabID == nil {
                 let projected = try await ensureRemoteView(preferredWorkspaceID)
                 projectedPlacement = projected
                 targetTabID = projected.tabID
-                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                log.projection(machineID: machineID, terminalID: terminalID, placement: projected)
                 continue
             }
             // Initial and post-projection answers share the same lifecycle/error handling.
@@ -151,12 +155,27 @@ extension CmuxTuiSurfaceProvider {
                 lastReason = "the projected view did not resolve"
                 lastFailure = .notReady
             case let .retryable(reason, failure):
+                if resolution.isMissingTab, !repairedStaleTab, let restoringPanelID {
+                    let repaired = await catalog.cloudPlacementCoordinator.repairPlacement(
+                        for: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                        catalog: catalog,
+                        restoringPanelID: restoringPanelID,
+                        ensure: ensureRemoteView
+                    )
+                    if let repaired {
+                        repairedStaleTab = true
+                        targetTabID = repaired.tabID
+                        projectedPlacement = repaired
+                        log.projection(machineID: machineID, terminalID: terminalID, placement: repaired)
+                        continue
+                    }
+                }
                 lastReason = reason
                 lastFailure = failure
             }
             failures += 1
             guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
-                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                log.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
                 throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
             }
             try await attachmentClock.sleep(for: delay)
