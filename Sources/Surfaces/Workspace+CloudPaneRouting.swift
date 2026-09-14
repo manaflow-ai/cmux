@@ -242,6 +242,20 @@ final class CloudWorkspaceRenameService {
         return previousTitle.trimmingCharacters(in: .whitespacesAndNewlines) == generated
     }
 
+    /// Converts a local title to the corresponding daemon workspace name.
+    private func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
+    }
+
     /// Enqueues a local pane rename or clear to the daemon tab behind it. A
     /// failed request restores the prior local override when the user has not
     /// edited the pane again.
