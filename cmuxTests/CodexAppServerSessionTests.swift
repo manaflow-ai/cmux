@@ -10,6 +10,75 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CodexAppServerSessionTests {
+    @Test
+    func processStoreDeliversSmallResponsesBeforeTheProviderExits() async throws {
+        // The peer keeps stdout open between requests. Buffering a fixed-size
+        // read deadlocks the handshake even though every JSONL frame is flushed.
+        let peer = #"""
+        import json, os, select, sys
+        buffer = b""
+        def receive():
+            global buffer
+            while b"\n" not in buffer:
+                if not select.select([0], [], [], 3)[0]:
+                    sys.exit(42)
+                chunk = os.read(0, 65536)
+                if not chunk:
+                    sys.exit(0)
+                buffer += chunk
+            line, buffer = buffer.split(b"\n", 1)
+            return json.loads(line)
+        def send(message):
+            print(json.dumps(message), flush=True)
+        while True:
+            message = receive()
+            method = message.get("method")
+            if method == "initialize":
+                send({"id": message["id"], "result": {}})
+            elif method == "thread/start":
+                send({"id": message["id"], "result": {"thread": {"id": "test-thread"}}})
+            elif method == "model/list":
+                send({"id": message["id"], "result": {"data": [], "nextCursor": None}})
+            elif method == "turn/start":
+                send({"id": message["id"], "result": {"turn": {"id": "test-turn"}}})
+                send({"method": "item/agentMessage/delta", "params": {"delta": "2"}})
+                send({"method": "turn/completed", "params": {"turn": {"id": "test-turn", "status": "completed"}}})
+        """#
+        let store = AgentSessionProcessStore()
+        let (events, continuation) = AsyncStream<(String, String)>.makeStream()
+        store.eventSink = { event in
+            let type = event["type"] as? String ?? ""
+            continuation.yield((type, event["text"] as? String ?? ""))
+            if type == "provider.exit" { continuation.finish() }
+        }
+        defer { store.closeAll(); continuation.finish() }
+        let session = try await store.start(
+            plan: AgentSessionLaunchPlan(
+                provider: .codex,
+                executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+                arguments: ["-u", "-c", peer],
+                environment: ProcessInfo.processInfo.environment
+            ),
+            workingDirectory: nil
+        )
+        let submission = Task { @MainActor in
+            try await store.writeLine(sessionId: session.sessionId, text: "1+1")
+        }
+        var answer = ""
+        var completedWhileRunning = false
+        for await (type, text) in events {
+            if type == "provider.output" { answer += text }
+            if type == "provider.turnComplete" {
+                completedWhileRunning = store.hasActiveProviderSession
+                store.closeAll()
+            }
+        }
+        let submitted = try? await submission.value
+        #expect(submitted != nil)
+        #expect(answer == "2")
+        #expect(completedWhileRunning)
+    }
+
     private func expectThrowsErrorAsync<T>(
         _ expression: () async throws -> T,
         sourceLocation: SourceLocation = #_sourceLocation
