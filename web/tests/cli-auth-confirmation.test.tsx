@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { CliAuthConfirmationState } from "@stackframe/stack";
 import React from "react";
+import en from "../messages/en.json";
+import ja from "../messages/ja.json";
 import { renderToStaticMarkup } from "react-dom/server";
 
 let auth: CliAuthConfirmationState;
@@ -16,7 +18,7 @@ mock.module("@stackframe/stack", () => ({
     title: string;
     children: React.ReactNode;
     primaryButtonText?: string;
-  }) => <main><h1>{title}</h1>{children}{primaryButtonText && <button>{primaryButtonText}</button>}</main>,
+  }) => <main><h1>{title}</h1>{children}{primaryButtonText && <button type="button">{primaryButtonText}</button>}</main>,
 }));
 
 const { CliAuthConfirmation } = await import("../app/handler/cli-auth-confirmation");
@@ -38,7 +40,7 @@ describe("CLI authorization account identity", () => {
     test(`shows the authenticating account on the ${status} screen`, () => {
       auth.status = status;
       auth.isLoading = status === "authorizing" || status === "redirecting";
-      const html = renderToStaticMarkup(<CliAuthConfirmation />);
+      const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
 
       expect(html).toContain("alex@example.com");
       expect(html).toContain("Example team");
@@ -47,15 +49,15 @@ describe("CLI authorization account identity", () => {
   }
 
   test("shows the account before the Authorize action", () => {
-    const html = renderToStaticMarkup(<CliAuthConfirmation />);
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("alex@example.com");
-    expect(html.indexOf("alex@example.com")).toBeLessThan(html.indexOf("<button>Authorize</button>"));
+    expect(html.indexOf("alex@example.com")).toBeLessThan(html.indexOf('<button type="button">Authorize</button>'));
   });
 
   test("uses the current session account when it changes", () => {
-    renderToStaticMarkup(<CliAuthConfirmation />);
+    renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     user = { primaryEmail: "blair@example.com", selectedTeam: null };
-    const html = renderToStaticMarkup(<CliAuthConfirmation />);
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("blair@example.com");
     expect(html).toContain("personal account");
     expect(html).not.toContain("alex@example.com");
@@ -63,7 +65,7 @@ describe("CLI authorization account identity", () => {
 
   test("retains safe fallbacks when no email or organization is available", () => {
     user = null;
-    const html = renderToStaticMarkup(<CliAuthConfirmation />);
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("email unavailable");
     expect(html).toContain("personal account");
   });
@@ -71,9 +73,18 @@ describe("CLI authorization account identity", () => {
   test("keeps the account visible without exposing raw authorization errors", () => {
     auth.status = "error";
     auth.error = new Error("private token from upstream");
-    const html = renderToStaticMarkup(<CliAuthConfirmation />);
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("alex@example.com");
     expect(html).toContain("Try Again");
     expect(html).not.toContain("private token from upstream");
+  });
+
+  test("localizes labels and missing account details", () => {
+    user = null;
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={ja.cliAuthIdentity} />);
+    for (const message of Object.values(ja.cliAuthIdentity)) {
+      expect(html).toContain(message);
+    }
+    expect(html).not.toContain(en.cliAuthIdentity.emailUnavailable);
   });
 });

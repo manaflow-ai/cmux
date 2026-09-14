@@ -2,23 +2,33 @@
 
 import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@stackframe/stack";
 
-export function CliAuthConfirmation({ fullPage = true }: { fullPage?: boolean }) {
+export type CliAuthIdentityMessages = {
+  email: string;
+  emailUnavailable: string;
+  organization: string;
+  personalAccount: string;
+};
+
+export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
+  fullPage?: boolean;
+  identityMessages: CliAuthIdentityMessages;
+}) {
   const cliAuth = useCliAuthConfirmation();
   const user = useUser({ includeRestricted: true });
-  const email = user?.primaryEmail ?? "email unavailable";
-  const organization = user?.selectedTeam?.displayName ?? "personal account";
+  const email = user?.primaryEmail ?? identityMessages.emailUnavailable;
+  const organization = user?.selectedTeam?.displayName ?? identityMessages.personalAccount;
   const { children, ...cardProps } = cliAuthMessage(cliAuth);
 
   return (
     <MessageCard {...cardProps} fullPage={fullPage}>
       <dl className="space-y-2 text-sm">
         <div>
-          <dt className="font-medium">{"Email"}</dt>
-          <dd className="break-words">{email}</dd>
+          <dt className="font-medium">{identityMessages.email}</dt>
+          <dd className="break-words"><bdi>{email}</bdi></dd>
         </div>
         <div>
-          <dt className="font-medium">{"Organization"}</dt>
-          <dd className="break-words">{organization}</dd>
+          <dt className="font-medium">{identityMessages.organization}</dt>
+          <dd className="break-words"><bdi>{organization}</bdi></dd>
         </div>
       </dl>
       {children}
