@@ -5,6 +5,21 @@ import Testing
 @Suite struct RefreshLifecycleTests {
     static let fresh = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.synthetic"
 
+    @Test func freshStoredTokensDoNotStartARefresh() async {
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.fresh, refreshToken: "session")
+        await fixture.release(status: 503, token: "unused")
+        let client = APIClient(baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic", tokenStore: store, session: session)
+        let pair = await client.getOrFetchLikelyValidTokens()
+        #expect(pair.accessToken == Self.fresh)
+        #expect(pair.refreshToken == "session")
+        #expect(await fixture.count == 0)
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     @Test func concurrentFailureIsSharedAndCancelledWaitersDetach() async {
         let fixture = RefreshTransportFixture()
         let session = await fixture.session()
