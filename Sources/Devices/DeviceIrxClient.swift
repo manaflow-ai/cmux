@@ -89,7 +89,13 @@ actor DeviceIrxClient {
                     throw error
                 }
             },
-            onClose: { [weak self] _, _, _ in await self?.release(endpoint: endpoint, owner: owner) }
+            onClose: { [weak self] _, _, _ in await self?.release(endpoint: endpoint, owner: owner) },
+            permitsIO: { [weak self] in
+                guard await borrowed.isCurrent(),
+                      let lease = borrowed.deviceList.current, lease.isFresh(now: .now),
+                      let peer = lease.entries[endpoint], !peer.revoked else { return false }
+                return await self?.isAuthorized(peer, endpoint: endpoint, owner: owner) == true
+            }
         )
     }
 
