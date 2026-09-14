@@ -7,6 +7,9 @@ import Testing
 @testable import cmux
 #endif
 
+// `resolvedKeyCode()` reads the current keyboard layout through Text Input
+// Sources, which must be called on the main thread.
+@MainActor
 @Suite struct KeyboardShortcutSpaceKeyTests {
     @Test func shortcutConfigParsingRoundTripsReturnKey() throws {
         let shortcut = try #require(StoredShortcut.parseConfig("return", allowBareFirstStroke: true))
