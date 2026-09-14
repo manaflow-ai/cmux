@@ -36,6 +36,36 @@ import Testing
         source.fireReconnectReady()
         #expect(readyCount == 1, "a detached channel forwards nothing")
     }
+
+    /// The mirror identity (issue #833) belongs in the channel's REAL session. The
+    /// shared stream's own push targets the hidden view session, so a channel that
+    /// forwarded to it would publish every session's identity into the wrong place.
+    @Test func channelPublishesMirrorIdentityToItsOwnSessionAndAgainAfterReconnect() {
+        let source = ReconnectFanOutFakeSource()
+        let channel = RemoteTmuxSessionChannel(
+            underlying: source, sessionName: "alpha", sessionId: 7, windowIds: [10]
+        )
+        let expected = RemoteTmuxControlConnection.mirrorEnvironmentCommands(
+            target: "$7",
+            pairs: [
+                RemoteTmuxControlConnection.mirrorMarkerEnvironmentKey: "1",
+                "CMUX_WORKSPACE_ID": "workspace-1",
+            ]
+        )
+        #expect(expected.count == 2)
+
+        channel.setMirrorEnvironment(["CMUX_WORKSPACE_ID": "workspace-1"])
+        #expect(source.sentCommands == expected, "setting the identity on a connected stream publishes it")
+
+        source.sentCommands.removeAll()
+        source.fireReconnectReady()
+        #expect(source.sentCommands == expected, "a reconnect republishes the identity")
+
+        channel.detach()
+        source.sentCommands.removeAll()
+        source.fireReconnectReady()
+        #expect(source.sentCommands.isEmpty, "a detached channel publishes nothing")
+    }
 }
 
 /// Inert `RemoteTmuxSessionSource` that only records observers, so a test can
@@ -70,7 +100,11 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
 
     func releaseMirror() {}
     func endSession(kill: Bool) {}
-    @discardableResult func send(_ command: String) -> Bool { true }
+    var sentCommands: [String] = []
+    @discardableResult func send(_ command: String) -> Bool {
+        sentCommands.append(command)
+        return true
+    }
     @discardableResult func sendTracked(_ command: String, completion: @escaping (Bool) -> Void) -> Bool {
         completion(true)
         return true
@@ -108,4 +142,5 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     }
     @discardableResult func pastePane(paneId: Int, text: String) -> Bool { true }
     func record(_ event: String) {}
+    func setMirrorEnvironment(_ pairs: [String: String]) {}
 }
