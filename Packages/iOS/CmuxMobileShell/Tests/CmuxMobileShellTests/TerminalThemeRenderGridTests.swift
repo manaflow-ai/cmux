@@ -4,7 +4,6 @@ import Observation
 import Synchronization
 import Testing
 @testable import CmuxMobileShell
-
 @MainActor
 @Test func renderGridThemesStayScopedToTheirSurfaceAndSelection() throws {
     let firstID = MobileTerminalPreview.ID(rawValue: "terminal-light")

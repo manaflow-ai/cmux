@@ -43,7 +43,6 @@ extension MobileShellComposite {
         }
         recordTerminalRenderGridRevisionContinuity(renderGrid)
     }
-
     /// Record the chain identity the next live delta must extend. Legacy
     /// frames without a revision identity clear the record so legacy deltas
     /// keep flowing under the history chain alone.
@@ -57,7 +56,6 @@ extension MobileShellComposite {
         terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID] =
             MobileTerminalRenderGridRevisionContinuity(delivered: renderGrid)
     }
-
     private func renderGridEventDeliveryDecision(
         _ renderGrid: MobileTerminalRenderGridFrame,
         previous: MobileTerminalRenderGridFrame.Screen?
@@ -72,7 +70,6 @@ extension MobileShellComposite {
         guard !renderGrid.full else { return nil }
         return (requestReplay: true, updateTrackedScreen: false, deliverViewportPolicy: false)
     }
-
     func deliverAuthoritativeTerminalRenderGrid(
         _ renderGrid: MobileTerminalRenderGridFrame,
         expectedSurfaceID: String? = nil,
@@ -372,12 +369,10 @@ extension MobileShellComposite {
         )
         #endif
     }
-
     /// Whether a surface currently has an attached output stream consumer.
     func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
-
     /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
     @discardableResult
     func deliverTerminalBytes(
