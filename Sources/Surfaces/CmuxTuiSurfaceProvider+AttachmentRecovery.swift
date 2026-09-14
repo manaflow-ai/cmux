@@ -19,7 +19,7 @@ extension CmuxTuiSurfaceProvider {
         let activeSessions = manualMirrorSessions.values.filter(\.allowsAutomaticReconnect)
         let needsSurfaceIDRefresh = !activeSessions.isEmpty
             && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
-                || activeSessions.contains { $0.phase == .disconnected })
+                || activeSessions.contains { $0.phase == .disconnected || $0.remoteSurfaceID == 0 })
         var reconnectableSessionIDs = Set<ObjectIdentifier>(
             manualMirrorSessions.values.map { ObjectIdentifier($0) }
         )
