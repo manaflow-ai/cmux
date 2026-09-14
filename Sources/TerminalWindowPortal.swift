@@ -1524,7 +1524,7 @@ final class WindowTerminalPortal: NSObject {
         parkEntries(forWorkspaceIDs: [workspaceID])
     }
     func parkEntries(forWorkspaceIDs workspaceIDs: Set<UUID>) {
-        let ids = entriesByHostedId.compactMap { id, entry in
+        let ids: [ObjectIdentifier] = entriesByHostedId.compactMap { id, entry in
             guard let workspaceID = entry.workspaceID else { return nil }
             return workspaceIDs.contains(workspaceID) ? id : nil
         }
