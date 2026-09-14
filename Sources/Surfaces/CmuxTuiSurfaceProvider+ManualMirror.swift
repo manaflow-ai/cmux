@@ -27,10 +27,6 @@ extension CmuxTuiSurfaceProvider {
         let selectedRemoteView = remoteTabID.flatMap { tabID in
             resource.remoteViews?.first(where: { $0.tabID == tabID })
         }
-        let preferredWorkspaceID = selectedRemoteView?.workspace.id ?? resource.remoteWorkspace?.id
-            ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
-                forLocalWorkspace: destination.workspaceID, on: machine
-            )
         let initialPlacement = selectedRemoteView.map {
             SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID)
         }

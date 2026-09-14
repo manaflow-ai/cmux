@@ -72,6 +72,14 @@ final class CloudPlacementCoordinator {
         }
     }
 
+    /// A committed receipt may lead the graph, but cannot outlive a generation
+    /// change or an authoritative deletion at or after its revision.
+    func hasUnobservedPlacement(tabID: String, on machine: SurfaceMachineID, state: CloudVMState?) -> Bool {
+        guard let receipt = confirmationCursors[machine]?[tabID] else { return false }
+        guard let cursor = state?.cursor else { return state == nil }
+        return cursor.generation == receipt.generation && cursor.revision < receipt.revision
+    }
+
     /// Resolve a local VNC pane before binding inference sees its old workspace.
     func projectionInCurrentWorkspace(_ projection: SurfaceProjection) -> SurfaceProjection {
         guard projection.resource.kind == .display, projection.remoteTabID == nil else { return projection }
@@ -89,6 +97,19 @@ final class CloudPlacementCoordinator {
         if resource.kind == .display, receipt == nil, (live ?? projection).remoteTabID == nil { return nil }
         guard let tabID = receipt?.tabID
             ?? catalog.cloudWorkspaceRenameService.remoteTabID(for: live ?? projection, resource: resource) else { return nil }
+        if let state = catalog.cloudStates[resource.machine],
+           catalog.cloudStateObservations[resource.machine]?.freshness == .current,
+           !hasUnobservedPlacement(tabID: tabID, on: resource.machine, state: state) {
+            guard let tab = state.lookupIndex.tab(id: tabID),
+                  tab.contentID == resource.id.key,
+                  tab.contentKind == resource.kind.rawValue || (resource.kind == .display && tab.contentKind == "screen"),
+                  let pane = state.lookupIndex.pane(id: tab.paneID),
+                  let screen = state.lookupIndex.screen(id: pane.screenID) else {
+                CloudTerminalLifecycleLog().rejected(live ?? projection, stage: "placement-dispatch")
+                return nil
+            }
+            return SurfaceRemotePlacement(workspaceID: screen.workspaceID, tabID: tabID, cursor: state.cursor)
+        }
         guard let workspaceID = movedTabs[resource.machine]?[tabID]
             ?? receipt?.workspaceID
             ?? live?.remoteWorkspaceID
@@ -115,8 +136,8 @@ final class CloudPlacementCoordinator {
             let result: SurfaceRemotePlacement
             if let current {
                 result = try await provider.moveRemoteTab(id: current.tabID, intoRemoteWorkspace: target)
-            } else if resource.kind == .terminal, resource.remoteViews?.isEmpty == true,
-                      projection.remoteTabID == nil {
+            } else if resource.kind == .terminal, resource.isDetachedTerminal,
+                      projection.remoteTabID == nil || self.isAuthoritativelyDetached(resource, catalog: catalog) {
                 result = try await provider.projectTerminal(resource.id, intoRemoteWorkspace: target)
             } else if resource.kind == .browser && resource.remoteViews?.isEmpty != false {
                 // Port previews have no daemon tab; retain their local association.
@@ -135,6 +156,13 @@ final class CloudPlacementCoordinator {
             catalog.setRemotePlacement(for: projection, placement: result)
             return true
         }
+    }
+
+    private func isAuthoritativelyDetached(_ resource: SurfaceResource, catalog: SurfaceCatalog) -> Bool {
+        guard let state = catalog.cloudStates[resource.machine],
+              catalog.cloudStateObservations[resource.machine]?.freshness == .current,
+              state.lookupIndex.terminal(id: resource.id.key)?.lifecycle == "running" else { return false }
+        return state.lookupIndex.tabs(contentKind: "terminal", contentID: resource.id.key).isEmpty
     }
 
     /// Applies accepted daemon coordinates, including edits from another client. Older
