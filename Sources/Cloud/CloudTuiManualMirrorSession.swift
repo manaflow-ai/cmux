@@ -20,7 +20,6 @@ final class CloudTuiManualMirrorSession {
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
-
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
     private var diagnosticReplayReceived = false
@@ -86,12 +85,10 @@ final class CloudTuiManualMirrorSession {
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
     private var automaticReconnectSuppressed = false
-
     deinit {
         if let startupFrameObserver { NotificationCenter.default.removeObserver(startupFrameObserver) }
         startupDeadlineTask?.cancel(); releaseStartupFrameDemand?()
     }
-
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
