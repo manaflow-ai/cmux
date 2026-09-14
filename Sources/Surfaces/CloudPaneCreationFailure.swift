@@ -41,7 +41,7 @@ struct CloudPaneCreationFailure: Identifiable, Equatable {
         if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
             switch error {
             case .remoteWorkspaceNotFound, .remotePlacementUnavailable, .remoteTabNotFound,
-                 .terminalExited, .terminalAttachTimedOut, .snapshotOnly:
+                 .terminalExited, .terminalAttachTimedOut:
                 if let message = error.errorDescription { return message }
             case .noWorkspaceOnMachine:
                 return String(localized: "cloudPane.newTerminalFailed.noWorkspace", defaultValue: "This machine has no available workspace. Refresh the machine and try again.")

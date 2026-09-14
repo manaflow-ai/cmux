@@ -13,10 +13,9 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             guard let tab = state.lookupIndex.tab(id: nearTabID) else {
                 throw ProviderError.remoteTabNotFound(nearTabID)
             }
-            guard
-                  let pane = state.lookupIndex.pane(id: tab.paneID),
+            guard let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID) else {
-                throw ProviderError.remotePlacementUnavailable(nearTabID)
+                throw ProviderError.stateUnavailable(machineID)
             }
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
