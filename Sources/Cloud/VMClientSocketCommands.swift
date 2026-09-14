@@ -1,13 +1,15 @@
 import CmuxControlSocket
 import CmuxSettings
 import Foundation
-
 extension TerminalController {
     nonisolated func socketWorkerCloudVMResponse(
         method: String,
         id: Any?,
         params: [String: Any]
     ) -> String {
+        if method == "vm.feature_status" {
+            return v2Ok(id: id, result: ["enabled": CloudMachinesFeature.offMainIsEnabled()])
+        }
         if method == "vm.diagnostics" {
             let show = params["show"] as? Bool ?? false
             return v2VmCall(id: id, timeoutSeconds: 10) {
@@ -25,11 +27,11 @@ extension TerminalController {
         // any control-plane call, with a stable error code. `VMClient` refuses
         // as well, so this gate is the CLI's error surface, not the only line
         // of defense.
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(
                 id: id,
                 code: "cloud_disabled",
-                message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+                message: CloudMachinesFeature.disabledMessage
             )
         }
         switch method {
@@ -677,7 +679,6 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
-
     /// Handles the `remotes.*` socket methods backing `cmux remotes`. Each maps
     /// to a single ``RemotesClient`` operation (the shared registry mutation
     /// path); the CLI does presentation only.
@@ -689,7 +690,7 @@ extension TerminalController {
         // The remote registry is both a Cloud control-plane resource and a
         // remote-connection surface: either MDM key fails it closed.
         guard ManagedCloudPolicy.isEnabled else {
-            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage)
         }
         guard ManagedRemoteConnectionsPolicy.isEnabled else {
             return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
@@ -725,7 +726,6 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
-
     private nonisolated static func socketWorkerRemotePayload(_ remote: RemoteSummary) -> [String: Any] {
         [
             "deviceId": remote.deviceId,
@@ -820,7 +820,7 @@ extension TerminalController {
         // and `upload` ships local credentials to the tenant, so the family
         // fails closed with the same code as `vm.*`.
         guard ManagedCloudPolicy.isEnabled else {
-            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage)
         }
         switch method {
         case "aiAccounts.list":

@@ -715,9 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// adapter; the adapter weak-refs `AppDelegate`, so there is no `AppDelegate → coordinator →
     /// AppDelegate` retain cycle (which would pin the app-host test instance). See `AppDelegate+NotificationNavSeams.swift`.
     lazy var notificationNavSeams = NotificationNavSeamAdapter(owner: self)
-
     lazy var notificationClickPerformer = NotificationClickPerformer(finder: notificationNavSeams)
-
     lazy var notificationNavigation: NotificationNavigationCoordinator =
         NotificationNavigationCoordinator(
             store: notificationNavSeams,
@@ -745,7 +743,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `TerminalNotificationStore`, localized action titles, and the weak-owner
     /// Feed/app activation seam.
     lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
-
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
         center: TerminalNotificationStore.shared.userNotificationCenter,
         terminalNavigation: notificationNavigation,
@@ -761,7 +758,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
         actionTitles: notificationDeliveryActionTitles
     )
-
     private var notificationDeliveryActionTitles: NotificationDeliveryActionTitles {
         NotificationDeliveryActionTitles(
             show: String(
@@ -866,6 +862,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Applies MDM managed-policy transitions (browser/remote-control) while
     /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
     var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
+    /// Suspends already-open Cloud attachments when the remote Cloud flag
+    /// changes, while retaining their configurations for a later re-enable.
+    var cloudFeatureFlagObserver: CloudFeatureAvailabilityObserver?
     /// Serializes `DisableCloud` transitions. A lift chains behind the
     /// teardown it follows, so an in-flight disable can never land after
     /// discovery has restarted (see `applyManagedCloudPolicy`).
@@ -880,7 +879,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
     }()
-
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
@@ -8852,7 +8850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `workspace.cloud_vm_open` — mirroring the mobile-connect twin.
         // Refusing here leaves no pinned loading workspace and no failure
         // dialog behind.
-        guard ManagedCloudPolicy.isEnabled else {
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.isEnabled else {
 #if DEBUG
             cmuxDebugLog("cloudVM.blocked_managed_policy source=\(debugSource)")
 #endif
@@ -9047,6 +9045,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.current"
     ) -> Bool {
+        guard CloudMachinesFeature.isEnabled else { return false }
         let authState = CloudVMPanelAuthState.resolve(
             isAuthenticated: auth?.accountFlow.isAuthenticated == true,
             isWorkingOnAuth: auth?.accountFlow.isWorkingOnAuth == true
@@ -9090,6 +9089,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredWindow: NSWindow? = nil,
         debugSource: String = "cloudVM.restore"
     ) -> Bool {
+        guard CloudMachinesFeature.isEnabled else { return false }
         let authState = CloudVMPanelAuthState.resolve(
             isAuthenticated: auth?.accountFlow.isAuthenticated == true,
             isWorkingOnAuth: auth?.accountFlow.isWorkingOnAuth == true

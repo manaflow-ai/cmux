@@ -15,11 +15,11 @@ import Foundation
 // and false for desktop/port opens; the catalog never activates the app either way.
 extension TerminalController {
     private nonisolated func cloudDisabledSocketError(id: Any?) -> String? {
-        guard ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
+        guard ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() else { return nil }
         return v2Error(
             id: id,
             code: "cloud_disabled",
-            message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+            message: CloudMachinesFeature.disabledMessage
         )
     }
 
@@ -102,8 +102,8 @@ extension TerminalController {
     // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
 
     nonisolated func socketWorkerVMTreeResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
         if Self.surfaceBool(params["sidebar"]) == true { return socketWorkerCloudSidebarResponse(id: id, params: params) }
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
@@ -192,8 +192,8 @@ extension TerminalController {
     /// `vm.desktop_open {id, workspace_id?, focus?, …dest}` → `{surface_id, workspace_id, url, open_url}`;
     /// an empty object when the machine has no desktop.
     nonisolated func socketWorkerVMDesktopOpenResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open requires `id`. Run `cmux vm ls` to find one.")
@@ -225,8 +225,8 @@ extension TerminalController {
 
     /// `vm.port_open {id, port, workspace_id?, …dest}` → `{surface_id, workspace_id, url, open_url}`.
     nonisolated func socketWorkerVMPortOpenResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `id`. Run `cmux vm ls` to find one.")
