@@ -1323,6 +1323,7 @@
 		7F81637D3CD3867FAA502D1E /* CmuxTuiSurfaceProvider+FileDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9E053B7E9AE536377476E4B /* CmuxTuiSurfaceProvider+FileDelivery.swift */; };
 		C34C28E742E141B3A4B81D0A /* CmuxTuiSurfaceProvider+LayoutCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8B96B6079F479493DF32BC /* CmuxTuiSurfaceProvider+LayoutCreation.swift */; };
 		C11323210000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */; };
+		58E8FB4BECA84B2283E0D906 /* CmuxTuiSurfaceProvider+PendingMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4091B3DC55D4121A082A1F0 /* CmuxTuiSurfaceProvider+PendingMutations.swift */; };
 		779E7556FC96D977E6ECCFE3 /* CmuxTuiSurfaceProvider+PlacementSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */; };
 		7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */; };
 		ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */; };
@@ -5042,6 +5043,7 @@
 		F9E053B7E9AE536377476E4B /* CmuxTuiSurfaceProvider+FileDelivery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+FileDelivery.swift"; sourceTree = "<group>"; };
 		2B8B96B6079F479493DF32BC /* CmuxTuiSurfaceProvider+LayoutCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+LayoutCreation.swift"; sourceTree = "<group>"; };
 		C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ManualMirror.swift"; sourceTree = "<group>"; };
+		F4091B3DC55D4121A082A1F0 /* CmuxTuiSurfaceProvider+PendingMutations.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PendingMutations.swift"; sourceTree = "<group>"; };
 		90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PlacementSync.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PortForward.swift"; sourceTree = "<group>"; };
 		F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ProjectionLayout.swift"; sourceTree = "<group>"; };
@@ -7878,6 +7880,7 @@
 				AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */,
 				183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */,
 				90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */,
+				F4091B3DC55D4121A082A1F0 /* CmuxTuiSurfaceProvider+PendingMutations.swift */,
 				D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */,
 				A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */,
 				B12438020000000000000002 /* CloudRenameCoordinator.swift */,
@@ -12614,6 +12617,7 @@
 				7F81637D3CD3867FAA502D1E /* CmuxTuiSurfaceProvider+FileDelivery.swift in Sources */,
 				C34C28E742E141B3A4B81D0A /* CmuxTuiSurfaceProvider+LayoutCreation.swift in Sources */,
 				C11323210000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift in Sources */,
+				58E8FB4BECA84B2283E0D906 /* CmuxTuiSurfaceProvider+PendingMutations.swift in Sources */,
 				779E7556FC96D977E6ECCFE3 /* CmuxTuiSurfaceProvider+PlacementSync.swift in Sources */,
 				7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */,
 				ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */,
