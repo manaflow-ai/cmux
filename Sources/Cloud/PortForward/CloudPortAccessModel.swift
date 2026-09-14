@@ -6,7 +6,6 @@ import Observation
 @MainActor
 @Observable
 final class CloudPortAccessModel {
-    enum Route: Equatable { case loopback, privateNetwork }
     enum Phase: Equatable {
         case needsVPN
         case connecting
@@ -20,7 +19,7 @@ final class CloudPortAccessModel {
     private(set) var target: CloudPortForwardTarget
     private(set) var phase: Phase = .needsVPN
     private(set) var tunnelState: CloudTunnelState = .off
-    let route: Route
+    let route: CloudPortAccessRoute
     private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
@@ -35,7 +34,7 @@ final class CloudPortAccessModel {
         wake: @escaping @MainActor () async throws -> Void,
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
         stopForward: @escaping @MainActor () async -> Void,
-        route: Route = .privateNetwork
+        route: CloudPortAccessRoute = .privateNetwork
     ) {
         self.target = target
         self.coordinator = coordinator

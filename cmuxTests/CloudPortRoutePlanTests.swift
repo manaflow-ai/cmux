@@ -209,7 +209,7 @@ struct CloudPortRoutePlanTests {
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
         stop: @escaping @MainActor () async -> Void = {},
-        route: CloudPortAccessModel.Route = .privateNetwork
+        route: CloudPortAccessRoute = .privateNetwork
     ) -> CloudPortAccessModel {
         CloudPortAccessModel(target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, route: route)
     }
