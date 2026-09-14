@@ -186,7 +186,7 @@ export async function GET(request: Request): Promise<Response> {
           // instead of hiding that larger machines exist.
           lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
           memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
-          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId).memoryOptionsMb
+          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb
             .flatMap((mb) => {
               const plan = upgradePlanForMemory(mb, listEntitlements.planId);
               return plan ? [[String(mb), plan]] : [];

@@ -219,7 +219,7 @@ export default async function AppPricingPage({
                 <FeatureList items={pricing.free.features} />
               </PlanCard>
 
-              {goPlanEnabled ? <PlanCard
+              {(isGo || (goPlanEnabled && !snapshot.isPro)) ? <PlanCard
                 name={pricing.go.name}
                 price={`$${GO_PRICING_USD.month.billedAmount}`}
                 period={pricing.perMonth}
