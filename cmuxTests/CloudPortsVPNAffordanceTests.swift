@@ -44,8 +44,9 @@ struct CloudPortsVPNAffordanceTests {
         let visibleCallouts = descendants(of: cell).compactMap { $0 as? CloudPortsVPNEmptyStateContent }.filter { !$0.isHidden }
         #expect(visibleCallouts.count == (link == .connected || link == .notApplicable ? 1 : 0))
         if let callout = visibleCallouts.first {
-            #expect(callout.setupButton.title == CloudPortsVPNWarning().setupTitle)
+            #expect(callout.setupButton.title == CloudPortsVPNWarning().actionTitle)
             #expect(callout.explanationLabel.stringValue == CloudPortsVPNWarning().explanation)
+            #expect(callout.titleLabel.stringValue == CloudPortsVPNWarning().title)
         }
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: false)
         let allHidden = descendants(of: cell).compactMap { $0 as? CloudPortsVPNEmptyStateContent }.allSatisfy { $0.isHidden }
@@ -77,13 +78,32 @@ struct CloudPortsVPNAffordanceTests {
         #expect(!button.isHidden && button.alphaValue == 1)
         #expect(button.frame.width >= 28 && button.frame.height >= 24)
         #expect(button.contentTintColor == .secondaryLabelColor)
+        #expect(!button.isBordered)
         #expect(button.toolTip == CloudPortsVPNWarning().help)
         #expect(button.accessibilityLabel() == CloudPortsVPNWarning().setupTitle)
         #expect(button.accessibilityIdentifier() == "CloudPortsVPNWarningButton")
         #expect(button.acceptsFirstResponder)
         #expect(button.target === button && button.action != nil)
+        let buttonPoint = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: cell)
+        #expect(cell.hitTest(buttonPoint) === button)
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: false)
-        #expect(button.isHidden)
+        #expect(descendants(of: cell).compactMap { $0 as? CloudVPNSetupButton }.allSatisfy { $0.isHidden })
+    }
+
+    @Test("Ports help stays beside its label at normal and narrow widths", arguments: [240.0, 140.0])
+    func helpStaysBesidePortsLabel(width: Double) throws {
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: width, height: 24))
+        let node = CloudTreeNode(id: "ports", kind: .portsGroup(machine: .cloud("test")))
+        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions(), showsCloudVPNWarning: true)
+        cell.layoutSubtreeIfNeeded()
+        let button = try #require(descendants(of: cell).compactMap { $0 as? CloudVPNSetupButton }.first)
+
+        // The help affordance belongs beside the Ports label, never in the
+        // trailing accessory column where it can be mistaken for a row action.
+        let buttonFrame = button.convert(button.bounds, to: cell)
+        #expect(buttonFrame.minX < cell.bounds.width * 0.55)
+        #expect(buttonFrame.maxX < cell.bounds.width * 0.7)
+        #expect(!button.isBordered)
     }
 
     @Test("Both VPN controls open setup directly and respect disabled state", arguments: [CloudVPNSetupButton.Presentation.text, .helpIcon])
@@ -106,7 +126,7 @@ struct CloudPortsVPNAffordanceTests {
         if presentation == .text {
             #expect(button.title == CloudPortsVPNWarning().setupTitle)
             #expect(button.accessibilityIdentifier() == "CloudPortsVPNEmptyStateSetupButton")
-            #expect(button.bezelStyle == .rounded)
+            #expect(button.bezelStyle == .inline && !button.isBordered)
         } else {
             #expect(button.image != nil && button.imagePosition == .imageOnly)
             #expect(button.accessibilityIdentifier() == "CloudPortsVPNWarningButton")
@@ -129,7 +149,8 @@ struct CloudPortsVPNAffordanceTests {
         callout.layoutSubtreeIfNeeded()
         #expect(callout.explanationLabel.maximumNumberOfLines == 0)
         #expect(callout.explanationLabel.frame.maxY <= height)
-        #expect(callout.setupButton.frame.maxY < callout.explanationLabel.frame.minY)
+        #expect(callout.titleLabel.frame.maxY < callout.explanationLabel.frame.minY)
+        #expect(callout.explanationLabel.frame.maxY < callout.setupButton.frame.minY)
         #expect(callout.explanationLabel.frame.width <= width)
         #expect(height >= CloudPortsVPNEmptyStateContent.height(width: 360, style: .defaultStyle))
     }
