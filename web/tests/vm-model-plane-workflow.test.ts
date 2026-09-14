@@ -16,12 +16,15 @@ import {
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
-import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
+import { VmRepository, type BeginBaseCreateResult, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { vmCreateLikeErrorResponse, vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import {
   createVm,
   destroyVm,
+  forkVm,
+  openBaseVm,
   reconcileVmProviderStatuses,
+  resetBaseVm,
   restoreVm,
   type VmModelPlaneMaterials,
   type VmModelPlaneProvisioner,
@@ -34,7 +37,7 @@ import {
 
 const ROW_ID = "00000000-0000-4000-8000-00000000c0de";
 const MATERIALS: VmModelPlaneMaterials = {
-  edgeRules: [{ domain: "coderouter.dev", headers: { "x-coderouter-route-token": "crt_t", "x-cmux-vm-id": ROW_ID } }],
+  edgeRules: [{ domain: "coderouter.cmux.internal", destinationHost: "coderouter.dev", headers: { "x-coderouter-route-token": "crt_t", "x-cmux-vm-id": ROW_ID } }],
 };
 
 type UsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];
@@ -371,6 +374,111 @@ describe("restoreVm model plane", () => {
     );
     expect(provisioned).toEqual([ROW_ID]);
     expect(creates[0]?.image).toBe("snap-1");
+    expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
+  });
+});
+
+function baseRepo(failed: unknown[], overrides: Partial<VmRepositoryShape> = {}): VmRepositoryShape {
+  const vm = row();
+  const now = vm.createdAt;
+  const create: Extract<BeginBaseCreateResult, { kind: "create" }> = {
+    kind: "create",
+    vm,
+    base: {
+      id: "base-mp", scopeType: "team", scopeId: "team-mp", name: "base",
+      activeGeneration: 1, activeVmId: null, activeProvider: null, activeProviderVmId: null,
+      state: "provisioning", createdByUserId: vm.userId, lastOpenedByUserId: vm.userId,
+      createdAt: now, updatedAt: now,
+    },
+    generation: {
+      id: "generation-mp", baseId: "base-mp", generation: 1, vmId: vm.id,
+      provider: "freestyle", providerVmId: null, state: "provisioning",
+      createdByUserId: vm.userId, retainedAt: null, deletedAt: null, createdAt: now, updatedAt: now,
+    },
+    previousGeneration: null,
+    previousVm: null,
+  };
+  return {
+    ...fakeRepo({ usageEvents: [], failed: [] }),
+    beginBaseOpen: () => Effect.succeed(create),
+    beginBaseReset: () => Effect.succeed(create),
+    markBaseCreateRunning: (update) => Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId }),
+    markBaseCreateFailed: (failure) => Effect.sync(() => { failed.push(failure); }),
+    ...overrides,
+  };
+}
+
+describe("Base model plane", () => {
+  for (const [name, operation] of [["open", openBaseVm], ["reset", resetBaseVm]] as const) {
+    test(`${name} installs a rule bound to the new row before handing out the Base`, async () => {
+      const creates: CreateOptions[] = [];
+      const provisioned: string[] = [];
+      const modelPlane = fakeModelPlane({ provisioned, revoked: [] });
+      // Keep this input assignable before the fix: the behavioral assertion,
+      // rather than a missing input property, must be the red regression.
+      const input = { ...createInput, modelPlane };
+      await Effect.runPromise(operation(input).pipe(Effect.provide(layer(
+        baseRepo([]),
+        { ...fakeProviders({ creates }), create: (provider, options) => {
+          expect(provisioned).toEqual([ROW_ID]);
+          return fakeProviders({ creates }).create(provider, options);
+        } },
+      ))));
+      expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
+    });
+
+    test(`${name} fails closed and refunds when provisioning cannot issue a route`, async () => {
+      const creates: CreateOptions[] = [];
+      const failed: unknown[] = [];
+      const refunds: unknown[] = [];
+      const input = { ...createInput, modelPlane: fakeModelPlane({
+        provisioned: [], revoked: [], fail: new VmModelPlaneError({ kind: "unavailable", cause: new Error("db down") }),
+      }) };
+      const result = await Effect.runPromise(operation(input).pipe(Effect.either, Effect.provide(layer(
+        baseRepo(failed), fakeProviders({ creates }), billingWithRefunds(refunds),
+      ))));
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmModelPlaneError);
+      expect(creates).toEqual([]);
+      expect(failed).toEqual([expect.objectContaining({ vmId: ROW_ID, code: VM_MODEL_PLANE_FAILURE_CODES.unavailable })]);
+      expect(refunds).toHaveLength(1);
+    });
+
+    test(`${name} revokes its token on provider or finalization failure`, async () => {
+      for (const stage of ["provider", "database"] as const) {
+        const revoked: string[] = [];
+        const destroyed: string[] = [];
+        const input = { ...createInput, modelPlane: fakeModelPlane({ provisioned: [], revoked }) };
+        const repo = baseRepo([], stage === "database" ? {
+          markBaseCreateRunning: () => Effect.fail(new VmDatabaseError({ operation: "markBaseCreateRunning", cause: new Error("db") })),
+        } : {});
+        await Effect.runPromise(operation(input).pipe(Effect.either, Effect.provide(layer(
+          repo, fakeProviders({ creates: [], createFails: stage === "provider", destroyed }),
+        ))));
+        expect(revoked).toEqual([ROW_ID]);
+        expect(destroyed).toEqual(stage === "database" ? ["provider-vm-mp"] : []);
+      }
+    });
+  }
+});
+
+describe("fork model plane", () => {
+  test.each([false, true])("a fork gets its own inline rule even when a native fork is exposed: %s", async (native) => {
+    const creates: CreateOptions[] = [];
+    const provisioned: string[] = [];
+    const source = row({ id: "source-row", providerVmId: "source-vm", status: "running" });
+    const input = { ...createInput, teamIds: ["team-mp"], providerVmId: "source-vm", modelPlane: fakeModelPlane({ provisioned, revoked: [] }) };
+    const result = await Effect.runPromise(forkVm(input).pipe(Effect.provide(layer(
+      { ...fakeRepo({ usageEvents: [], failed: [] }), findUserVm: () => Effect.succeed(source) },
+      {
+        ...fakeProviders({ creates }),
+        snapshot: () => Effect.succeed({ id: "source-copy", createdAt: 0 }),
+        ...(native ? { fork: () => Effect.die(new Error("native fork cannot install the new VM's edge rule")) } : {}),
+      },
+    ))));
+    expect(result.fork.providerVmId).toBe("provider-vm-mp");
+    expect(provisioned).toEqual([ROW_ID]);
+    expect(creates[0]?.image).toBe("source-copy");
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
   });
 });

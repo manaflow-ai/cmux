@@ -42,6 +42,9 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional source for one independent, sequence-aware terminal lane per
     /// mounted surface. A nil provider preserves control/event delivery.
     var terminalLaneProvider: MobileTerminalLaneProvider? { get }
+    /// Optional source for a terminal input-only lane. It carries one empty
+    /// replay baseline, then fire-and-forget input frames without output.
+    var terminalInputLaneProvider: MobileTerminalLaneProvider? { get }
     /// Optional source for low-priority raw artifact bytes on an admitted Iroh peer.
     var artifactLaneProvider: MobileArtifactLaneProvider? { get }
     /// Optional source for one dedicated simulator-stream v2 video lane per
@@ -69,6 +72,7 @@ public protocol MobileSyncRuntime: Sendable {
 public extension MobileSyncRuntime {
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? { nil }
     var terminalLaneProvider: MobileTerminalLaneProvider? { nil }
+    var terminalInputLaneProvider: MobileTerminalLaneProvider? { nil }
     var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { nil }
 

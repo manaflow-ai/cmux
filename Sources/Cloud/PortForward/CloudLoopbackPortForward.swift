@@ -38,6 +38,9 @@ actor CloudLoopbackPortForward {
     }
 
     private(set) var target: CloudPortForwardTarget
+    /// Prefer the last successful family for later HTTP/WebSocket connections;
+    /// a noVNC asset burst must not redial a blackholed family for every file.
+    private var preferredHost: String?
     /// The bound loopback port; 0 until ``start()`` returns.
     private(set) var localPort: UInt16 = 0
     private(set) var isListening = false
@@ -123,6 +126,7 @@ actor CloudLoopbackPortForward {
     /// changes.
     func retarget(_ newTarget: CloudPortForwardTarget) {
         target = newTarget
+        if let preferredHost, !newTarget.hosts.contains(preferredHost) { self.preferredHost = nil }
     }
 
     /// Stops accepting and ends every connection. Returns once the listener
@@ -154,7 +158,12 @@ actor CloudLoopbackPortForward {
         let id = UUID()
         connections[id] = connection
         acceptedConnectionCount += 1
-        let target = self.target
+        let target: CloudPortForwardTarget
+        if let preferredHost {
+            target = CloudPortForwardTarget(host: preferredHost, port: self.target.port, fallbackHosts: self.target.hosts)
+        } else {
+            target = self.target
+        }
         let relay = self.relay
         let queue = self.queue
         Task { [weak self] in
@@ -165,9 +174,17 @@ actor CloudLoopbackPortForward {
                 await self?.connectionDidEnd(id)
                 return
             }
-            await relay.carry(connection, to: target, queue: queue)
+            await relay.carry(connection, to: target, queue: queue) { [weak self] host in
+                await self?.rememberSuccessfulHost(host, for: target)
+            }
             await self?.connectionDidEnd(id)
         }
+    }
+
+    private func rememberSuccessfulHost(_ host: String, for attemptedTarget: CloudPortForwardTarget) {
+        guard !stopped, target.port == attemptedTarget.port,
+              Set(target.hosts) == Set(attemptedTarget.hosts) else { return }
+        preferredHost = host
     }
 
     private func connectionDidEnd(_ id: UUID) {

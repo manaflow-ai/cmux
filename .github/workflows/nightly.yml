@@ -20,11 +20,24 @@ on:
         required: false
         default: false
         type: boolean
+      build_only:
+        description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
+        required: false
+        default: false
+        type: boolean
+      cold_cache:
+        description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   # A fast branch dogfood run must not wait behind a queued full matrix run on
-  # the same branch. Full runs remain serialized with other full runs.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full' }}
+  # the same branch. Full runs remain serialized with other full runs. A
+  # build-only measurement run publishes nothing, so it gets a group of its own:
+  # GitHub cancels the pending run of a group when a newer run queues, and a
+  # measurement run must never cancel a pending publish.
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   # Queue concurrent runs instead of canceling them so no build is lost.
   cancel-in-progress: false
 
@@ -47,6 +60,8 @@ jobs:
       variants: ${{ steps.decide.outputs.variants }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
+      build_only: ${{ steps.decide.outputs.build_only }}
+      cold_cache: ${{ steps.decide.outputs.cold_cache }}
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
@@ -54,10 +69,19 @@ jobs:
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
+          BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
+          COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
-            const fastBuild = process.env.FAST_BUILD === 'true';
+            // A build-only run measures the unsigned universal app build (cold
+            // or warm cache) and stops there: no helper, signing, notarization,
+            // dSYM upload, or publication, so it is safe to dispatch from a
+            // branch. It always builds the production workload, so the fast
+            // arm64 path is ignored, and it never depends on the nightly tag.
+            const buildOnly = process.env.BUILD_ONLY === 'true';
+            const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
+            const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
             // Nightly ships one universal DMG for downloads plus one thin DMG per
             // architecture for updates. Browsers cannot tell Apple silicon from
             // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
@@ -70,6 +94,8 @@ jobs:
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
+            core.setOutput('build_only', buildOnly ? 'true' : 'false');
+            core.setOutput('cold_cache', coldCache ? 'true' : 'false');
             const { owner, repo } = context.repo;
             const requestedRef = context.ref.startsWith('refs/heads/')
               ? context.ref.replace('refs/heads/', '')
@@ -104,11 +130,11 @@ jobs:
               }
             }
 
-            const shouldBuild = !isMainRef || forceBuild || nightlySha !== headSha;
+            const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
-            core.setOutput('should_publish', isMainRef ? 'true' : 'false');
+            core.setOutput('should_publish', isMainRef && !buildOnly ? 'true' : 'false');
             core.summary
               .addHeading('Nightly build decision')
               .addTable([
@@ -117,8 +143,10 @@ jobs:
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
                 [{data: 'should build', header: true}, String(shouldBuild)],
-                [{data: 'should publish', header: true}, String(isMainRef)],
+                [{data: 'should publish', header: true}, String(isMainRef && !buildOnly)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
+                [{data: 'build-only measurement', header: true}, String(buildOnly)],
+                [{data: 'cold compilation cache', header: true}, String(coldCache)],
                 [{data: 'variants', header: true}, variants.join(', ')],
               ])
               .write();
@@ -159,17 +187,9 @@ jobs:
           set -euo pipefail
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Look up Xcode compilation cache
-        id: compilation-cache-lookup
+      - name: Restore Xcode compilation cache
+        id: compilation-cache-restore
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
-          lookup-only: true
-
-      - name: Cache Xcode compilation results
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
@@ -177,14 +197,14 @@ jobs:
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Install compilation dependencies
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
@@ -192,18 +212,18 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Set up Go for the Cloud tunnel extension
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.x'
           cache: false
 
       - name: Refresh universal nightly compilation cache
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
@@ -218,25 +238,53 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Bound Xcode compilation cache size
-        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
+        id: compilation-cache-bound
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
+            # Xcode's CAS chains v1.N generations: the newest is the primary,
+            # the one before it is the upstream it faults objects in from, and
+            # anything older is dead until the CAS's next garbage collection.
+            # The CAS rotates a new primary whenever the current one ends a
+            # build above half of COMPILATION_CACHE_LIMIT_SIZE (1.5 GiB here,
+            # below one build's 3.3 GB working set), so every warm build leaves
+            # a dead generation behind, the directory measures two full builds
+            # (6.6 GB on main), and this bound used to drop every warm cache.
+            # Prune the dead generations first, exactly as the CAS would.
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
             cache_kib=0
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          save=false
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
+            # Nothing is saved, so the next build restores the same older entry
+            # and lands here again: the cache freezes at its last saved entry
+            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
+            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
+          elif [ "$cache_kib" -gt 0 ]; then
+            save=true
+          else
+            echo "Xcode compilation cache is empty; skipping cache save"
           fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save Xcode compilation cache
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -329,8 +377,12 @@ jobs:
           set -euo pipefail
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
-      - name: Cache Xcode compilation results
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Restore Xcode compilation cache
+        id: compilation-cache-restore
+        # A cold measurement run skips the restore; every gate below treats the
+        # missing output like a cache miss, so the cold build still saves.
+        if: needs.decide.outputs.cold_cache != 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
@@ -418,20 +470,48 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Bound Xcode compilation cache size
+        id: compilation-cache-bound
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
           max_cache_kib=$((5 * 1024 * 1024))
           if [ -d "$cache_path" ]; then
+            # Xcode's CAS chains v1.N generations: the newest is the primary,
+            # the one before it is the upstream it faults objects in from, and
+            # anything older is dead until the CAS's next garbage collection.
+            # The CAS rotates a new primary whenever the current one ends a
+            # build above half of COMPILATION_CACHE_LIMIT_SIZE (1.5 GiB here,
+            # below one build's 3.3 GB working set), so every warm build leaves
+            # a dead generation behind, the directory measures two full builds
+            # (6.6 GB on main), and this bound used to drop every warm cache.
+            # Prune the dead generations first, exactly as the CAS would.
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
             cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
           else
             cache_kib=0
           fi
           echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          save=false
           if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"
+            # Nothing is saved, so the next build restores the same older entry
+            # and lands here again: the cache freezes at its last saved entry
+            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
+            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
             rm -rf "$cache_path"
+          elif [ "$cache_kib" -gt 0 ]; then
+            save=true
+          else
+            echo "Xcode compilation cache is empty; skipping cache save"
           fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save Xcode compilation cache
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
       # Bundle once here, not per sign variant, so every variant carries the same
       # cmux-tui build and the download happens a single time.
@@ -496,6 +576,7 @@ jobs:
           retention-days: 1
 
       - name: Upload dSYMs to Sentry
+        if: needs.decide.outputs.build_only != 'true'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -511,7 +592,7 @@ jobs:
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
@@ -962,7 +1043,7 @@ jobs:
 
   publish-nightly:
     needs: [decide, build-sign-notarize-nightly]
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -1073,6 +1154,7 @@ jobs:
               --endpoint-url "$R2_ENDPOINT" \
               --bucket cmux-binaries \
               --key "nightly/$appcast" \
+              --content-type "application/xml" \
               --cache-control "no-cache, no-store, must-revalidate"
             echo "R2 appcast upload complete: https://files.cmux.com/nightly/$appcast"
           done

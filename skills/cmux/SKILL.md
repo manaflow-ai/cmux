@@ -20,6 +20,7 @@ cmux list-windows / list-workspaces / list-panes
 cmux list-pane-surfaces --pane pane:1
 cmux new-workspace
 cmux new-split right --panel pane:1
+cmux new-split down --command "npm run dev"       # new terminal runs the command in a live shell
 cmux move-surface --surface surface:7 --pane pane:2 --focus true
 cmux split-off --surface surface:7 right
 cmux reorder-surface --surface surface:7 --before surface:3
@@ -36,6 +37,10 @@ cmux trigger-flash --surface surface:7
 
 Output defaults to short refs (`window:N`, `workspace:N`, `pane:N`, `surface:N`). UUIDs are accepted as input; request UUID output only when needed with `--id-format uuids|both`.
 
+## Initial command on new terminals
+
+`new-workspace`, `new-split`, `new-pane`, and `new-surface` accept `--command <text>`. cmux starts the terminal's normal interactive shell and delivers the text plus one Enter at spawn time, so the command runs immediately and the shell stays alive after it exits. No follow-up `send` or `send-key enter` is needed, and the text is passed literally (quoting, `&&`, pipes, and `$VARS` are interpreted by the new shell). The flag is terminal-only: it is rejected with `--type browser|simulator|agent-session`, blank text is ignored, and `new-workspace --layout` ignores it because layout surfaces define their own commands. Details: [references/panes-surfaces.md](references/panes-surfaces.md).
+
 ## Settings
 
 cmux-owned settings live in `~/.config/cmux/cmux.json`. `cmux docs settings` prints the docs URL, schema URL, raw GitHub resources, cmux.json paths, and reload command. `cmux settings`, `cmux settings cmux-json`, and `cmux settings shortcuts` open the UI.
@@ -43,6 +48,17 @@ cmux-owned settings live in `~/.config/cmux/cmux.json`. `cmux docs settings` pri
 `cmux reload-config` reloads both `cmux.json` and `~/.config/ghostty/config`, refreshing terminals in place with no app restart.
 
 Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it. Legacy `~/.config/cmux/settings.json` and `~/Library/Application Support/com.cmuxterm.app/settings.json` are read only as fallback for missing keys.
+
+For a completed download, the CLI can inspect the bounded history owned by the
+target browser surface without consuming a waiter:
+
+```bash
+cmux browser --surface <surface> download list
+cmux browser --surface <surface> download list --limit 5 --json
+```
+
+Use the browser skill for the full response fields and wait/path compatibility
+details.
 
 ## Deep-dive references
 

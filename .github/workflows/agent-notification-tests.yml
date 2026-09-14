@@ -42,4 +42,4 @@ jobs:
       # change: its seeded Stop predates the Codex turn ledger's foreground
       # admission, the mock never answers agent.resolve_delivery_target, and its
       # fixture timestamp has aged past the seven-day session prune.
-      unit_test_suites: AgentNotificationRegressionTests,AgentJournalLifecycleCenterTests,FeedWaiterRegistryTests,ClaudeBackgroundWorkNotifyTests
+      unit_test_suites: AgentNotificationRegressionTests,AgentJournalLifecycleCenterTests,FeedWaiterRegistryTests,ClaudeBackgroundWorkNotifyTests,OpenCodeHookRegressionTests

@@ -516,7 +516,7 @@ private struct NativePricingPlansView: View {
                 isProminent: true,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs"),
                     String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
@@ -531,7 +531,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -866,7 +866,7 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+                defaultValue: "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

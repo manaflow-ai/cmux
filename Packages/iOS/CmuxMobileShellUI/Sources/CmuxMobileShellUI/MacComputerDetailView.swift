@@ -125,7 +125,9 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if let listAuthEntry, listAuthEntry.isOutdated {
+            if MobileMacListAuthState.shared.hasSnapshot,
+               let listAuthEntry,
+               listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
             connectionMethodSection
@@ -512,7 +514,10 @@ struct MacComputerDetailView: View {
     }
 
     private var listAuthEntry: MobileMacListAuthState.Entry? {
-        MobileMacListAuthState.shared.entry(deviceID: macDeviceID)
+        MobileMacListAuthState.shared.compatibilityEntry(
+            pairingID: MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
+            routes: pairedMac?.routes ?? []
+        )
     }
 
     // MARK: - Connection configuration
@@ -1411,7 +1416,12 @@ private struct MacComputerCompatibilitySection: View {
     }
 
     private var warningMessage: String {
-        guard let required = entry.minimumSupportedVersion else { return "" }
+        guard let required = entry.requiredVersionDisplay else {
+            return L10n.string(
+                "mobile.pairing.guidance.macUpdateRequired",
+                defaultValue: "Update cmux on this Mac to connect securely."
+            )
+        }
         let requirement = "cmux \(required) or later"
         return String(format: L10n.string(
             "mobile.macUpdate.requiredOnMacFormat",

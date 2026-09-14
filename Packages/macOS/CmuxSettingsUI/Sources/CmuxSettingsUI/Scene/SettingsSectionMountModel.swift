@@ -116,6 +116,23 @@ public final class SettingsSectionMountModel {
         return next
     }
 
+    /// Removes a section that is unavailable before it appears and advances
+    /// the progressive mount chain when that section was outstanding.
+    ///
+    /// - Parameter section: The unavailable section to omit.
+    /// - Returns: The next section mounted, or `nil` when no advancement was needed.
+    @discardableResult
+    public func skip(_ section: SettingsSectionID) -> SettingsSectionID? {
+        let host = Self.hostSection(for: section)
+        queue.removeAll { $0 == host }
+        guard awaitingAppearance == host else { return nil }
+        awaitingAppearance = nil
+        guard let next = queue.first else { return nil }
+        mount(next)
+        awaitingAppearance = next
+        return next
+    }
+
     /// Records the navigation the viewport should stay on.
     public func pin(_ target: SettingsSectionScrollTarget) {
         pinnedScroll = target

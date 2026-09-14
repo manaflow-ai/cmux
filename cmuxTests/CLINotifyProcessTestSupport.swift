@@ -416,7 +416,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = isolatedCLIChildEnvironment(environment)
+        process.environment = CLIChildEnvironment(appHostEnvironment: ProcessInfo.processInfo.environment).normalizing(environment)
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -483,28 +483,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             stderr: stderr,
             timedOut: timedOut
         )
-    }
-
-    /// App-host CI gives XCTest an isolated Core Foundation home. CLI tests
-    /// then supply a narrower HOME for each subprocess. Keep all three user
-    /// configuration roots on that per-test home so the inherited app-host
-    /// redirects cannot make sibling CLI tests share state.
-    private func isolatedCLIChildEnvironment(
-        _ environment: [String: String]
-    ) -> [String: String] {
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
-              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawHome.isEmpty else {
-            return environment
-        }
-
-        var resolved = environment
-        resolved["CFFIXED_USER_HOME"] = rawHome
-        resolved["XDG_CONFIG_HOME"] = URL(
-            fileURLWithPath: rawHome,
-            isDirectory: true
-        ).appendingPathComponent(".config", isDirectory: true).path
-        return resolved
     }
 
     private static func writeAll(fd: Int32, data: Data) {

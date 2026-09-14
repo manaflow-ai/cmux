@@ -789,22 +789,26 @@ public struct WorkspaceListLayoutPreviewView: View {
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
-                    } workspaceSearch: {
-                        NavigationStack(path: $searchFixturePath) {
-                            MobilePrimaryWorkspaceSearchContentHost(
-                                searchCoordinator: primarySearchCoordinator
-                            ) { searchText in
-                                workspaceListFixture(searchText: searchText)
+                    } search: {
+                        MobilePrimarySearchNavigationStack(
+                            path: $searchFixturePath,
+                            selection: $selectedPrimaryTab,
+                            searchCoordinator: primarySearchCoordinator
+                        ) {
+                            switch primarySearchCoordinator.scope {
+                            case .workspaces:
+                                MobilePrimaryWorkspaceSearchContentHost(
+                                    searchCoordinator: primarySearchCoordinator
+                                ) { searchText in
+                                    workspaceListFixture(searchText: searchText)
+                                }
+                            case .notifications:
+                                Text("Notification feed fixture")
+                                    .foregroundStyle(.secondary)
                             }
-                            // Mirrors the shell: a tapped search result pushes
-                            // inside the search tab with the system back button.
-                            .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                                fixtureWorkspaceDetail(for: workspaceID)
-                            }
+                        } destination: { workspaceID in
+                            fixtureWorkspaceDetail(for: workspaceID)
                         }
-                    } notificationSearch: {
-                        Text("Notification feed fixture")
-                            .foregroundStyle(.secondary)
                     }
                 } else {
                     workspaceListStack

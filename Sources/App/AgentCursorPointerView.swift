@@ -59,7 +59,7 @@ private enum ComputerUseCursorArtwork {
         if let gradient = CGGradient(
             colorsSpace: colorSpace,
             colors: colors,
-            locations: [0.0, 0.5, 1.0]
+            locations: [0.0, 0.59, 1.0]
         ) {
             context.drawLinearGradient(
                 gradient,
@@ -73,159 +73,34 @@ private enum ComputerUseCursorArtwork {
     }
 }
 
-/// Produces the helper's rounded app icon with the live cursor's exact shape
-/// and gradient, drawn on the same tile treatment as the cmux app icon: a
-/// vertical plate gradient with a soft top rim highlight (#313131→#141414 in
-/// Dark Aqua, #FFFFFF→#ECECEC in Aqua). The plate is rendered explicitly per
-/// appearance so the icon always matches the effective cmux appearance (the
-/// cmux setting when overridden, the system otherwise).
-///
-/// Keep the tile constants in sync with
-/// `scripts/generate-computer-use-helper-icon.swift`, which bakes the same
-/// artwork into `Resources/ComputerUseHelperIcon.icns` for System Settings.
+/// Loads the one Icon Composer export used by onboarding and System Settings.
+/// Icon Composer owns the mask, plate, rim, and lighting, so every icon surface
+/// uses the same rendered asset instead of a parallel AppKit reconstruction.
+/// The editable source is `Resources/ComputerUseHelper.icon`; its cursor layer
+/// records translation 257.8472/257.8472, scale 45.7900, roundness 16.5, and a
+/// 59% gradient midpoint.
 @MainActor
 enum ComputerUseHelperIconRenderer {
-    private static let canvasSize = NSSize(width: 1_024, height: 1_024)
-    private static let plateCornerRadius: CGFloat = 224
-    private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-    private static let cursorScale: CGFloat = 44.8
-    private static let rimWidth: CGFloat = 14
-    private static var cachedImages: [Bool: NSImage] = [:]
-
-    private static func plateGradientColors(dark: Bool) -> [CGColor] {
-        if dark {
-            return [
-                CGColor(gray: 0x31 / 255.0, alpha: 1.0),
-                CGColor(gray: 0x14 / 255.0, alpha: 1.0),
-            ]
-        }
-        return [
-            CGColor(gray: 1.0, alpha: 1.0),
-            CGColor(gray: 0xEC / 255.0, alpha: 1.0),
-        ]
-    }
-
-    private static func rimGradientColors(dark: Bool) -> [CGColor] {
-        if dark {
-            return [
-                CGColor(gray: 1.0, alpha: 0.34),
-                CGColor(gray: 1.0, alpha: 0.05),
-            ]
-        }
-        return [
-            CGColor(gray: 0.0, alpha: 0.10),
-            CGColor(gray: 0.0, alpha: 0.04),
-        ]
-    }
+    private static var cachedImage: NSImage?
 
     static func image(darkMode: Bool? = nil) -> NSImage? {
-        let isDark = darkMode ?? (
-            NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        )
-        if let cached = cachedImages[isDark] {
-            return cached
+        // Icon Composer owns appearance, mask, plate, rim, and lighting. Keep
+        // this parameter for call-site compatibility while the source has one
+        // shared macOS rendition.
+        _ = darkMode
+        if let cachedImage {
+            return cachedImage
         }
-        guard
-            let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil,
-                pixelsWide: Int(canvasSize.width),
-                pixelsHigh: Int(canvasSize.height),
-                bitsPerSample: 8,
-                samplesPerPixel: 4,
-                hasAlpha: true,
-                isPlanar: false,
-                colorSpaceName: .deviceRGB,
-                bytesPerRow: 0,
-                bitsPerPixel: 0
-            ),
-            let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap)
-        else {
+        guard let url = Bundle.main.url(
+            forResource: "ComputerUseHelperIcon",
+            withExtension: "icns"
+        ), let image = NSImage(contentsOf: url) else {
+            assertionFailure("ComputerUseHelperIcon.icns is missing from the app bundle")
             return nil
         }
-        bitmap.size = canvasSize
-
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphicsContext
-        defer { NSGraphicsContext.restoreGraphicsState() }
-
-        let context = graphicsContext.cgContext
-        let canvas = CGRect(origin: .zero, size: canvasSize)
-        context.clear(canvas)
-        context.setAllowsAntialiasing(true)
-        context.setShouldAntialias(true)
-
-        // Core Graphics is y-up here; flip once so the shared SVG geometry
-        // keeps the live cursor's up-left direction.
-        context.saveGState()
-        context.translateBy(x: 0, y: canvasSize.height)
-        context.scaleBy(x: 1, y: -1)
-
-        let plate = CGPath(
-            roundedRect: canvas,
-            cornerWidth: plateCornerRadius,
-            cornerHeight: plateCornerRadius,
-            transform: nil
-        )
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-
-        // Plate: the app icon's vertical tile gradient. This context is
-        // flipped, so "top of the icon" is y = 0 here.
-        context.saveGState()
-        context.addPath(plate)
-        context.clip()
-        if let gradient = CGGradient(
-            colorsSpace: colorSpace,
-            colors: plateGradientColors(dark: isDark) as CFArray,
-            locations: [0.0, 1.0]
-        ) {
-            context.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: canvas.midX, y: 0),
-                end: CGPoint(x: canvas.midX, y: canvas.height),
-                options: []
-            )
-        }
-        context.restoreGState()
-
-        // Rim: a soft highlight along the tile edge, brightest at the top,
-        // matching the app icon's inner bevel.
-        let rim = plate.copy(
-            strokingWithWidth: rimWidth * 2,
-            lineCap: .butt,
-            lineJoin: .miter,
-            miterLimit: 10
-        )
-        context.saveGState()
-        context.addPath(plate)
-        context.clip()
-        context.addPath(rim)
-        context.clip()
-        if let gradient = CGGradient(
-            colorsSpace: colorSpace,
-            colors: rimGradientColors(dark: isDark) as CFArray,
-            locations: [0.0, 1.0]
-        ) {
-            context.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: canvas.midX, y: 0),
-                end: CGPoint(x: canvas.midX, y: canvas.height),
-                options: []
-            )
-        }
-        context.restoreGState()
-
-        context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
-        ComputerUseCursorArtwork.draw(
-            in: context,
-            scale: cursorScale
-        )
-        context.restoreGState()
-
-        let image = NSImage(size: canvasSize)
-        image.addRepresentation(bitmap)
-        image.cacheMode = .never
         image.isTemplate = false
-        cachedImages[isDark] = image
+        image.cacheMode = .never
+        cachedImage = image
         return image
     }
 }

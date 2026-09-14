@@ -315,7 +315,7 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.remoteViews?.first?.name == "new")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -360,7 +360,7 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let snapshot: [String: Any] = [
             "cursor": ["generation": "g1", "revision": "1"],
-            "workspaces": [["id": "ws", "name": "canonical"]],
+            "workspaces": [["id": "ws", "name": "canonical", "focused": true]],
             "screens": [],
             "panes": [],
             "tabs": [],
@@ -1018,6 +1018,36 @@ struct SurfaceCatalogTests {
         } catch {
             #expect(closedStarters == 1, "nothing landed, so the empty workspace's starter pane is closed")
         }
+    }
+
+    @Test func openingLayoutKeepsUnplacedGroupResources() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-layout")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let members = ["placed-a", "placed-b", "pool-terminal"].map {
+            SurfaceResourcePlacement(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: $0))
+        }
+        catalog.replaceResources(members.map { terminal(machine, $0.resource.key) }, on: machine)
+        let group = SurfaceResourceGroup(title: "layout", placements: members)
+        let layout = SurfaceProjectionLayout.split(
+            direction: .right,
+            ratio: 0.6,
+            first: .leaf(placements: [members[0]]),
+            second: .leaf(placements: [members[1]])
+        )
+        let workspace = UUID()
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (workspace, nil) },
+            paneLookup: { _, panel in panel.uuidString },
+            closeStarter: { _, _ in }
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group, title: "layout", focus: false, host: host, layout: layout
+        )
+        #expect(opened.projections.count == members.count)
+        #expect(Set(opened.projections.map(\.resource)) == Set(group.resources))
+        #expect(provider.materialized.count == members.count)
     }
 
     @Test func `Unregistering a machine drops its resources and projections`() async throws {

@@ -10,7 +10,20 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         case cachedSnapshot
 
         /// The current hook-store record was loaded alongside the process observation.
+        /// The hook ran inside this very process and recorded its PID generation next
+        /// to the session id, so a process whose argv and environment carry no session
+        /// identity (Pi overwrites its argv with a bare title) is still this session's
+        /// process as long as nothing it does carry contradicts the record.
         case currentHookRecord
+
+        /// Whether a process that shows no session identity of its own may still be
+        /// accepted on the caller's evidence.
+        var vouchesForMissingSessionIdentity: Bool {
+            switch self {
+            case .cachedSnapshot: false
+            case .currentHookRecord: true
+            }
+        }
     }
 
     func currentProcess(
@@ -105,7 +118,7 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         let authoritativeEnvironmentSessionID = normalizedProcessValue(
             process.environment["CMUX_AGENT_SESSION_ID"]
         )
-        if let registration = snapshot.registration {
+        if let registration = snapshot.registration ?? Self.builtInRegistration(for: snapshot.kind) {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
@@ -153,7 +166,10 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                     // this registration; argv is intentionally irrelevant.
                     return true
                 }
-                return false
+                // Pi overwrites its argv with a bare title and nothing exports
+                // CMUX_AGENT_SESSION_ID for it, so a fresh Pi never shows its
+                // session. Its own current hook record vouches instead (#12084).
+                return hermesSessionValidation.vouchesForMissingSessionIdentity
             }
             return ManagedAgentSessionIdentity.sessionIDsMatch(
                 kind: snapshot.kind.rawValue,
@@ -174,15 +190,40 @@ struct CachedAgentProcessIdentityValidator: Sendable {
                 orSubcommand: "resume",
                 in: arguments
             ) ?? authoritativeEnvironmentSessionID
+        case .pi:
+            // Pi's `--resume`/`-r` are boolean pickers; only `--session`
+            // names a session. A resumed Pi shows it, a fresh one shows nothing.
+            observedSessionID = firstValue(
+                after: ["--session"],
+                in: arguments
+            ) ?? authoritativeEnvironmentSessionID
         default:
             observedSessionID = authoritativeEnvironmentSessionID
         }
-        guard let observedSessionID else { return false }
+        guard let observedSessionID else {
+            return hermesSessionValidation.vouchesForMissingSessionIdentity
+        }
         return ManagedAgentSessionIdentity.sessionIDsMatch(
             kind: snapshot.kind.rawValue,
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    /// Built-in kinds carry no registration on hook-store snapshots, but Amp's
+    /// identity contract is its Vault registration's: the hook store that
+    /// recorded the PID generation is authoritative and argv never names the
+    /// thread. Without this, a resumed Amp that outlives cmux is never an
+    /// owner and the next restore is silently skipped instead of reported (#12158).
+    private static func builtInRegistration(
+        for kind: RestorableAgentKind
+    ) -> CmuxVaultAgentRegistration? {
+        switch kind {
+        case .amp:
+            return .builtInAmp
+        default:
+            return nil
+        }
     }
 
     private func firstValue(

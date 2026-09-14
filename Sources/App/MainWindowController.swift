@@ -6,6 +6,8 @@ final class MainWindowController: ReleasingWindowController {
     var onClose: ((NSWindow) -> Void)?
     var shouldClose: ((NSWindow) -> Bool)?
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
+    /// Reports AppKit geometry callbacks for this window to its lifecycle owner.
+    var onGeometryChanged: ((NSWindow) -> Void)?
 
 #if DEBUG
     private func logWindowEvent(_ event: String, notification: Notification) {
@@ -27,6 +29,21 @@ final class MainWindowController: ReleasingWindowController {
 
     func windowDidDeminiaturize(_ notification: Notification) {
         handleFrameRestorationCheckpoint("didDeminiaturize", notification: notification)
+    }
+
+    /// Forwards a completed AppKit move callback for the managed window.
+    func windowDidMove(_ notification: Notification) {
+        handleGeometryChange(notification)
+    }
+
+    /// Forwards a completed AppKit resize callback for the managed window.
+    func windowDidResize(_ notification: Notification) {
+        handleGeometryChange(notification)
+    }
+
+    /// Forwards a completed AppKit screen-change callback for the managed window.
+    func windowDidChangeScreen(_ notification: Notification) {
+        handleGeometryChange(notification)
     }
 
 #if DEBUG
@@ -76,5 +93,14 @@ final class MainWindowController: ReleasingWindowController {
         logWindowEvent(event, notification: notification)
 #endif
         onFrameRestorationCheckpoint?(restoredWindow)
+    }
+
+    /// Delivers a geometry callback only when it belongs to the managed window.
+    private func handleGeometryChange(_ notification: Notification) {
+        guard let changedWindow = notification.object as? NSWindow,
+              changedWindow === window else {
+            return
+        }
+        onGeometryChanged?(changedWindow)
     }
 }

@@ -16,6 +16,7 @@ public struct NotificationFeedPreviewView: View {
     @State private var items: [MobileNotificationFeedItem]
     @State private var projection = NotificationFeedProjection()
     @State private var notificationRoute: NotificationWorkspaceRoute?
+    @State private var searchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingSearchNotificationNavigationID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
 
@@ -45,7 +46,9 @@ public struct NotificationFeedPreviewView: View {
                 searchCoordinator: primarySearchCoordinator,
                 notificationUnreadCount: items.lazy.filter { !$0.isRead }.count
             ) {
-                NotificationFeedPreviewWorkspacesView()
+                NavigationStack {
+                    NotificationFeedPreviewWorkspacesView()
+                }
             } notifications: {
                 NavigationStack {
                     ScrollViewReader { proxy in
@@ -58,26 +61,27 @@ public struct NotificationFeedPreviewView: View {
                 .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
                     consumePendingSearchNavigation(for: .notifications)
                 }
-            } workspaceSearch: {
-                NotificationFeedPreviewWorkspacesView()
-            } notificationSearch: {
-                NavigationStack {
-                    NotificationFeedView(
-                        status: .ready,
-                        projection: projection,
-                        refreshesOnAppear: false,
-                        actions: actions
-                    )
-                    .navigationDestination(isPresented: notificationRouteIsPresented) {
-                        NotificationFeedPreviewWorkspaceDestination(
-                            workspaceName: notificationRoute.map { workspaceName(for: $0.id) }
-                                ?? L10n.string(
-                                    "mobile.notificationFeed.workspaceFallback",
-                                    defaultValue: "Workspace"
-                                )
+            } search: {
+                MobilePrimarySearchNavigationStack(
+                    path: $searchNavigationPath,
+                    selection: $selectedTab,
+                    searchCoordinator: primarySearchCoordinator
+                ) {
+                    switch primarySearchCoordinator.scope {
+                    case .workspaces:
+                        NotificationFeedPreviewWorkspacesView()
+                    case .notifications:
+                        NotificationFeedView(
+                            status: .ready,
+                            projection: projection,
+                            refreshesOnAppear: false,
+                            actions: actions
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
                     }
+                } destination: { workspaceID in
+                    NotificationFeedPreviewWorkspaceDestination(
+                        workspaceName: workspaceName(for: workspaceID)
+                    )
                 }
             }
             .background {
@@ -91,6 +95,11 @@ public struct NotificationFeedPreviewView: View {
         .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
             guard !isPresented else { return }
             consumePendingSearchNavigation(for: selectedTab)
+        }
+        .onChange(of: selectedTab) { oldValue, newValue in
+            if oldValue == .search, newValue != .search {
+                searchNavigationPath = []
+            }
         }
         .onChange(of: items, initial: true) { _, items in
             projection.update(items: items, referenceDate: referenceDate)
@@ -140,7 +149,8 @@ public struct NotificationFeedPreviewView: View {
             open: { item in
                 let workspaceID = MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
                 if selectedTab == .search {
-                    notificationRoute = NotificationWorkspaceRoute(id: workspaceID)
+                    primarySearchCoordinator.deactivateCurrentSearch()
+                    searchNavigationPath = [workspaceID]
                 } else if primarySearchCoordinator.isPresented {
                     pendingSearchNotificationNavigationID = workspaceID
                     transitionPrimaryTab(to: .notifications)
@@ -523,13 +533,11 @@ private func makeNotificationFeedPreviewStressItems(
 
 private struct NotificationFeedPreviewWorkspacesView: View {
     var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                systemImage: "rectangle.stack"
-            )
-            .navigationTitle(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
-        }
+        ContentUnavailableView(
+            L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+            systemImage: "rectangle.stack"
+        )
+        .navigationTitle(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
     }
 }
 

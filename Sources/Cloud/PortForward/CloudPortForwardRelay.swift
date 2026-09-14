@@ -29,7 +29,12 @@ struct CloudPortForwardRelay: Sendable {
 
     /// Returns when the connection has ended. A failure before the relay begins
     /// closes `client`, so a browser sees a connection error rather than a hang.
-    func carry(_ client: NWConnection, to target: CloudPortForwardTarget, queue: DispatchQueue) async {
+    func carry(
+        _ client: NWConnection,
+        to target: CloudPortForwardTarget,
+        queue: DispatchQueue,
+        onConnected: @Sendable (String) async -> Void = { _ in }
+    ) async {
         let claim: CloudHubSocketClaim
         do {
             claim = try await dialer.claimHubSocket()
@@ -38,39 +43,20 @@ struct CloudPortForwardRelay: Sendable {
             client.cancel()
             return
         }
-        let upstream = NWConnection(to: claim.endpoint, using: .tcp)
+        let upstream: NWConnection
         do {
-            try await handshake(upstream, to: target, queue: queue)
+            let connected = try await CloudHubConnector(timeout: handshakeTimeout, clock: clock)
+                .connect(endpoint: claim.endpoint, target: target, queue: queue)
+            upstream = connected.connection
+            await onConnected(connected.host)
         } catch {
             logger.error("SOCKS5 CONNECT to \(target.host, privacy: .private):\(target.port, privacy: .public) failed: \(CloudMachineLink.errorText(error), privacy: .public)")
-            upstream.cancel()
             client.cancel()
             await claim.release()
             return
         }
         await Self.relay(client, upstream)
         await claim.release()
-    }
-
-    /// The hub connection and SOCKS5 exchange under ``handshakeTimeout``. The
-    /// deadline cancels the connection, which is what unblocks a stalled
-    /// receive; the loser of the race is discarded.
-    private func handshake(_ upstream: NWConnection, to target: CloudPortForwardTarget, queue: DispatchQueue) async throws {
-        let budget = handshakeTimeout
-        let clock = self.clock
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await upstream.startAndWaitUntilReady(queue: queue)
-                try await Self.connect(upstream, to: target)
-            }
-            group.addTask {
-                try await clock.sleep(for: budget)
-                upstream.cancel()
-                throw RelayError.handshakeTimedOut(budget)
-            }
-            defer { group.cancelAll() }
-            try await group.next()
-        }
     }
 
     /// The SOCKS5 handshake on a ready hub connection; on return the stream

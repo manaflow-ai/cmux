@@ -660,20 +660,12 @@ final class WindowTerminalPortal: NSObject {
     /// evaluation site — when the AppKit sidebar branch mounts. The portal
     /// consumes a plain bool so the feature-flag lint's one-file rule holds.
     static var usesCoalescedAnchorFailsafe = false
-    /// Surface redraws requested by a sync that ran inside someone else's
-    /// layout/update pass (syncLayout == false). displayIfNeeded there reaches
-    /// ghostty's Metal drawFrame while the window's transaction is still open,
-    /// and waitUntilCompleted then waits on a present that only that
-    /// transaction can commit — the main thread wedges permanently. These
-    /// drain on the next main-queue turn instead.
+    /// Deferred redraws keyed by hosted view; drain after the current layout turn.
     private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
+    private var lastDeferredSurfaceRefreshFrames: [ObjectIdentifier: NSRect] = [:]
     private var hasDeferredSurfaceRefreshScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
-    /// True while some request since the last executed pass asked for the
-    /// non-immediate contract (one extra main-queue hop before the pass reads
-    /// geometry) and has not yet received it. Requests fold into whichever
-    /// pass is already scheduled, so this must be tracked across the fold:
     /// a non-immediate request folded into an immediately-scheduled pass
     /// (or flushed early by a folded immediate request) would otherwise lose
     /// its hop silently, leaving the portal parked at geometry read before a
@@ -703,6 +695,7 @@ final class WindowTerminalPortal: NSObject {
     struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
+        let workspaceID: UUID?
         var visibleInUI: Bool
         var awaitingGeometrySettlement: Bool
         var zPriority: Int
@@ -1125,7 +1118,11 @@ final class WindowTerminalPortal: NSObject {
         // carries the exact geometry the last pass left behind, so it dies
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
-        guard ensureInstalled() else { return }
+        // Installation must not consume this pass's layout change before the
+        // settlement check. Otherwise its second hierarchy sync immediately
+        // sees the signature the first one just wrote and publishes a transient
+        // terminal size during workspace reveal.
+        guard ensureInstalled(syncLayout: false) else { return }
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
@@ -1471,9 +1468,11 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else {
+            lastDeferredSurfaceRefreshFrames.removeValue(forKey: hostedId)
             clearPresentationNotificationState(for: hostedId)
             return
         }
+        lastDeferredSurfaceRefreshFrames.removeValue(forKey: hostedId)
         clearPresentationNotificationState(for: hostedId)
 #if DEBUG
         lastPortalTargetByHostedId.removeValue(forKey: hostedId)
@@ -1519,45 +1518,36 @@ final class WindowTerminalPortal: NSObject {
 #endif
     }
 
-    /// Update the visibleInUI flag on an existing entry without rebinding.
-    /// Used when a deferred bind is pending — this ensures synchronizeHostedView
-    /// won't hide a view that updateNSView has already marked as visible.
+    func hideEntries(forWorkspaceID workspaceID: UUID) {
+        for hostedId in entriesByHostedId.compactMap({ hostedId, entry in
+            entry.workspaceID == workspaceID ? hostedId : nil
+        }) {
+            hideEntry(forHostedId: hostedId)
+        }
+    }
+
     @discardableResult
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
-        let becameVisible = visibleInUI && !entry.visibleInUI
-        let becameHidden = !visibleInUI && entry.visibleInUI
-        entry.visibleInUI = visibleInUI
+        let effectiveVisibleInUI = visibleInUI && Workspace.portalRenderingEnabled(for: entry.workspaceID)
+        let becameVisible = effectiveVisibleInUI && !entry.visibleInUI
+        let becameHidden = !effectiveVisibleInUI && entry.visibleInUI
+        entry.visibleInUI = effectiveVisibleInUI
         if becameVisible {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
             entry.awaitingGeometrySettlement = true
             entry.hostedView?.beginPortalGeometrySettlement()
-        } else if !visibleInUI {
+        } else if !effectiveVisibleInUI {
             entry.awaitingGeometrySettlement = false
             entry.hostedView?.finishPortalGeometrySettlement()
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
         if becameHidden {
-            // Visibility updates are coalesced. Clear the presentation edge
-            // synchronously so a hide -> show in one turn can notify again.
             clearPresentationNotificationState(for: hostedId)
         }
-        // A view that just became visible may still hold the frame it was
-        // born with (bind can seed from a pre-settle anchor reading, and a
-        // hidden entry's frame is deliberately left alone). Visibility is a
-        // sizing input like any other: it schedules a pass rather than
-        // trusting that some earlier one already ran.
-        //
-        // A flip to invisible must schedule the same pass: the hide is applied
-        // by synchronizeHostedView (shouldHide reads entry.visibleInUI), and a
-        // selection-only tab switch produces no window geometry churn that
-        // would run one otherwise. An unscheduled hide left the deselected
-        // terminal's layer rendering above SwiftUI chrome — the previous
-        // terminal's content filled the browser omnibar band until unrelated
-        // churn (sidebar toggle, window resize) healed it.
         if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
@@ -1656,8 +1646,9 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI,
-            awaitingGeometrySettlement: visibleInUI,
+            workspaceID: hostedView.isRightSidebarDockSurface ? nil : hostedView.surfaceView.terminalSurface?.tabId,
+            visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
+            awaitingGeometrySettlement: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1888,6 +1879,12 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
+        guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView else { return }
+        let frame = hostedView.frame
+        guard lastDeferredSurfaceRefreshFrames[hostedId].map({ !Self.rectApproximatelyEqual($0, frame) }) ?? true else {
+            return
+        }
+        lastDeferredSurfaceRefreshFrames[hostedId] = frame
         pendingDeferredSurfaceRefreshes[hostedId] = reason
         guard !hasDeferredSurfaceRefreshScheduled else { return }
         hasDeferredSurfaceRefreshScheduled = true
@@ -1897,6 +1894,7 @@ final class WindowTerminalPortal: NSObject {
             let pending = self.pendingDeferredSurfaceRefreshes
             self.pendingDeferredSurfaceRefreshes = [:]
             for (pendingId, pendingReason) in pending {
+                self.lastDeferredSurfaceRefreshFrames.removeValue(forKey: pendingId)
                 guard let entry = self.entriesByHostedId[pendingId],
                       entry.visibleInUI,
                       let hostedView = entry.hostedView,
@@ -2905,13 +2903,18 @@ enum TerminalWindowPortalRegistry {
         portal.hideEntry(forHostedId: hostedId)
     }
 
+    /// Hides every registered terminal portal owned by one inactive workspace.
+    static func hideHostedViews(forWorkspaceID workspaceID: UUID) {
+        for portal in portalsByWindowId.values {
+            portal.hideEntries(forWorkspaceID: workspaceID)
+        }
+    }
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
         portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
-
     /// Update visibleInUI on an existing portal entry without rebinding.
     @discardableResult
     static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) -> Bool {

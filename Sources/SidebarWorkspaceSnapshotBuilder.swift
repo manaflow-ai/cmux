@@ -39,6 +39,8 @@ struct SidebarWorkspaceSnapshotBuilder {
         /// Whether any workspace-scoped notification mute is active.
         let isMuted: Bool
         let customColorHex: String?
+        /// Stable Cloud identity, independent of connection status and detail visibility.
+        let cloudWorkspaceLabel: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -70,5 +72,14 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
+        var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+
+        func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
+            let position = String(
+                localized: "accessibility.workspacePosition",
+                defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
+            )
+            return [position, cloudWorkspaceLabel].compactMap { $0 }.joined(separator: ", ")
+        }
     }
 }

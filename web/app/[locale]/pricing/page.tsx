@@ -175,14 +175,6 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
-          <p className="mt-3 text-sm text-muted">
-            <Link
-              href="/billing/recover"
-              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
-            >
-              {t("alreadyPaid")}
-            </Link>
-          </p>
           <PricingIntervalSelector
             billingPeriodLabel={t("billingPeriod")}
             monthlyLabel={t("monthly")}
@@ -290,6 +282,15 @@ export default async function PricingPage({
               <FeatureList items={enterpriseFeatures} />
             </PlanCard>
           </div>
+
+          <p className="mt-6 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
 
           {/* Compare plans. Header row is sticky under the 48px h-12 site header.
               Horizontal scrolling is mobile-only so desktop keeps the page as the

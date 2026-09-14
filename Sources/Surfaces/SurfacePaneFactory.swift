@@ -69,9 +69,13 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
-    /// Closes a pane (a restored placeholder that a provider replaced).
+    /// Closes a pane the app is replacing or discarding itself (a restored placeholder a
+    /// provider replaced, the loser of an open race, the panes of a killed terminal). That
+    /// end is never a layout edit on the machine, unlike a pane the person closes.
     static func close(panelID: UUID, in workspaceID: UUID) {
-        _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
+        }
     }
 
     /// Closes a pane whose process has ended, the way a local terminal pane
@@ -85,19 +89,21 @@ enum SurfacePaneFactory {
     static func closeExited(panelID: UUID, in workspaceID: UUID) {
         guard let appDelegate = AppDelegate.shared,
               let workspace = appDelegate.workspace(containingSurfaceID: panelID) else { return }
-        // A workspace whose only pane is the dead terminal goes with it, which
-        // is what a local workspace does when its last shell exits. Closing
-        // only the pane there leaves the workspace to open a fresh local shell
-        // in the cloud pane's place.
-        if workspace.panels.count <= 1 {
-            let manager = workspace.owningTabManager ?? TerminalController.shared.tabManager
-            if manager?.closeWorkspaceNonInteractively(workspace) == true { return }
-            // The workspace refused to close (pinned, or the window's last one
-            // during teardown). Close the pane anyway: a replacement local
-            // shell is still better than a frozen pane that swallows input.
+        SurfaceCatalog.shared.withProjectionEndReason(for: [panelID], reason: .replaced) {
+            // A workspace whose only pane is the dead terminal goes with it, which
+            // is what a local workspace does when its last shell exits. Closing
+            // only the pane there leaves the workspace to open a fresh local shell
+            // in the cloud pane's place.
+            if workspace.panels.count <= 1 {
+                let manager = workspace.owningTabManager ?? TerminalController.shared.tabManager
+                if manager?.closeWorkspaceNonInteractively(workspace) == true { return }
+                // The workspace refused to close (pinned, or the window's last one
+                // during teardown). Close the pane anyway: a replacement local
+                // shell is still better than a frozen pane that swallows input.
+            }
+            workspace.markCloseHistoryEligible(panelId: panelID)
+            _ = workspace.closePanel(panelID, force: true)
         }
-        workspace.markCloseHistoryEligible(panelId: panelID)
-        _ = workspace.closePanel(panelID, force: true)
     }
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter

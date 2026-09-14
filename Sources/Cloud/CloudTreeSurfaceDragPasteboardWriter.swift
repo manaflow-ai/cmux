@@ -22,7 +22,9 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         registration: TabDragTransferRegistration,
         sourceView: NSOutlineView,
         coordinator: CloudTreeOutlineView.Coordinator,
-        provisionalToken: ProvisionalDragWriterOwnership.Token
+        provisionalToken: ProvisionalDragWriterOwnership.Token,
+        nodeID: String? = nil,
+        exposesProjection: Bool = true
     ) {
         self.dragID = dragID
         self.registration = registration
@@ -30,7 +32,10 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         self.coordinator = coordinator
         self.provisionalToken = provisionalToken
         super.init()
-        materializeRegistrationPayload()
+        // Organization-only sources must not expose a pane-opening capability.
+        // They still use this writer so provisional/native ownership is shared.
+        if exposesProjection { materializeRegistrationPayload() }
+        if let nodeID { setString(nodeID, forType: .cloudSidebarRow) }
     }
 
     @available(*, unavailable)
@@ -43,16 +48,20 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return registration.pasteboardItem.types
+        // materializeRegistrationPayload copies onto self with setString/setData.
+        // Advertise this item's actual storage, including the sidebar-only case.
+        return types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        guard types.contains(type) else { return nil }
+        if type == .cloudSidebarRow { return string(forType: type) }
         // `TabDragTransferRegistration` stores its capability as a raw string
         // and the surface record as raw JSON bytes. `propertyList(forType:)`
         // only reads values written with `setPropertyList`, so proxy each
         // representation through the matching accessor before falling back to
         // a true property-list value.
-        registration.pasteboardItem.string(forType: type)
+        return registration.pasteboardItem.string(forType: type)
             ?? registration.pasteboardItem.data(forType: type)
             ?? registration.pasteboardItem.propertyList(forType: type)
     }

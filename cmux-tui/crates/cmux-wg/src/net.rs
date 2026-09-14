@@ -798,6 +798,9 @@ impl Driver {
         remote: SocketAddr,
         reply: oneshot::Sender<Result<WgStream, WgError>>,
     ) {
+        if reply.is_closed() {
+            return;
+        }
         let Some(local_ip) = self.config.local_address_for(remote.ip()) else {
             let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
             return;
@@ -950,6 +953,15 @@ impl Driver {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
 
             if let Some((handoff, stream)) = conn.pending_stream.take() {
+                if matches!(&handoff, Handoff::Connect(reply) if reply.is_closed()) {
+                    // The connect future was cancelled before the handshake
+                    // completed. No stream owner remains to close this socket.
+                    socket.abort();
+                    let handle = conn.handle;
+                    self.sockets.remove(handle);
+                    self.conns.swap_remove(index);
+                    continue;
+                }
                 if socket.state() == tcp::State::Established {
                     match handoff {
                         Handoff::Connect(reply) => {
@@ -1095,6 +1107,30 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
+        let pair = crate::testing::loopback_pair().await.unwrap();
+        let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
+        let mut driver = Driver::new(
+            pair.client,
+            pair.client_socket,
+            Some(pair.server_socket.local_addr().unwrap()),
+            receiver,
+            Arc::new(Notify::new()),
+        )
+        .unwrap();
+        let (reply, pending) = oneshot::channel();
+        driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+        assert_eq!(driver.conns.len(), 1);
+        assert_eq!(driver.sockets.iter().count(), 1);
+
+        drop(pending);
+        driver.process_conns();
+
+        assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
+        assert_eq!(driver.sockets.iter().count(), 0);
+    }
 
     #[test]
     fn packet_source_reads_both_families() {

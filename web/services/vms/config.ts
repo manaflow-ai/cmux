@@ -65,6 +65,7 @@ export function allowUnmanifestedImages(env: VmRuntimeEnv = process.env): boolea
   return isTrueFlag(env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES) || !isDeployedRuntime(env);
 }
 
+
 function isFalseFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
   switch (value.trim().toLowerCase()) {

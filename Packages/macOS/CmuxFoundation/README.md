@@ -32,6 +32,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
   lifecycle-bound repeating main-actor action.
 - `MainActorTaskStore` — keyed replaceable task ownership that keeps task
   handles out of captured SwiftUI value snapshots.
+- `FileDescriptorLimitController` — a synchronous startup policy that raises
+  inherited descriptor limits before workers and terminal children start.
 
 ## Usage
 
@@ -104,6 +106,29 @@ import CmuxFoundation
 
 @Test func plainStringIsQuoted() {
     #expect("hello".javaScriptStringLiteral == "\"hello\"")
+}
+```
+
+File-descriptor tests inject both resource-limit operations so they never mutate
+the test runner's process-wide limit. `readLimit` supplies the current soft/hard
+pair, and `writeLimit` returns whether the requested pair was accepted:
+
+```swift
+import Darwin
+import Testing
+import CmuxFoundation
+
+@Test func raisesSoftLimitWithinHardLimit() {
+    var limits = rlimit()
+    limits.rlim_cur = 256
+    limits.rlim_max = 10_240
+    let controller = FileDescriptorLimitController(
+        readLimit: { limits },
+        writeLimit: { limits = $0; return true }
+    )
+    controller.raiseSoftLimitIfNeeded()
+    #expect(limits.rlim_cur == 10_240)
+    #expect(limits.rlim_max == 10_240)
 }
 ```
 

@@ -138,7 +138,11 @@ async function enforceRateLimit(
   try {
     const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
     if (rateLimited || error === "blocked") {
-      return jsonResponse({ error: "rate_limited" }, 429, { "cache-control": "no-store" });
+      return jsonResponse(
+        { error: "rate_limited" },
+        429,
+        { "cache-control": "no-store", "retry-after": "60" },
+      );
     }
     if (error === "not-found") {
       void reportMissingRateLimitRule({ route: ROUTE, reason: "not-found" });

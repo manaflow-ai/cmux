@@ -63,7 +63,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+    func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let envelope = try v2Envelope(method: method, params: params)
         if envelope["ok"] as? Bool != true {
             Issue.record("Expected \(method) to succeed: \(envelope)")
@@ -159,7 +159,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
+    func withDockEnabled(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let key = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previous = defaults.object(forKey: key)
@@ -240,7 +240,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withSocketAppContext(
+    func withSocketAppContext(
         fileExplorerState: FileExplorerState? = nil,
         _ body: (TabManager, Workspace, UUID) throws -> Void
     ) throws {

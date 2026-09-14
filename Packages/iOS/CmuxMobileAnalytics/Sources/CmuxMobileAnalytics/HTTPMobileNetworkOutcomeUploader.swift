@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 internal import OSLog
 
@@ -16,6 +17,7 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
     private let tokenProvider: any AnalyticsTokenProviding
     private let session: URLSession
     private let taskRegistry = AnalyticsUploadTaskRegistry()
+    private let retryAfterGate = CmxRetryAfterGate()
 
     /// Creates an operational network-outcome uploader.
     ///
@@ -77,6 +79,12 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
         let task = Task<AnalyticsUploadResult, Never> { [self] in
             await startGate.wait()
             guard !Task.isCancelled else { return .drop }
+            do {
+                try await retryAfterGate.wait()
+            } catch {
+                return .drop
+            }
+            guard !Task.isCancelled else { return .drop }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -89,7 +97,13 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
                 request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
             }
             guard !Task.isCancelled else { return .drop }
-            return await perform(request)
+            do {
+                return try await retryAfterGate.perform { [request] in
+                    await perform(request)
+                }
+            } catch {
+                return .drop
+            }
         }
         guard taskRegistry.register(task, id: id) else {
             task.cancel()
@@ -109,6 +123,13 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
         do {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .retry }
+            if http.statusCode == 429,
+               let seconds = CmxRetryAfterPolicy.seconds(
+                   from: http,
+                   defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+               ) {
+                await retryAfterGate.extend(by: seconds)
+            }
             return Self.result(forStatusCode: http.statusCode)
         } catch {
             if Task.isCancelled { return .drop }

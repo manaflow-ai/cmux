@@ -60,7 +60,11 @@ extension SettingsWindowRoot {
         }
 
         slot(.cloudMachines, proxy: proxy) {
-            CloudMachinesSection(hostActions: hostActions)
+            // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
+            // while unavailable, not just no placeholder.
+            if isCloudSectionAvailable {
+                CloudMachinesSection(hostActions: hostActions)
+            }
         }
 
         slot(.networking, proxy: proxy) {

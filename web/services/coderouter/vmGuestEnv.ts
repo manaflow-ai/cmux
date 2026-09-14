@@ -28,6 +28,28 @@ export function vmEdgeAliasDomain(raw: string | undefined = process.env[VM_EDGE_
   return value;
 }
 
+export const VM_REFLECTION_ALIAS_DOMAIN_ENV = "CMUX_VM_REFLECTION_ALIAS_DOMAIN";
+export const DEFAULT_VM_REFLECTION_ALIAS_DOMAIN = "reflection.cmux.internal";
+
+/**
+ * The header the edge adds on the reflection alias only, so the proxy can serve
+ * `https://reflection.cmux.internal/<path>` from the guest-facing reflection API.
+ * A routing hint, never a credential: the request still authenticates with the
+ * injected route token.
+ */
+export const VM_REFLECTION_ALIAS_HEADER = "x-cmux-vm-alias";
+export const VM_REFLECTION_ALIAS_VALUE = "reflection";
+
+/** The vanity host a guest dials for reflection (`curl https://reflection.cmux.internal/`). */
+export function vmReflectionAliasDomain(raw: string | undefined = process.env[VM_REFLECTION_ALIAS_DOMAIN_ENV]): string {
+  const value = raw?.trim().toLowerCase();
+  if (!value) return DEFAULT_VM_REFLECTION_ALIAS_DOMAIN;
+  if (!HOST_NAME.test(value)) {
+    throw new Error(`${VM_REFLECTION_ALIAS_DOMAIN_ENV} must be a bare host name, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
 /** The variables agent-config.sh persists and every harness reads. No token, no per-machine value. */
 export function vmGuestModelPlaneEnv(alias: string = vmEdgeAliasDomain()): Record<string, string> {
   const origin = `https://${alias}`;
