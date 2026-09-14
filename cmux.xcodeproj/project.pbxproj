@@ -700,6 +700,11 @@
 		EAEF1B227CA5A458005D2EAD /* CloudAgentSkillLauncher+LauncherError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */; };
 		68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7BA0E69E17F61ECF69C9025 /* CloudAgentSkillLauncher.swift */; };
 		C6D4C5A38097BB05AB98E460 /* CloudAgentSkillLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */; };
+		A05193D36A5F9037CB1E9072 /* CloudAnnouncementPointer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A778747E1F37C1A2E36F5DEC /* CloudAnnouncementPointer.swift */; };
+		DEB1B4B6A3A2641A9D6309CA /* CloudAnnouncementPreviewControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D1A2198AD7E838D931A89 /* CloudAnnouncementPreviewControls.swift */; };
+		1FEFF673F5E97C5FC4074A94 /* CloudAnnouncementPreviewStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5DBB74ACEAE9D47601A7CE8 /* CloudAnnouncementPreviewStyle.swift */; };
+		EE337864BD8FC23A650FB0C4 /* CloudAnnouncementPreviewUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 440D37BCE4E28572D4A65D41 /* CloudAnnouncementPreviewUITests.swift */; };
+		B703BF87B414A6AD5CCB384C /* CloudAnnouncementPreviewWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F9111C756591AE3261FCED /* CloudAnnouncementPreviewWindowController.swift */; };
 		D0F2A0000000000000000005 /* CloudBannerDismissal.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000006 /* CloudBannerDismissal.swift */; };
 		D0F2A0000000000000000007 /* CloudBannerDismissButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */; };
 		69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */; };
@@ -1176,6 +1181,7 @@
 		CC0DE00000000000000000A5 /* CmuxCore in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE00000000000000000A2 /* CmuxCore */; };
 		A500D015A1B2C3D4E5F60718 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
 		C85390090000000000000003 /* CMUXDebugLog in Frameworks */ = {isa = PBXBuildFile; productRef = A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */; };
+		B58D06A8376913719AF631E4 /* CmuxDebugWindowsCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816D32EF4B0391C812969892 /* CmuxDebugWindowsCoordinator.swift */; };
 		CC0033E15A1B2C3D4E5F0012 /* CmuxDiffComments in Frameworks */ = {isa = PBXBuildFile; productRef = CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */; };
 		CC0033E15A1B2C3D4E5F0013 /* CmuxDiffComments in Frameworks */ = {isa = PBXBuildFile; productRef = CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */; };
 		9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */; };
@@ -2699,6 +2705,8 @@
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
 		B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */; };
 		D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */; };
+		8257E655A190CC88EDDB8301 /* SidebarCloudAnnouncementPill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C9CB13DB541F2EAB35290E /* SidebarCloudAnnouncementPill.swift */; };
+		05220F45B5FFBCD463C6D4DF /* SidebarCloudAnnouncementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EE588B6645698B595A94B64 /* SidebarCloudAnnouncementView.swift */; };
 		9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */; };
 		71ABCB8E029B4E69997C8EB4 /* SidebarCloudWorkspaceBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69EF4F23B8E9406D9821E930 /* SidebarCloudWorkspaceBadgeView.swift */; };
 		A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */; };
@@ -2711,6 +2719,8 @@
 		A7FD1002 /* SidebarFileDropFindRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7FD1001 /* SidebarFileDropFindRoutingTests.swift */; };
 		B8624C060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */; };
 		A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */; };
+		0A4259C01100B345FEE46C38 /* SidebarFooterButtons.swift in Sources */ = {isa = PBXBuildFile; fileRef = 131374D7DAA2AE463B5C2BE1 /* SidebarFooterButtons.swift */; };
+		E19B618DE7C582B1EF4B116B /* SidebarFooterIconBalanceDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46D08805453388D38AC5180D /* SidebarFooterIconBalanceDebugWindowController.swift */; };
 		8175A0010000000000000001 /* SidebarGitProcessCompositionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */; };
 		F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */; };
 		B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */; };
@@ -4519,6 +4529,11 @@
 		0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudAgentSkillLauncher+LauncherError.swift"; sourceTree = "<group>"; };
 		A7BA0E69E17F61ECF69C9025 /* CloudAgentSkillLauncher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudAgentSkillLauncher.swift; sourceTree = "<group>"; };
 		763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudAgentSkillLauncherTests.swift; sourceTree = "<group>"; };
+		A778747E1F37C1A2E36F5DEC /* CloudAnnouncementPointer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAnnouncementPointer.swift; sourceTree = "<group>"; };
+		9A1D1A2198AD7E838D931A89 /* CloudAnnouncementPreviewControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAnnouncementPreviewControls.swift; sourceTree = "<group>"; };
+		C5DBB74ACEAE9D47601A7CE8 /* CloudAnnouncementPreviewStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAnnouncementPreviewStyle.swift; sourceTree = "<group>"; };
+		440D37BCE4E28572D4A65D41 /* CloudAnnouncementPreviewUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAnnouncementPreviewUITests.swift; sourceTree = "<group>"; };
+		C9F9111C756591AE3261FCED /* CloudAnnouncementPreviewWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAnnouncementPreviewWindowController.swift; sourceTree = "<group>"; };
 		D0F2A0000000000000000006 /* CloudBannerDismissal.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBannerDismissal.swift; sourceTree = "<group>"; };
 		D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBannerDismissButton.swift; sourceTree = "<group>"; };
 		857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserAccessState.swift"; sourceTree = "<group>"; };
@@ -4963,6 +4978,7 @@
 		C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
 		C0DEF0A10000000000000002 /* CmuxConfigUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigUI.swift; sourceTree = "<group>"; };
 		A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigWorkspaceActionTests.swift; sourceTree = "<group>"; };
+		816D32EF4B0391C812969892 /* CmuxDebugWindowsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDebugWindowsCoordinator.swift; sourceTree = "<group>"; };
 		9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxDiffViewerURLSchemeHandler.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CmuxDockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDurableDeepLinkRestoreTests.swift; sourceTree = "<group>"; };
@@ -6407,6 +6423,8 @@
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
 		B804D0030000000000000003 /* SidebarAppKitRowCellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAppKitRowCellTests.swift; sourceTree = "<group>"; };
 		D7AB34300000000000000004 /* SidebarBonsplitTabWorkspaceDropOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarBonsplitTabWorkspaceDropOverlay.swift; sourceTree = "<group>"; };
+		75C9CB13DB541F2EAB35290E /* SidebarCloudAnnouncementPill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCloudAnnouncementPill.swift; sourceTree = "<group>"; };
+		7EE588B6645698B595A94B64 /* SidebarCloudAnnouncementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarCloudAnnouncementView.swift; sourceTree = "<group>"; };
 		9CA5C526315D4C2B88B1CA55 /* SidebarCloudWorkspaceBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudWorkspaceBadgeTests.swift"; sourceTree = "<group>"; };
 		69EF4F23B8E9406D9821E930 /* SidebarCloudWorkspaceBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarCloudWorkspaceBadgeView.swift"; sourceTree = "<group>"; };
 		A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SidebarDerivedStateScaleTests.swift; sourceTree = "<group>"; };
@@ -6419,6 +6437,8 @@
 		A7FD1001 /* SidebarFileDropFindRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFileDropFindRoutingTests.swift; sourceTree = "<group>"; };
 		B8624D060000000000000006 /* SidebarFocusBoundaryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFocusBoundaryLifecycleTests.swift; sourceTree = "<group>"; };
 		A8624F0C0000000000000002 /* SidebarFocusBoundaryReference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarFocusBoundaryReference.swift; sourceTree = "<group>"; };
+		131374D7DAA2AE463B5C2BE1 /* SidebarFooterButtons.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFooterButtons.swift; sourceTree = "<group>"; };
+		46D08805453388D38AC5180D /* SidebarFooterIconBalanceDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarFooterIconBalanceDebugWindowController.swift; sourceTree = "<group>"; };
 		8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarGitProcessCompositionTests.swift; sourceTree = "<group>"; };
 		F10753000000000000000002 /* SidebarGroupHeaderRowActions+NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/AppKitList/Cells/SidebarGroupHeaderRowActions+NotificationState.swift"; sourceTree = "<group>"; };
 		B804B0200000000000000020 /* SidebarGroupHeaderRowModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarGroupHeaderRowModel.swift; sourceTree = "<group>"; };
@@ -7682,6 +7702,7 @@
 				818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */,
 				C0DE34020000000000000006 /* HelpMenuUITests.swift */,
 				B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */,
+				440D37BCE4E28572D4A65D41 /* CloudAnnouncementPreviewUITests.swift */,
 				C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */,
 				C0DE1223900000000000000A /* NewMachineSheetKindUITests.swift */,
 				B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */,
@@ -8290,6 +8311,15 @@
 				C0A714000000000000000001 /* ContentView+ComputerUseCommandPalette.swift */,
 				C0DEA7710000000000000004 /* ContentView+ProCommandPalette.swift */,
 				C0DEA7710000000000000006 /* SidebarProBadge.swift */,
+				46D08805453388D38AC5180D /* SidebarFooterIconBalanceDebugWindowController.swift */,
+				816D32EF4B0391C812969892 /* CmuxDebugWindowsCoordinator.swift */,
+				131374D7DAA2AE463B5C2BE1 /* SidebarFooterButtons.swift */,
+				7EE588B6645698B595A94B64 /* SidebarCloudAnnouncementView.swift */,
+				75C9CB13DB541F2EAB35290E /* SidebarCloudAnnouncementPill.swift */,
+				C9F9111C756591AE3261FCED /* CloudAnnouncementPreviewWindowController.swift */,
+				C5DBB74ACEAE9D47601A7CE8 /* CloudAnnouncementPreviewStyle.swift */,
+				9A1D1A2198AD7E838D931A89 /* CloudAnnouncementPreviewControls.swift */,
+				A778747E1F37C1A2E36F5DEC /* CloudAnnouncementPointer.swift */,
 				A117FF000000000000000002 /* CmuxFeatureFlagResolution.swift */,
 				A117FF000000000000000004 /* CmuxFeatureFlagSource.swift */,
 				C0DEA7710000000000000008 /* FeatureFlags.swift */,
@@ -12354,6 +12384,10 @@
 				C62A16251EC09E72A897A2A3 /* CloudAgentSkillLauncher+CodingAgent.swift in Sources */,
 				EAEF1B227CA5A458005D2EAD /* CloudAgentSkillLauncher+LauncherError.swift in Sources */,
 				68B60071A7049D7CD9C2CFD7 /* CloudAgentSkillLauncher.swift in Sources */,
+				A05193D36A5F9037CB1E9072 /* CloudAnnouncementPointer.swift in Sources */,
+				DEB1B4B6A3A2641A9D6309CA /* CloudAnnouncementPreviewControls.swift in Sources */,
+				1FEFF673F5E97C5FC4074A94 /* CloudAnnouncementPreviewStyle.swift in Sources */,
+				B703BF87B414A6AD5CCB384C /* CloudAnnouncementPreviewWindowController.swift in Sources */,
 				D0F2A0000000000000000005 /* CloudBannerDismissal.swift in Sources */,
 				D0F2A0000000000000000007 /* CloudBannerDismissButton.swift in Sources */,
 				69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */,
@@ -12567,6 +12601,7 @@
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
+				B58D06A8376913719AF631E4 /* CmuxDebugWindowsCoordinator.swift in Sources */,
 				9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */,
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
@@ -13540,6 +13575,8 @@
 				A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
 				D7AB34300000000000000003 /* SidebarBonsplitTabWorkspaceDropOverlay.swift in Sources */,
+				8257E655A190CC88EDDB8301 /* SidebarCloudAnnouncementPill.swift in Sources */,
+				05220F45B5FFBCD463C6D4DF /* SidebarCloudAnnouncementView.swift in Sources */,
 				71ABCB8E029B4E69997C8EB4 /* SidebarCloudWorkspaceBadgeView.swift in Sources */,
 				EA1F00000000000000000003 /* SidebarDirectoryText.swift in Sources */,
 				B804A0270000000000000027 /* SidebarDividerTrackingView.swift in Sources */,
@@ -13547,6 +13584,8 @@
 				9212A0049212A0049212A004 /* SidebarEmptyAreaWindowDragOutcome.swift in Sources */,
 				9212A0059212A0059212A005 /* SidebarEmptyAreaWindowDragTrackingEvent.swift in Sources */,
 				A8624F0C0000000000000001 /* SidebarFocusBoundaryReference.swift in Sources */,
+				0A4259C01100B345FEE46C38 /* SidebarFooterButtons.swift in Sources */,
+				E19B618DE7C582B1EF4B116B /* SidebarFooterIconBalanceDebugWindowController.swift in Sources */,
 				F10753000000000000000001 /* SidebarGroupHeaderRowActions+NotificationState.swift in Sources */,
 				B804A0200000000000000020 /* SidebarGroupHeaderRowModel.swift in Sources */,
 				B804A0210000000000000021 /* SidebarGroupHeaderRowView.swift in Sources */,
@@ -14553,6 +14592,7 @@
 				B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */,
 				B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
 				B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */,
+				EE337864BD8FC23A650FB0C4 /* CloudAnnouncementPreviewUITests.swift in Sources */,
 				C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 				D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */,
 				B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
