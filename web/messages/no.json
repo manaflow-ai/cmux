@@ -3865,5 +3865,11 @@
         "action": "Administrer abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-post",
+    "emailUnavailable": "e-post ikke tilgjengelig",
+    "organization": "Organisasjon",
+    "personalAccount": "personlig konto"
   }
 }
