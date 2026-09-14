@@ -12,7 +12,11 @@ import Testing
             refreshTimeoutNanoseconds: 100_000_000)
         let start = ContinuousClock.now
         let active = SuspendingClock.now
-        let result = await client.getOrFetchLikelyValidTokens()
+        let request = Task { await client.getOrFetchLikelyValidTokens() }
+        await fixture.waitForRequest()
+        print("AUTH_TRANSPORT_PARKED pid=\(ProcessInfo.processInfo.processIdentifier)")
+        fflush(stdout)
+        let result = await request.value
         let elapsed = start.duration(to: .now)
         let awake = active.duration(to: .now)
         #expect(result.refreshFailure == .timedOut)

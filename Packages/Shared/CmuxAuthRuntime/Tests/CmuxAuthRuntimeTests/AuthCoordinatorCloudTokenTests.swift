@@ -30,61 +30,41 @@ import Testing
             user: CMUXAuthUser(id: "fixture", primaryEmail: nil, displayName: nil)
         )
         let coordinator = makeCoordinator(client: client)
-        let completion = TestPhaseSignal()
-        let caller = Task {
-            let result: Result<(accessToken: String, refreshToken: String), any Error>
-            do { result = .success(try await coordinator.currentTokens()) }
-            catch { result = .failure(error) }
-            await completion.markStarted()
-            return result
-        }
+        let caller = Task { try await coordinator.currentTokens() }
         await client.accessTokenDidStart()
         caller.cancel()
-        let detached = await completesWithinDeadline(completion)
+        await #expect(throws: CancellationError.self) { try await caller.value }
         await client.releaseHangingAccessTokenProbe()
-        let result = await caller.value
-        #expect(detached, "Cancelled list/stats auth must finish before stalled transport is released")
-        if case let .failure(error) = result { #expect(error is CancellationError) }
-        else { Issue.record("Cancelled cloud caller returned credentials") }
     }
 
     @Test func cloudCallerDeadlinePreservesRecoverableSession() async throws {
         let client = HangingLaunchTokenProbeAuthClient(
             user: CMUXAuthUser(id: "fixture", primaryEmail: nil, displayName: nil)
         )
-        let coordinator = makeCoordinator(client: client, timeout: .milliseconds(50))
-        let completion = TestPhaseSignal()
-        let caller = Task {
-            let result: Result<(accessToken: String, refreshToken: String), any Error>
-            do { result = .success(try await coordinator.currentTokens()) }
-            catch { result = .failure(error) }
-            await completion.markStarted()
-            return result
-        }
+        let clock = ManualTestClock()
+        let coordinator = makeCoordinator(client: client, timeout: .seconds(2), clock: clock)
+        let caller = Task { try await coordinator.currentTokens() }
         await client.accessTokenDidStart()
-        let bounded = await completesWithinDeadline(completion)
+        await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(2))
+        await #expect(throws: AuthError.timedOut) { try await caller.value }
         await client.releaseHangingAccessTokenProbe()
-        let result = await caller.value
-        #expect(bounded, "Cloud auth must obey its injected network deadline")
-        if case let .failure(error) = result { #expect(error as? AuthError == .timedOut) }
-        else { Issue.record("Stalled refresh unexpectedly returned credentials") }
         #expect(await client.refreshToken() == "refresh")
     }
 
-    private func completesWithinDeadline(_ completion: TestPhaseSignal) async -> Bool {
-        let stream = AsyncStream<Bool> { continuation in
-            let waiter = Task { await completion.waitUntilStarted(); continuation.yield(true); continuation.finish() }
-            let deadline = Task {
-                try? await Task.sleep(for: .milliseconds(250))
-                if !Task.isCancelled { continuation.yield(false); continuation.finish() }
-            }
-            continuation.onTermination = { _ in waiter.cancel(); deadline.cancel() }
-        }
-        for await value in stream { return value }
-        return false
+    @Test func cloudReaderDoesNotCaptureASignInOwnedTokenStore() async throws {
+        let client = GateableValidationAuthClient(user: CMUXAuthUser(id: "fixture", primaryEmail: nil, displayName: nil))
+        let coordinator = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "fixture@example.invalid", password: "synthetic")
+        await client.armCredentialGate()
+        let replacement = Task { try await coordinator.signInWithPassword(email: "replacement@example.invalid", password: "synthetic") }
+        await client.credentialDidPark()
+        await #expect(throws: AuthError.networkError) { try await coordinator.currentTokens() }
+        await client.releaseParkedCredential()
+        try await replacement.value
     }
 
-    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1)) -> AuthCoordinator {
+    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock()) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(
             client: client,
@@ -92,7 +72,7 @@ import Testing
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "team"),
             anchor: FakeAnchor(), config: .test, launch: .plain(),
-            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout)
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout), clock: clock
         )
     }
 }

@@ -12,12 +12,18 @@ extension AuthCoordinator {
         try Task.checkCancellation()
         return try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
             await self.awaitBootstrapped()
-            try Task.checkCancellation()
-            let generation = await self.authSessionGeneration
-            let pair = try await self.coherentTokenPairWithoutStateClear()
-            try Task.checkCancellation()
-            guard await self.authSessionGeneration == generation else { throw CancellationError() }
-            return pair
+            return try await self.captureCloudTokens()
         }
+    }
+
+    private func captureCloudTokens() async throws -> (accessToken: String, refreshToken: String) {
+        try Task.checkCancellation()
+        guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { throw AuthError.networkError }
+        let generation = sessionGeneration
+        let pair = try await coherentTokenPairWithoutStateClear()
+        try Task.checkCancellation()
+        guard sessionGeneration == generation else { throw CancellationError() }
+        guard activeSignInFlows.isEmpty, !isCapturingSignOutCredentials else { throw AuthError.networkError }
+        return pair
     }
 }
