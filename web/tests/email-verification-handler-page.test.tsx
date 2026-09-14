@@ -6,6 +6,7 @@ const pendingStackRender = new Promise<never>(() => {});
 
 mock.module("@stackframe/stack", () => ({
   MagicLinkSignIn: () => React.createElement("div"),
+  useUser: () => null,
   StackHandler: () => {
     throw pendingStackRender;
   },
