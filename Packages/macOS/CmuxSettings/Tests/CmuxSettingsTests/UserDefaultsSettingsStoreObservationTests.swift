@@ -19,9 +19,9 @@ struct UserDefaultsSettingsStoreObservationTests {
         let releaseMain = DispatchSemaphore(value: 0)
         let blocker = Task { @MainActor in
             mainEntered.signal()
-            _ = releaseMain.wait(timeout: .distantFuture)
+            _ = waitForSignal(releaseMain, timeout: .distantFuture)
         }
-        guard mainEntered.wait(timeout: .now() + 5) == .success else {
+        guard waitForSignal(mainEntered, timeout: .now() + 5) == .success else {
             releaseMain.signal()
             blocker.cancel()
             Issue.record("MainActor blocker did not start")
@@ -33,8 +33,8 @@ struct UserDefaultsSettingsStoreObservationTests {
         }
 
         let postFinished = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) let postingFinishedSignal = postFinished
-        nonisolated(unsafe) let postingCenter = notificationCenter
+        let postingFinishedSignal = postFinished
+        let postingCenter = notificationCenter
         Task.detached {
             postingCenter.post(
                 name: UserDefaults.didChangeNotification,
@@ -46,9 +46,9 @@ struct UserDefaultsSettingsStoreObservationTests {
         // This is a liveness watchdog for the known UserDefaults/main-queue
         // deadlock, not a performance assertion. Five seconds leaves ample
         // room for a loaded CI host while still bounding the pre-fix hang.
-        #expect(postFinished.wait(timeout: .now() + 5) == .success)
+        #expect(waitForSignal(postFinished, timeout: .now() + 5) == .success)
         releaseMain.signal()
-        _ = postFinished.wait(timeout: .now() + 5)
+        _ = waitForSignal(postFinished, timeout: .now() + 5)
         #expect(await iterator.next() != nil)
     }
 
@@ -110,4 +110,11 @@ struct UserDefaultsSettingsStoreObservationTests {
         #expect(event?.supersededMutationSources.contains(firstSource) == true)
         #expect(event?.supersededMutationSources.contains(secondSource) == true)
     }
+}
+
+private func waitForSignal(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
 }
