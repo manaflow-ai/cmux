@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 
 export type GuestPromptIdentity = {
@@ -24,8 +25,13 @@ export function vmPromptIdentity(row: {
   };
 }
 
-const bashrc = readFileSync(new URL("./images/devbox/cmux-bashrc", import.meta.url), "utf8");
-const prompt = readFileSync(new URL("./images/devbox/cmux-prompt.bash", import.meta.url), "utf8");
+// Materialize the URL as a plain filesystem path before calling Bun's fs
+// adapter. Next's server bundle can provide a cross-realm URL here; Node's
+// types accept it, but Bun rejects that URL instance at runtime.
+const assetPath = (relativePath: string) =>
+  fileURLToPath(new URL(relativePath, import.meta.url).toString());
+const bashrc = readFileSync(assetPath("./images/devbox/cmux-bashrc"), "utf8");
+const prompt = readFileSync(assetPath("./images/devbox/cmux-prompt.bash"), "utf8");
 
 // Runs on lifecycle operations, never during shell startup or prompt drawing.
 // A lock serializes competing attaches/renames. Atomic replacement gives every
