@@ -58,8 +58,8 @@ struct CloudDesktopWebSocketTests {
         let upgrade = try await readHeader(websocket)
         #expect(upgrade.hasPrefix("HTTP/1.1 101 "))
         #expect(upgrade.contains("s3pPLMBiTxaQ9kYGzzhZRbK+xOo="))
-        #expect(try await websocket.receiveExactly(2) == Data([0x82, UInt8(frame.count)]))
-        #expect(try await websocket.receiveExactly(frame.count) == frame)
+        #expect(Data(try await websocket.receiveExactly(2)) == Data([0x82, UInt8(frame.count)]))
+        #expect(Data(try await websocket.receiveExactly(frame.count)) == frame)
         let key = Data([4, 1, 0, 0, 0, 0, 0, 97]) // RFB key-down: a
         let pointer = Data([5, 1, 0, 16, 0, 9]) // RFB left button at (16,9)
         try await websocket.sendAll(maskedFrame(key))
@@ -100,7 +100,7 @@ struct CloudDesktopWebSocketTests {
         let connection = try await CloudLoopbackPortForwardTests.client(port: originalPort)
         defer { connection.cancel() }
         try await connection.sendAll(Data([7]))
-        #expect(try await connection.receiveExactly(1) == Data([7]))
+        #expect(Data(try await connection.receiveExactly(1)) == Data([7]))
         #expect(hub.connectTargets == [next])
         await model.retire()
         #expect(await forwarder.count == 0)
@@ -109,7 +109,7 @@ struct CloudDesktopWebSocketTests {
     private func readHeader(_ connection: NWConnection) async throws -> String {
         var data = Data()
         while data.count < 16_384 {
-            data.append(try await connection.receiveExactly(1))
+            data.append(contentsOf: try await connection.receiveExactly(1))
             if data.suffix(4) == Data([13, 10, 13, 10]) { return String(decoding: data, as: UTF8.self) }
         }
         throw FixtureError.headerTooLarge
