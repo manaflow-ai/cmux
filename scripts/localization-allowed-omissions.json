@@ -3027,6 +3027,43 @@
       }
     }
   },
+  "cli.billing.global_usage": {
+    "source": "billing checkout --plan <go|pro|max> [--no-open]",
+    "identityLocales": {
+      "de": "Command syntax is intentionally identical in this locale.",
+      "fr": "Command syntax is intentionally identical in this locale.",
+      "ar": "Command syntax is intentionally identical in this locale.",
+      "es": "Command syntax is intentionally identical in this locale.",
+      "zh-Hant": "Command syntax is intentionally identical in this locale.",
+      "zh-Hans": "Command syntax is intentionally identical in this locale.",
+      "ko": "Command syntax is intentionally identical in this locale.",
+      "ja": "Command syntax is intentionally identical in this locale."
+    }
+  },
+  "machines.new.plan.name.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "pricing.native.plan.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "machines.new.plan.name.pro": {
+    "source": "Pro",
+    "class": "brand"
+  },
+  "pricing.native.plan.go": {
+    "source": "Go",
+    "class": "brand"
+  },
+  "pricing.native.max.price": {
+    "source": "$200",
+    "class": "format"
+  },
+  "pricing.native.go.price": {
+    "source": "$10",
+    "class": "format"
+  },
   "cloud.ports.title": {
     "source": "Ports",
     "identityLocales": {

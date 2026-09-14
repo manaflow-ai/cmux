@@ -22,8 +22,31 @@
       "title": "Richiesto cmux Pro",
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Impossibile verificare la RAM della macchina di origine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go consente una VM in esecuzione alla volta.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go ha esaurito le 40 ore di VM di questo mese. Le VM salvate saranno disponibili nel prossimo periodo di fatturazione.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },

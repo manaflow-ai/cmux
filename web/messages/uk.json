@@ -22,8 +22,31 @@
       "title": "Потрібен cmux Pro",
       "message": "Для Cloud VM потрібен план cmux Pro.",
       "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Для машин із {memory} ГіБ потрібен cmux {plan}. Ваш тариф підтримує до {max} ГіБ.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Не вдалося перевірити обсяг RAM вихідної машини.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Цей розмір машини недоступний. Виберіть до {max} ГіБ.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go включає дві збережені ВМ, зокрема запущену.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go дозволяє запускати одну ВМ одночасно.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "40 годин ВМ у Go на цей місяць вичерпано. Збережені ВМ будуть доступні в наступному розрахунковому періоді.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Якщо ми знайшли обліковий запис, перевірте електронну пошту, щоб дізнатися про наступні кроки"
   },
