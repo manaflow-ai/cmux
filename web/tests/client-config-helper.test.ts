@@ -137,7 +137,7 @@ describe("getClientConfig", () => {
     });
     expect(typeof stored.expiresAt).toBe("number");
 
-    // A fresh module after a full navigation can hydrate from localStorage.
+    // A full-navigation-style memory miss can hydrate from localStorage.
     const persisted = storage.getItem("cmux.client-config.v1");
     await getClientConfig({ distinctId: "other-cache-id", context: {} });
     storage.setItem("cmux.client-config.v1", persisted ?? "");
