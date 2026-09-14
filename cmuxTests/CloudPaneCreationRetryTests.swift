@@ -11,6 +11,42 @@ import Testing
 @MainActor
 struct CloudPaneCreationRetryTests {
     @Test
+    func aNewIntentDoesNotOrphanAnActiveRetry() async {
+        let store = CloudPaneCreationFailureStore()
+        let failed = CloudLinkFirstValue<Bool>()
+        let retryStarted = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let returned = CloudLinkFirstValue<Bool>()
+        let resource = Self.resource()
+        var projects = 0
+        var discarded = false
+        store.run(
+            machine: resource.machine,
+            requestID: store.beginRequest(),
+            create: { resource },
+            project: { resource in
+                projects += 1
+                if projects == 1 { throw CloudDiagnosticFailure.network }
+                retryStarted.resolve(true)
+                _ = await release.result
+                returned.resolve(true)
+                return (SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID()), false)
+            },
+            onStart: {},
+            onFinish: { failed.resolve(true) },
+            discardProjection: { _ in discarded = true }
+        )
+        _ = await failed.result
+        store.retry()
+        _ = await retryStarted.result
+        _ = store.beginRequest()
+        store.cancelAll()
+        release.resolve(true)
+        _ = await returned.result
+        #expect(discarded)
+    }
+
+    @Test
     func inlineRetryProjectsTheExistingTerminal() async throws {
         let store = CloudPaneCreationFailureStore()
         let requestID = store.beginRequest()
