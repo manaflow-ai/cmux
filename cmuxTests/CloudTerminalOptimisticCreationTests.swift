@@ -9,6 +9,24 @@ import Testing
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudTerminalOptimisticCreationTests {
     @Test(arguments: ["d", "shift-d", "t"])
+    func appShortcutActionsRouteRepeatedGesturesThroughPendingCloudPanes(key: String) async throws {
+        let harness = try CloudTerminalOptimisticHarness()
+        defer { harness.close() }
+        try harness.shortcutAction(key)
+        try #require(harness.pending.count == 1)
+        try harness.shortcutAction(key)
+        try #require(harness.pending.count == 2)
+        var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
+        _ = await arrivals.next()
+        harness.provider.acceptNext()
+        _ = await arrivals.next()
+        #expect(harness.provider.anchors == ["source-tab", "tab-1"])
+        harness.provider.acceptNext()
+        #expect(await harness.waitUntil { harness.pending.isEmpty })
+        #expect(harness.provider.projected == 2)
+    }
+
+    @Test(arguments: ["d", "shift-d", "t"])
     func shortcutsInsertTheirPendingDestinationBeforeRemoteWork(key: String) async throws {
         let harness = try CloudTerminalOptimisticHarness()
         defer { harness.close() }

@@ -66,6 +66,15 @@ struct CloudTerminalOptimisticHarness {
         window.performClose(nil)
         SurfaceCatalog.shared.unregister(machine: provider.machine)
     }
+    func shortcutAction(_ key: String) throws {
+        let app = try #require(AppDelegate.shared)
+        if key == "t" {
+            let manager = try #require(app.tabManagerFor(tabId: workspace.id))
+            manager.newSurface()
+        } else {
+            _ = app.performSplitShortcut(direction: key == "d" ? .right : .down, preferredWindow: window)
+        }
+    }
     func waitUntil(_ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(5)
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
