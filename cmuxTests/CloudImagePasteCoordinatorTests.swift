@@ -143,6 +143,20 @@ struct CloudImagePasteCoordinatorTests {
     }
 
     @Test
+    func expiredTransactionCannotAcceptASecondUpload() async throws {
+        let peer = CloudImagePasteTestPeer(coordinator: CloudImagePasteCoordinator(deadline: .zero))
+        peer.bind()
+        let image = try CloudClipboardImage(data: png)
+        await #expect(throws: CloudImagePasteError.timedOut) {
+            try await peer.coordinator.paste(image)
+        }
+        await #expect(throws: CloudImagePasteError.timedOut) {
+            try await peer.coordinator.paste(image)
+        }
+        #expect(peer.sent.map(\.operation) == ["begin", "cancel", "begin", "cancel"])
+    }
+
+    @Test
     func imageReadRejectsBadTypesOversizeAndSymlinksWithoutDeletingUserFiles() async throws {
         #expect(throws: CloudImagePasteError.unsupportedType) {
             try CloudClipboardImage(data: Data("<svg/>".utf8))
