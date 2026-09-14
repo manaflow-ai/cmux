@@ -178,7 +178,7 @@ struct CloudTerminalStartupLatencyTests {
             group.cancelAll()
             return result
         }
-        try #require(ready)
+        try #require(ready, "signals=\(session.startupReadiness), frame=\(created.surface.hostedView.surfaceView.renderedFrameSequence), visible=\(created.surface.isRendererEffectivelyVisible), presented=\(created.surface.isRendererPresented), window=\(created.surface.hostedView.window?.isVisible == true), demand=\(created.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)")
         #expect(created.surface.readText(region: .viewport)?.contains("Cloud startup ready") == true)
         #expect(session.connectionPresentation == nil)
         router.send(.bytes(Data("pwd\n".utf8)))
