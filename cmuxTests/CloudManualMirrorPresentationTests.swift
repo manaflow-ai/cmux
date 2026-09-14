@@ -12,11 +12,11 @@ import Testing
 struct CloudManualMirrorPresentationTests {
     @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
-        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
+        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false, rendererReady: false).connectionState == nil)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false, rendererReady: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, rendererReady: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, rendererReady: true).connectionState == .connected)
-        #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
+        #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true, rendererReady: false).connectionState == .error)
     }
 
     @Test @MainActor
