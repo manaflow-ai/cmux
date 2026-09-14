@@ -5,28 +5,22 @@ import Foundation
 /// command acceptance by cmux-tui, not execution by the shell or PTY host.
 struct CloudTuiManualIOInputWindow {
     private let maximumInFlight = 32
-    private let maximumBytes = 256 * 1024
-    private var pending: [(line: Data, needsReceipt: Bool)?] = []
+    private var pending: [(write: CloudTuiManualIOWrite, needsReceipt: Bool)?] = []
     private var pendingIndex = 0
-    private var inFlightSizes: [Int] = []
-    private var retainedBytes = 0
+    private var inFlight: [CloudTuiManualIOReservation] = []
 
-    mutating func append(_ line: Data, needsReceipt: Bool) -> Bool {
-        guard !line.isEmpty, line.count <= maximumBytes - retainedBytes else { return false }
-        pending.append((line: line, needsReceipt: needsReceipt))
-        retainedBytes += line.count
-        return true
+    mutating func append(_ write: CloudTuiManualIOWrite, needsReceipt: Bool) {
+        // Admission already reserved the command's complete retained lifetime.
+        pending.append((write: write, needsReceipt: needsReceipt))
     }
 
-    mutating func next() -> Data? {
+    mutating func next() -> CloudTuiManualIOWrite? {
         guard pendingIndex < pending.count, let command = pending[pendingIndex],
-              !command.needsReceipt || inFlightSizes.count < maximumInFlight else { return nil }
+              !command.needsReceipt || inFlight.count < maximumInFlight else { return nil }
         pending[pendingIndex] = nil
         pendingIndex += 1
         if command.needsReceipt {
-            inFlightSizes.append(command.line.count)
-        } else {
-            retainedBytes -= command.line.count
+            inFlight.append(command.write.reservation)
         }
         if pendingIndex == pending.count {
             pending.removeAll(keepingCapacity: true)
@@ -35,14 +29,14 @@ struct CloudTuiManualIOInputWindow {
             pending.removeFirst(pendingIndex)
             pendingIndex = 0
         }
-        return command.line
+        return command.write
     }
 
     /// Input uses reserved request ID zero on this ordered connection. Each
     /// response retires one credit; receipts never cross a connection change.
     mutating func acknowledge() -> Bool {
-        guard !inFlightSizes.isEmpty else { return false }
-        retainedBytes -= inFlightSizes.removeFirst()
+        guard !inFlight.isEmpty else { return false }
+        inFlight.removeFirst()
         return true
     }
 }

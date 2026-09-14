@@ -384,7 +384,8 @@ import Testing
         }
     }
 
-    @Test func acceptedPasteSurvivesFramingAndReceiptBackpressure() async throws {
+    @Test(arguments: [false, true])
+    func acceptedPasteSurvivesFramingAndReceiptBackpressure(rebind: Bool) async throws {
         try await Self.withConnection { connection, peer in
             let queue = DispatchQueue(label: "test.cloud-admission-lifetime")
             let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
@@ -398,6 +399,10 @@ import Testing
             // Running the callbacks must not free their still-pending payloads.
             #expect(!router.send(.bytes(Data([0x61]))))
             router.setConnection(connection)
+            if rebind {
+                router.setConnection(nil)
+                router.setConnection(connection)
+            }
             let consumer = Task { for await _ in connection.events {} }
             defer { consumer.cancel() }
             let actual = try await Self.blocking {

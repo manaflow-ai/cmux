@@ -41,13 +41,15 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingLineSearchOffset = 0
     // This storage is queue-owned and reused for every socket read.
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
-    private var pendingWrites: [Data] = []
+    private var pendingWrites: [CloudTuiManualIOWrite] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
     private var inputWindow = CloudTuiManualIOInputWindow()
     private let admission = CloudTuiManualIOAdmission()
     private var closed = false
+
+    var inputCapacity: AsyncStream<Void> { admission.capacityChanges }
 
     init(
         socketPath: String,
@@ -142,19 +144,21 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func enqueue(_ line: Data, needsReceipt: Bool) -> Bool {
         switch admission.reserve(line.count) {
         case .closed: return false
-        case .rejected: close(); return false
+        case .rejected: return false
         case .reserved: break
         }
-        queue.async { [self, line] in
-            defer { admission.release(line.count) }
-            enqueueCommandLocked(line, needsReceipt: needsReceipt)
+        let write = CloudTuiManualIOWrite(line: line, reservation: CloudTuiManualIOReservation(
+            admission: admission, bytes: line.count
+        ))
+        queue.async { [self, write] in
+            enqueueCommandLocked(write, needsReceipt: needsReceipt)
         }
         return true
     }
 
-    private func enqueueCommandLocked(_ line: Data, needsReceipt: Bool) {
+    private func enqueueCommandLocked(_ write: CloudTuiManualIOWrite, needsReceipt: Bool) {
         guard !closed, descriptor >= 0 else { return }
-        guard inputWindow.append(line, needsReceipt: needsReceipt) else { closeLocked(); return }
+        inputWindow.append(write, needsReceipt: needsReceipt)
         flushInputLocked()
     }
 
@@ -162,16 +166,16 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         while !closed, let line = inputWindow.next() { enqueueWriteLocked(line) }
     }
 
-    private func enqueueWriteLocked(_ line: Data) {
+    private func enqueueWriteLocked(_ write: CloudTuiManualIOWrite) {
         guard !closed, descriptor >= 0 else { return }
-        guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
+        guard pendingWriteBytes + write.line.count <= pendingWriteByteLimit else {
             // Close a stalled attachment instead of dropping a command and
             // presenting later input as though the missing bytes were sent.
             closeLocked()
             return
         }
-        pendingWrites.append(line)
-        pendingWriteBytes += line.count
+        pendingWrites.append(write)
+        pendingWriteBytes += write.line.count
         flushWritesLocked()
     }
 
@@ -352,13 +356,13 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func flushWritesLocked() {
         guard !closed, isConnected, descriptor >= 0 else { return }
         while let first = pendingWrites.first, !closed {
-            let remaining = first.count - pendingWriteOffset
+            let remaining = first.line.count - pendingWriteOffset
             guard remaining > 0 else {
                 pendingWrites.removeFirst()
                 pendingWriteOffset = 0
                 continue
             }
-            let result: Int = first.withUnsafeBytes { rawBuffer in
+            let result: Int = first.line.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return 0 }
                 return Darwin.write(
                     descriptor,
@@ -369,7 +373,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             if result > 0 {
                 pendingWriteOffset += result
                 pendingWriteBytes -= result
-                if pendingWriteOffset == first.count {
+                if pendingWriteOffset == first.line.count {
                     pendingWrites.removeFirst()
                     pendingWriteOffset = 0
                 }
