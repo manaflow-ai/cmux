@@ -1,16 +1,23 @@
 import AppKit
 
 extension GhosttyNSView {
+    /// Types an upload's remote path into the surface the upload started on.
+    ///
+    /// The view can be reattached to another surface while an upload runs. Text for a
+    /// surface that is no longer mounted here is dropped instead of being typed into
+    /// the surface that replaced it.
     @discardableResult
     func deliverUploadResultText(
         _ text: String,
+        originSurfaceId: UUID?,
         onCompleted: @escaping () -> Void = {}
     ) -> Bool {
-        guard let surface = terminalSurface else {
+        guard let surface = terminalSurface,
+              let originSurfaceId,
+              surface.id == originSurfaceId else {
             onCompleted()
             return false
         }
-        let surfaceID = surface.id
         let handledByMirror = MainActor.assumeIsolated {
             AppDelegate.shared?.remoteTmuxController.pasteIntoMirror(
                 surfaceId: surface.id,
@@ -28,13 +35,13 @@ extension GhosttyNSView {
         if deferRuntimeInputDuringClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in
-                guard let self,
-                      self.terminalSurface?.id == surfaceID else {
+                guard let self else {
                     onCompleted()
                     return
                 }
                 _ = self.deliverUploadResultText(
                     text,
+                    originSurfaceId: originSurfaceId,
                     onCompleted: onCompleted
                 )
             }
@@ -67,7 +74,7 @@ extension GhosttyNSView {
                 (originHostedView ?? self?.terminalSurface?.hostedView)?.endImageTransferIndicator(for: operation)
                 switch result {
                 case .success(let text):
-                    self?.deliverUploadResultText(text)
+                    self?.deliverUploadResultText(text, originSurfaceId: originSurfaceId)
                 case .failure(let error):
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()
