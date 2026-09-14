@@ -77,6 +77,7 @@ final class CloudTreeCellView: NSTableCellView {
         displayHost.isHidden = showsCallout
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         if showsCallout {

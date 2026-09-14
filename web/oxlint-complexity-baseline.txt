@@ -34,7 +34,6 @@ services/billing/purchase.ts	ea97b8d53cc706bcd1cd5e9238684f3e7cedf64196f6ae7717f
 services/billing/recovery.ts	6e0f927fb1039793149770613069cf40ab831ec7e9bced77a52c2c6b7b9a4f72	async function `findPaidBillingPurchaseByEmail` has a complexity of 21. Maximum allowed is 20.
 services/billing/recovery.ts	c1695286179cf9f663e2e3fda43bd129db3637df5d8bd44e7e05f9f88ad96121	async function `findLocalPurchase` has a complexity of 29. Maximum allowed is 20.
 services/client-config/posthogFlags.ts	c4e89ddef0a14dcf5b179d4dd16055f655cb00d8ef245aa59755e158b2716de8	function `normalizePostHogFlagsResponse` has a complexity of 22. Maximum allowed is 20.
-services/coderouter/analytics.ts	5da7df9acde8ba80d1d53a549fe8c66cb21251012c20bfd1e0beec3ad15611d4	function `eventProperties` has a complexity of 30. Maximum allowed is 20.
 services/coderouter/claudeProxy.ts	f03567e3f1e54813b0eb8c95891001a2d5df2d3facf266a8523aa6a14acc3c0e	async function `routeWithFailover` has a complexity of 25. Maximum allowed is 20.
 services/coderouter/claudeUpstream.ts	06e225e5cd0fa486dccb8eb9be39660bca889ffb5eb40684e7f6dbd6e9f2a296	function `parseClaudeUpstreamInput` has a complexity of 23. Maximum allowed is 20.
 services/coderouter/codexProxy.ts	a0e15c7ffd71c07bc4093d51bdab477a5784968f4ec0e1466e9fe9d0b2292a14	async function `proxyCodexRequestWith` has a complexity of 48. Maximum allowed is 20.

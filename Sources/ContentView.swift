@@ -7103,7 +7103,9 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                workspace.bonsplitController.allPaneIds.count > 1
+                (AppDelegate.shared?.focusedDockStoreForShortcut(
+                    preferredWindow: observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+                )?.bonsplitController.allPaneIds.count ?? workspace.bonsplitController.allPaneIds.count) > 1
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceCanvasLayout,
@@ -8444,15 +8446,7 @@ struct ContentView: View {
                 }
             )
         )
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.equalizeSplits",
-                title: constant(String(localized: "command.equalizeSplits.title", defaultValue: "Equalize Splits")),
-                subtitle: workspaceSubtitle,
-                keywords: ["split", "equalize", "balance", "divider", "layout"],
-                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
-            )
-        )
+        contributions.append(contentsOf: paneSizingContributions(subtitle: workspaceSubtitle))
 
         let cmuxConfigDefaultSubtitle = String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json")
         for issue in cmuxConfigStore.configurationIssues {
@@ -9318,6 +9312,7 @@ struct ContentView: View {
 #endif
             }
         }
+        registerPaneResizeHandlers(&registry) { observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow }
 
         for issue in cmuxConfigStore.configurationIssues {
             let captured = issue
@@ -16059,6 +16054,8 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
+                SidebarCloudWorkspaceBadgeView(label: workspaceSnapshot.cloudWorkspaceLabel, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
+
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
@@ -16099,8 +16096,6 @@ struct TabItemView: View, Equatable {
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
                 }
-
-                SidebarCloudWorkspaceBadgeView(label: workspaceSnapshot.cloudWorkspaceLabel, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
 
                 if trailingStatusActive || canCloseWorkspace {
                     SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)

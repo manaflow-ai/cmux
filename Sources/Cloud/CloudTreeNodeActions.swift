@@ -38,6 +38,7 @@ struct CloudTreeNodeActions {
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
+    /// keep-terminals close stays CLI-only (`cmux vm workspace close`).
     let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
@@ -45,16 +46,15 @@ struct CloudTreeNodeActions {
     /// caller selected the machine pool, so the explicit compatibility operation
     /// renames all views.
     let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
-    /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
-    /// Local forwarding addresses are copied explicitly from the Ports table.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
     var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
 
@@ -202,7 +202,6 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
-                guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
@@ -210,7 +209,7 @@ struct CloudTreeNodeActions {
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: capturedDestination,
+                        into: try destination(.tab),
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)
@@ -220,13 +219,12 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
-                    guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let (projection, _) = try await catalog.project(
                             resource.id,
-                            into: capturedDestination,
+                            into: try destination(.tab),
                             focus: true,
                             reuseExisting: true,
                             remoteView: Self.uniqueRemoteView(resource)
@@ -370,6 +368,7 @@ struct CloudTreeNodeActions {
             },
             refresh: refresh
         )
+        actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
         let navigation = CloudTreeTerminalNavigationCoordinator(
@@ -460,6 +459,7 @@ struct CloudTreeNodeActions {
         if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         return (workspace, terminal, opened)
     }
+
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
     /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
     /// then close the workspace. Re-syncs and re-enumerates AT operation time — the

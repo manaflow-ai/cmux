@@ -597,7 +597,7 @@ struct MachinesPanelView: View {
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
-            expansionStore: expansionStore,
+            expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             source: treeSource,
             devicesSection: CloudTreeDevicesSection(

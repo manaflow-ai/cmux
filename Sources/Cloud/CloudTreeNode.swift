@@ -71,7 +71,8 @@ final class CloudTreeNode: NSObject {
 
     let id: String
     private(set) var kind: Kind
-    private(set) var children: [CloudTreeNode]
+    var children: [CloudTreeNode]
+    var isPinned = false
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
@@ -84,7 +85,13 @@ final class CloudTreeNode: NSObject {
 
     var isExpandable: Bool { !children.isEmpty }
     var contentSnapshot: CloudTreeNodeContentSnapshot {
-        .init(id: id, kind: kind, explicitDragGroup: explicitDragGroup)
+        .init(
+            id: id,
+            kind: kind,
+            explicitDragGroup: explicitDragGroup,
+            isPinned: isPinned,
+            hasUnreadAttention: hasUnreadAttention
+        )
     }
     /// The case of `kind` without its payload: what decides row height, menus,
     /// expandability and drag-ability. Two trees with equal structure signatures
@@ -118,6 +125,7 @@ final class CloudTreeNode: NSObject {
     /// structure signature matched first.
     func adopt(from other: CloudTreeNode) {
         kind = other.kind
+        isPinned = other.isPinned
         explicitDragGroup = other.explicitDragGroup
         for (child, replacement) in zip(children, other.children) {
             child.adopt(from: replacement)
@@ -219,9 +227,9 @@ final class CloudTreeNode: NSObject {
         return dragResource.map { SurfaceResourceGroup(single: $0) }
     }
 
-    /// Whether this row may start a native drag. Only terminals and displays
-    /// leave the tree by drag; workspaces, browsers, ports, machines, and
-    /// headers do not (their `dragGroup` still feeds open verbs and menus).
+    /// Whether a native drag may export a pane projection. Only terminals and
+    /// displays leave the tree; `canOrganize` also admits internal-only row
+    /// drags without granting an external projection capability.
     var isDragSource: Bool {
         switch kind {
         case .terminal, .display: return true
@@ -1217,18 +1225,4 @@ enum CloudTreeNodeBuilder {
         )
     }
 
-    /// Depth-first display order, including collapsed descendants.
-    static func flattened(_ nodes: [CloudTreeNode]) -> [CloudTreeNode] {
-        nodes.flatMap { [$0] + flattened($0.children) }
-    }
-
-    /// Row identities, order and kinds — a change here needs `reloadData`.
-    static func structureSignature(_ nodes: [CloudTreeNode]) -> [String] {
-        flattened(nodes).map { "\($0.id)|\($0.structureTag)|\($0.children.count)" }
-    }
-
-    /// Typed content includes action payloads as well as displayed values.
-    static func contentSignature(_ nodes: [CloudTreeNode]) -> [CloudTreeNodeContentSnapshot] {
-        flattened(nodes).map(\.contentSnapshot)
-    }
 }

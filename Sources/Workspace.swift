@@ -2592,8 +2592,6 @@ extension Workspace {
     }
 
 }
-
-
 /// Lifted to `CmuxBrowser.ClosedBrowserPanelRestoreSnapshot` (Workspace
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
@@ -3120,6 +3118,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             notifyPresentedCurrentDirectoryChanged(from: nil, force: true)
         }
     }
+    /// The workspace-owned state for the latest failed cloud terminal creation request.
+    @MainActor let cloudPaneCreationFailureStore = CloudPaneCreationFailureStore()
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     // Unsuppressed controller truth retained while live terminal liveness
@@ -9526,7 +9526,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
             showsNotificationBadge: false,
-            isLoading: true,
+            isLoading: false,
             isPinned: false
         )
         publishCmuxSurfaceCreated(pair.key, paneId: paneId, kind: SurfaceKind.terminal.rawValue, origin: "cloud_vm_ready", focused: focus)
@@ -9546,9 +9546,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
-        beginCloudTerminalStartupLoading(panel: replacementPanel, tabID: tabId)
         return replacementPanel
     }
+
     private func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
@@ -13152,7 +13152,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 }
 
 // MARK: - BonsplitDelegate
-
 // MARK: - PaneTreeHosting (legacy @Published observer hooks)
 
 extension Workspace: PaneTreeHosting {
