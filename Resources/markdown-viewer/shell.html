@@ -38,6 +38,30 @@ body {
   max-width: 980px;
   margin: 0 auto;
 }
+/* Rich edit mode keeps the GitHub reading layout while making the rendered
+   blocks the editing surface. The caret is native WebKit, and locked blocks
+   keep their source representation so serialization remains lossless. */
+#content[contenteditable="true"] {
+  outline: none;
+  caret-color: var(--fgColor-accent);
+}
+#content[contenteditable="true"]:focus {
+  outline: none;
+}
+#content[contenteditable="true"] .cmux-editor-locked {
+  user-select: none;
+  cursor: default;
+  opacity: 0.92;
+}
+#content[contenteditable="true"] .cmux-editor-locked::before {
+  content: "";
+}
+#content[contenteditable="true"] a {
+  cursor: text;
+}
+#content[contenteditable="true"] .cmux-code-copy-button {
+  display: none;
+}
 /* Fenced code blocks: github-markdown-css already styles `pre`; we
    add highlight.js's hljs class so the syntax theme applies. */
 .markdown-body pre code.hljs {
@@ -386,6 +410,239 @@ html { scroll-behavior: smooth; }
     };
   }
 
+  var currentFrontmatter = '';
+  var markdownEditorEnabled = false;
+  var markdownEditSerializationPending = false;
+  var lastSerializedEdit = '';
+
+  function decodeEditorSource(value) {
+    try { return decodeURIComponent(String(value || '')); }
+    catch (e) { return String(value || ''); }
+  }
+
+  function longestFence(value, character) {
+    var match = String(value || '').match(new RegExp(character + '+', 'g')) || [];
+    var longest = 0;
+    match.forEach(function(run) { longest = Math.max(longest, run.length); });
+    return Math.max(3, longest + 1);
+  }
+
+  function serializeInlineCode(value) {
+    var raw = String(value || '').replace(/\r?\n/g, ' ');
+    var fenceLength = longestFence(raw, '`');
+    var fence = new Array(fenceLength + 1).join('`');
+    var needsPadding = raw.charAt(0) === '`' || raw.charAt(raw.length - 1) === '`';
+    return fence + (needsPadding ? ' ' : '') + raw + (needsPadding ? ' ' : '') + fence;
+  }
+
+  function serializeInline(node) {
+    if (!node) { return ''; }
+    if (node.nodeType === Node.TEXT_NODE) {
+      return String(node.nodeValue || '').replace(/\u00a0/g, ' ');
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) { return ''; }
+    if (node.classList && node.classList.contains('cmux-code-copy-button')) { return ''; }
+    if (node.classList && node.classList.contains('cmux-remote-image-placeholder')) { return ''; }
+    var tag = node.tagName.toLowerCase();
+    if (tag === 'br') { return '\\n'; }
+    if (tag === 'img') {
+      var src = node.getAttribute('data-cmux-original-src') || node.getAttribute('src') || '';
+      if (!src && node.getAttribute('data-cmux-remote-src')) {
+        src = unescapeDataAttribute(node.getAttribute('data-cmux-remote-src'));
+      }
+      if (src.indexOf('cmux-') === 0) { src = ''; }
+      var alt = node.getAttribute('alt') || '';
+      return src ? '![' + alt.replace(/([\[\]])/g, '\\$1') + '](' + src + ')' : '';
+    }
+    var children = Array.prototype.map.call(node.childNodes || [], serializeInline).join('');
+    if (tag === 'a') {
+      var href = node.getAttribute('href') || '';
+      return href ? '[' + children + '](' + href + ')' : children;
+    }
+    if (tag === 'code') { return serializeInlineCode(node.textContent || ''); }
+    if (tag === 'strong' || tag === 'b') { return children ? '**' + children + '**' : ''; }
+    if (tag === 'em' || tag === 'i') { return children ? '*' + children + '*' : ''; }
+    if (tag === 'del' || tag === 's') { return children ? '~~' + children + '~~' : ''; }
+    return children;
+  }
+
+  function serializeCodeBlock(pre) {
+    var code = pre.querySelector('code');
+    var raw = code ? code.textContent || '' : pre.textContent || '';
+    raw = raw.replace(/^\n/, '').replace(/\n$/, '');
+    var language = '';
+    if (code) {
+      var languageClass = Array.prototype.find.call(code.classList || [], function(name) {
+        return name.indexOf('language-') === 0;
+      });
+      language = languageClass ? languageClass.slice('language-'.length) : '';
+    }
+    var fenceLength = longestFence(raw, '`');
+    var fence = new Array(fenceLength + 1).join('`');
+    return fence + language + '\n' + raw + '\n' + fence;
+  }
+
+  function serializeList(list, depth) {
+    var ordered = list.tagName.toLowerCase() === 'ol';
+    var lines = [];
+    Array.prototype.forEach.call(list.children || [], function(item, index) {
+      if (item.tagName.toLowerCase() !== 'li') { return; }
+      var nested = [];
+      var inline = [];
+      Array.prototype.forEach.call(item.childNodes || [], function(child) {
+        if (child.nodeType === Node.ELEMENT_NODE &&
+            (child.tagName.toLowerCase() === 'ul' || child.tagName.toLowerCase() === 'ol')) {
+          nested.push(child);
+        } else if (child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === 'p') {
+          inline.push(serializeInline(child));
+        } else {
+          inline.push(serializeInline(child));
+        }
+      });
+      var checkbox = item.querySelector(':scope > input[type="checkbox"]');
+      var prefix = ordered ? (index + 1) + '. ' : '- ';
+      var body = inline.join('').replace(/^\s+|\s+$/g, '');
+      if (checkbox) { body = '[' + (checkbox.checked ? 'x' : ' ') + '] ' + body.replace(/^\[[ xX]\]\s*/, ''); }
+      var indent = new Array((depth || 0) * 2 + 1).join(' ');
+      lines.push(indent + prefix + body);
+      nested.forEach(function(child) {
+        lines.push(serializeList(child, (depth || 0) + 1));
+      });
+    });
+    return lines.join('\n');
+  }
+
+  function serializeTable(table) {
+    var rows = Array.prototype.map.call(table.querySelectorAll('tr'), function(row) {
+      var cells = Array.prototype.map.call(row.children || [], function(cell) {
+        return serializeInline(cell).replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim();
+      });
+      return '| ' + cells.join(' | ') + ' |';
+    });
+    if (rows.length < 1) { return ''; }
+    var count = table.querySelector('tr').children.length;
+    rows.splice(1, 0, '| ' + new Array(count + 1).join('--- | '));
+    return rows.join('\n');
+  }
+
+  function serializeBlock(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) { return ''; }
+    if (node.classList && node.classList.contains('cmux-editor-locked')) {
+      var source = decodeEditorSource(node.getAttribute('data-cmux-source'));
+      if (node.classList.contains('cmux-frontmatter')) { return ''; }
+      var mode = node.getAttribute('data-vega-mode') || 'mermaid';
+      return '```' + mode + '\n' + source.replace(/\n$/, '') + '\n```';
+    }
+    if (node.classList && node.classList.contains('cmux-code-block')) {
+      var wrappedPre = node.querySelector('pre');
+      return wrappedPre ? serializeCodeBlock(wrappedPre) : '';
+    }
+    var tag = node.tagName.toLowerCase();
+    if (/^h[1-6]$/.test(tag)) {
+      return new Array(Number(tag.slice(1)) + 1).join('#') + ' ' + serializeInline(node).trim();
+    }
+    if (tag === 'p') { return serializeInline(node).trim(); }
+    if (tag === 'blockquote') {
+      return serializeBlocks(node).split('\n').map(function(line) { return '> ' + line; }).join('\n');
+    }
+    if (tag === 'ul' || tag === 'ol') { return serializeList(node, 0); }
+    if (tag === 'pre') { return serializeCodeBlock(node); }
+    if (tag === 'table') { return serializeTable(node); }
+    if (tag === 'hr') { return '---'; }
+    if (tag === 'div' || tag === 'section' || tag === 'article') { return serializeBlocks(node); }
+    return serializeInline(node).trim();
+  }
+
+  function serializeBlocks(root) {
+    var blocks = [];
+    Array.prototype.forEach.call(root.children || [], function(child) {
+      var value = serializeBlock(child).replace(/^\n+|\n+$/g, '');
+      if (value) { blocks.push(value); }
+    });
+    return blocks.join('\n\n');
+  }
+
+  function serializeMarkdownDocument() {
+    var body = serializeBlocks(contentEl);
+    var source = body ? body + '\n' : '';
+    if (currentFrontmatter) {
+      source = '---\n' + currentFrontmatter.replace(/\n+$/, '') + '\n---\n\n' + source;
+    }
+    return source;
+  }
+
+  function configureEditorLockedBlocks() {
+    contentEl.querySelectorAll('.cmux-frontmatter, .cmux-mermaid, .cmux-vega').forEach(function(el) {
+      if (!el.hasAttribute('data-cmux-source')) { return; }
+      el.setAttribute('contenteditable', 'false');
+      el.classList.add('cmux-editor-locked');
+    });
+  }
+
+  function scheduleMarkdownEditSerialization() {
+    if (!markdownEditorEnabled || markdownEditSerializationPending) { return; }
+    markdownEditSerializationPending = true;
+    window.requestAnimationFrame(function() {
+      markdownEditSerializationPending = false;
+      var markdown = serializeMarkdownDocument();
+      if (markdown === lastSerializedEdit) { return; }
+      lastSerializedEdit = markdown;
+      try {
+        window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'editMarkdown', markdown: markdown });
+      } catch (e) { /* no native bridge in previews */ }
+    });
+  }
+
+  window.__cmuxSetMarkdownEditing = function(enabled) {
+    markdownEditorEnabled = !!enabled;
+    contentEl.setAttribute('contenteditable', markdownEditorEnabled ? 'true' : 'false');
+    contentEl.setAttribute('role', markdownEditorEnabled ? 'textbox' : 'article');
+    contentEl.setAttribute('aria-multiline', markdownEditorEnabled ? 'true' : 'false');
+    if (markdownEditorEnabled) {
+      contentEl.spellcheck = false;
+      configureEditorLockedBlocks();
+      lastSerializedEdit = serializeMarkdownDocument();
+    }
+  };
+
+  window.__cmuxFormatMarkdown = function(action) {
+    if (!markdownEditorEnabled) { return; }
+    contentEl.focus();
+    var command = action;
+    var value = null;
+    if (action === 'heading1' || action === 'heading2') {
+      command = 'formatBlock';
+      value = action === 'heading1' ? 'h1' : 'h2';
+    } else if (action === 'quote') {
+      command = 'formatBlock';
+      value = 'blockquote';
+    } else if (action === 'codeBlock') {
+      command = 'formatBlock';
+      value = 'pre';
+    } else if (action === 'bulletList') {
+      command = 'insertUnorderedList';
+    } else if (action === 'numberedList') {
+      command = 'insertOrderedList';
+    } else if (action === 'strikethrough') {
+      command = 'strikeThrough';
+    }
+    try { document.execCommand(command, false, value); } catch (e) { /* WebKit command unavailable */ }
+    configureEditorLockedBlocks();
+    scheduleMarkdownEditSerialization();
+  };
+
+  contentEl.addEventListener('input', scheduleMarkdownEditSerialization);
+  contentEl.addEventListener('keydown', function(ev) {
+    if (!markdownEditorEnabled || !ev.metaKey || ev.altKey) { return; }
+    var action = null;
+    if (ev.key.toLowerCase() === 'b') { action = 'bold'; }
+    if (ev.key.toLowerCase() === 'i') { action = 'italic'; }
+    if (ev.key.toLowerCase() === 'z') { action = ev.shiftKey ? 'redo' : 'undo'; }
+    if (!action) { return; }
+    ev.preventDefault();
+    window.__cmuxFormatMarkdown(action);
+  });
+
   function renderFrontmatter(frontmatter) {
     var raw = String(frontmatter || '');
     if (!raw.trim()) { return ''; }
@@ -399,7 +656,7 @@ html { scroll-behavior: smooth; }
     } catch (e) {
       highlighted = escapeHtml(raw);
     }
-    return '<details class="cmux-frontmatter">'
+    return '<details class="cmux-frontmatter" data-cmux-source="' + escapeAttribute(encodeURIComponent(raw)) + '">'
       + '<summary><span>Show frontmatter</span></summary>'
       + '<pre><code class="hljs language-yaml">' + highlighted + '</code></pre>'
       + '</details>';
@@ -944,7 +1201,16 @@ html { scroll-behavior: smooth; }
       Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
         var name = String(attr.name || '').toLowerCase();
         if (name.indexOf('data-cmux-') === 0) {
+          if (name === 'data-cmux-source' &&
+              (el.classList.contains('cmux-mermaid') ||
+               el.classList.contains('cmux-vega') ||
+               el.classList.contains('cmux-frontmatter'))) {
+            return;
+          }
           el.removeAttribute(attr.name);
+          return;
+        }
+        if (name === 'data-vega-mode' && el.classList.contains('cmux-vega')) {
           return;
         }
         if (
@@ -1100,14 +1366,14 @@ html { scroll-behavior: smooth; }
 
         // Mermaid: ```mermaid ... ``` -> div the lib will swap with SVG.
         if (langName === 'mermaid') {
-          return '<div class="cmux-mermaid"><pre class="cmux-source">'
+          return '<div class="cmux-mermaid" data-cmux-source="' + escapeAttribute(encodeURIComponent(raw)) + '"><pre class="cmux-source">'
             + escapeHtml(raw)
             + '</pre></div>\n';
         }
         // Vega / Vega-Lite: ```vega-lite ... ``` (also vega, vegalite).
         if (langName === 'vega' || langName === 'vega-lite' || langName === 'vegalite') {
           var vegaMode = (langName === 'vega') ? 'vega' : 'vega-lite';
-          return '<div class="cmux-vega" data-vega-mode="' + vegaMode + '">'
+          return '<div class="cmux-vega" data-vega-mode="' + vegaMode + '" data-cmux-source="' + escapeAttribute(encodeURIComponent(raw)) + '">'
             + '<pre class="cmux-source">' + escapeHtml(raw) + '</pre></div>\n';
         }
 
@@ -1755,6 +2021,7 @@ html { scroll-behavior: smooth; }
     if (el) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('click', function(ev) {
+    if (markdownEditorEnabled) { return; }
     if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
       if (ev.target.closest('button')) { return; }
       ev.preventDefault();
@@ -1779,6 +2046,8 @@ html { scroll-behavior: smooth; }
     try {
       headingSlugCounts = Object.create(null);
       var documentParts = extractFrontmatter(md || '');
+      currentFrontmatter = documentParts.frontmatter || '';
+      lastSerializedEdit = String(md || '');
       var html = renderFrontmatter(documentParts.frontmatter)
         + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
       var didReplaceContent = contentEl.innerHTML !== html;
@@ -1788,6 +2057,7 @@ html { scroll-behavior: smooth; }
       }
       rewriteLocalImageSources();
       rewriteRemoteImageSources();
+      configureEditorLockedBlocks();
       postProcessSpecialBlocks();
       if (didReplaceContent) {
         restoreMarkdownScrollState(scrollState);
@@ -1844,7 +2114,11 @@ html { scroll-behavior: smooth; }
         if (name.indexOf('data-cmux-') === 0) {
           el.removeAttribute(attr.name);
         }
+        if (name === 'contenteditable' || name === 'role' || name === 'aria-multiline') {
+          el.removeAttribute(attr.name);
+        }
       });
+      el.classList.remove('cmux-editor-locked');
       if (String(el.getAttribute('title') || '').indexOf('Open markdown file: ') === 0) {
         el.removeAttribute('title');
       }

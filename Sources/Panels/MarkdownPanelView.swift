@@ -3,8 +3,8 @@ import CmuxFoundation
 import SwiftUI
 import WebKit
 
-/// SwiftUI view that renders a MarkdownPanel's content in a WKWebView using
-/// marked.js + github-markdown-css + highlight.js.
+/// SwiftUI view that renders and edits a MarkdownPanel's content in a WKWebView
+/// using marked.js + github-markdown-css + highlight.js.
 ///
 /// We render through a web view (rather than the previous MarkdownUI path)
 /// so that:
@@ -15,6 +15,8 @@ import WebKit
 ///   - Rendering uses GitHub's actual markdown CSS, so tables, task lists,
 ///     nested lists, blockquotes, and code blocks look identical to what
 ///     users see on github.com.
+///   - The same DOM can become a rich editor without rebuilding the document,
+///     so caret, selection, and scroll state survive mode changes.
 ///   - We can copy the rendered HTML straight from the same source the user
 ///     is reading.
 struct MarkdownPanelView: View {
@@ -77,23 +79,27 @@ struct MarkdownPanelView: View {
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
-                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
+                isVisibleInUI: isVisibleInUI && panel.displayMode != .text,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
                 fontSize: panel.fontSize,
                 fontFamily: panel.fontFamily,
                 maxContentWidth: panel.maxContentWidth,
+                isEditing: panel.displayMode == .edit,
                 session: panel.rendererSession,
                 onRequestPanelFocus: onRequestPanelFocus,
+                onMarkdownEdited: { [weak panel] markdown in
+                    panel?.updateInlineMarkdown(markdown)
+                },
                 onViewAttachedToWindow: { [weak panel] in
                     panel?.replayPendingPreviewFocusAfterWindowAttach()
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .opacity(panel.displayMode == .preview ? 1 : 0)
-            .allowsHitTesting(panel.displayMode == .preview)
-            .accessibilityHidden(panel.displayMode != .preview)
+            .opacity(panel.displayMode == .text ? 0 : 1)
+            .allowsHitTesting(panel.displayMode != .text)
+            .accessibilityHidden(panel.displayMode == .text)
 
             if panel.displayMode == .text {
                 FilePreviewTextEditor(
@@ -132,7 +138,7 @@ struct MarkdownPanelView: View {
             filePath: panel.filePath,
             foregroundColor: themeForegroundColor
         ) {
-            if panel.displayMode == .text {
+            if panel.displayMode == .text || panel.displayMode == .edit {
                 PanelHeaderIconButton(
                     systemName: "arrow.counterclockwise",
                     label: String(localized: "markdown.toolbar.revert", defaultValue: "Revert"),
@@ -147,13 +153,18 @@ struct MarkdownPanelView: View {
                     action: { panel.saveTextContent() }
                 )
             }
-            if panel.displayMode == .preview {
+            if panel.displayMode == .preview || panel.displayMode == .edit {
                 MarkdownTypographyControl(panel: panel)
                 PanelHeaderIconButton(
                     systemName: "arrow.clockwise",
                     label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
                     action: { panel.reloadFromDisk() }
                 )
+            }
+            if panel.displayMode == .edit {
+                MarkdownFormattingToolbar { action in
+                    panel.rendererSession.format(action.rawValue)
+                }
             }
             markdownModeButton
             MarkdownPanelToolbar(
@@ -171,6 +182,17 @@ struct MarkdownPanelView: View {
     private var markdownModeButton: some View {
         switch panel.displayMode {
         case .preview:
+            PanelHeaderIconButton(
+                systemName: "pencil.and.outline",
+                label: String(localized: "markdown.mode.editInline", defaultValue: "Edit inline"),
+                action: { panel.setDisplayMode(.edit) }
+            )
+        case .edit:
+            PanelHeaderIconButton(
+                systemName: "eye",
+                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
+                action: { panel.setDisplayMode(.preview) }
+            )
             PanelHeaderIconButton(
                 systemName: "doc.plaintext",
                 label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
@@ -237,7 +259,15 @@ struct MarkdownPanelView: View {
 
     private func copyAsHTML() {
         Task { @MainActor in
-            guard let html = await panel.rendererSession.renderedHTML(markdown: panel.content) else { return }
+            let html: String?
+            if panel.displayMode == .edit {
+                // The DOM already contains the user's latest rich edit. Do
+                // not re-render it just to copy, or the caret would jump.
+                html = await panel.rendererSession.renderedHTML()
+            } else {
+                html = await panel.rendererSession.renderedHTML(markdown: panel.content)
+            }
+            guard let html else { return }
             let text = await panel.rendererSession.renderedText() ?? panel.content
             // public.html for rich-text-aware targets (Notes, Mail, Pages, ...)
             // and a plain-text fallback so plain editors still receive content.

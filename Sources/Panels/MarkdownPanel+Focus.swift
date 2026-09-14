@@ -5,8 +5,8 @@ import Foundation
 extension MarkdownPanel {
     // MARK: - Find in preview focus
 
-    /// Shows (or refocuses) the preview find bar. Preview-only: text mode uses
-    /// the NSTextView's native find panel via the responder chain.
+    /// Shows (or refocuses) the preview find bar. Text and rich edit modes use
+    /// their own editing paths via the responder chain.
     func startFind() {
         guard displayMode == .preview else { return }
         let created = searchState == nil

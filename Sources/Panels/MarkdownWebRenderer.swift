@@ -21,8 +21,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Whether the rendered document accepts rich inline edits.
+    let isEditing: Bool
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
+    /// Receives source snapshots produced by the rich editor.
+    let onMarkdownEdited: (String) -> Void
     /// Called after the renderer view is attached to a window. A panel can
     /// request focus before SwiftUI mounts its WebKit view, so the panel uses
     /// this lifecycle signal to complete that request without polling.
@@ -53,6 +57,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            context.coordinator.onMarkdownEdited = onMarkdownEdited
+            context.coordinator.setEditing(isEditing)
             return webView
         }
 
@@ -100,6 +106,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.onMarkdownEdited = onMarkdownEdited
+        context.coordinator.setEditing(isEditing)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -115,6 +123,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.onMarkdownEdited = onMarkdownEdited
+        context.coordinator.setEditing(isEditing)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -130,6 +140,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
+        coordinator.onMarkdownEdited = nil
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -157,6 +168,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         /// load included). Re-rendering replaces the content DOM, so an active
         /// find-in-page search must re-run to restore its highlights.
         var onMarkdownRendered: (() -> Void)?
+        /// Fired after a rich edit serializes the DOM back to Markdown.
+        var onMarkdownEdited: ((String) -> Void)?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -167,6 +180,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        private var isEditing = false
+        private var lastEditedMarkdown: String?
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -270,6 +285,29 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
+        /// Toggles rich editing on the existing document without rebuilding
+        /// the DOM, which preserves the caret, selection, and scroll position.
+        func setEditing(_ editing: Bool) {
+            isEditing = editing
+            guard let webView else { return }
+            let value = editing ? "true" : "false"
+            webView.evaluateJavaScript(
+                "window.__cmuxSetMarkdownEditing && window.__cmuxSetMarkdownEditing(\(value));",
+                completionHandler: nil
+            )
+        }
+
+        /// Applies one formatting transaction to the current rich selection.
+        func format(_ action: String) {
+            guard isEditing, let webView,
+                  let data = try? JSONSerialization.data(withJSONObject: [action]),
+                  let literal = String(data: data, encoding: .utf8) else { return }
+            webView.evaluateJavaScript(
+                "window.__cmuxFormatMarkdown && window.__cmuxFormatMarkdown(\(literal)[0]);",
+                completionHandler: nil
+            )
+        }
+
         func close() {
             if let webView {
                 webView.stopLoading()
@@ -288,6 +326,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             shellWasHealthyWhenDetached = false
             cancelImageLoads()
             requestedLibs.removeAll()
+            onMarkdownEdited = nil
+            lastEditedMarkdown = nil
         }
 
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
@@ -297,6 +337,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.removeAll()
             isLoaded = false
             isShellLoading = true
+            lastEditedMarkdown = nil
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
@@ -323,7 +364,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 // slow to fire.
                 if isLoaded {
                     applyTheme(theme)
-                    if !contentChanged {
+                    if !contentChanged && !isEditing {
                         pushMarkdown(lastMarkdown ?? pendingMarkdown)
                     }
                 }
@@ -332,6 +373,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             if contentChanged {
                 webContentProcessRecoveryAttempts = 0
                 lastMarkdown = markdown
+                // The rich editor already mutated this DOM. Re-rendering the
+                // same snapshot would destroy the caret and selection on every
+                // keystroke, so acknowledge the SwiftUI update in place.
+                if isEditing, markdown == lastEditedMarkdown {
+                    lastEditedMarkdown = nil
+                    return
+                }
                 if isLoaded {
                     pushMarkdown(markdown)
                 } else if shellNeedsReload {
@@ -490,6 +538,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     if let resolved = resolvedMarkdownFilePath(rawPath) {
                         openMarkdownFile(resolved)
                     }
+                case "editMarkdown":
+                    guard isEditing, let markdown = body["markdown"] as? String else { return }
+                    lastEditedMarkdown = markdown
+                    onMarkdownEdited?(markdown)
                 default:
                     break
                 }
@@ -740,6 +792,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             applyFontFamily()
             applyMaxContentWidth()
             applyTheme(lastTheme ?? pendingTheme)
+            setEditing(isEditing)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:
             // a payload can crash after shell load during the render push.
