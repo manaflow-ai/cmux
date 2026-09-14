@@ -226,8 +226,8 @@ import Testing
             )
         }
 
-        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource {
-            creationRequests.continuation.yield(requestID)
+        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+            creationRequests.continuation.yield(request.id)
             return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
         }
 

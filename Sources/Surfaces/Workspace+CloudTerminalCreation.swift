@@ -93,6 +93,7 @@ extension Workspace {
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
+        let request = CloudTerminalCreationRequest(id: requestID)
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
@@ -141,7 +142,7 @@ extension Workspace {
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,
                         splitDirection: direction,
-                        requestID: requestID
+                        request: request
                     )
                 }
                 let workingDirectory = await provider.currentWorkingDirectory(of: resource)
@@ -150,7 +151,7 @@ extension Workspace {
                     cwd: workingDirectory,
                     name: nil,
                     remoteWorkspaceID: remoteWorkspaceID,
-                    requestID: requestID
+                    request: request
                 )
             } catch {
                 endProjectionMutation()

@@ -21,7 +21,8 @@ struct CloudTerminalLayoutCreation: Sendable {
     nonisolated func run(
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
-        idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())"
+        idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())",
+        correlationKey: String? = nil
     ) async throws -> CloudTerminalLayoutCreationResult {
         var attempt = 0
         while true {
@@ -39,6 +40,7 @@ struct CloudTerminalLayoutCreation: Sendable {
             if let splitDirection { arguments += ["split", "--" + splitDirection.rawValue] }
             else { arguments.append("run") }
             arguments += ["--idempotency-key", idempotencyKey]
+            if let correlationKey { arguments += ["--correlation-key", correlationKey] }
             if let cursor = state.cursor { arguments += ["--expected-revision", String(cursor.revision)] }
             if splitDirection == nil { arguments += ["--"] + CloudTuiCommandLine.defaultTerminalCommand }
             do {

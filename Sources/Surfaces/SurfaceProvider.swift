@@ -27,7 +27,7 @@ protocol SurfaceProvider: AnyObject {
     /// session; the local provider spawns a shell) and return its resource.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
     /// Retries of one UI intent carry the same id so a remote mutation can replay its receipt.
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource
     /// Read the live working directory of a terminal's foreground process. Remote
     /// providers use this when a shortcut creates a sibling terminal; providers that
     /// cannot inspect a process return nil and preserve their normal daemon fallback.
@@ -65,7 +65,7 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource {
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
     }
 
