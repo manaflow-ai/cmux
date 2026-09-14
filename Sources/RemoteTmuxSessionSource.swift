@@ -192,6 +192,12 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func queryPaneActivity(paneId: Int, completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void)
     /// Pastes text into a pane.
     @discardableResult func pastePane(paneId: Int, text: String) -> Bool
+
+    /// Replaces the identity pairs published into this session's remote tmux
+    /// environment (issue #833). The source publishes them when the stream is ready
+    /// and again after every reconnect, so a shell inside the session can find its
+    /// local mirror.
+    func setMirrorEnvironment(_ pairs: [String: String])
 }
 
 /// GA: one control connection *is* one session, so the connection is its own source.
