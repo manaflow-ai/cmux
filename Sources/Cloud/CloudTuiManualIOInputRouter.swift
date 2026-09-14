@@ -17,10 +17,6 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private var pendingLines: [Data] = []
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
-    /// Positive IDs are required by the remote mux's one-way response filter.
-    /// This counter is queue-owned and never reuses an ID during this router's
-    /// lifetime, including across reconnects and surface-id changes.
-    private var nextInputRequestID: UInt64 = 1
 
     init(
         surfaceID: UInt64,
@@ -77,11 +73,14 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             switch input {
             case .bytes(let bytes):
                 guard !bytes.isEmpty else { return }
+                // Request id zero is reserved for untracked input frames. The
+                // mirror session uses positive ids for handshake/resize state,
+                // so an input acknowledgement can never be mistaken for one
+                // of its state-machine responses.
                 command = commandBuilder.input(
                     surfaceID: surfaceID,
                     bytes: bytes,
-                    requestID: takeInputRequestID(),
-                    noReply: true
+                    requestID: 0
                 )
             case .namedKey(let name):
                 guard let key = Self.protocolKeyName(for: name) else { return }
@@ -104,13 +103,6 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             pendingLines.append(line)
             pendingByteCount += line.count
         }
-    }
-
-    private func takeInputRequestID() -> UInt64 {
-        defer {
-            nextInputRequestID = nextInputRequestID == UInt64.max ? 1 : nextInputRequestID + 1
-        }
-        return nextInputRequestID
     }
 
     private static func protocolKeyName(for name: String) -> String? {

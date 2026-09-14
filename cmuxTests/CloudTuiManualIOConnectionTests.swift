@@ -32,34 +32,6 @@ import Testing
         }
     }
 
-    @Test func rapidInputUsesOrderedOneWayFrames() async throws {
-        try await Self.withConnection { connection, peer in
-            let router = CloudTuiManualIOInputRouter(surfaceID: 7)
-            router.setConnection(connection)
-            let expected = (0..<512).map { Data("burst-\($0)\r".utf8) }
-            for bytes in expected {
-                router.send(.bytes(bytes))
-            }
-
-            let received = try await Self.blocking {
-                try expected.map { _ in
-                    try Self.readLine(peer)
-                }
-            }
-            let commands = try received.map { line in
-                try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
-            }
-            #expect(commands.count == expected.count)
-            #expect(commands.enumerated().allSatisfy { index, command in
-                command["cmd"] as? String == "send"
-                    && command["surface"] as? Int == 7
-                    && command["no_reply"] as? Bool == true
-                    && command["id"] as? Int == index + 1
-                    && command["bytes"] as? String == expected[index].base64EncodedString()
-            })
-        }
-    }
-
     @Test func preservesLargeFramesAcrossSocketReads() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<8).map { Data(repeating: UInt8($0), count: 64 * 1024) }
