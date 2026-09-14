@@ -2,10 +2,7 @@ import Foundation
 
 /// Durable per-machine Cloud notification delivery and read state.
 struct CloudNotificationSyncState: Codable, Equatable, Sendable {
-    struct PendingAck: Codable, Equatable, Sendable {
-        var key: String
-        var ids: [String]
-    }
+    typealias PendingAck = CloudNotificationSyncPendingAck
 
     static let deliveredLimit = 512
 
