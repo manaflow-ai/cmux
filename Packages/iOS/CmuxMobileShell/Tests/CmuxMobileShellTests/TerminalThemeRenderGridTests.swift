@@ -1,10 +1,9 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 import Observation
-import Synchronization
+import os
 import Testing
 @testable import CmuxMobileShell
-
 @MainActor
 @Test func renderGridThemesStayScopedToTheirSurfaceAndSelection() throws {
     let firstID = MobileTerminalPreview.ID(rawValue: "terminal-light")
@@ -107,6 +106,7 @@ import Testing
     let themeChunk = try #require(await outputIterator.next())
     let themeBytes = try #require(String(data: themeChunk.data, encoding: .utf8))
     #expect(themeChunk.terminalConfigTheme == light)
+    #expect(themeChunk.requiresVerifiedReplay)
     #expect(themeBytes.contains("\u{1B}]11;rgb:f4/f0/df\u{1B}\\"))
     #expect(!themeBytes.contains("\u{1B}[2J"))
 
@@ -487,12 +487,12 @@ import Testing
 }
 
 @MainActor
-@available(macOS 15, *)
 @Test func inactiveSurfaceThemeCacheDoesNotInvalidateSelectedThemeObservation() throws {
     let store = MobileShellComposite.preview()
     let selectedID = MobileTerminalPreview.ID(rawValue: "terminal-selected")
     store.selectedTerminalID = selectedID
-    let invalidations = Mutex(0)
+    // lint:allow lock - the observation callback shares this counter through a sendable closure.
+    let invalidations = OSAllocatedUnfairLock(initialState: 0)
     withObservationTracking {
         _ = store.activeTerminalTheme
         _ = store.activeTerminalConfigTheme

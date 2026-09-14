@@ -31,7 +31,9 @@ struct CloudTuiLegacySnapshotParser: Sendable {
         // An exited terminal also reports `surface:null`, so read the
         // lifecycle first: a zero-view live terminal is worth reprojecting,
         // an exited one is not.
-        if object["lifecycle"] as? String == "exited" { return .exited }
+        if let lifecycle = object["lifecycle"] as? String, lifecycle == "exited" || lifecycle == "tombstoned" {
+            return .exited
+        }
         if object["surface"] is NSNull { return .noPlacement }
         guard let surface = number(from: object["surface"]) else { return .malformed }
         return .surface(surface)

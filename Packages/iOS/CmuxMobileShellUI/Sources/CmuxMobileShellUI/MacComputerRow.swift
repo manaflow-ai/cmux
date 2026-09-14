@@ -176,7 +176,8 @@ struct MacComputerRow: View {
     }
 
     private var showsListAuthWarning: Bool {
-        hasVersionGateWarning || listAuthEntry.isOutdated
+        hasVersionGateWarning
+            || (MobileMacListAuthState.shared.hasSnapshot && listAuthEntry.isOutdated)
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the

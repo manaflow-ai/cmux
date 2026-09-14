@@ -65,7 +65,7 @@ download_url() { # <url> <destination>
     if curl --proto '=https' --tlsv1.2 --fail --show-error --location \
       --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
       --max-time "$DOWNLOAD_MAX_TIME" \
-      --retry 1 --retry-delay 1 --retry-max-time 15 --retry-all-errors \
+      --retry 1 --retry-delay 1 --retry-max-time 15 --retry-all-errors --retry-connrefused \
       -o "$temp" \
       "$url"; then
       mv -f "$temp" "$destination"

@@ -86,7 +86,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    static func mountSidebar(workspaceCount: Int, includeGroups: Bool = true) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -129,7 +129,7 @@ final class SidebarLazyLayoutScaleTests {
         // group-header rows — assembled by sidebarWorkspaceGroupRow(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
-        let groupCandidates = Array(tabManager.tabs.prefix(20).map(\.id))
+        let groupCandidates = includeGroups ? Array(tabManager.tabs.prefix(20).map(\.id)) : []
         for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
             let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
             _ = tabManager.createWorkspaceGroup(

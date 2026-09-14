@@ -27,6 +27,8 @@ import {
   type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
   type CmuxRemoteEndpoint,
+  type VmCapabilities,
+  vmCapabilitiesFor,
 } from "./drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 
@@ -68,6 +70,8 @@ export type VmProviderGatewayShape = {
     snapshotId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  /** Driver capabilities. Optional for compatibility with older test doubles. */
+  readonly capabilities?: (provider: ProviderId) => VmCapabilities;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -218,6 +222,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId, options) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId, options)),
+  capabilities: (provider) => vmCapabilitiesFor(provider),
   listSnapshots: (provider, vmId) =>
     providerEffect(provider, "listSnapshots", async () => {
       const impl = getProvider(provider);

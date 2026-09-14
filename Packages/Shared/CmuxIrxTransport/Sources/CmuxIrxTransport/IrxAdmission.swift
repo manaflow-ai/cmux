@@ -59,13 +59,34 @@ public enum IrxAdmission {
         let startedAt = DispatchTime.now()
         let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
         try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
-        let admit = try await withIrxDeadline(deadline, onTimeout: {
-            await connection.close(code: .admissionTimeout, origin: .transport)
-        }) {
-            guard let admit = try await control.reader.readControlFrame(IrxAdmit.self) else {
-                throw IrxConnectionError.closed(await connection.termination())
+        let admit: IrxAdmit?
+        do {
+            admit = try await withIrxDeadline(deadline, onTimeout: {
+                await connection.close(code: .admissionTimeout, origin: .transport)
+            }) {
+                guard let admit = try await control.reader.readControlFrame(IrxAdmit.self) else {
+                    throw IrxConnectionError.closed(await connection.termination())
+                }
+                return admit
             }
-            return admit
+        } catch {
+            // A peer denial can surface as a native QUIC read error before
+            // the stream wrapper returns EOF. Preserve its machine-readable
+            // connection reason for the admission caller.
+            if await connection.isConnectionClosed() {
+                let termination = await connection.termination()
+                journal.record(
+                    "admission", "denied-or-timeout",
+                    ["code": termination.code]
+                )
+                if let code = IrxCloseCode(rawValue: termination.code),
+                    IrxCloseCode.admissionOutcomeCodes.contains(code)
+                {
+                    throw IrxAdmissionDenied(code: code)
+                }
+                throw IrxConnectionError.closed(termination)
+            }
+            throw error
         }
         guard let admit else {
             // A stalled QUIC read can outlive the deadline and ignore task
@@ -80,10 +101,12 @@ public enum IrxAdmission {
                 "admission", "denied-or-timeout",
                 ["code": termination.code]
             )
-            if let code = IrxCloseCode(rawValue: termination.code) {
+            if let code = IrxCloseCode(rawValue: termination.code),
+                IrxCloseCode.admissionOutcomeCodes.contains(code)
+            {
                 throw IrxAdmissionDenied(code: code)
             }
-            throw IrxConnectionError.admissionTimeout
+            throw IrxConnectionError.closed(termination)
         }
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
