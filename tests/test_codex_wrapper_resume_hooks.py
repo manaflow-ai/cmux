@@ -111,7 +111,8 @@ exit 1
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(str(socket_path))
 
-        env = os.environ.copy()
+        # Exercise hook startup independently of the caller's cmux/CUA setup.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["HOME"] = str(tmp / "home")
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
@@ -168,6 +169,7 @@ def assert_session_entrypoint_is_instrumented(
         restore_token=restore_token,
     )
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+    expect(not stderr, f"{label}: unexpected startup stderr: {stderr}", failures)
     expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
            f"{label}: missing injected hook prefix: {real_argv}", failures)
     expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
@@ -180,7 +182,8 @@ def assert_session_entrypoint_is_instrumented(
            f"{label}: wrapper never requested local hook args: {cmux_log}", failures)
     expect(not any("ping" in line for line in cmux_log),
            f"{label}: transient socket health must not decide session instrumentation: {cmux_log}", failures)
-    expect(not any("hooks codex session-start" in line for line in cmux_log),
+    expect(not any("hooks codex session-start" in line or
+                   "hooks enqueue codex session-start" in line for line in cmux_log),
            f"{label}: wrapper must not synthesize SessionStart from argv: {cmux_log}", failures)
     expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
            f"{label}: missing Codex process identity: {observed_env}", failures)
@@ -246,6 +249,16 @@ def test_stale_socket_fresh_launch_is_instrumented(failures: list[str]) -> None:
     )
 
 
+def test_yolo_launch_is_quiet_and_instrumented(failures: list[str]) -> None:
+    for socket_state in ("missing", "stale", "live"):
+        assert_session_entrypoint_is_instrumented(
+            socket_state=socket_state,
+            argv=["--yolo"],
+            label=f"yolo/{socket_state}",
+            failures=failures,
+        )
+
+
 def test_restore_tokens_do_not_gate_instrumentation(failures: list[str]) -> None:
     for token in (
         f"claude:{SESSION_ID}",
@@ -268,6 +281,7 @@ def test_injection_failure_preserves_cmux_context(failures: list[str]) -> None:
         inject_args_available=False,
     )
     expect(code == 0, f"inject-failure: wrapper exited {code}: {stderr}", failures)
+    expect(not stderr, f"inject-failure: unexpected startup stderr: {stderr}", failures)
     expect(real_argv == ["resume"], f"inject-failure: original argv changed: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"inject-failure: injection was never attempted: {cmux_log}", failures)
@@ -297,6 +311,7 @@ def main() -> int:
     test_direct_fork_is_instrumented(failures)
     test_explicit_disable_still_bypasses_hooks(failures)
     test_stale_socket_fresh_launch_is_instrumented(failures)
+    test_yolo_launch_is_quiet_and_instrumented(failures)
     test_restore_tokens_do_not_gate_instrumentation(failures)
     test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
