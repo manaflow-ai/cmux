@@ -513,6 +513,12 @@ export async function transferEncryptedAccount(input: {
     if (!updatedCredential) {
       throw new CodeRouterCredentialRace("credential changed during transfer");
     }
+    // Existing sessions belong to the source team and must not retain access
+    // to an account after it moves. New sessions in the destination team will
+    // establish fresh bindings through the normal placement path.
+    await tx
+      .delete(coderouterSessionAccounts)
+      .where(eq(coderouterSessionAccounts.accountId, input.accountId));
     return true;
   });
 }
