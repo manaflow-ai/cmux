@@ -149,9 +149,8 @@
     "benefits": "تأمين صحي وأسنان ونظر",
     "locationLabel": "الموقع",
     "location": "سان فرانسيسكو",
-    "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Engineer",
-    "applyEmailSubject": "التقديم لوظيفة Founding Engineer في cmux",
-    "applyCta": "إرسال بريد إلكتروني",
+    "applyAriaLabel": "التقديم لوظيفة Founding Engineer",
+    "applyCta": "قدّم الآن",
     "foundingChromiumEngineer": {
       "metaTitle": "وظيفة Founding Chromium Engineer في cmux",
       "metaDescription": "انضم إلى cmux كمهندس Chromium مؤسس لتتولى نسختنا المشتقة من Chromium وتحضر cmux إلى Windows وLinux باستخدام C++ وRust.",
@@ -184,9 +183,8 @@
       "benefits": "تأمين صحي وأسنان ونظر",
       "locationLabel": "الموقع",
       "location": "سان فرانسيسكو",
-      "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Chromium Engineer",
-      "applyEmailSubject": "التقديم لوظيفة Founding Chromium Engineer في cmux",
-      "applyCta": "إرسال بريد إلكتروني"
+      "applyAriaLabel": "التقديم لوظيفة Founding Chromium Engineer",
+      "applyCta": "قدّم الآن"
     },
     "foundingDesigner": {
       "metaTitle": "وظيفة Founding Designer في cmux",
@@ -220,9 +218,8 @@
       "benefits": "تأمين صحي وأسنان ونظر",
       "locationLabel": "الموقع",
       "location": "سان فرانسيسكو",
-      "applyAriaLabel": "التقديم عبر البريد الإلكتروني لوظيفة Founding Designer",
-      "applyEmailSubject": "التقديم لوظيفة Founding Designer في cmux",
-      "applyCta": "إرسال بريد إلكتروني"
+      "applyAriaLabel": "التقديم لوظيفة Founding Designer",
+      "applyCta": "قدّم الآن"
     }
   },
   "home": {

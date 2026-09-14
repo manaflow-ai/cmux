@@ -149,9 +149,8 @@
     "benefits": "ประกันสุขภาพ ทันตกรรม และสายตา",
     "locationLabel": "สถานที่",
     "location": "ซานฟรานซิสโก",
-    "applyAriaLabel": "สมัครงาน Founding Engineer ทางอีเมล",
-    "applyEmailSubject": "สมัครงาน Founding Engineer ที่ cmux",
-    "applyCta": "ส่งอีเมล",
+    "applyAriaLabel": "สมัครงาน Founding Engineer",
+    "applyCta": "สมัคร",
     "foundingChromiumEngineer": {
       "metaTitle": "งาน Founding Chromium Engineer ที่ cmux",
       "metaDescription": "ร่วมงานกับ cmux ในฐานะวิศวกร Chromium ผู้ก่อตั้ง เพื่อดูแล Chromium fork ของเราและพา cmux ไปสู่ Windows และ Linux ด้วย C++ และ Rust",
@@ -184,9 +183,8 @@
       "benefits": "ประกันสุขภาพ ทันตกรรม และสายตา",
       "locationLabel": "สถานที่",
       "location": "ซานฟรานซิสโก",
-      "applyAriaLabel": "สมัครงาน Founding Chromium Engineer ทางอีเมล",
-      "applyEmailSubject": "สมัครงาน Founding Chromium Engineer ที่ cmux",
-      "applyCta": "ส่งอีเมล"
+      "applyAriaLabel": "สมัครงาน Founding Chromium Engineer",
+      "applyCta": "สมัคร"
     },
     "foundingDesigner": {
       "metaTitle": "งาน Founding Designer ที่ cmux",
@@ -220,9 +218,8 @@
       "benefits": "ประกันสุขภาพ ทันตกรรม และสายตา",
       "locationLabel": "สถานที่",
       "location": "ซานฟรานซิสโก",
-      "applyAriaLabel": "สมัครงาน Founding Designer ทางอีเมล",
-      "applyEmailSubject": "สมัครงาน Founding Designer ที่ cmux",
-      "applyCta": "ส่งอีเมล"
+      "applyAriaLabel": "สมัครงาน Founding Designer",
+      "applyCta": "สมัคร"
     }
   },
   "home": {

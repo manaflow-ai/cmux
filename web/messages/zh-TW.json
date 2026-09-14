@@ -149,9 +149,8 @@
     "benefits": "醫療、牙科與視力保險",
     "locationLabel": "地點",
     "location": "舊金山",
-    "applyAriaLabel": "以電子郵件申請 Founding Engineer 職位",
-    "applyEmailSubject": "申請 cmux 創始工程師",
-    "applyCta": "寄送電子郵件",
+    "applyAriaLabel": "申請 Founding Engineer 職位",
+    "applyCta": "申請",
     "foundingChromiumEngineer": {
       "metaTitle": "cmux 創始 Chromium 工程師職缺",
       "metaDescription": "加入 cmux 擔任創始 Chromium 工程師，掌管我們的 Chromium 分支，用 C++ 和 Rust 把 cmux 帶到 Windows 和 Linux。",
@@ -184,9 +183,8 @@
       "benefits": "醫療、牙科與視力保險",
       "locationLabel": "地點",
       "location": "舊金山",
-      "applyAriaLabel": "以電子郵件申請 Founding Chromium Engineer 職位",
-      "applyEmailSubject": "申請 cmux Founding Chromium Engineer",
-      "applyCta": "寄送電子郵件"
+      "applyAriaLabel": "申請 Founding Chromium Engineer 職位",
+      "applyCta": "申請"
     },
     "foundingDesigner": {
       "metaTitle": "cmux 創始設計師職缺",
@@ -220,9 +218,8 @@
       "benefits": "醫療、牙科與視力保險",
       "locationLabel": "地點",
       "location": "舊金山",
-      "applyAriaLabel": "以電子郵件申請 Founding Designer 職位",
-      "applyEmailSubject": "申請 cmux 創始設計師",
-      "applyCta": "寄送電子郵件"
+      "applyAriaLabel": "申請 Founding Designer 職位",
+      "applyCta": "申請"
     }
   },
   "home": {
