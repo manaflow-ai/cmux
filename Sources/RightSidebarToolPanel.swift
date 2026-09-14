@@ -94,7 +94,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if fileExplorerStore.provider is any RemoteFileExplorerProvider {
+        if workspace.isRemoteWorkspace || workspace.cloudVMID != nil {
             let store = fileExplorerStore
             Task { [weak workspace, weak store] in
                 guard let workspace, let store else { return }

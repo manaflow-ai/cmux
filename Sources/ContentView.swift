@@ -2434,7 +2434,7 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if fileExplorerStore.provider is any RemoteFileExplorerProvider {
+        if workspace.isRemoteWorkspace || workspace.cloudVMID != nil {
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
