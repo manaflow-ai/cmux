@@ -174,6 +174,7 @@ import Testing
     }
 
     @Test
+    @MainActor
     func serverSignalRevisionIsParkedWhileActivationHasNoRuntime() {
         let runtime = MobileHostIrohRuntime.shared
         let originalRuntime = runtime.runtime
