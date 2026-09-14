@@ -300,7 +300,7 @@ function SessionSurface({
   const terminalRequestId = useRef<string | undefined>(undefined);
   const [guiModelId, setGuiModelId] = useState(guiModeContext.selectedModelId ?? "gpt-6-astra");
   const [guiReasoningEffort, setGuiReasoningEffort] = useState(
-    guiModeContext.selectedReasoningEffort ?? "extra-high",
+    guiModeContext.selectedReasoningEffort ?? "xhigh",
   );
   useEffect(() => {
     if (!isGuiMode) return;
@@ -732,6 +732,7 @@ function SessionSurface({
     isGuiMode
       ? h(GuiModeModelPicker, {
           context: guiModeContext,
+          disabled: state.selectedProviderId === "claude" && Boolean(state.runningSessionId),
           providerId: state.selectedProviderId,
           modelId: guiModelId,
           reasoningEffort: guiReasoningEffort,
@@ -767,7 +768,11 @@ function SessionSurface({
             className: `codex-action codex-start ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
             type: "button",
             disabled: !canStart,
-            onClick: () => void startProvider(state, dispatch),
+            onClick: () => void startProvider(
+              state,
+              dispatch,
+              isGuiMode ? { modelId: guiModelId, reasoningEffort: guiReasoningEffort } : undefined,
+            ),
           },
           state.context?.copy.start ?? "Start",
         )
@@ -828,9 +833,7 @@ function SessionSurface({
     {
       key: "composer-input",
       ref: composerLayout.inputMeasureRef,
-      className: isSingleLineComposer
-        ? "min-w-0"
-        : "mb-1 flex-grow overflow-y-auto px-3",
+      className: `${isSingleLineComposer ? "min-w-0" : "mb-1 flex-grow overflow-y-auto px-3"}${isGuiMode ? " gui-mode-agent-input-wrapper" : ""}`,
     },
     composerInput,
   );

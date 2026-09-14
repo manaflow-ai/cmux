@@ -2,7 +2,7 @@ import Foundation
 
 /// Supplies provider-aware model choices and the command-line arguments they represent.
 struct GuiModeModelCatalog {
-    static let defaultReasoningEffort = "extra-high"
+    static let defaultReasoningEffort = "xhigh"
 
     static func options(for provider: GuiModeProviderID) -> [GuiModeModelOption] {
         switch provider {
@@ -11,7 +11,7 @@ struct GuiModeModelCatalog {
                 GuiModeModelOption(
                     id: "gpt-6-astra",
                     displayName: "GPT-6 Astra",
-                    reasoningEfforts: ["low", "medium", "high", "extra-high"]
+                    reasoningEfforts: ["low", "medium", "high", "xhigh"]
                 ),
                 GuiModeModelOption(
                     id: "gpt-5.5",

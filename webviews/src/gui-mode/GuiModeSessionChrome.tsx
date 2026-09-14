@@ -77,12 +77,14 @@ export function GuiModeContextStrip({ context }: { context: GuiModeSessionContex
 export function GuiModeModelPicker({
   context,
   providerId,
+  disabled = false,
   modelId,
   reasoningEffort,
   onChange,
 }: {
   context: GuiModeSessionContext;
   providerId: string;
+  disabled?: boolean;
   modelId: string;
   reasoningEffort: string;
   onChange: (modelId: string, reasoningEffort: string) => void;
@@ -91,14 +93,18 @@ export function GuiModeModelPicker({
   const models = (context.models ?? []).filter((model) => model.providerId === providerId);
   const selectedModel = models.find((model) => model.id === modelId) ?? models[0];
   const efforts = selectedModel?.reasoningEfforts ?? ["default"];
-  const effortLabel = reasoningEffort === "extra-high" ? "Extra high" : reasoningEffort;
+  const effortLabel = reasoningEffort === "xhigh" ? "Extra high" : reasoningEffort;
   return h("div", { className: "gui-mode-agent-model-picker" },
     h("button", {
       "aria-expanded": isOpen,
       "aria-haspopup": "menu",
+      "aria-disabled": disabled || undefined,
       "aria-label": `${context.copy?.modelLabel ?? "Model"}: ${selectedModel?.displayName ?? "Default"}, ${effortLabel}`,
       className: "gui-mode-agent-model-trigger",
-      onClick: () => setIsOpen((open) => !open),
+      disabled,
+      onClick: () => {
+        if (!disabled) setIsOpen((open) => !open);
+      },
       type: "button",
     }, "✦", selectedModel?.displayName ?? "Default", h("span", { className: "gui-mode-agent-model-effort" }, effortLabel), "⌄"),
     isOpen
@@ -126,7 +132,7 @@ export function GuiModeModelPicker({
                   setIsOpen(false);
                 },
                 type: "button",
-              }, effort === "extra-high" ? "Extra high" : effort)),
+              }, effort === "xhigh" ? "Extra high" : effort)),
             )
             : null,
         )),

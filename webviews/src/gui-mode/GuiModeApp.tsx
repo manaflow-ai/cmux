@@ -90,7 +90,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
     context.selectedModelId ?? modelsForProvider(context, context.selectedProviderId)[0]?.id ?? "default",
   );
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState(
-    context.selectedReasoningEffort ?? "extra-high",
+    context.selectedReasoningEffort ?? "xhigh",
   );
   const [permissionMode, setPermissionMode] = useState("default");
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
@@ -112,7 +112,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
   const reasoningOptions = selectedModel?.reasoningEfforts ?? ["default"];
   const reasoningEffort = reasoningOptions.includes(selectedReasoningEffort)
     ? selectedReasoningEffort
-    : reasoningOptions.includes("extra-high") ? "extra-high" : reasoningOptions[0] ?? "default";
+    : reasoningOptions.includes("xhigh") ? "xhigh" : reasoningOptions[0] ?? "default";
   const trimmedPrompt = prompt.trim();
   const visibleTaskPrompt = taskPrompt?.trim() ?? "";
   const currentFolderName = context.workingDirectory?.split("/").filter(Boolean).at(-1)
@@ -297,7 +297,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
                         setSelectedProviderId(providerId);
                         const nextModel = modelsForProvider(context, providerId)[0];
                         setSelectedModelId(nextModel?.id ?? "default");
-                        setSelectedReasoningEffort(nextModel?.reasoningEfforts.includes("extra-high") ? "extra-high" : nextModel?.reasoningEfforts[0] ?? "default");
+                        setSelectedReasoningEffort(nextModel?.reasoningEfforts.includes("xhigh") ? "xhigh" : nextModel?.reasoningEfforts[0] ?? "default");
                       },
                     }),
                     h(ModelSelect, {
@@ -309,7 +309,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
                         low: context.copy.reasoningLow ?? "Low",
                         medium: context.copy.reasoningMedium ?? "Medium",
                         high: context.copy.reasoningHigh ?? "High",
-                        "extra-high": context.copy.reasoningExtraHigh ?? "Extra high",
+                        xhigh: context.copy.reasoningExtraHigh ?? "Extra high",
                         default: context.copy.reasoningDefault ?? "Default",
                       },
                       selectedModelId: selectedModel?.id ?? "default",
@@ -490,7 +490,7 @@ function ModelSelect({
             onClick: () => {
               const nextReasoning = model.reasoningEfforts.includes(reasoningEffort)
                 ? reasoningEffort
-                : model.reasoningEfforts.includes("extra-high") ? "extra-high" : model.reasoningEfforts[0] ?? "default";
+                : model.reasoningEfforts.includes("xhigh") ? "xhigh" : model.reasoningEfforts[0] ?? "default";
               onSelectModel(model.id, nextReasoning);
               setIsOpen(false);
             },
@@ -712,7 +712,7 @@ function modelsForProvider(context: GuiModeContext, providerId: string): GuiMode
   if (models.length > 0) return models;
   if (providerId === "codex") {
     return [
-      { id: "gpt-6-astra", displayName: "GPT-6 Astra", providerId, reasoningEfforts: ["low", "medium", "high", "extra-high"] },
+      { id: "gpt-6-astra", displayName: "GPT-6 Astra", providerId, reasoningEfforts: ["low", "medium", "high", "xhigh"] },
       { id: "gpt-5.5", displayName: "GPT-5.5", providerId, reasoningEfforts: ["low", "medium", "high"] },
     ];
   }

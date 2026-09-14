@@ -69,15 +69,15 @@ struct GuiModeTests {
             GuiModeModelCatalog.launchCommand(
                 provider: .codex,
                 modelID: "gpt-6-astra",
-                reasoningEffort: "extra-high",
+                reasoningEffort: "xhigh",
                 permissionMode: "default"
-            ) == "codex -a on-request -s workspace-write --model 'gpt-6-astra' -c 'model_reasoning_effort=extra-high'"
+            ) == "codex -a on-request -s workspace-write --model 'gpt-6-astra' -c 'model_reasoning_effort=xhigh'"
         )
         #expect(
             GuiModeModelCatalog.launchCommand(
                 provider: .codex,
                 modelID: "gpt-6-astra",
-                reasoningEffort: "extra-high",
+                reasoningEffort: "xhigh",
                 permissionMode: "auto-review"
             ).contains("--full-auto")
         )
@@ -85,7 +85,7 @@ struct GuiModeTests {
             GuiModeModelCatalog.launchCommand(
                 provider: .codex,
                 modelID: "gpt-6-astra",
-                reasoningEffort: "extra-high",
+                reasoningEffort: "xhigh",
                 permissionMode: "full-access"
             ).contains("--dangerously-bypass-approvals-and-sandbox")
         )

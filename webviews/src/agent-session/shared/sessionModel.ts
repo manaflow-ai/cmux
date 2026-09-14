@@ -204,17 +204,23 @@ export async function loadInitialData(dispatch: (action: Action) => void): Promi
   }
 }
 
-export async function startProvider(state: SessionState, dispatch: (action: Action) => void): Promise<void> {
+export async function startProvider(
+  state: SessionState,
+  dispatch: (action: Action) => void,
+  options: { modelId?: string; reasoningEffort?: string } = {},
+): Promise<void> {
   if (!canStartProvider(state)) {
     return;
   }
-  await startProviderSnapshot(startProviderSnapshotFromState(state), dispatch);
+  await startProviderSnapshot({ ...startProviderSnapshotFromState(state), ...options }, dispatch);
 }
 
 type StartProviderSnapshot = {
   providerId: ProviderId;
   workingDirectory?: string;
   copy?: AppContext["copy"];
+  modelId?: string;
+  reasoningEffort?: string;
 };
 
 function startProviderSnapshotFromState(state: SessionState): StartProviderSnapshot {
@@ -232,7 +238,9 @@ async function startProviderSnapshot(
   dispatch({ type: "starting" });
   try {
     const reply = await callNative<{ sessionId: string }>("provider.start", {
+      modelId: snapshot.modelId,
       providerId: snapshot.providerId,
+      reasoningEffort: snapshot.reasoningEffort,
       workingDirectory: snapshot.workingDirectory,
     });
     dispatch({ type: "startAccepted", sessionId: reply.sessionId });

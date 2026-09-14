@@ -3,6 +3,15 @@
   background: var(--agent-page-bg);
 }
 
+.gui-mode-agent-shell .gui-mode-agent-input-wrapper {
+  flex-grow: 0;
+  min-height: 0;
+}
+
+.gui-mode-agent-shell .codex-composer-surface {
+  height: auto;
+}
+
 .gui-mode-agent-shell > .agent-thread {
   width: var(--gui-mode-content-width);
   max-width: var(--gui-mode-content-width);

@@ -434,18 +434,21 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
                 return try resolver.resolve(provider)
             }.value
+            let effectivePlan = rendererKind == .guiMode
+                ? plan.applyingGuiModeModel(request.string("modelId"))
+                : plan
             guard !isClosed else {
                 throw AgentSessionBridgeError.invalidRequest
             }
             let session = try await processStore.start(
-                plan: plan,
+                plan: effectivePlan,
                 workingDirectory: request.string("workingDirectory") ?? workingDirectory
             )
             return [
                 "sessionId": session.sessionId,
                 "providerId": provider.rawValue,
-                "executablePath": plan.executableURL.path,
-                "arguments": plan.arguments
+                "executablePath": effectivePlan.executableURL.path,
+                "arguments": effectivePlan.arguments
             ] as [String: Any]
         case "provider.writeLine":
             try await processStore.writeLine(
