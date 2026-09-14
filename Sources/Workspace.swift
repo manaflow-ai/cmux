@@ -1893,9 +1893,11 @@ extension Workspace {
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
+                        // Same rule as the immediate remote resume above: only the trusted
+                        // remote cwd, never the recorded directory as a fallback.
                         restorableAgent.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                     } else {
                         restorableAgent.resumeStartupInput(
