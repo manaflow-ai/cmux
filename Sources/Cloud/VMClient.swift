@@ -391,7 +391,7 @@ struct VMStats: Equatable {
     }
     let state: State
     let sampledAt: Date
-    let resourceSampledAt: Date? = nil
+    var resourceSampledAt: Date? = nil
     let cpus: Int?
     let cpuPercent: Double?
     let loadAverage1m: Double?

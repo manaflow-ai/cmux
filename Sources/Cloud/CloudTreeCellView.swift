@@ -101,7 +101,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
-            // Cloud resources share the name line; keep hover buttons aligned with it.
+            // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
             let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
             buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)

@@ -2,12 +2,13 @@ import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
-/// A machine identity on the leading side and compact CPU/RAM/Disk readings in
-/// the trailing area that previously carried usage metadata.
+/// Machine identity and usage above one compact CPU/RAM/Disk line.
 /// This view receives only an immutable snapshot; the panel owns stats refreshes.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var now: Date = .now
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnification
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
@@ -15,8 +16,8 @@ struct CloudTreeMachineRowContent: View {
                 Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
                         Text(subtitle)
@@ -24,19 +25,24 @@ struct CloudTreeMachineRowContent: View {
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .frame(height: style.machineSubtitleLineHeight)
+                            .frame(height: scaled(style.machineSubtitleLineHeight))
+                    }
+                    if style.showsMachineStats {
+                        CloudTreeMachineResourceView(
+                            metrics: CloudMachineResourcePresentation(machine: machine, now: now),
+                            style: style
+                        )
+                        .frame(height: scaled(style.machineResourceHeight))
                     }
                 }
             }
-            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// The machine name remains flexible while the three labeled readings keep
-    /// their trailing position and scale down before the identity is clipped.
-    @ViewBuilder
+    /// Keeps the original usage summary beside the machine identity.
     private var nameRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
             HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
@@ -45,7 +51,6 @@ struct CloudTreeMachineRowContent: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(0)
                 if machine.isDefault {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9, weight: .semibold))
@@ -61,20 +66,22 @@ struct CloudTreeMachineRowContent: View {
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            if style.showsMachineStats {
-                CloudTreeMachineResourceView(
-                    metrics: CloudMachineResourcePresentation(machine: machine),
-                    style: style
-                )
-                .layoutPriority(1)
+            if let usageLine {
+                Text(usageLine)
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .minimumScaleFactor(0.85)
             }
         }
-        .frame(height: style.machineNameLineHeight)
+        .frame(height: scaled(style.machineNameLineHeight))
     }
 
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
     var accessibilityLabel: String {
-        var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
+        var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
+        if let usageLine { parts.append(usageLine) }
         if machine.isDefault {
             parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
         }
@@ -83,7 +90,7 @@ struct CloudTreeMachineRowContent: View {
 
     /// Expands the row with its sample time, machine details, and optional billing usage.
     var toolTip: String {
-        var lines = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
+        var lines = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
         if let sampledAt = machine.stats?.resourceSampledAt {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
@@ -149,6 +156,10 @@ struct CloudTreeMachineRowContent: View {
         machine.freeAccess == .expired
             ? String(localized: "machines.row.locked", defaultValue: "Locked")
             : nil
+    }
+
+    private func scaled(_ size: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
