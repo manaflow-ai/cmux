@@ -671,7 +671,7 @@ final class CloudTuiManualMirrorSession {
                     guard let self, let connection, self.connection === connection else {
                         throw CloudImagePasteError.unavailable
                     }
-                    return self.inputRouter.sendControl(fields, on: connection, requestID: self.takeRequestID())
+                    return try self.inputRouter.sendControl(fields, on: connection, requestID: self.takeRequestID())
                 }
             }
             resumeSizingIfNeeded()
