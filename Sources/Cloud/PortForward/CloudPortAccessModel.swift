@@ -31,6 +31,7 @@ final class CloudPortAccessModel: Identifiable {
     private var vpnObservation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
+    private var shouldRetryForward = false
 
     init(
         machineID: String,
@@ -94,7 +95,7 @@ final class CloudPortAccessModel: Identifiable {
         tunnelState = state
         guard !prefersForwarding, phase != .stopping else { return }
         if state == .up {
-            if phase == .needsVPN { connectDirect() }
+            if phase == .needsVPN || (!prefersForwarding && phase == .failed) { connectDirect() }
         } else {
             generation += 1
             operation?.cancel()
@@ -110,13 +111,14 @@ final class CloudPortAccessModel: Identifiable {
 
     func retry() {
         guard phase != .closed else { return }
-        if prefersForwarding { forward() } else if tunnelState == .up { connectDirect() }
+        if shouldRetryForward || prefersForwarding { forward() } else if tunnelState == .up { connectDirect() }
     }
 
     /// This is the sole product action that creates a loopback listener. The
     /// provider invokes it automatically for in-app Cloud browser access.
     func forward() {
         guard phase != .closed, phase != .stopping else { return }
+        shouldRetryForward = true
         prefersForwarding = true
         run { [wake, startForward, target] in
             try await wake()
@@ -137,6 +139,7 @@ final class CloudPortAccessModel: Identifiable {
         await pending?.value
         await stopForward()
         guard phase != .closed, generation == token else { return }
+        shouldRetryForward = false
         prefersForwarding = false
         phase = .needsVPN
         if tunnelState == .up { connectDirect() }
@@ -146,6 +149,7 @@ final class CloudPortAccessModel: Identifiable {
         generation += 1
         let pending = operation
         phase = .closed
+        shouldRetryForward = false
         observation?.cancel()
         observation = nil
         vpnObservation?.cancel()
@@ -188,6 +192,10 @@ final class CloudPortAccessModel: Identifiable {
                 self.operation = nil
             } catch {
                 guard let self, !Task.isCancelled, self.generation == token else { return }
+                // A failed userspace forward must leave the system-VPN route
+                // available as a recovery path. Reload still retries the
+                // failed forward through `shouldRetryForward`.
+                self.prefersForwarding = false
                 self.phase = .failed(CloudMachineLink.errorText(error))
                 self.operation = nil
             }

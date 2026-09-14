@@ -108,6 +108,20 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("A failed userspace forward leaves the VPN route available")
+    func failedForwardCanUseVPN() async {
+        let model = makeModel(
+            coordinator: nil,
+            forward: { _ in throw TestForwardError.unavailable }
+        )
+        model.forward()
+        #expect(await wait { model.failureMessage != nil })
+        #expect(!model.prefersForwarding)
+        model.acceptTunnelState(.up)
+        #expect(await wait { model.phase == .direct })
+        await model.retire()
+    }
+
     @Test("A failed load returns to native connection UI")
     func failedLoadShowsControls() async {
         let model = makeModel()
@@ -145,12 +159,15 @@ struct CloudPortRoutePlanTests {
 
     private func makeModel(
         port: Int = 3000,
+        coordinator: CloudTunnelCoordinator? = nil,
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
         stop: @escaping @MainActor () async -> Void = {}
     ) -> CloudPortAccessModel {
-        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: nil, wake: wake, startForward: forward, stopForward: stop)
+        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop)
     }
+
+    private enum TestForwardError: Error { case unavailable }
 
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
