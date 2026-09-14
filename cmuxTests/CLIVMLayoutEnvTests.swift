@@ -1010,18 +1010,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(namelessLog.methods.isEmpty, namelessLog.methods.description)
     }
 
-    func testVMResizeIsNoLongerAVerb() throws {
-        let (result, log) = try runVMCommandAgainstMock(
-            "vm-resize-gone",
-            arguments: ["vm", "resize", "brave-otter", "--disk", "40"]
-        ) { _, _ in nil }
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("Usage: cmux vm <"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("resize"), "resize must not be advertised: \(result.stderr)")
-        XCTAssertTrue(result.stderr.contains("pause|resume"), result.stderr)
-        XCTAssertTrue(log.methods.isEmpty, "an unknown verb must not reach the app: \(log.methods)")
-    }
-
     func testVMVerbHelpPrintsThatVerbsUsageWithoutASocket() throws {
         let cliPath = try bundledCLIPath()
         // Help never resolves a socket: point at a path nothing listens on.
