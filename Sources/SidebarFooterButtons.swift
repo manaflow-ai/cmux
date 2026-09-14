@@ -2,6 +2,7 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CmuxWorkspaces
 import CmuxUpdater
 import CmuxUpdaterUI
