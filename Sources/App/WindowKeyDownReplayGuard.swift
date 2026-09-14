@@ -43,12 +43,41 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
 /// dispatch has fully unwound) is still force-dispatched normally.
 private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
 
+extension NSApplication {
+    /// Routes undo and redo before AppKit can invoke the shared window undo
+    /// manager, whose registrations may belong to a view that was closed.
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        let window = event.window
+            ?? AppDelegate.shared?.shortcutRoutingActiveWindow
+            ?? keyWindow
+            ?? mainWindow
+        return window?.cmuxRouteApplicationUndoRedoCommandEquivalent(event) == true
+    }
+}
+
 extension NSWindow {
+    /// Routes an application undo or redo command through the focused cmux
+    /// surface, keeping AppKit's shared window undo stack out of the path.
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
+
+        let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
+        let webView = firstResponder.flatMap {
+            NSWindow.cmuxOwningWebView(for: $0, in: self, event: event)
+        } ?? firstResponder.flatMap { cmuxOwningUndoableWebView(for: $0) }
+        return cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: terminalView,
+            webView: webView,
+            webKitKeyDownReentry: webView?.browserNativeInputDeliveryOwner.isDispatchActive ?? false
+        )
+    }
+
     func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
         _ event: NSEvent,
         terminalView: GhosttyNSView?,
-        webView: CmuxWebView?,
-        browserWebKitKeyDownReentry: Bool
+        webView: CmuxUndoableWebView?,
+        webKitKeyDownReentry: Bool
     ) -> Bool {
         guard event.cmuxIsUndoRedoCommandEquivalent,
               !cmuxFirstResponderPreservesLocalUndoRedo,
@@ -71,7 +100,7 @@ extension NSWindow {
             return true
         }
         if let webView {
-            if browserWebKitKeyDownReentry {
+            if webKitKeyDownReentry {
 #if DEBUG
                 cmuxDebugLog("  -> undo/redo browser reentry suppressed before AppKit menu")
 #endif
@@ -94,7 +123,10 @@ extension NSWindow {
             // editable AppKit responders and Web Inspector are exempted above.
             return true
         }
-        return false
+        // No cmux surface owns an application-level undo operation here. Do
+        // not expose the shared window stack to an unknown target: it can
+        // contain an edit command whose view was already torn down.
+        return true
     }
 
     private var cmuxFirstResponderPreservesLocalUndoRedo: Bool {
