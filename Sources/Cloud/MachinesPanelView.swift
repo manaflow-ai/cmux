@@ -165,9 +165,14 @@ struct MachinesPanelView: View {
             .accessibilityIdentifier("CloudVPNSetupEntryButton")
         }
         if includesCloud, let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            }
+            MachinesTunnelBanner(
+                banner: banner,
+                backgroundColor: chromeBackgroundColor,
+                openSystemSettings: {
+                    SystemExtensionSettingsLink.open()
+                },
+                onDismiss: {}
+            )
         }
 
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
