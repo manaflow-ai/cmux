@@ -1,10 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { FreestyleApiError } from "freestyle";
+import { ProviderError } from "../services/vms/drivers/types";
 import {
   isProviderIdentityNotFoundError,
   isProviderNotFoundError,
 } from "../services/vms/providerErrors";
 
 describe("provider error classification", () => {
+  test.each([401, 403, 429, 500, 502, 503, 504])("HTTP %s takes precedence over wrapped missing-resource diagnostics", (status) => {
+    const error = new ProviderError("freestyle", "VM not found while reading stats", new FreestyleApiError(
+      status, { code: "INTERNAL", message: "VM not found in upstream cache" },
+    ));
+    expect(isProviderNotFoundError(error)).toBe(false);
+  });
+
+  test("nested structured status takes precedence over a conflicting not-found code", () => {
+    const error = { code: "NOT_FOUND", cause: { response: { status: 502 } } };
+    expect(isProviderNotFoundError(error)).toBe(false);
+    expect(isProviderNotFoundError({ code: "NOT_FOUND" })).toBe(true);
+    expect(isProviderNotFoundError({ cause: { statusCode: 404 } })).toBe(true);
+  });
+
   test("keeps identity deletion errors out of VM not-found classification", () => {
     expect(isProviderNotFoundError(new Error("identity does not exist"))).toBe(false);
     expect(isProviderIdentityNotFoundError(new Error("identity does not exist"))).toBe(true);
