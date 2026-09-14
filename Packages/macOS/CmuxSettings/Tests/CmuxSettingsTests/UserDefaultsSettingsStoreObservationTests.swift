@@ -5,6 +5,53 @@ import Testing
 
 @Suite("UserDefaultsSettingsStore observation")
 struct UserDefaultsSettingsStoreObservationTests {
+    @Test func changeSignalsDoNotWaitForMainActorObservers() async {
+        let notificationCenter = NotificationCenter()
+        let stream = UserDefaultsSettingsStore.changeSignals(
+            notificationCenter: notificationCenter
+        )
+        var iterator = stream.makeAsyncIterator()
+
+        // Deliberately hold the main actor to model the XCTest/session
+        // initialization cycle from #12532. These semaphores are signals, not
+        // locks: the test releases the actor before teardown.
+        let mainEntered = DispatchSemaphore(value: 0)
+        let releaseMain = DispatchSemaphore(value: 0)
+        let blocker = Task { @MainActor in
+            mainEntered.signal()
+            _ = waitForSignal(releaseMain, timeout: .distantFuture)
+        }
+        guard waitForSignal(mainEntered, timeout: .now() + 5) == .success else {
+            releaseMain.signal()
+            blocker.cancel()
+            Issue.record("MainActor blocker did not start")
+            return
+        }
+        defer {
+            releaseMain.signal()
+            blocker.cancel()
+        }
+
+        let postFinished = DispatchSemaphore(value: 0)
+        let postingFinishedSignal = postFinished
+        let postingCenter = notificationCenter
+        Task.detached {
+            postingCenter.post(
+                name: UserDefaults.didChangeNotification,
+                object: nil
+            )
+            postingFinishedSignal.signal()
+        }
+
+        // This is a liveness watchdog for the known UserDefaults/main-queue
+        // deadlock, not a performance assertion. Five seconds leaves ample
+        // room for a loaded CI host while still bounding the pre-fix hang.
+        #expect(waitForSignal(postFinished, timeout: .now() + 5) == .success)
+        releaseMain.signal()
+        _ = waitForSignal(postFinished, timeout: .now() + 5)
+        #expect(await iterator.next() != nil)
+    }
+
     @Test func storageChangeObserverClassifiesDefaultsNotifications() async {
         let observedDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
         let otherDefaults = UserDefaults(suiteName: "cmux.tests.\(UUID().uuidString)")!
@@ -63,4 +110,11 @@ struct UserDefaultsSettingsStoreObservationTests {
         #expect(event?.supersededMutationSources.contains(firstSource) == true)
         #expect(event?.supersededMutationSources.contains(secondSource) == true)
     }
+}
+
+private func waitForSignal(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) -> DispatchTimeoutResult {
+    semaphore.wait(timeout: timeout)
 }

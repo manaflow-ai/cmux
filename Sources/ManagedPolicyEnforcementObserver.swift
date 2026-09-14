@@ -120,7 +120,7 @@ final class ManagedPolicyEnforcementObserver {
             // A profile installed before launch: stop the helper right away.
             enforceComputerUsePolicy()
         }
-        observe(UserDefaults.didChangeNotification)
+        observeUserDefaultsChanges()
         observe(NSApplication.didBecomeActiveNotification)
         observationTasks.append(Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -147,6 +147,18 @@ final class ManagedPolicyEnforcementObserver {
         let center = notificationCenter
         observationTasks.append(Task { @MainActor [weak self] in
             for await _ in center.notifications(named: name) {
+                guard let self else { break }
+                self.reevaluate()
+            }
+        })
+    }
+
+    private func observeUserDefaultsChanges() {
+        let signals = UserDefaultsSettingsStore.changeSignals(
+            notificationCenter: notificationCenter
+        )
+        observationTasks.append(Task { @MainActor [weak self] in
+            for await _ in signals {
                 guard let self else { break }
                 self.reevaluate()
             }

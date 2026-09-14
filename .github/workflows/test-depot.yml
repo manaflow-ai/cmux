@@ -54,6 +54,14 @@ jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
+    env:
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      # This reusable job owns one app host; broad CI shards use 1 through 6.
+      CMUX_APP_HOST_SHARD: "0"
+      # Do not turn an app-host or assertion failure into a passing retry.
+      CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -121,19 +129,28 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
-      - name: Clean DerivedData
+      - name: Prepare isolated DerivedData
         run: |
-          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+          set -euo pipefail
+          RUNNER_TEMP_ROOT="$(cd "$RUNNER_TEMP" && pwd -P)"
+          DERIVED_DATA_PATH="$RUNNER_TEMP_ROOT/cmux-depot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+          echo "CMUX_APP_HOST_RESULTS_ROOT=$RUNNER_TEMP_ROOT/cmux-unit-results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+
+      - name: Prepare isolated app-host home
+        run: scripts/ci/prepare-app-host-home.sh
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          rm -rf "$SOURCE_PACKAGES_DIR"
+          SOURCE_PACKAGES_DIR="$CMUX_DERIVED_DATA_PATH/SourcePackages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            if scripts/ci/run-in-console-session.sh \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -153,18 +170,21 @@ jobs:
           TEST_RESULTS_ROOT: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          SOURCE_PACKAGES_DIR="$CMUX_DERIVED_DATA_PATH/SourcePackages"
           mkdir -p "$TEST_RESULTS_ROOT"
           run_unit_suite() {
             local output_path="$1"
             shift
             local result_dir
             result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            CMUX_APP_HOST_RESULT_DIRECTORY="$(cd "$result_dir" && pwd -P)" \
+              scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
+              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test 2>&1 | tee "$output_path"
           }
           report_unit_suite() {
             local output_path="$1"
@@ -189,7 +209,6 @@ jobs:
               run_unit_suite "$output_path"
               suite_status=$?
               set -e
-              cat "$output_path"
               report_unit_suite "$output_path" "full" "$suite_status"
               if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$output_path"; then
                 echo "::error title=Pre-test suite failure::No tests executed; the app-host/build did not reach assertions" >&2
@@ -210,7 +229,6 @@ jobs:
               run_unit_suite "$output_path" "-only-testing:cmuxTests/$suite"
               suite_status=$?
               set -e
-              cat "$output_path"
               report_unit_suite "$output_path" "$suite" "$suite_status"
               # Require a positive framework summary before continuing. A
               # compile, setup, app-host, or filter failure must never look
@@ -232,38 +250,7 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
-          # SwiftPM binary artifact resolution can occasionally fail with
-          # "Could not resolve package dependencies". Retry once after clearing
-          # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
-            : > "$TEST_OUTPUT"
-            set +e
-            run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            set -e
-          fi
-
-          if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
-            exit "$EXIT_CODE"
-          fi
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            DIAGNOSIS=$(python3 scripts/ci/classify-app-host-test-output.py \
-              "$TEST_OUTPUT" --exit-code "$EXIT_CODE" --diagnose)
-            echo "$DIAGNOSIS"
-            # The expected-failure exception applies only to a run that both
-            # executed tests and recorded an actual XCTest failure. A clean
-            # summary cannot override a nonzero app-host/build exit.
-            if echo "$DIAGNOSIS" | grep -q "category=test assertion failure" \
-              && grep -Eq 'Executed [1-9][0-9]* tests?,[[:space:]]+with[[:space:]]+[1-9][0-9]* failures?[[:space:]]+\(0 unexpected\)' "$TEST_OUTPUT"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit "$EXIT_CODE"
-            fi
-          fi
+          exit "$EXIT_CODE"
 
       - name: Run UI tests
         if: ${{ !inputs.skip_ui_tests }}
@@ -272,7 +259,7 @@ jobs:
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          SOURCE_PACKAGES_DIR="$CMUX_DERIVED_DATA_PATH/SourcePackages"
 
           # Build the -only-testing argument
           if [ -n "$TEST_FILTER" ]; then
@@ -281,12 +268,18 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+          scripts/ci/run-in-console-session.sh \
+            xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
             "$ONLY_TESTING" test
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
 
       - name: Upload unit test results
         if: ${{ always() && !inputs.skip_unit_tests }}

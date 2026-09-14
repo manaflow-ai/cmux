@@ -158,11 +158,33 @@ def movement_shortcut_actions() -> set[str]:
     )
 
 
+def local_action_bindings(source: str) -> dict[str, set[str]]:
+    """Collect enum cases returned by typed local Action mapping closures."""
+    bindings: dict[str, set[str]] = {}
+    for match in re.finditer(
+        r"\blet\s+(?P<name>[A-Za-z][A-Za-z0-9_]*)\s*:\s*"
+        r"KeyboardShortcutSettings\.Action\s*=\s*\{(?P<body>.*?)\}\(\)",
+        source,
+        flags=re.DOTALL,
+    ):
+        actions = set(
+            re.findall(
+                r"case\s+\.[A-Za-z][A-Za-z0-9_]*\s*:\s*"
+                r"\.([A-Za-z][A-Za-z0-9_]*)",
+                match.group("body"),
+            )
+        )
+        if actions:
+            bindings[match.group("name")] = actions
+    return bindings
+
+
 def explicitly_gated_actions() -> set[str]:
     actions: set[str] = set()
     has_movement_gate = False
     for path in DISPATCH_SOURCES:
         source = path.read_text(encoding="utf-8")
+        action_bindings = local_action_bindings(source)
         for call_name in GATE_CALLS:
             for body in balanced_call_bodies(source, call_name):
                 actions.update(
@@ -171,6 +193,10 @@ def explicitly_gated_actions() -> set[str]:
                         body,
                     )
                 )
+                for local_name in re.findall(
+                    r"\baction\s*:\s*([A-Za-z][A-Za-z0-9_]*)\b", body
+                ):
+                    actions.update(action_bindings.get(local_name, set()))
                 if re.search(
                     r"\baction\s*:\s*movement\.shortcutAction\b",
                     body,

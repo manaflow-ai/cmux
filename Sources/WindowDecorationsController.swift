@@ -3,6 +3,7 @@ import CmuxTestSupport
 
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
+    private var defaultsChangeObserver: UserDefaultsSettingsChangeObserver?
     private var didStart = false
     private var minimalModeSidebarChromeHoverMonitor: Any?
     private var lastMinimalModeTitlebarClick: MinimalModeTitlebarClickRecord?
@@ -59,9 +60,9 @@ final class WindowDecorationsController {
         for name in TitlebarWindowGeometryNotifications.names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
-        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        defaultsChangeObserver = UserDefaultsSettingsChangeObserver { [weak self] in
             self?.applyDefaultsDrivenDecorationChangeIfNeeded()
-        })
+        }
     }
 
     private func applyDefaultsDrivenDecorationChangeIfNeeded() {

@@ -12,7 +12,7 @@ import signal
 import subprocess
 import sys
 import time
-from typing import BinaryIO
+from typing import BinaryIO, Callable
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
@@ -184,6 +184,54 @@ def heartbeat_seconds() -> float | None:
     return seconds
 
 
+class PostTestWatchdog:
+    """Track the terminal test summary without rearming on later output."""
+
+    def __init__(
+        self,
+        timeout_seconds: float,
+        now: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.timeout_seconds = timeout_seconds
+        self._now = now
+        self.deadline: float | None = None
+        self.selected_tests_result: str | None = None
+        self.saw_swift_testing_run = False
+        self.saw_swift_testing_result = False
+
+    def observe(self, prompt_window: bytes) -> None:
+        selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
+        if selected_match and self.selected_tests_result is None:
+            self.selected_tests_result = selected_match.group(1).decode("ascii")
+            self.deadline = self._now() + self.timeout_seconds
+
+        if (
+            self.selected_tests_result is not None
+            and not self.saw_swift_testing_run
+            and SWIFT_TESTING_RUN_STARTED_MARKER in prompt_window
+        ):
+            # Swift Testing runs after XCTest inside the same xcodebuild
+            # invocation. Its suites can legitimately run for minutes, so the
+            # deadline armed by the XCTest summary must wait for the Swift
+            # Testing run summary.
+            self.saw_swift_testing_run = True
+            self.deadline = None
+
+        swift_testing_match = SWIFT_TESTING_RUN_DONE_RE.search(prompt_window)
+        if (
+            self.saw_swift_testing_run
+            and not self.saw_swift_testing_result
+            and swift_testing_match
+        ):
+            self.saw_swift_testing_result = True
+            if swift_testing_match.group(1) == b"failed":
+                self.selected_tests_result = "failed"
+            self.deadline = self._now() + self.timeout_seconds
+
+    def expired(self) -> bool:
+        return self.deadline is not None and self._now() >= self.deadline
+
+
 def terminate_child(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGTERM)
@@ -252,11 +300,10 @@ def main() -> int:
     started_at = time.monotonic()
     deadline = time.monotonic() + timeout if timeout else None
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
-    post_test_deadline: float | None = None
-    selected_tests_result: str | None = None
+    post_test_watchdog = (
+        PostTestWatchdog(post_test_timeout) if post_test_timeout else None
+    )
     saw_passing_terminal_summary = False
-    swift_testing_run_started = False
-    swift_testing_run_finished = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
     if log_path:
@@ -318,9 +365,9 @@ def main() -> int:
                 timed_out = True
                 break
             select_timeout = min(1, remaining)
-        if post_test_deadline is not None:
-            remaining = post_test_deadline - time.monotonic()
-            if remaining <= 0:
+        if post_test_watchdog is not None and post_test_watchdog.deadline is not None:
+            remaining = post_test_watchdog.deadline - time.monotonic()
+            if post_test_watchdog.expired():
                 post_test_timed_out = True
                 break
             select_timeout = min(select_timeout if select_timeout is not None else remaining, remaining, 1)
@@ -361,32 +408,8 @@ def main() -> int:
         if timeout and contains_test_progress(chunk, pending_line):
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
-        if post_test_timeout:
-            selected_match = SELECTED_TESTS_DONE_RE.search(prompt_window)
-            if selected_match and selected_tests_result is None:
-                selected_tests_result = selected_match.group(1).decode("ascii")
-                post_test_deadline = time.monotonic() + post_test_timeout
-            if (
-                selected_tests_result is not None
-                and not swift_testing_run_started
-                and SWIFT_TESTING_RUN_STARTED_MARKER in prompt_window
-            ):
-                # Swift Testing runs after XCTest inside the same xcodebuild
-                # invocation. Its suites can legitimately run for minutes, so
-                # the deadline armed by the XCTest summary must wait for the
-                # Swift Testing run summary.
-                swift_testing_run_started = True
-                post_test_deadline = None
-            swift_testing_match = SWIFT_TESTING_RUN_DONE_RE.search(prompt_window)
-            if (
-                swift_testing_run_started
-                and not swift_testing_run_finished
-                and swift_testing_match
-            ):
-                swift_testing_run_finished = True
-                if swift_testing_match.group(1) == b"failed":
-                    selected_tests_result = "failed"
-                post_test_deadline = time.monotonic() + post_test_timeout
+        if post_test_watchdog is not None:
+            post_test_watchdog.observe(prompt_window)
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:
@@ -421,6 +444,11 @@ def main() -> int:
             log_file.write(f"{message}\n".encode())
             log_file.close()
         terminate_child(pid)
+        selected_tests_result = (
+            post_test_watchdog.selected_tests_result
+            if post_test_watchdog is not None
+            else None
+        )
         if selected_tests_result == "passed" or saw_passing_terminal_summary:
             return 0
         if selected_tests_result == "failed":

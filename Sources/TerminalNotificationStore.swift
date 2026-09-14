@@ -405,7 +405,7 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
-    private var userDefaultsObserver: NSObjectProtocol?
+    private var userDefaultsObserver: UserDefaultsSettingsChangeObserver?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
     private let settingsPromptWindowRetryLimit = 20
     private var notificationSettingsWindowProvider: () -> NSWindow? = {
@@ -471,23 +471,14 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         indexes = Self.buildIndexes(for: notifications)
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshDockBadge()
-            }
+        userDefaultsObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.refreshDockBadge()
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
     }
 
     deinit {
-        if let userDefaultsObserver {
-            NotificationCenter.default.removeObserver(userDefaultsObserver)
-        }
         notificationFeedbackTasks.values.forEach { $0.cancel() }
     }
 

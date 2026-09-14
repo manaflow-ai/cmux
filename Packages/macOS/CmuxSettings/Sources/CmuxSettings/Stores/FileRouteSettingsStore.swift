@@ -26,7 +26,7 @@ public struct FileRouteSettingsStore: FileRouteSettingsReading {
     // thread-safe and the references are immutable.
     private nonisolated(unsafe) let defaults: UserDefaults
     private nonisolated(unsafe) let fileManager: FileManager
-    private nonisolated(unsafe) let notificationCenter: NotificationCenter
+    private let notificationCenter: NotificationCenter
     private let keys = AppCatalogSection()
 
     /// Creates a store reading and writing the given defaults suite.

@@ -31,7 +31,7 @@ final class PresenceHeartbeatClient {
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var routesObserveTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     /// Cadence between heartbeats; server-owned, seeded with the service default.
     private var intervalMs: Int = 15_000
     /// The attach routes most recently advertised by ``MobileHostService``,
@@ -50,14 +50,10 @@ final class PresenceHeartbeatClient {
             // Re-evaluate when the flag or URL flips, so enabling presence in a
             // running app starts the loop without a relaunch (and disabling
             // stops it and says goodbye).
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { _ in
-                MainActor.assumeIsolated {
-                    PresenceHeartbeatClient.shared.evaluate()
-                }
+            defaultsObserver = UserDefaultsSettingsChangeObserver(
+                defaults: .standard
+            ) {
+                PresenceHeartbeatClient.shared.evaluate()
             }
         }
         evaluate()

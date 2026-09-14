@@ -272,8 +272,8 @@ enum AppearanceSettings {
 
 final class AppearanceSettingsUserDefaultsObserver {
     struct Environment {
-        let addDefaultsObserver: (@escaping () -> Void) -> NSObjectProtocol
-        let removeObserver: (NSObjectProtocol) -> Void
+        let addDefaultsObserver: (@escaping @MainActor @Sendable () -> Void) -> UserDefaultsSettingsChangeObserver
+        let removeObserver: (UserDefaultsSettingsChangeObserver) -> Void
         let currentRawValue: () -> String?
         let applyStoredMode: (String?, String) -> AppearanceMode
 
@@ -283,16 +283,14 @@ final class AppearanceSettingsUserDefaultsObserver {
         ) -> Environment {
             Environment(
                 addDefaultsObserver: { handler in
-                    notificationCenter.addObserver(
-                        forName: UserDefaults.didChangeNotification,
-                        object: nil,
-                        queue: .main
-                    ) { _ in
-                        handler()
-                    }
+                    UserDefaultsSettingsChangeObserver(
+                        defaults: defaults,
+                        notificationCenter: notificationCenter,
+                        action: handler
+                    )
                 },
                 removeObserver: { observer in
-                    notificationCenter.removeObserver(observer)
+                    observer.cancel()
                 },
                 currentRawValue: {
                     defaults.string(forKey: AppearanceSettings.appearanceModeKey)
@@ -311,7 +309,7 @@ final class AppearanceSettingsUserDefaultsObserver {
     static let shared = AppearanceSettingsUserDefaultsObserver()
 
     private let environment: Environment
-    private var defaultsObserver: NSObjectProtocol?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     private var lastObservedRawValue: String?
     private var source: String
 

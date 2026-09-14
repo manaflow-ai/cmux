@@ -13,6 +13,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var layoutModeControls: [ObjectIdentifier: NSSegmentedControl] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var defaultsChangeObserver: UserDefaultsSettingsChangeObserver?
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
@@ -111,15 +112,11 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateToolbarVisibilityIfNeeded()
-            }
-        })
+        defaultsChangeObserver = UserDefaultsSettingsChangeObserver(
+            notificationCenter: center
+        ) { [weak self] in
+            self?.updateToolbarVisibilityIfNeeded()
+        }
 
         observers.append(center.addObserver(
             forName: GlobalFontMagnification.didChangeNotification,

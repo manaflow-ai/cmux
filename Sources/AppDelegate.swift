@@ -860,8 +860,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObservers: [NSObjectProtocol] = []
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
-    private var menuBarVisibilityObserver: NSObjectProtocol?
-    private var mobileHostSettingsObserver: NSObjectProtocol?
+    private var menuBarVisibilityObserver: UserDefaultsSettingsChangeObserver?
+    private var mobileHostSettingsObserver: UserDefaultsSettingsChangeObserver?
     /// Applies MDM managed-policy transitions (browser/remote-control) while
     /// the app runs. Installed once from `installManagedPolicyEnforcement()`.
     var managedPolicyEnforcementObserver: ManagedPolicyEnforcementObserver?
@@ -10739,14 +10739,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMenuBarVisibilityObserver() {
         guard menuBarVisibilityObserver == nil else { return }
-        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncApplicationPresentationPreferences()
-            }
+        menuBarVisibilityObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.syncApplicationPresentationPreferences()
         }
     }
 
@@ -10766,14 +10760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMobileHostSettingsObserver() {
         guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.syncMobileHostService()
-            }
+        mobileHostSettingsObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.syncMobileHostService()
         }
     }
 

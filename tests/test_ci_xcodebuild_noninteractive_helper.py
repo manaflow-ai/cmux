@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import textwrap
@@ -237,6 +238,49 @@ def main() -> int:
         print("FAIL: helper did not emit recurring heartbeats for a quiet child")
         return 1
 
+    helper_spec = importlib.util.spec_from_file_location("xcodebuild_noninteractive", HELPER)
+    if helper_spec is None or helper_spec.loader is None:
+        print("FAIL: could not load the watchdog state for deterministic testing")
+        return 1
+    helper_module = importlib.util.module_from_spec(helper_spec)
+    helper_spec.loader.exec_module(helper_module)
+
+    class FakeClock:
+        value = 100.0
+
+        def now(self) -> float:
+            return self.value
+
+    clock = FakeClock()
+    watchdog = helper_module.PostTestWatchdog(0.2, now=clock.now)
+    watchdog.observe(b"Test Suite 'Selected tests' passed at now\n")
+    armed_deadline = watchdog.deadline
+    clock.value = 100.1
+    watchdog.observe(b"post-summary-noise\n")
+    clock.value = 100.19
+    watchdog.observe(b"post-summary-noise\n")
+    if watchdog.deadline != armed_deadline:
+        print("FAIL: post-test noise rearmed the injected watchdog deadline")
+        return 1
+    clock.value = 100.21
+    if not watchdog.expired():
+        print("FAIL: injected watchdog did not expire after its original deadline")
+        return 1
+
+    swift_clock = FakeClock()
+    swift_watchdog = helper_module.PostTestWatchdog(0.2, now=swift_clock.now)
+    swift_watchdog.observe(b"Test Suite 'Selected tests' passed at now\n")
+    swift_clock.value = 100.1
+    swift_watchdog.observe(b"Test run started.\n")
+    if swift_watchdog.deadline is not None:
+        print("FAIL: Swift Testing start did not clear the XCTest deadline")
+        return 1
+    swift_clock.value = 101.0
+    swift_watchdog.observe(b"Test run with 1 test in 1 suite failed after 1.0 seconds.\n")
+    if swift_watchdog.selected_tests_result != "failed" or swift_watchdog.deadline != 101.2:
+        print("FAIL: Swift Testing terminal summary did not arm its own deadline")
+        return 1
+
     post_test_env = {
         **os.environ,
         "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "0.2",
@@ -279,7 +323,6 @@ def main() -> int:
             time.sleep(0.1)
         """
     )
-    noisy_started = time.monotonic()
     noisy_post_test_result = subprocess.run(
         [sys.executable, str(HELPER), sys.executable, "-c", noisy_post_test_child],
         cwd=ROOT,
@@ -289,7 +332,6 @@ def main() -> int:
         timeout=5,
         env=post_test_env,
     )
-    noisy_elapsed = time.monotonic() - noisy_started
     if noisy_post_test_result.returncode != 0:
         print(noisy_post_test_result.stdout, end="")
         print(noisy_post_test_result.stderr, end="", file=sys.stderr)
@@ -298,12 +340,6 @@ def main() -> int:
             f"to exit 0, got {noisy_post_test_result.returncode}"
         )
         return 1
-    if noisy_elapsed > 1.5:
-        print(noisy_post_test_result.stdout, end="")
-        print(noisy_post_test_result.stderr, end="", file=sys.stderr)
-        print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
-        return 1
-
     failing_post_test_child = textwrap.dedent(
         """
         import time

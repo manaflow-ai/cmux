@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Composes PATH values that cmux exports across process boundaries.
 public enum CmuxPathEnvironment {
