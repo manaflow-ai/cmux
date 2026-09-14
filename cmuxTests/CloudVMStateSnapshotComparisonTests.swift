@@ -61,6 +61,30 @@ struct CloudVMStateSnapshotComparisonTests {
         #expect(try !before.hasSameRevisionedContent(as: state(object)))
     }
 
+    @Test("Closing a tab does not make the same-revision full snapshot stale", arguments: [true, false])
+    func legacyDetachedTerminalLifecycleMatchesFullSnapshot(running: Bool) throws {
+        var object = snapshot()
+        // Older daemon tab.close deltas omit lifecycle while retaining running.
+        object["terminals"] = [["id": "term-detached", "running": running,
+                                "tab_id": NSNull(), "tab_ids": [], "cwd": "/home/cmux"]]
+        let fromDelta = try state(object)
+        var fullTerminal = try #require((object["terminals"] as? [[String: Any]])?.first)
+        fullTerminal["lifecycle"] = running ? "running" : "exited"
+        object["terminals"] = [fullTerminal]
+        let fullSnapshot = try state(object)
+        #expect(fromDelta != fullSnapshot, "The exported wire documents stay lossless")
+        #expect(fromDelta.hasSameRevisionedContent(as: fullSnapshot))
+        #expect(fullSnapshot.hasSameRevisionedContent(as: fromDelta))
+
+        fullTerminal["lifecycle"] = "launching"
+        object["terminals"] = [fullTerminal]
+        #expect(try !fromDelta.hasSameRevisionedContent(as: state(object)))
+        fullTerminal["lifecycle"] = running ? "running" : "exited"
+        fullTerminal["future_field"] = "changed"
+        object["terminals"] = [fullTerminal]
+        #expect(try !fromDelta.hasSameRevisionedContent(as: state(object)))
+    }
+
     @Test("Actual same-cursor conflicts remain rejected", arguments: ["workspaces", "terminals", "future_resources", "cursor"])
     func graphChangesRemainConflicts(field: String) throws {
         let before = try state(snapshot())
