@@ -196,7 +196,11 @@ extension DockSplitStore {
                       let terminal = self.panels[panelId] as? TerminalPanel,
                       let input = self.restoredAgentLifecycle.takeStartupInputForResend(
                           panelId: panelId,
-                          shellState: terminal.shellActivity.state
+                          shellState: terminal.shellActivity.state,
+                          hasLiveAgent: self.restoredAgentHasLiveProcess(
+                              panelId: panelId,
+                              restoredAgent: self.restoredAgentLifecycle.snapshotsByPanelId[panelId]
+                          )
                       ),
                       terminal.surface.surface != nil else { return }
                 _ = terminal.sendInputResult(input)

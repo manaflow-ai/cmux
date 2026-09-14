@@ -237,7 +237,8 @@ final class RestoredAgentLifecycleCoordinator {
     /// yields `nil`, and only one replay is ever handed out per restored launch.
     func takeStartupInputForResend(
         panelId: UUID,
-        shellState: PanelShellActivityState
+        shellState: PanelShellActivityState,
+        hasLiveAgent: Bool = false
     ) -> String? {
         armedStartupInputResendPanelIds.remove(panelId)
         guard shellState == .promptIdle, awaitsStartupInput(panelId: panelId) else {
