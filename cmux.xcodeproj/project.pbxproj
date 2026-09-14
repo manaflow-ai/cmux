@@ -8904,7 +8904,6 @@
 				D12374000000000000000006 /* TerminalRenderHealthOverlayController.swift */,
 				030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */,
 				DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */,
-				D12374000000000000000006 /* TerminalRenderHealthOverlayController.swift */,
 				D12374000000000000000004 /* TerminalRenderHealthOverlay.swift */,
 				C0DE12220000000000000004 /* GhosttyNumericLocaleController.swift */,
 				9612B0010000000000000001 /* TerminalPortalReconciliation.swift */,
