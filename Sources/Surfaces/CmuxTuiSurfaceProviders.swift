@@ -23,9 +23,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
     /// Invalidates suspended work when this provider is stopped or replaced.
+    var isFeatureSuspended = false
     private(set) var lifecycleGeneration: UInt64 = 0
     /// Invalidates an older refresh before it can publish over a newer one.
-    private var refreshGeneration: UInt64 = 0
+    var refreshGeneration: UInt64 = 0
     let refreshCoordinator = CloudProviderRefreshCoordinator()
     /// The only installed daemon graph for this machine. The catalog receives the
     /// same immutable value with its derived rows in one transaction.
@@ -134,7 +135,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
     func update(summary: VMSummary) {
-        guard isRegisteredInCatalog() else { return }
+        guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
+        isFeatureSuspended = false
         let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
@@ -162,7 +164,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
     func stop() async {
+        suspendForFeatureFlag()
         await portAccessStore.remove(machineID: machineID)
+    }
+    func suspendForFeatureFlag() {
+        isFeatureSuspended = true
         lifecycleGeneration &+= 1
         refreshCoordinator.cancel()
         for task in browserPaneTasks.values { task.cancel() }
@@ -195,16 +201,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll()
-    }
-    func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
-        lifecycleGeneration == generation
-    }
-    /// The generation to capture before detached work that touches panes.
-    var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
-    func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
-        lifecycleGeneration == lifecycle
-            && refreshGeneration == refresh
-            && isRegisteredInCatalog()
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {

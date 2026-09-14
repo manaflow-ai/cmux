@@ -6832,7 +6832,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         try controller.closePTYSession(sessionID: sessionID)
     }
-
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
@@ -6847,7 +6846,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             rows: rows
         )
     }
-
     func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
@@ -6860,7 +6858,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             attachmentToken: attachmentToken
         )
     }
-
     func remoteStatusPayload() -> [String: Any] {
         let heartbeatAgeSeconds: Any = {
             guard let last = remoteLastHeartbeatAt else { return NSNull() }
@@ -6953,7 +6950,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return payload
     }
-
     @discardableResult
     func configureRemoteConnection(
         _ configuration: WorkspaceRemoteConfiguration,
@@ -6964,6 +6960,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // command palette, menus, forks, session restore, and automation at
         // once. Nothing is retained or dialed before the refusal.
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
+        if let managedCloudVMID = configuration.managedCloudVMID,
+           !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !CloudMachinesFeature.offMainIsEnabled() {
+            return suspendCloudRemoteConfiguration(configuration)
+        }
         var configuration = configuration.scopedToOwnerWorkspace(id)
         let foregroundAuthToken =
             Self.normalizedForegroundAuthToken(
@@ -7059,7 +7060,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteLastPortConflictFingerprint = nil
         recomputeListeningPorts()
         postRemoteConnectionPresentationDidChange()
-
         let previousController = remoteSessionController
         let previousControllerID = activeRemoteSessionControllerID
         activeRemoteSessionControllerID = nil
