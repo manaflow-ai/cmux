@@ -10418,6 +10418,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         bringPaneDropTargetToFrontIfNeeded()
         scrollView.layoutSubtreeIfNeeded()
+        surfaceView.autoresizingMask = []
+        let settledSize = windowLiveResizeActive ? (committedRendererSize ?? scrollView.bounds.size) : scrollView.bounds.size
+        _ = setFrameIfNeeded(surfaceView, to: CGRect(origin: surfaceView.frame.origin, size: settledSize))
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
