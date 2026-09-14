@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Foundation
 import CmuxCore
 import Testing
-
+@testable import CmuxTerminal
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -80,7 +80,6 @@ import Testing
 
     @Test func localRestoreUsesOneShortCLICommandRegardlessOfBindingSize() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
-
 
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -536,7 +535,8 @@ import Testing
         #expect(persistedLocalPanel.terminal?.isRemoteTerminal == false)
         #expect(persistedLocalPanel.terminal?.resumeBinding?.command.contains(staleExecutablePath) == true)
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults, restorableAgentIndexProvider: { .empty })
         restoredWorkspace.restoreSessionSnapshot(snapshot)
         let restoredLocalPanel = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
@@ -544,8 +544,8 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        let restoredBinding = try #require(restoredLocalPanel.terminal?.resumeBinding)
-        let restoredInput = try #require(restoredBinding.restoreStartupInput())
+        let restoredInput = try #require(
+            restoredPanel.surface.debugInitialInputForTesting() ?? restoredPanel.surface.nextRuntimeInitialInput)
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput

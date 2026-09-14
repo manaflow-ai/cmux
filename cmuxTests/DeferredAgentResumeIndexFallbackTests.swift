@@ -149,6 +149,162 @@ struct DeferredAgentResumeIndexFallbackTests {
         )
     }
 
+    @Test("Deferred remote restore uses the matching custom registration")
+    func deferredRemoteRestoreUsesMatchingCustomRegistration() throws {
+        let defaultsName = "cmux-deferred-remote-registration-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { workspace.teardownAllPanels() }
+        let originalPanelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: originalPanelID))
+        let workingDirectory = "/remote/project"
+        let sessionID = "custom-deferred-remote-session"
+        let persistentPTYSessionID = "custom-deferred-remote-pty"
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true,
+            workingDirectory: workingDirectory,
+            runtimeSpawnPolicy: .heldForStartupRestoreAdmission,
+            remotePTYSessionID: persistentPTYSessionID,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: workspace.id,
+            surfaceID: panel.id,
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve
+        )
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "custom-agent",
+            executablePath: "/usr/local/bin/custom-agent",
+            arguments: ["/usr/local/bin/custom-agent", "--session", sessionID],
+            workingDirectory: workingDirectory
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: registration.name,
+            kind: registration.id,
+            command: "custom-agent --session \(sessionID)",
+            cwd: workingDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: launchCommand,
+            restoreWorkingDirectorySelection: .exact(workingDirectory),
+            autoResume: true,
+            launchFlavor: .persistentSSH(context)
+        )
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .custom(registration.id),
+            sessionId: sessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: launchCommand,
+            registration: registration,
+            restoreWorkingDirectorySelection: .exact(workingDirectory)
+        )
+        workspace.surfaceResumeBindingsByPanelId[panel.id] = binding
+        workspace.terminalStartupRestoreCoordinator.stage(
+            panel: panel,
+            snapshot: snapshot,
+            resumeBinding: binding,
+            manualResumeAvailable: true,
+            willRunStartupCommand: false,
+            willRunStartupInput: false,
+            resumeWorkingDirectory: workingDirectory,
+            chatWorkingDirectory: workingDirectory,
+            defersStartupRestoreAdmission: true
+        )
+        workspace.terminalStartupRestoreCoordinator.commitPendingRestores(
+            panelIDs: [panel.id]
+        )
+        workspace.deferredAgentResumeRestoresByPanelId[panel.id] = DeferredAgentResumeRestore(
+            stablePanelID: panel.id,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: true,
+            remoteResumeContext: context,
+            workingDirectory: workingDirectory,
+            resumeWorkingDirectory: workingDirectory
+        )
+
+        workspace.resolveDeferredAgentResumeRestoresForTesting(using: .empty)
+
+        let startupInput = try #require(workspace.restoredAgentLifecycle.startupInput(panelId: panel.id))
+        #expect(startupInput == binding.remoteStartupInput(registration: registration))
+        #expect(startupInput.contains("custom-agent"))
+        #expect(startupInput.contains(sessionID))
+        #expect(workspace.deferredAgentResumeRestoresByPanelId[panel.id] == nil)
+        #expect(workspace.surfaceResumeBindingsByPanelId[panel.id] != nil)
+        #expect(!panel.surface.admitStartupRestoreRuntime(initialInput: "unexpected\n"))
+    }
+
+    @Test("Deferred remote restore cancels a binding without an exact cwd policy")
+    func deferredRemoteRestoreFailsClosedWithoutExactWorkingDirectory() throws {
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { store.closeAllPanels() }
+        let panel = TerminalPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+        let workingDirectory = "/remote/project"
+        let sessionID = "recorded-fallback-deferred-remote-session"
+        let persistentPTYSessionID = "recorded-fallback-deferred-remote-pty"
+        let context = SurfaceResumeRemoteContext(
+            workspaceID: store.workspaceId,
+            surfaceID: panel.id,
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume \(sessionID)",
+            cwd: workingDirectory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            restoreWorkingDirectorySelection: .recordedFallback(
+                preferred: workingDirectory
+            ),
+            autoResume: true,
+            launchFlavor: .persistentSSH(context)
+        )
+        store.surfaceResumeBindingsByPanelId[panel.id] = binding
+        store.terminalStartupRestoreCoordinator.stage(
+            panel: panel,
+            snapshot: nil,
+            resumeBinding: binding,
+            manualResumeAvailable: true,
+            willRunStartupCommand: false,
+            willRunStartupInput: false,
+            resumeWorkingDirectory: workingDirectory,
+            chatWorkingDirectory: workingDirectory,
+            defersStartupRestoreAdmission: true
+        )
+        store.terminalStartupRestoreCoordinator.commitPendingRestores(
+            panelIDs: [panel.id]
+        )
+        store.deferredAgentResumeRestoresByPanelId[panel.id] = DeferredAgentResumeRestore(
+            stablePanelID: panel.id,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: true,
+            remoteResumeContext: context,
+            workingDirectory: workingDirectory,
+            resumeWorkingDirectory: workingDirectory
+        )
+
+        store.resolveDeferredAgentResumeRestoresForTesting(using: .empty)
+
+        #expect(store.deferredAgentResumeRestoresByPanelId[panel.id] == nil)
+        #expect(store.restoredAgentLifecycle.startupInput(panelId: panel.id) == nil)
+        #expect(store.restoredAgentLifecycle.resumeStatesByPanelId[panel.id] == .manualResumeAvailable)
+        #expect(store.surfaceResumeBindingsByPanelId[panel.id]?.autoResume == false)
+        #expect(panel.surface.admitStartupRestoreRuntime(initialInput: "unexpected\n"))
+    }
+
     @Test("A positive ownership decision still retires the binding")
     func ownershipCancelRetiresBinding() throws {
         let workspace = Workspace()

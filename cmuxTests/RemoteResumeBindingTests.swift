@@ -131,7 +131,7 @@ private enum RemoteResumeHookSocketServer {
 /// Holds an ephemeral loopback port open for the lifetime of one relay fixture.
 /// Keeping the descriptor alive makes the allocation collision-safe across test
 /// suites that may be running in parallel.
-private final class RemoteResumeRelayPortReservation {
+final class RemoteResumeRelayPortReservation {
     let port: Int
     private let fileDescriptor: Int32
 
@@ -1100,7 +1100,7 @@ struct RemoteResumeBindingTests {
         }
     }
 
-    private func makeRelayedFixture() throws -> (
+    func makeRelayedFixture() throws -> (
         snapshot: SessionWorkspaceSnapshot,
         workspaceID: UUID,
         surfaceID: UUID,
@@ -1239,7 +1239,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func remoteConfiguration(
+    func remoteConfiguration(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         preserveAfterTerminalExit: Bool = true,
@@ -1269,7 +1269,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func remoteResumeParams(
+    func remoteResumeParams(
         workspaceID: UUID,
         surfaceID: UUID,
         command: String
@@ -1291,40 +1291,40 @@ struct RemoteResumeBindingTests {
         ]
     }
 
-    private func requestData(_ request: [String: Any]) throws -> Data {
+    func requestData(_ request: [String: Any]) throws -> Data {
         var data = try JSONSerialization.data(withJSONObject: request)
         data.append(0x0A)
         return data
     }
 
-    private func jsonRequest(_ data: Data) throws -> [String: Any] {
+    func jsonRequest(_ data: Data) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
-    private func v2Result(request: [String: Any]) throws -> [String: Any] {
+    func v2Result(request: [String: Any]) throws -> [String: Any] {
         let envelope = try v2Envelope(request: request)
         #expect(envelope["ok"] as? Bool == true, "\(envelope)")
         return try #require(envelope["result"] as? [String: Any])
     }
 
-    private func v2Envelope(request: [String: Any]) throws -> [String: Any] {
+    func v2Envelope(request: [String: Any]) throws -> [String: Any] {
         try v2Envelope(requestData: requestData(request))
     }
 
-    private func v2Envelope(requestData: Data) throws -> [String: Any] {
+    func v2Envelope(requestData: Data) throws -> [String: Any] {
         let requestLine = try #require(String(data: requestData, encoding: .utf8))
         let response = TerminalController.shared.handleSocketLine(requestLine)
         let responseData = try #require(response.data(using: .utf8))
         return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
     }
 
-    private func v2Result(requestData: Data) throws -> [String: Any] {
+    func v2Result(requestData: Data) throws -> [String: Any] {
         let envelope = try v2Envelope(requestData: requestData)
         #expect(envelope["ok"] as? Bool == true, "\(envelope)")
         return try #require(envelope["result"] as? [String: Any])
     }
 
-    private func decodedRemoteCommand(from startupCommand: String) throws -> String {
+    func decodedRemoteCommand(from startupCommand: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
         let script = try #require(words.dropFirst(2).first)
         let range = try #require(
@@ -1335,7 +1335,7 @@ struct RemoteResumeBindingTests {
         return try #require(String(data: data, encoding: .utf8))
     }
 
-    private func snapshotWithoutLaunchFlavorOrWorkspaceID(
+    func snapshotWithoutLaunchFlavorOrWorkspaceID(
         _ snapshot: SessionWorkspaceSnapshot
     ) throws -> SessionWorkspaceSnapshot {
         let encoded = try JSONEncoder().encode(snapshot)
@@ -1355,7 +1355,7 @@ struct RemoteResumeBindingTests {
         return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
     }
 
-    private func snapshotByReplacingRemoteContext(
+    func snapshotByReplacingRemoteContext(
         _ snapshot: SessionWorkspaceSnapshot,
         persistentPTYSessionID: String
     ) throws -> SessionWorkspaceSnapshot {
@@ -1381,7 +1381,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func legacyLocalBinding() throws -> SurfaceResumeBindingSnapshot {
+    func legacyLocalBinding() throws -> SurfaceResumeBindingSnapshot {
         let object: [String: Any] = [
             "name": "Codex",
             "kind": "codex",
@@ -1398,7 +1398,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func expectRemoteResumeBootstrap(_ command: String, relayPort: Int) throws {
+    func expectRemoteResumeBootstrap(_ command: String, relayPort: Int) throws {
         #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
         #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
         #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")
@@ -1409,7 +1409,7 @@ struct RemoteResumeBindingTests {
         #expect(!initialCommand.contains("ANTHROPIC_API_KEY"), "\(initialCommand)")
     }
 
-    private func decodedInitialCommand(from bootstrap: String) throws -> String {
+    func decodedInitialCommand(from bootstrap: String) throws -> String {
         let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
             line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
         })
@@ -1493,7 +1493,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func bindHookSocket(at path: String) throws -> Int32 {
+    func bindHookSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fileDescriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fileDescriptor >= 0 else {
@@ -1533,7 +1533,7 @@ struct RemoteResumeBindingTests {
         return fileDescriptor
     }
 
-    private func base64NULSeparated(_ values: [String]) -> String {
+    func base64NULSeparated(_ values: [String]) -> String {
         var data = Data()
         for value in values {
             data.append(contentsOf: value.utf8)
@@ -1542,7 +1542,7 @@ struct RemoteResumeBindingTests {
         return data.base64EncodedString()
     }
 
-    private func runHookProcess(
+    func runHookProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],
@@ -1585,19 +1585,19 @@ struct RemoteResumeBindingTests {
         return (process.terminationStatus, stderr, timedOut)
     }
 
-    private func reserveRemoteRestoreSocket() -> String {
+    func reserveRemoteRestoreSocket() -> String {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
         return TerminalController.shared.reserveStartupSocketPath(requestedPath)
     }
 
-    private func cleanupRemoteRestoreSocket(_ path: String) {
+    func cleanupRemoteRestoreSocket(_ path: String) {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
     }
 
-    private func makeMainWindow(id: UUID) -> NSWindow {
+    func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],

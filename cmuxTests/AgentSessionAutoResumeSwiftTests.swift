@@ -1,8 +1,8 @@
-import Darwin
-import Foundation
 import CMUXAgentLaunch
 import CmuxCore
 import CmuxSidebar
+import Darwin
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)

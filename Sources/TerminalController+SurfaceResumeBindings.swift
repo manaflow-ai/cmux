@@ -144,6 +144,18 @@ extension TerminalController {
             Workspace.makeSessionRestorePolicyService()
                 .bindingForCompatibilityShellRestore($0)
         }
+        // A persistent-SSH agent-hook binding without a stored cwd trust
+        // decision is legacy/unscoped state. It may still contain a local
+        // launch recipe, so never let the control-surface fallback turn that
+        // missing policy into an executable restore record. The authenticated
+        // hook refresh path can replace this binding with an explicit selection.
+        let isUnscopedRemoteAgentHook = binding?.isAgentHookBinding == true &&
+            binding?.launchFlavor.remoteContext != nil &&
+            binding?.restoreWorkingDirectorySelection == nil
+        guard !isUnscopedRemoteAgentHook else { return nil }
+        guard binding?.restoreWorkingDirectorySelection?.permitsResume != false else {
+            return nil
+        }
         // A hook can replace the live binding after this surface was restored,
         // while the restore-time agent snapshot still names the previous
         // conversation. Reuse the session-restore identity gate so the record
@@ -180,8 +192,13 @@ extension TerminalController {
                 compatibilityBinding: compatibilityBinding
             )
         }
+        guard binding?.isAgentHookBinding != true ||
+                target.restorableAgent?.restoreWorkingDirectorySelection == nil else {
+            return nil
+        }
         guard let binding else { return nil }
         return controlSurfaceBindingContinuationRecord(
+            target: target,
             binding: binding,
             compatibilityBinding: compatibilityBinding,
             restoredAgentExists: restoredAgent != nil && binding.isAgentHookBinding

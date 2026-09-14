@@ -69,7 +69,6 @@ extension DockSplitStore {
             break
         }
     }
-
     /// Starts title admission for a terminal rebuilt directly inside this Dock.
     func armRestoredPanelTitleBoundary(
         panelId: UUID,
@@ -186,24 +185,6 @@ extension DockSplitStore {
             return self.resumeAgentHibernation(panelId: terminal.id, focus: focus)
         }
     }
-
-    /// Replays a retained restore selector once after the shell reports an idle prompt.
-    func scheduleRestoredStartupInputResend(panelId: UUID) {
-        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Workspace.restoredStartupInputResendGrace) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      let terminal = self.panels[panelId] as? TerminalPanel,
-                      let input = self.restoredAgentLifecycle.takeStartupInputForResend(
-                          panelId: panelId,
-                          shellState: terminal.shellActivity.state
-                      ),
-                      terminal.surface.surface != nil else { return }
-                _ = terminal.sendInputResult(input)
-            }
-        }
-    }
-
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
         guard let terminal = panels[panelId] as? TerminalPanel,
@@ -232,6 +213,20 @@ extension DockSplitStore {
             )
         }
         return true
+    }
+
+    /// Dock twin of `Workspace.scheduleRestoredStartupInputResend(panelId:)`: a
+    /// login shell that discarded Ghostty's typeahead reports an idle prompt while
+    /// the launch still awaits its startup input, so replay it once after the
+    /// shared grace period (https://github.com/manaflow-ai/cmux/issues/5473).
+    func scheduleRestoredStartupInputResend(panelId: UUID) {
+        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
+        let grace = Workspace.restoredStartupInputResendGrace
+        DispatchQueue.main.asyncAfter(deadline: .now() + grace) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.resendRestoredStartupInputIfStillIdle(panelId: panelId)
+            }
+        }
     }
 
     private func retireAgentHookResumeBinding(
@@ -266,7 +261,6 @@ extension DockSplitStore {
             }
         }
     }
-
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
         agentRuntimeByPanelId[panelId]?.statusEntries[key]
     }
@@ -280,7 +274,6 @@ extension DockSplitStore {
             $0.statusEntries[key] = entry
         }
     }
-
     func clearAgentRuntimeStatusEntry(key: String, panelId: UUID) {
         mutateAgentRuntime(panelId: panelId) {
             $0.statusEntries.removeValue(forKey: key)
@@ -485,7 +478,6 @@ extension DockSplitStore {
             }
         }
     }
-
     private func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {
@@ -605,15 +597,11 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
             if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    restorableAgent.resumeStartupInput(
-                        useLocalRestoreVerb: false,
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
-                    )
+                    restorableAgent.remoteResumeStartupInput()
                 } else {
                     restorableAgent.resumeStartupInput(
                         restoringWorkingDirectory: restore.resumeWorkingDirectory
@@ -622,7 +610,8 @@ extension DockSplitStore {
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
             } else if let binding = currentResumeBinding ?? restore.resumeBinding {
                 if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
+                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext,
+                          !binding.isAgentHookBinding || binding.hasExactRestoreWorkingDirectorySelection else {
                         cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                         continue
                     }
@@ -635,9 +624,14 @@ extension DockSplitStore {
                     promptForApproval: true,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
+                let matchingRestorableAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId].flatMap {
+                    Workspace.restorableAgentForSessionRestore($0, resumeBinding: binding)
+                }
                 startupInput = approvedBinding.flatMap {
                     if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                        return $0.remoteStartupInput()
+                        return $0.remoteStartupInput(
+                            registration: matchingRestorableAgent?.registration
+                        )
                     }
                     return policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
                 }
@@ -717,7 +711,9 @@ extension DockSplitStore {
             }
         }
     }
-
+#if DEBUG
+    func resolveDeferredAgentResumeRestoresForTesting(using index: RestorableAgentSessionIndex) { resolveDeferredAgentResumeRestores(using: index) }
+#endif
     /// Builds a transfer-scoped persistent-SSH attach that prints the live-owner
     /// notice without replaying the embedded agent command.
     private func detachedRemoteLiveOwnerNoticeAttachCommand(
