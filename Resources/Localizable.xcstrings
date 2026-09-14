@@ -228498,6 +228498,20 @@
         }
       }
     },
+    "fileExplorer.error.cloudPreviewTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud file previews are limited to 1 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud ファイルのプレビューは 1 MB に制限されています。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 文件预览限制为 1 MB。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Dateivorschauen sind auf 1 MB begrenzt." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les aperçus de fichiers Cloud sont limités à 1 Mo." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تقتصر معاينات ملفات Cloud على 1 ميجابايت." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Las vistas previas de archivos de Cloud están limitadas a 1 MB." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 檔案預覽限制為 1 MB。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 파일 미리보기는 1MB로 제한됩니다." } }
+      }
+    },
     "fileExplorer.error.remoteFailed": {
       "extractionState": "manual",
       "localizations": {

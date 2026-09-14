@@ -66,32 +66,6 @@ struct FileSearchSnapshot: Equatable, Sendable {
     static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
-/// The filesystem scope used by the Files and Find right-sidebar tools.
-enum FileSearchScope: Equatable, Sendable {
-    case unsupported
-    case local
-    case remoteCloud(vmID: String)
-
-    init(provider: FileExplorerProvider?) {
-        if provider is LocalFileExplorerProvider {
-            self = .local
-        } else if let cloudProvider = provider as? CloudVMFileExplorerProvider,
-                  cloudProvider.isAvailable {
-            self = .remoteCloud(vmID: cloudProvider.vmID)
-        } else {
-            self = .unsupported
-        }
-    }
-
-    var debugName: String {
-        switch self {
-        case .unsupported: return "unsupported"
-        case .local: return "local"
-        case .remoteCloud: return "remoteCloud"
-        }
-    }
-}
-
 enum RipgrepIntegrationSettings {
     static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
 
@@ -485,10 +459,10 @@ final class FileSearchController: FileSearchControlling {
     private var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
-    private let cloudCommandRunner: any CloudFileExplorerCommandRunning
+    private let cloudFileService: CloudFileExplorerService
 
     init(cloudCommandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()) {
-        self.cloudCommandRunner = cloudCommandRunner
+        self.cloudFileService = CloudFileExplorerService(commandRunner: cloudCommandRunner)
     }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
@@ -530,22 +504,17 @@ final class FileSearchController: FileSearchControlling {
             generation += 1
             let searchGeneration = generation
             emit(status: .searching, isSearching: true)
-            let runner = cloudCommandRunner
+            let service = cloudFileService
             searchTask = Task { [weak self] in
                 do {
-                    let result = try await runner.run(
-                        vmID: vmID,
-                        command: Self.remoteSearchCommand(query: query, rootPath: rootPath),
-                        timeoutMs: 30_000
-                    )
+                    let snapshot = try await service.search(vmID: vmID, query: query, rootPath: rootPath)
                     guard !Task.isCancelled else { return }
-                    let snapshot = Self.remoteSearchSnapshot(from: result, query: query, rootPath: rootPath, maxResults: 500)
                     self?.finishRemoteSearch(snapshot, generation: searchGeneration)
                 } catch is CancellationError {
                     return
                 } catch {
                     self?.finishRemoteSearch(
-                        FileSearchSnapshot(query: query, results: [], status: .failed(error.localizedDescription), isSearching: false),
+                        FileSearchSnapshot(query: query, results: [], status: .failed(FileExplorerError.remoteCommandFailed("").localizedDescription), isSearching: false),
                         generation: searchGeneration
                     )
                 }
@@ -665,49 +634,6 @@ final class FileSearchController: FileSearchControlling {
         searchTask = nil
         results = snapshot.results
         emit(status: snapshot.status, isSearching: false)
-    }
-
-    private static func remoteSearchSnapshot(
-        from result: VMExecResult,
-        query: String,
-        rootPath: String,
-        maxResults: Int
-    ) -> FileSearchSnapshot {
-        let parsed = result.stdout
-            .split(whereSeparator: \.isNewline)
-            .compactMap { FileSearchRipgrepParser.parseMatchLine(String($0), rootPath: rootPath) }
-        let results = Array(parsed.prefix(maxResults))
-        if result.exitCode == 0 || result.exitCode == 1 {
-            return FileSearchSnapshot(
-                query: query,
-                results: results,
-                status: results.isEmpty ? .noMatches : (parsed.count > maxResults ? .limited(maxResults) : .matches),
-                isSearching: false
-            )
-        }
-        let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallback = String(
-            format: String(localized: "fileExplorer.search.rgExited", defaultValue: "rg exited with status %d"),
-            result.exitCode
-        )
-        return FileSearchSnapshot(
-            query: query,
-            results: results,
-            status: .failed(detail.isEmpty ? fallback : detail),
-            isSearching: false
-        )
-    }
-
-    private static func remoteSearchCommand(query: String, rootPath: String) -> String {
-        let arguments = [
-            "rg", "--json", "--line-number", "--column", "--smart-case", "--fixed-strings",
-            "--max-columns", "300", "--max-columns-preview", "--color", "never", "--hidden",
-        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + ["--", query, rootPath]
-        return arguments.map(shellQuote).joined(separator: " ")
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     func cancel(clear: Bool) {

@@ -221,28 +221,6 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
-/// A file provider whose filesystem lives outside this Mac.
-protocol RemoteFileExplorerProvider: FileExplorerProvider {
-    var displayTarget: String { get }
-    func resolveHomePath() async throws -> String
-    func downloadFile(path: String, to localURL: URL) async throws
-}
-
-/// The small command boundary used by Cloud file browsing and search.
-protocol CloudFileExplorerCommandRunning: Sendable {
-    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult
-}
-
-/// Executes Cloud filesystem commands through the authenticated VM API.
-struct LiveCloudFileExplorerCommandRunner: CloudFileExplorerCommandRunning {
-    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult {
-        guard let client = await MainActor.run(body: { VMClient.shared }) else {
-            throw FileExplorerError.providerUnavailable
-        }
-        return try await client.exec(id: vmID, command: command, timeoutMs: timeoutMs)
-    }
-}
-
 struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
@@ -405,106 +383,6 @@ final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Send
             throw FileExplorerError.providerUnavailable
         }
         try await transport.downloadFile(path: path, connection: connection, to: localURL)
-    }
-}
-
-/// Provides directory listings and file previews for a cmux Cloud machine.
-final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider {
-    let vmID: String
-    let displayTarget: String
-    private let commandRunner: any CloudFileExplorerCommandRunning
-    private var currentHomePath: String
-    private var available: Bool
-
-    init(
-        vmID: String,
-        displayTarget: String,
-        homePath: String = "",
-        isAvailable: Bool,
-        commandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()
-    ) {
-        self.vmID = vmID
-        self.displayTarget = displayTarget
-        self.currentHomePath = homePath
-        self.available = isAvailable
-        self.commandRunner = commandRunner
-    }
-
-    var homePath: String { currentHomePath }
-    var isAvailable: Bool { available }
-
-    func updateAvailability(_ available: Bool, homePath: String? = nil) {
-        self.available = available
-        if let homePath, !homePath.isEmpty {
-            currentHomePath = homePath
-        }
-    }
-
-    func resolveHomePath() async throws -> String {
-        guard isAvailable else { throw FileExplorerError.providerUnavailable }
-        let result = try await commandRunner.run(
-            vmID: vmID,
-            command: #"printf '%s\n' "$HOME""#,
-            timeoutMs: 30_000
-        )
-        guard result.exitCode == 0 else {
-            throw FileExplorerError.remoteCommandFailed(result.stderr)
-        }
-        let home = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !home.isEmpty else { throw FileExplorerError.remoteCommandFailed("remote HOME was empty") }
-        return home
-    }
-
-    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
-        guard isAvailable else { throw FileExplorerError.providerUnavailable }
-        var command = "find -- \(Self.shellQuote(path)) -mindepth 1 -maxdepth 1"
-        if !showHidden {
-            command += " ! -name \(Self.shellQuote(".*"))"
-        }
-        // GNU find on the Cloud image emits a type byte and path as NUL-delimited
-        // pairs, so filenames containing spaces, tabs, or newlines remain intact.
-        command += " -printf '%y\\0%p\\0'"
-        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
-        guard result.exitCode == 0 else {
-            throw FileExplorerError.remoteCommandFailed(result.stderr)
-        }
-        let fields = result.stdout.split(separator: "\0", omittingEmptySubsequences: false)
-        var entries: [FileExplorerEntry] = []
-        var index = 0
-        while index + 1 < fields.count {
-            let kind = fields[index]
-            let entryPath = String(fields[index + 1])
-            if let type = kind.first, !entryPath.isEmpty {
-                entries.append(FileExplorerEntry(
-                    name: URL(fileURLWithPath: entryPath).lastPathComponent,
-                    path: entryPath,
-                    isDirectory: type == "d"
-                ))
-            }
-            index += 2
-        }
-        return entries
-    }
-
-    func downloadFile(path: String, to localURL: URL) async throws {
-        guard isAvailable else { throw FileExplorerError.providerUnavailable }
-        let result = try await commandRunner.run(
-            vmID: vmID,
-            command: "base64 --wrap=0 -- \(Self.shellQuote(path))",
-            timeoutMs: 30_000
-        )
-        guard result.exitCode == 0, let data = Data(base64Encoded: result.stdout) else {
-            throw FileExplorerError.remoteCommandFailed(result.stderr)
-        }
-        try FileManager.default.createDirectory(
-            at: localURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try data.write(to: localURL)
-    }
-
-    private static func shellQuote(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 
@@ -811,6 +689,7 @@ enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
     case remoteCommandFailed(String)
+    case remoteFileTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -818,6 +697,8 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed:
             return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
+        case .remoteFileTooLarge:
+            return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
         case .remoteCommandFailed:
             return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
         }
@@ -1359,9 +1240,9 @@ final class FileExplorerStore: ObservableObject {
         let cloudProvider: CloudVMFileExplorerProvider
         if let existingProvider,
            existingProvider.vmID == vmID,
-           existingProvider.displayTarget == displayTarget {
+           existingProvider.displayTarget == displayTarget,
+           existingProvider.isAvailable == isAvailable {
             cloudProvider = existingProvider
-            cloudProvider.updateAvailability(isAvailable)
         } else {
             cancelRemoteHomeResolution()
             setRootPath("")
@@ -1436,7 +1317,7 @@ final class FileExplorerStore: ObservableObject {
                     if let sshProvider = provider as? SSHFileExplorerProvider {
                         sshProvider.updateAvailability(true, homePath: homePath)
                     } else if let cloudProvider = provider as? CloudVMFileExplorerProvider {
-                        cloudProvider.updateAvailability(true, homePath: homePath)
+                        self.setProvider(cloudProvider.resolvingHome(homePath), reloadIfAvailable: false)
                     }
                     self.setRootStatusMessage(nil)
                     self.setRootPath(homePath)

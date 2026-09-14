@@ -340,10 +340,10 @@ struct FileExplorerStoreTests {
                 return VMExecResult(exitCode: 0, stdout: "/home/cmux\n", stderr: "")
             },
             { command in
-                guard command.contains("find") else { return nil }
+                guard command.contains("scandir") else { return nil }
                 return VMExecResult(
                     exitCode: 0,
-                    stdout: "d\0/home/cmux/project\0f\0/home/cmux/README.md\0",
+                    stdout: "[{\"name\":\"project\",\"path\":\"/home/cmux/project\",\"directory\":true},{\"name\":\"README.md\",\"path\":\"/home/cmux/README.md\",\"directory\":false}]",
                     stderr: ""
                 )
             },
