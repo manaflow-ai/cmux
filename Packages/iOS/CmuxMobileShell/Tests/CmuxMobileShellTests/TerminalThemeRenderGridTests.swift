@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 import Observation
-import Synchronization
+import os
 import Testing
 @testable import CmuxMobileShell
 
@@ -487,12 +487,12 @@ import Testing
 }
 
 @MainActor
-@available(macOS 15, *)
 @Test func inactiveSurfaceThemeCacheDoesNotInvalidateSelectedThemeObservation() throws {
     let store = MobileShellComposite.preview()
     let selectedID = MobileTerminalPreview.ID(rawValue: "terminal-selected")
     store.selectedTerminalID = selectedID
-    let invalidations = Mutex(0)
+    // lint:allow lock - the observation callback shares this counter through a sendable closure.
+    let invalidations = OSAllocatedUnfairLock(initialState: 0)
     withObservationTracking {
         _ = store.activeTerminalTheme
         _ = store.activeTerminalConfigTheme
