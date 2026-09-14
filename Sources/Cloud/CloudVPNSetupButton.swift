@@ -118,9 +118,10 @@ final class CloudVPNSetupButton: NSButton {
         guard presentation == .helpIcon else { return }
         let isFocused = window?.firstResponder === self
         let shouldHighlight = isPointerInside || isHighlighted || isFocused
-        layer?.backgroundColor = shouldHighlight
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
-            : NSColor.clear.cgColor
+        // Keep the question-mark glyph plain; interaction is communicated by
+        // tint and the native focus ring instead of a filled button background.
+        layer?.backgroundColor = NSColor.clear.cgColor
+        contentTintColor = shouldHighlight ? .controlAccentColor : .secondaryLabelColor
     }
 
 }
