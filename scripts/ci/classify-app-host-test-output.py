@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import io
 import re
 import sys
@@ -136,53 +137,35 @@ def classify(output: str) -> tuple[bool, str]:
 
 def main() -> int:
     """Print either the gate result or an explicit non-gating diagnosis."""
-    if len(sys.argv) < 2 or len(sys.argv) > 7:
-        print(
-            f"usage: {Path(sys.argv[0]).name} <xcodebuild-output> "
-            "[--suite NAME] [--exit-code CODE] [--diagnose]",
-            file=sys.stderr,
-        )
-        return 2
+    parser = argparse.ArgumentParser(
+        description="Classify or diagnose hosted app-host test output."
+    )
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--suite", default="")
+    parser.add_argument("--exit-code", type=int)
+    parser.add_argument("--diagnose", action="store_true")
+    args = parser.parse_args()
 
-    output_path = Path(sys.argv[1])
+    output_path = args.output
     try:
         output = output_path.read_text(encoding="utf-8", errors="replace")
     except OSError as error:
         print(f"could not read {output_path}: {error}", file=sys.stderr)
         return 2
 
-    suite = ""
-    exit_code: int | None = None
-    diagnose_only = False
-    arguments = iter(sys.argv[2:])
-    for argument in arguments:
-        if argument == "--suite":
-            suite = next(arguments, "")
-            if not suite or suite.startswith("--"):
-                return 2
-        elif argument == "--exit-code":
-            try:
-                exit_code = int(next(arguments))
-            except (StopIteration, ValueError):
-                return 2
-        elif argument == "--diagnose":
-            diagnose_only = True
-        else:
-            return 2
-
-    if not diagnose_only:
+    if not args.diagnose:
         passed, message = classify(output)
         print(message, file=sys.stderr if not passed else sys.stdout)
         return 0 if passed else 1
 
-    diagnosis = diagnose(output, exit_code)
+    diagnosis = diagnose(output, args.exit_code)
     details = [
         f"category={diagnosis['category']}",
         f"executed_tests={diagnosis['executed_tests']}",
         f"summaries={diagnosis['summary_count']}",
     ]
-    if suite:
-        details.insert(0, f"suite={suite}")
+    if args.suite:
+        details.insert(0, f"suite={args.suite}")
     if diagnosis["first_causal_line"]:
         details.append(f"first_causal_line={diagnosis['first_causal_line']}")
     print("Test execution diagnosis: " + "; ".join(details))
