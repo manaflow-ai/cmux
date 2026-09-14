@@ -16969,11 +16969,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         direction: direction.canvasDirection
                     ) != nil
                 }
-                return terminalContext.tabManager.createSplit(
+                return terminalContext.tabManager.createSplitOutcome(
                     tabId: terminalContext.workspaceId,
                     surfaceId: terminalContext.panelId,
                     direction: direction
-                ) != nil
+                ).isAccepted
             }
             if let workspace = tabManager?.selectedWorkspace,
                workspace.layoutMode == .canvas {
@@ -16983,7 +16983,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     direction: direction.canvasDirection
                 ) != nil
             }
-            return tabManager?.createSplit(direction: direction) != nil
+            return tabManager?.createSplitOutcome(direction: direction).isAccepted ?? false
         }()
 #if DEBUG
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
