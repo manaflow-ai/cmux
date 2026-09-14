@@ -1,4 +1,3 @@
-import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
