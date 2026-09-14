@@ -81,5 +81,18 @@ LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$fx/no/such/dir/baseline.txt" \
   bash "$LINT" --write-baseline >/dev/null 2>&1
 chk "an unwritable baseline exits 2" 2 "$?"
 
+# 8. When the lint cannot record that an allowance was used, it must fail closed. Otherwise
+# every identical wait keeps reading "0 used" and the duplicate from case 6 passes. A mktemp
+# shim hands the lint a directory as its second temp file, so appends to that ledger fail.
+mkdir -p "$fx/bin" "$fx/ledger-dir"
+cat > "$fx/bin/mktemp" <<SHIM
+#!/bin/bash
+n=\$(( \$(cat "$fx/bin/count" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$fx/bin/count"
+if [ "\$n" -eq 2 ]; then echo "$fx/ledger-dir"; else exec /usr/bin/mktemp "\$@"; fi
+SHIM
+chmod +x "$fx/bin/mktemp"
+PATH="$fx/bin:$PATH" LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" >/dev/null 2>&1
+chk "an unwritable allowance ledger exits 2" 2 "$?"
+
 echo "lint-remote-tmux-no-polling.test: $pass passed, $fail failed"
 exit $(( fail > 0 ))
