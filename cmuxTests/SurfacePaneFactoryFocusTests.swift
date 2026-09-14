@@ -149,6 +149,41 @@ import Testing
         #expect(store.failure?.machine == .cloud("new"))
     }
 
+    @Test("Inline retry consumes only the displayed request")
+    func inlineRetryIsIdentityFencedAndSingleUse() throws {
+        let store = CloudPaneCreationFailureStore()
+        let error = NSError(domain: "test", code: 1)
+        let first = store.beginRequest()
+        store.present(machine: .cloud("machine"), error: error, requestID: first)
+        let staleID = try #require(store.failure?.id)
+        let current = store.beginRequest()
+        var retried = 0
+        store.present(machine: .cloud("machine"), error: error, requestID: current, retry: { retried += 1 })
+        let currentID = try #require(store.failure?.id)
+        #expect(store.canRetry)
+        store.retry(id: staleID)
+        #expect(retried == 0)
+        #expect(store.failure?.id == currentID)
+        store.retry(id: currentID)
+        store.retry(id: currentID)
+        #expect(retried == 1)
+        #expect(store.failure == nil)
+        #expect(!store.canRetry)
+    }
+
+    @Test("A placement failure remains inline in a mixed workspace")
+    func placementFailureDoesNotRequireACloudWorkspaceBinding() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        #expect(harness.workspace.cloudVMID == nil)
+        harness.workspace.presentCloudPlacementFailure(
+            NSError(domain: "test", code: 1), machine: .cloud("mixed-machine")
+        )
+        #expect(NSApp.modalWindow == nil)
+        #expect(harness.workspace.cloudPaneCreationFailureStore.failure?.machine == .cloud("mixed-machine"))
+        #expect(!harness.workspace.cloudPaneCreationFailureStore.canRetry)
+    }
+
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")
     func cloudProcessCwdParsingIgnoresSpawnDirectory() {
         #expect(CloudTuiCommandLine.processInfoArguments(socketPath: "/tmp/cloud.sock", terminalID: "term-source") == [
