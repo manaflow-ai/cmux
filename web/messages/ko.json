@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Cloud VM 정리 대기 중",
+      "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
+      "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
