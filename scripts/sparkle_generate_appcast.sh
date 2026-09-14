@@ -25,29 +25,54 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Cloning Sparkle ${SPARKLE_VERSION}..."
-git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
-
-echo "Building Sparkle generate_appcast tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme generate_appcast \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
-echo "Building Sparkle sign_update tool..."
-xcodebuild \
-  -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
-  -scheme sign_update \
-  -configuration Release \
-  -derivedDataPath "$work_dir/build" \
-  CODE_SIGNING_ALLOWED=NO \
-  build >/dev/null
-
-generate_appcast="$work_dir/build/Build/Products/Release/generate_appcast"
-sign_update="$work_dir/build/Build/Products/Release/sign_update"
+# Sparkle publishes these exact tools with each release. Rebuilding them in
+# every architecture job wastes ~40 seconds and repeats the same compiler work.
+# Keep a source-build fallback for explicitly requested, unpinned versions.
+if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
+  generate_appcast="$SPARKLE_TOOLS_DIR/generate_appcast"
+  sign_update="$SPARKLE_TOOLS_DIR/sign_update"
+elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
+  archive="$work_dir/Sparkle.tar.xz"
+  expected_sha="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+  echo "Downloading pinned Sparkle ${SPARKLE_VERSION} tools..."
+  curl --fail --silent --show-error --location --retry 3 \
+    --connect-timeout 10 --max-time 120 \
+    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz" \
+    --output "$archive"
+  actual_sha="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  if [[ "$actual_sha" != "$expected_sha" ]]; then
+    echo "Sparkle tools archive checksum mismatch" >&2
+    exit 1
+  fi
+  mkdir -p "$work_dir/Sparkle"
+  tar -xf "$archive" -C "$work_dir/Sparkle" ./bin ./Sparkle.framework
+  generate_appcast="$work_dir/Sparkle/bin/generate_appcast"
+  sign_update="$work_dir/Sparkle/bin/sign_update"
+else
+  echo "Cloning Sparkle ${SPARKLE_VERSION}..."
+  git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
+  
+  echo "Building Sparkle generate_appcast tool..."
+  xcodebuild \
+    -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
+    -scheme generate_appcast \
+    -configuration Release \
+    -derivedDataPath "$work_dir/build" \
+    CODE_SIGNING_ALLOWED=NO \
+    build >/dev/null
+  
+  echo "Building Sparkle sign_update tool..."
+  xcodebuild \
+    -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
+    -scheme sign_update \
+    -configuration Release \
+    -derivedDataPath "$work_dir/build" \
+    CODE_SIGNING_ALLOWED=NO \
+    build >/dev/null
+  
+  generate_appcast="$work_dir/build/Build/Products/Release/generate_appcast"
+  sign_update="$work_dir/build/Build/Products/Release/sign_update"
+fi
 
 if [[ ! -x "$generate_appcast" ]]; then
   echo "generate_appcast binary not found at $generate_appcast" >&2
