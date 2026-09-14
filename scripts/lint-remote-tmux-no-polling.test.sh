@@ -57,5 +57,29 @@ LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" >/dev/null 
 chmod 644 "$fx/Sources/RemoteTmuxFixture.swift"
 if [ "$(id -u)" -eq 0 ]; then echo "skip: running as root, unreadable-file case not testable"; else chk "unreadable source fails closed with exit 2" 2 "$rc"; fi
 
+# 6. One baseline entry authorises ONE wait. A second IDENTICAL wait in the same function
+# shares the key, so matching without counting would let the new one ride the old entry.
+rm -f "$base"; : > "$base"
+cat > "$fx/Sources/RemoteTmuxFixture.swift" <<'SWIFT'
+func twinWaits() {
+    try await Task.sleep(nanoseconds: 7)
+}
+SWIFT
+LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" --write-baseline >/dev/null
+chk "one wait baselines one entry" 1 "$(wc -l < "$base" | tr -d ' ')"
+python3 - "$fx/Sources/RemoteTmuxFixture.swift" <<'PY2'
+import sys; p=sys.argv[1]; s=open(p).read()
+s=s.replace("    try await Task.sleep(nanoseconds: 7)\n",
+            "    try await Task.sleep(nanoseconds: 7)\n    try await Task.sleep(nanoseconds: 7)\n",1)
+open(p,'w').write(s)
+PY2
+LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$base" bash "$LINT" >/dev/null 2>&1
+chk "a duplicate of a baselined wait fails" 1 "$?"
+
+# 7. Infrastructure failures fail closed rather than reporting a clean tree.
+LINT_SCOPE_DIR="$fx/Sources" LINT_BASELINE_FILE="$fx/no/such/dir/baseline.txt" \
+  bash "$LINT" --write-baseline >/dev/null 2>&1
+chk "an unwritable baseline exits 2" 2 "$?"
+
 echo "lint-remote-tmux-no-polling.test: $pass passed, $fail failed"
 exit $(( fail > 0 ))

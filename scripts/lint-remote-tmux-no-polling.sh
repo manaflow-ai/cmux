@@ -60,8 +60,12 @@ normalize() { sed -E 's/^[[:space:]]+//; s/[[:space:]]+/ /g; s/[[:space:]]+$//' 
 
 # Run the scan first and keep its status: 1 is "no matches" and fine, anything above 1 is a
 # failure of the scan itself (an unreadable file, a bad pattern) and must not read as clean.
-hits_file="$(mktemp)"
-trap 'rm -f "$hits_file"' EXIT
+# A lint that cannot run must not look clean. mktemp failing leaves an empty path, the
+# redirection below then fails, and grep's status reads as "no matches" -- a green run on
+# a scan that never happened.
+hits_file="$(mktemp)" || { echo "lint-remote-tmux-no-polling: mktemp failed" >&2; exit 2; }
+used_file="$(mktemp)" || { echo "lint-remote-tmux-no-polling: mktemp failed" >&2; exit 2; }
+trap 'rm -f "$hits_file" "$used_file"' EXIT
 grep -nHE "$PATTERN" "${SCOPE[@]}" > "$hits_file" 2>"$hits_file.err"   # -H: one file in scope must still prefix its name
 scan_rc=$?
 if [ "$scan_rc" -gt 1 ]; then
@@ -73,7 +77,9 @@ rm -f "$hits_file.err"
 
 write_baseline=0
 [ "${1:-}" = "--write-baseline" ] && write_baseline=1
-[ "$write_baseline" -eq 1 ] && : > "$BASELINE_FILE"
+if [ "$write_baseline" -eq 1 ] && ! : > "$BASELINE_FILE"; then
+  echo "lint-remote-tmux-no-polling: cannot write $BASELINE_FILE" >&2; exit 2
+fi
 
 fail=0
 while IFS= read -r hit; do
@@ -92,7 +98,9 @@ while IFS= read -r hit; do
   if [ "$write_baseline" -eq 1 ]; then
     allowed_by_list=0
     for entry in "${ALLOW[@]}"; do [ "${entry%%|*}" = "$file:$symbol" ] && allowed_by_list=1; done
-    [ "$allowed_by_list" -eq 0 ] && printf '%s\n' "$key" >> "$BASELINE_FILE"
+    if [ "$allowed_by_list" -eq 0 ] && ! printf '%s\n' "$key" >> "$BASELINE_FILE"; then
+      echo "lint-remote-tmux-no-polling: cannot append to $BASELINE_FILE" >&2; exit 2
+    fi
     continue
   fi
 
@@ -100,8 +108,16 @@ while IFS= read -r hit; do
   for entry in "${ALLOW[@]}"; do
     if [ "${entry%%|*}" = "$file:$symbol" ]; then allowed=1; break; fi
   done
-  if [ "$allowed" -eq 0 ] && [ -f "$BASELINE_FILE" ] && grep -qxF "$key" "$BASELINE_FILE"; then
-    allowed=1
+  # Count, do not just match. One baseline line authorises ONE wait: two identical waits in
+  # the same function share a key, so a bare `grep -q` would let the second -- newly added --
+  # one ride the first's entry. Each hit consumes an allowance.
+  if [ "$allowed" -eq 0 ] && [ -f "$BASELINE_FILE" ]; then
+    allowance="$(grep -cxF "$key" "$BASELINE_FILE" 2>/dev/null)" || allowance=0
+    used="$(grep -cxF "$key" "$used_file" 2>/dev/null)" || used=0
+    if [ "${allowance:-0}" -gt "${used:-0}" ]; then
+      allowed=1
+      printf '%s\n' "$key" >> "$used_file"
+    fi
   fi
 
   if [ "$allowed" -eq 0 ]; then
@@ -112,7 +128,9 @@ while IFS= read -r hit; do
 done < "$hits_file"
 
 if [ "$write_baseline" -eq 1 ]; then
-  sort -o "$BASELINE_FILE" "$BASELINE_FILE"
+  if ! sort -o "$BASELINE_FILE" "$BASELINE_FILE"; then
+    echo "lint-remote-tmux-no-polling: could not sort $BASELINE_FILE" >&2; exit 2
+  fi
   echo "lint-remote-tmux-no-polling: wrote $(wc -l < "$BASELINE_FILE" | tr -d ' ') baseline entries to $BASELINE_FILE"
   exit 0
 fi
