@@ -157,6 +157,7 @@ actor CloudCommandProcess<DeadlineClock: Clock> where DeadlineClock.Duration == 
     private func finish(_ result: Result<Data, any Error>) {
         guard let continuation else { return }
         self.continuation = nil
+        if exited { reap() }
         deadlineTask?.cancel()
         escalationTask?.cancel()
         cleanupTask?.cancel()
