@@ -83589,65 +83589,6 @@
         }
       }
     },
-    "mobile.connectionsUpdate.macUpdate.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action required: update your Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "要対応：Mac をアップデートしてください"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aktion erforderlich: Aktualisieren Sie Ihren Mac"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Action requise : mettez à jour votre Mac"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الإجراء المطلوب: قم بتحديث جهاز Mac الخاص بك"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Acción requerida: actualice su Mac"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要採取的行動：更新您的 Mac"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "需要采取的行动：更新您的 Mac"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "필요한 조치: Mac 업데이트"
-          }
-        }
-      }
-    },
     "mobile.connectionsUpdate.macUpdate.detail": {
       "extractionState": "manual",
       "localizations": {
