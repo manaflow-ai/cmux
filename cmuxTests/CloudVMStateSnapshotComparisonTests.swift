@@ -85,6 +85,52 @@ struct CloudVMStateSnapshotComparisonTests {
         #expect(try !fromDelta.hasSameRevisionedContent(as: state(object)))
     }
 
+    @Test("Delta insertion order and full-snapshot resource order describe the same graph")
+    func resourceWireOrderDoesNotInvalidateTheGraph() throws {
+        var object = snapshot()
+        object["workspaces"] = [
+            ["id": "ws-a", "name": "A", "index": 0],
+            ["id": "ws-b", "name": "B", "index": 1],
+        ]
+        object["screens"] = [
+            ["id": "screen-a", "workspace_id": "ws-a", "index": 0],
+            ["id": "screen-b", "workspace_id": "ws-b", "index": 0],
+        ]
+        object["panes"] = [
+            ["id": "pane-a", "screen_id": "screen-a"],
+            ["id": "pane-b", "screen_id": "screen-b"],
+        ]
+        let first: [String: Any] = ["id": "tab-a0", "pane_id": "pane-a", "index": 0,
+                                    "content_kind": "terminal", "content_id": "term-a0"]
+        let other: [String: Any] = ["id": "tab-b0", "pane_id": "pane-b", "index": 0,
+                                    "content_kind": "terminal", "content_id": "term-b0"]
+        let appended: [String: Any] = ["id": "tab-a1", "pane_id": "pane-a", "index": 1,
+                                       "content_kind": "terminal", "content_id": "term-a1"]
+        object["tabs"] = [first, other, appended]
+        object["terminals"] = ["term-a0", "term-b0", "term-a1"].map {
+            ["id": $0, "running": true, "lifecycle": "running"] as [String: Any]
+        }
+        let fromDeltas = try state(object)
+
+        object["tabs"] = [first, appended, other]
+        object["terminals"] = ["term-a0", "term-a1", "term-b0"].map {
+            ["id": $0, "running": true, "lifecycle": "running"] as [String: Any]
+        }
+        for key in ["workspaces", "screens", "panes"] {
+            let rows = try #require(object[key] as? [[String: Any]])
+            object[key] = Array(rows.reversed())
+        }
+        let fullSnapshot = try state(object)
+        #expect(fromDeltas != fullSnapshot, "Exports retain their original wire order")
+        #expect(fromDeltas.hasSameRevisionedContent(as: fullSnapshot))
+        #expect(fullSnapshot.hasSameRevisionedContent(as: fromDeltas))
+
+        var reordered = appended
+        reordered["index"] = 0
+        object["tabs"] = [first, reordered, other]
+        #expect(try !fromDeltas.hasSameRevisionedContent(as: state(object)), "Semantic tab order stays strict")
+    }
+
     @Test("Actual same-cursor conflicts remain rejected", arguments: ["workspaces", "terminals", "future_resources", "cursor"])
     func graphChangesRemainConflicts(field: String) throws {
         let before = try state(snapshot())
