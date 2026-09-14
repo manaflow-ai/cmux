@@ -300,6 +300,31 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("owned decoys cannot forward unrelated routing to the local socket", arguments: [
+        "terminal_id", "preferred_workspace_id", "target_surface_id", "tab_id", "target_terminal_id"
+    ])
+    func deniesDecoyRoutingBeforeForwarding(key: String) throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(workspaceAliases: [workspace: workspace], surfaceAliases: [surface: surface]) { port, unixServer in
+            let request: [String: Any] = [
+                "id": "reporter-decoy",
+                "method": "surface.send_text",
+                "params": [
+                    "workspace_id": workspace.uuidString,
+                    "surface_id": surface.uuidString,
+                    key: UUID().uuidString,
+                    "text": "touch /tmp/pwned\n"
+                ]
+            ]
+            let data = try JSONSerialization.data(withJSONObject: request)
+            let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                tokenHex: tokenHex, commandLine: String(decoding: data, as: UTF8.self))
+            expectDenial(exchange, unixServer, key)
+            #expect(exchange.responseLines.first?["id"] as? String == "reporter-decoy")
+        }
+    }
+
     @Test("prefix lookalikes and local-context split options are denied")
     func deniesPrefixAndLocalContext() throws {
         try withServer { port, unixServer in
