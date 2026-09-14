@@ -17,7 +17,8 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Create the browser with native connection state before attempting access.
-    /// The user chooses forwarding explicitly in that pane.
+    /// HTTP services use the authenticated userspace forward when this build has
+    /// the bundled hub; HTTPS remains a private-address route for the system VPN.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
@@ -40,16 +41,24 @@ extension CmuxTuiSurfaceProvider {
         return pane
     }
 
+    /// Bind a browser to the authenticated private route. Machines with the
+    /// userspace hub use one shared loopback forward, so Desktop and Cloud
+    /// ports work even when the optional system VPN is unavailable or off.
+    /// Builds without that hub retain the direct route and the VPN setup card.
     func configureBrowser(_ browser: BrowserPanel, url: URL) {
         guard let address = info.privateAddress,
               let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return
         }
-        let port = privateURL.port ?? (privateURL.scheme == "https" ? 443 : 80)
+        let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
-        browser.cloudAccess.configure(model: accessModel(port: port, address: address), url: privateURL)
+        let model = accessModel(port: port, address: address)
+        browser.cloudAccess.configure(model: model, url: privateURL)
         browser.showCloudAddress(privateURL)
+        if portForwards != nil, privateURL.scheme?.lowercased() == "http", model.phase == .needsVPN {
+            model.forward()
+        }
     }
 
     func accessModel(port: Int, address: String) -> CloudPortAccessModel {
@@ -62,10 +71,12 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    if !self.isAwake {
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: port)
-                    }
+                    // Opening the endpoint is also the provider's
+                    // readiness/healing operation for cached-running machines.
+                    // The returned public URL is discarded; all browser traffic
+                    // still uses the authenticated private route or loopback hub.
+                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                    _ = try await client.openPort(id: self.machineID, port: target.port)
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
                 startForward: { [weak self] target in
@@ -78,7 +89,7 @@ extension CmuxTuiSurfaceProvider {
                         try Task.checkCancellation()
                         return await forward.localPort
                     } catch {
-                        await portForwards.close(machineID: self.machineID, port: port)
+                        await portForwards.close(machineID: self.machineID, port: target.port)
                         throw error
                     }
                 },

@@ -11,13 +11,15 @@ a peer unless it later becomes a direct Cloud network client.
 
 | role | traffic | implementation | first user action |
 | --- | --- | --- | --- |
-| terminal | cmux-tui terminal and metadata; explicitly forwarded ports | user-space WireGuard hub | none |
+| terminal | cmux-tui terminal and in-app HTTP browser/Desktop traffic | user-space WireGuard hub | none |
 | browser | a system-wide route for other apps on this Mac (`cmux vpn up`) | Apple Network Extension | allow the cmux network extension |
 
 The terminal role does not create a system interface or require macOS VPN
-approval. The browser role starts only when the user connects Cloud VPN.
-Browser and Desktop pages show setup controls when private access is unavailable.
-Port forwarding is available only through the explicit Ports controls.
+approval. In-app HTTP browser and Desktop pages use an authenticated loopback
+forward over the same hub, so they work with the optional system VPN off. The
+system VPN remains the path for other Mac apps that need the VM private address.
+Browser and Desktop pages show setup controls only when the userspace route is
+unavailable.
 
 ## Terminal path
 
@@ -47,19 +49,13 @@ no connection ticket and no Freestyle call.
 
 ## Ports and Desktop path
 
-Browser panes open each machine's private address and original port by default.
-A native connection panel is shown until VPN access is ready and the page loads.
-It includes VPN setup, loading and failure states, and an explicit Ports table.
-Opening a page, copying a link, restoring a pane, and losing VPN access never
-create a local forward or fall back to a public preview.
-
-**Forward Port** is a deliberate action. It starts an HTTP loopback forward
-through the terminal WireGuard hub. The table shows the machine port, assigned
-local address, status, Copy, and Stop Forwarding. Every browser pane for the same
-machine and port shares its access choice. Active forwards are also listed in
-VPN setup. Stop closes the listener and active connections. Sign-out, machine
-removal, and process exit also end the forwards. HTTPS uses the private VPN
-address because changing the host would invalidate its certificate identity.
+In-app HTTP browser panes and Desktop use one shared authenticated HTTP loopback
+forward per machine and port, replacing the browser URL with
+`http://127.0.0.1:<port>` while preserving the noVNC path and query. The forward
+warms the hub before navigation, so the noVNC WebSocket uses the same authenticated
+relay. HTTPS uses the private VPN route because the raw TCP relay cannot preserve
+TLS routing. Forward listeners close when their machine leaves the fleet, on
+sign-out, or at process exit.
 
 Command-click on a Cloud terminal's localhost, 127.0.0.1, or 0.0.0.0 web link
 replaces only its host with the VM's private address. The browser follows the

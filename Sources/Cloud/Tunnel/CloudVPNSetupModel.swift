@@ -39,6 +39,7 @@ final class CloudVPNSetupModel {
     func observe() async {
         guard let coordinator else { return }
         for await _ in await coordinator.stateUpdates() {
+            guard !Task.isCancelled else { return }
             await refresh()
         }
     }

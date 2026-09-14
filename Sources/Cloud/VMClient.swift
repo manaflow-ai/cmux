@@ -2040,7 +2040,7 @@ actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/open-port",
                 jsonBody: ["port": port],
-                timeoutSeconds: 60
+                timeoutSeconds: 120
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)

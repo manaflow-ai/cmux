@@ -1,8 +1,9 @@
 import Foundation
 import Observation
 
-/// One VM port's explicit access choice. Opening or copying a URL never starts
-/// a forward. All browser panes for the port observe this same model.
+/// One VM port's shared access state. Browser panes use the authenticated
+/// userspace forward when available, while the optional system VPN remains an
+/// explicit external-app feature.
 @MainActor
 @Observable
 final class CloudPortAccessModel: Identifiable {
@@ -27,6 +28,7 @@ final class CloudPortAccessModel: Identifiable {
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
     private var observation: Task<Void, Never>?
+    private var vpnObservation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
 
@@ -71,6 +73,9 @@ final class CloudPortAccessModel: Identifiable {
                 self?.acceptTunnelState(state)
             }
         }
+        vpnObservation = Task { [weak self] in
+            await self?.vpn.observe()
+        }
     }
 
     /// Providers can materialize before the registry installs its shared
@@ -108,7 +113,8 @@ final class CloudPortAccessModel: Identifiable {
         if prefersForwarding { forward() } else if tunnelState == .up { connectDirect() }
     }
 
-    /// This is the sole product action that creates a loopback listener.
+    /// This is the sole product action that creates a loopback listener. The
+    /// provider invokes it automatically for in-app Cloud browser access.
     func forward() {
         guard phase != .closed, phase != .stopping else { return }
         prefersForwarding = true
@@ -142,6 +148,8 @@ final class CloudPortAccessModel: Identifiable {
         phase = .closed
         observation?.cancel()
         observation = nil
+        vpnObservation?.cancel()
+        vpnObservation = nil
         operation?.cancel()
         operation = nil
         await pending?.value
