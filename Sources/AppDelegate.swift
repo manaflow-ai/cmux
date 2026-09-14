@@ -20332,3 +20332,16 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+/// Internal bridge for key-event routing. The browser ownership implementation
+/// stays private to AppDelegate.swift while the replay guard remains in its
+/// focused source file.
+extension NSWindow {
+    static func cmuxOwningWebViewForKeyRouting(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        cmuxOwningWebView(for: responder, in: window, event: event)
+    }
+}
