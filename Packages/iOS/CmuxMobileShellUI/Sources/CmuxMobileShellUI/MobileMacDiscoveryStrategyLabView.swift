@@ -36,7 +36,8 @@ struct MobileMacDiscoveryStrategyLabView: View {
             Section {
                 Picker("Discovery strategy", selection: $rawStrategy) {
                     ForEach(MobileMacDiscoveryStrategy.allCases) { option in
-                        Text(option.title).tag(option.rawValue)
+                        Text(option == .tailscale ? "Tailscale Only" : option.title)
+                            .tag(option.rawValue)
                     }
                 }
                 .pickerStyle(.inline)
@@ -60,13 +61,18 @@ struct MobileMacDiscoveryStrategyLabView: View {
             }
 
             Section {
-                switch pathUI {
-                case .perPath:
-                    perPathEnablement
-                case .grouped:
-                    groupedEnablement
-                case .confirmation:
-                    confirmationEnablement
+                if strategy == .tailscale {
+                    switch pathUI {
+                    case .perPath:
+                        perPathEnablement
+                    case .grouped:
+                        groupedEnablement
+                    case .confirmation:
+                        confirmationEnablement
+                    }
+                } else {
+                    Label("Choose Tailscale Only above to preview suggested paths.", systemImage: "point.3.connected.trianglepath.dotted")
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("Computer Details preview")
