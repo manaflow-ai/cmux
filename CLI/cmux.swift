@@ -4381,7 +4381,7 @@ struct CMUXCLI {
     ) throws {
         try vmOpenShell(
             id: vmId,
-            workspaceName: "vm:\(vmId)",
+            workspaceName: nil,
             windowRaw: windowRaw,
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
@@ -6077,7 +6077,7 @@ struct CMUXCLI {
                 Self.clearVMCreateIdempotency(idempotency)
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
@@ -6186,7 +6186,7 @@ struct CMUXCLI {
                 print("  snapshot: \(snapshotId ?? "native fork")")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -6229,7 +6229,7 @@ struct CMUXCLI {
                 print("Restored Cloud VM \(id)")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -6318,7 +6318,7 @@ struct CMUXCLI {
                 }
                 try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(vmId)",
+                    workspaceName: nil,
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: true,
                     shouldPinWorkspaceToTop: false,
