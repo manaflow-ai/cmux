@@ -56,7 +56,7 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
@@ -115,7 +115,7 @@ struct CloudTreeRowContentView: View {
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
                 count: nil,
                 style: style,
-                helpAction: cloudVPNSetup, showsHelp: showsCloudVPNWarning
+                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
             )
         case .port(let resource, let url, _):
             CloudTreeLeafRow(

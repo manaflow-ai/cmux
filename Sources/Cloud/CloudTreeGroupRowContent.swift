@@ -7,7 +7,6 @@ struct CloudTreeGroupRowContent: View {
     let count: Int?
     let style: CloudTreeStyle
     let helpAction: (@MainActor (NSWindow?) -> Void)?
-    var showsHelp = true
 
     var body: some View {
         HStack(alignment: .center, spacing: style.iconGap) {
@@ -23,7 +22,7 @@ struct CloudTreeGroupRowContent: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            if showsHelp, let helpAction {
+            if let helpAction {
                 CloudVPNSetupButtonRepresentable(setup: helpAction)
                     .frame(width: 28, height: 24)
                     .accessibilitySortPriority(1)
