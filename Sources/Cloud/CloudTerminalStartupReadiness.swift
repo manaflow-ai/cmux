@@ -23,6 +23,14 @@ struct CloudTerminalStartupReadiness: Equatable, Sendable {
         presentedFrame = nil
     }
 
+    /// Starts a visible presentation episode without discarding attach/replay state.
+    /// Frames rendered while hidden are older than this baseline and cannot open
+    /// readiness when the pane is revealed.
+    mutating func beginVisiblePresentation(baselineFrame: UInt64) {
+        self.baselineFrame = baselineFrame
+        presentedFrame = nil
+    }
+
     /// Records the attach acknowledgement and returns whether this opened readiness.
     @discardableResult
     mutating func markAttached() -> Bool {
