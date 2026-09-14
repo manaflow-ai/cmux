@@ -160,8 +160,11 @@ jobs:
             shift
             local result_dir
             result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$RUNNER_TEMP/cmux-n75fix-tests" \
+              CMUX_SKIP_ZIG_BUILD=1 \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
