@@ -109,11 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style
-            )
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,

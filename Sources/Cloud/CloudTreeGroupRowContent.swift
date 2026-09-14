@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Renders one Cloud tree section header.
+/// Renders one Cloud tree section header and its optional count.
 struct CloudTreeGroupRowContent: View {
     let title: String
     let count: Int?

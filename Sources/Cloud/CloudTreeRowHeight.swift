@@ -5,7 +5,7 @@ import CmuxFoundation
 struct CloudTreeRowHeight {
     let style: CloudTreeStyle
 
-    func height(of item: Any, in outline: NSOutlineView) -> CGFloat {
+    func height(of item: Any, in _: NSOutlineView) -> CGFloat {
         guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
         switch node.kind {
         case .machine:

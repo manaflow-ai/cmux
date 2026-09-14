@@ -82,6 +82,22 @@ struct CloudDesktopAccessTests {
         await store.remove(machineID: "test-desktop")
     }
 
+    @Test("A failed private network reports its actual error inline")
+    func privateNetworkFailureIsVisible() {
+        let coordinator = CloudTunnelCoordinator(
+            backend: .networkExtension(extensionBundleIdentifier: "test.cloud.desktop"),
+            controller: FakeTunnelController(), enroller: FakeTunnelEnroller(), consumers: FakeTunnelConsumers()
+        )
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 443), coordinator: coordinator,
+            wake: {}, startForward: { _ in 42_000 }, stopForward: {}
+        )
+        model.acceptTunnelState(.failed("Permission refused"))
+        #expect(model.failureMessage?.contains("Permission refused") == true)
+        model.acceptTunnelState(.awaitingApproval)
+        #expect(model.failureMessage?.isEmpty == false)
+    }
+
     private func provider(
         store: CloudPortAccessStore,
         catalog: SurfaceCatalog,

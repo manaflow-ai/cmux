@@ -13,6 +13,16 @@ mod browser;
 mod browser_provider;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+mod image_paste;
+#[cfg(unix)]
+mod image_paste_file;
+#[cfg(unix)]
+mod image_paste_ownership;
+#[cfg(unix)]
+mod image_paste_recovery;
+#[cfg(unix)]
+mod image_paste_storage;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
@@ -21,6 +31,8 @@ mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+#[cfg(unix)]
+mod pty_write;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;

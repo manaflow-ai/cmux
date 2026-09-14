@@ -313,8 +313,6 @@ struct CloudTreeMachineMenuTests {
 /// wired to its closure and not merely titled.
 @MainActor
 private final class CloudTreeMenuVerbRecorder {
-    var vpnSetupCount = 0
-    weak var vpnSetupWindow: NSWindow?
     var newTerminals: [SurfaceMachineID] = []
     var commands: [(id: String, verb: [String])] = []
     var deletions: [String] = []

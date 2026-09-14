@@ -65,11 +65,9 @@ final class CloudTreeCellView: NSTableCellView {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
+        displayHost.isHidden = false
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(
-                kind: node.kind,
-                style: style
-            )
+            CloudTreeRowContentView(kind: node.kind, style: style)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
