@@ -177,6 +177,8 @@ MODEL_BY_PATH = {
     'commands/notify/request': models.NotifyRequest,
     'commands/pairing-response/request': models.PairingResponseRequest,
     'commands/pane-neighbor/request': models.PaneNeighborRequest,
+    'commands/paste-image/request': models.PasteImageRequest,
+    'commands/paste-image/result': models.PasteImageResult,
     'commands/ping/request': models.PingRequest,
     'commands/process-info/request': models.ProcessInfoRequest,
     'commands/put-frontend-projection/request': models.PutFrontendProjectionRequest,
