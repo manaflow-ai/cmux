@@ -123,7 +123,8 @@ struct CloudTerminalCreationContractRegressionTests {
             "revision": "259",
         ]
         let data = try Self.line(malformed)
-        #expect(CloudTuiCreationResolution(data: data) == nil)
+        let resolution = CloudTuiCreationResolution(data: data)
+        #expect(resolution == nil)
     }
 
     @Test("zero numeric surfaces are not attachable")

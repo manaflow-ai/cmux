@@ -19,6 +19,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     var beforeMaterialization: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
+    var projectCursor: CloudVMCursor?
     var workspaceRenames: [String] = []
     var tabRenames: [String] = []
 
@@ -28,6 +29,13 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     }
 
     func refresh() async { refreshCount += 1 }
+    func install(_ state: CloudVMState, in catalog: SurfaceCatalog) {
+        projectCursor = state.cursor.flatMap { cursor in
+            cursor.revision < UInt64.max ? CloudVMCursor(generation: cursor.generation, revision: cursor.revision + 1) : nil
+        }
+        catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: info)
+        catalog.reconcileCloudRemoteState(machine: machine, state: state, observation: .current)
+    }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
@@ -59,7 +67,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func projectTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         try await beforeMutation?()
         projected.append((id.key, remoteWorkspaceID))
-        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected")
+        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected", cursor: projectCursor)
     }
     func closeRemoteTab(id: String, inRemoteWorkspace remoteWorkspaceID: String) async throws {
         events.append("close:" + id)
