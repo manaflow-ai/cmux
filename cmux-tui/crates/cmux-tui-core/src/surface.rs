@@ -1682,45 +1682,6 @@ impl ClearHistoryFailure {
 }
 
 #[cfg(unix)]
-struct NonblockingFdGuard {
-    fd: std::os::fd::RawFd,
-    original_flags: libc::c_int,
-    restored: bool,
-}
-
-#[cfg(unix)]
-impl NonblockingFdGuard {
-    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
-        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if original_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(Self { fd, original_flags, restored: false })
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        if self.restored {
-            return Ok(());
-        }
-        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.restored = true;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-impl Drop for NonblockingFdGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-#[cfg(unix)]
 fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
     let error = anyhow::Error::from(error);
     if delivered == 0 {
@@ -1743,73 +1704,13 @@ pub(crate) fn write_clear_history_fallback(
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
-        let mut nonblocking = NonblockingFdGuard::install(fd)
-            .map_err(|error| clear_history_write_failure(error, 0))?;
-        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
-        let mut delivered = 0;
-        while delivered < bytes.len() {
-            let written = unsafe {
-                libc::write(
-                    fd,
-                    bytes[delivered..].as_ptr().cast(),
-                    bytes.len().saturating_sub(delivered),
-                )
-            };
-            if written > 0 {
-                delivered = delivered.saturating_add(written as usize);
-                continue;
-            }
-            if written == 0 {
-                let error =
-                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
-                return Err(clear_history_write_failure(error, delivered));
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            if error.kind() != std::io::ErrorKind::WouldBlock {
-                return Err(clear_history_write_failure(error, delivered));
-            }
-
-            let now = Instant::now();
-            if now >= deadline {
-                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
-                return Err(if delivered == 0 {
-                    ClearHistoryFailure::known_not_delivered(error)
-                } else {
-                    ClearHistoryFailure::ambiguous(error)
-                });
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            let timeout_ms = remaining
-                .as_nanos()
-                .saturating_add(999_999)
-                .checked_div(1_000_000)
-                .unwrap_or(u128::MAX)
-                .clamp(1, i32::MAX as u128) as libc::c_int;
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if ready > 0 {
-                if poll_fd.revents & libc::POLLNVAL != 0 {
-                    let error =
-                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
-                    return Err(clear_history_write_failure(error, delivered));
-                }
-                continue;
-            }
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(clear_history_write_failure(error, delivered));
-            }
-        }
-        if let Err(error) = nonblocking.restore() {
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        return Ok(());
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
     }
 
     #[cfg(test)]
@@ -4572,7 +4473,13 @@ impl Surface {
         #[cfg(unix)]
         if let Some(timeout) = timeout {
             if let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd()) {
-                return write_nonblocking_with_timeout(writer, fd, &payload, timeout);
+                return crate::pty_write::write_bounded(
+                    fd,
+                    &payload,
+                    timeout,
+                    "PTY paste write timed out",
+                )
+                .map_err(|failure| failure.error);
             }
         }
         writer.write_all(&payload)?;
@@ -6324,67 +6231,6 @@ fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &s
         // reusing the first workspace's page-scoped CDP connection.
         set_surface_environment(options, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
     }
-}
-
-#[cfg(unix)]
-fn write_nonblocking_with_timeout(
-    writer: &mut dyn Write,
-    fd: std::os::fd::RawFd,
-    bytes: &[u8],
-    timeout: Duration,
-) -> std::io::Result<()> {
-    let mut nonblocking = NonblockingFdGuard::install(fd)?;
-    let deadline = Instant::now() + timeout;
-    let mut remaining = bytes;
-    while !remaining.is_empty() {
-        let written = unsafe { libc::write(fd, remaining.as_ptr().cast(), remaining.len()) };
-        if written > 0 {
-            remaining = &remaining[written as usize..];
-            continue;
-        }
-        if written == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::WriteZero,
-                "PTY paste writer accepted no bytes",
-            ));
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        if error.kind() != std::io::ErrorKind::WouldBlock {
-            return Err(error);
-        }
-        let wait = deadline.saturating_duration_since(Instant::now());
-        if wait.is_zero() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "PTY paste write timed out",
-            ));
-        }
-        let millis = wait
-            .as_nanos()
-            .saturating_add(999_999)
-            .checked_div(1_000_000)
-            .unwrap_or(u128::MAX)
-            .clamp(1, i32::MAX as u128) as libc::c_int;
-        let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-        let polled = unsafe { libc::poll(&mut poll_fd, 1, millis) };
-        if polled == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "PTY paste write timed out",
-            ));
-        }
-        if polled < 0 {
-            let error = std::io::Error::last_os_error();
-            if error.kind() != std::io::ErrorKind::Interrupted {
-                return Err(error);
-            }
-        }
-    }
-    nonblocking.restore()?;
-    writer.flush()
 }
 
 #[cfg(test)]

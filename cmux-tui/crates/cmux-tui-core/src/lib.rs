@@ -31,6 +31,8 @@ mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+#[cfg(unix)]
+mod pty_write;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
