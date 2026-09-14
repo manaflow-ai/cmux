@@ -41,7 +41,8 @@ extension CmuxTuiSurfaceProvider {
             closeTerminal: { terminalID in
                 do {
                     try await self.closeTerminal(
-                        SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID)
+                        SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
+                        fallbackTabID: receiver?.remoteViews?.first?.tabID
                     )
                 } catch {
                     guard Self.isSelectorNotFound(error) else { throw error }
