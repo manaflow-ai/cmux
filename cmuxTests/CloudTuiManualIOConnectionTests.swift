@@ -15,6 +15,7 @@ import Testing
             queue.suspend()
             router.setConnection(connection)
             router.invalidate()
+            router.setConnection(connection)
             queue.resume()
             try await Self.blocking { queue.sync {} }
             #expect(!router.send(.bytes(Data("after-teardown".utf8))))

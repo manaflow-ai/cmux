@@ -942,6 +942,7 @@
 		609019DB3EE8FFF70636C933 /* CloudTuiDaemonAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DDDCABD07F6F7DE10F55146 /* CloudTuiDaemonAnswer.swift */; };
 		C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */; };
 		C12582310000000000000001 /* CloudTuiManualIOAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12582320000000000000001 /* CloudTuiManualIOAdmission.swift */; };
+		C12582610000000000000001 /* CloudTuiManualIOAdmissionPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12582620000000000000001 /* CloudTuiManualIOAdmissionPhase.swift */; };
 		C12582410000000000000001 /* CloudTuiManualIOAdmissionResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12582420000000000000001 /* CloudTuiManualIOAdmissionResult.swift */; };
 		C12582510000000000000001 /* CloudTuiManualIOAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12582520000000000000001 /* CloudTuiManualIOAdmissionTests.swift */; };
 		C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324120000000000000001 /* CloudTuiManualIOCommand.swift */; };
@@ -4926,6 +4927,7 @@
 		3DDDCABD07F6F7DE10F55146 /* CloudTuiDaemonAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiDaemonAnswer.swift; sourceTree = "<group>"; };
 		C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiLegacySnapshotParser.swift; sourceTree = "<group>"; };
 		C12582320000000000000001 /* CloudTuiManualIOAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOAdmission.swift; sourceTree = "<group>"; };
+		C12582620000000000000001 /* CloudTuiManualIOAdmissionPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOAdmissionPhase.swift; sourceTree = "<group>"; };
 		C12582420000000000000001 /* CloudTuiManualIOAdmissionResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOAdmissionResult.swift; sourceTree = "<group>"; };
 		C12582520000000000000001 /* CloudTuiManualIOAdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOAdmissionTests.swift; sourceTree = "<group>"; };
 		C11324120000000000000001 /* CloudTuiManualIOCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOCommand.swift; sourceTree = "<group>"; };
@@ -8295,6 +8297,7 @@
 				C11324120000000000000001 /* CloudTuiManualIOCommand.swift */,
 				C11324320000000000000001 /* CloudTuiManualIODescriptorLease.swift */,
 				C12582420000000000000001 /* CloudTuiManualIOAdmissionResult.swift */,
+				C12582620000000000000001 /* CloudTuiManualIOAdmissionPhase.swift */,
 				C12582320000000000000001 /* CloudTuiManualIOAdmission.swift */,
 				C12582020000000000000001 /* CloudTuiManualIOInputWindow.swift */,
 				C11324420000000000000001 /* CloudTuiManualIOFrame.swift */,
@@ -13005,6 +13008,7 @@
 				609019DB3EE8FFF70636C933 /* CloudTuiDaemonAnswer.swift in Sources */,
 				C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */,
 				C12582310000000000000001 /* CloudTuiManualIOAdmission.swift in Sources */,
+				C12582610000000000000001 /* CloudTuiManualIOAdmissionPhase.swift in Sources */,
 				C12582410000000000000001 /* CloudTuiManualIOAdmissionResult.swift in Sources */,
 				C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */,
 				C11322D10000000000000001 /* CloudTuiManualIOConnection.swift in Sources */,
