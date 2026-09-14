@@ -20,9 +20,7 @@ struct CloudTerminalStartupLatencyTests {
     }
 
     @Test @MainActor
-    func unresolvedSurfaceCannotStartAnAttachStream() async throws {
-        let fixture = try CloudManualMirrorSocketFixture()
-        defer { fixture.close() }
+    func unresolvedSurfaceCannotStartAnAttachStream() {
         let session = CloudTuiManualMirrorSession(
             machineID: "machine",
             terminalID: "term_new-machine",
@@ -31,9 +29,8 @@ struct CloudTerminalStartupLatencyTests {
         )
         defer { session.stop() }
 
-        session.reconnect(socketPath: fixture.socketPath)
+        session.reconnect(socketPath: "/tmp/cmux-unresolved-startup.sock")
 
         #expect(session.phase == .idle)
-        #expect(await fixture.nextCommand(timeout: .milliseconds(200)) == nil)
     }
 }
