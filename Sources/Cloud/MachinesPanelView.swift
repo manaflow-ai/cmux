@@ -470,8 +470,7 @@ struct MachinesPanelView: View {
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            showsCloudVPNWarning: CloudPortsVPNWarning.projection(status: tunnelStatus.status) != nil
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
