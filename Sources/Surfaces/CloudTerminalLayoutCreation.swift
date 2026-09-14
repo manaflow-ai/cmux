@@ -28,7 +28,8 @@ struct CloudTerminalLayoutCreation: Sendable {
         splitDirection: SurfaceSplitDirection?,
         idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())"
     ) async throws -> Result {
-        for attempt in 0...1 {
+        var attempt = 0
+        while true {
             try Task.checkCancellation()
             let state = try await snapshot()
             guard let tab = state.lookupIndex.tab(id: nearTabID),
@@ -55,9 +56,9 @@ struct CloudTerminalLayoutCreation: Sendable {
                 return Result(created: created, workspaceID: screen.workspaceID)
             } catch {
                 guard attempt == 0, CmuxTuiSurfaceProvider.isRevisionConflict(error) else { throw error }
+                attempt += 1
             }
         }
-        preconditionFailure("a terminal creation attempt must return or throw")
     }
 
     /// Reads a complete graph without publishing unrelated provider state.

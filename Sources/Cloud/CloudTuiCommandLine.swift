@@ -60,8 +60,9 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil) -> [String] {
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        if let idempotencyKey { arguments += ["--idempotency-key", idempotencyKey] }
         // `--on-exit keep` retains the tab and the final screen after the process exits
         // (spec `workspace.run`): what a sender needs when the process's last lines ARE
         // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.

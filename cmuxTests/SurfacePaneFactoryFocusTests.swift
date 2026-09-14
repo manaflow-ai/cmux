@@ -124,14 +124,24 @@ import Testing
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
         await provider.creationAttemptSignal.wait()
+        await waitForFailure(workspace.cloudPaneCreationFailureStore)
 
         #expect(NSApp.modalWindow == nil)
         let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
         #expect(failure.machine == machine)
         #expect(!failure.errorText.isEmpty)
         #expect(!failure.errorText.contains("connection refused"))
+        #expect(workspace.cloudPaneCreationFailureStore.canRetry)
+        var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
+        let firstRequest = await requestIterator.next()
+        workspace.cloudPaneCreationFailureStore.retry()
+        let retryRequest = await requestIterator.next()
+        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        #expect(firstRequest != nil)
+        #expect(retryRequest == firstRequest)
 
-        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
+        let retriedFailure = try #require(workspace.cloudPaneCreationFailureStore.failure)
+        workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
@@ -174,6 +184,7 @@ import Testing
 
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
+        let creationRequests = AsyncStream<UUID>.makeStream()
 
         /// Creates a provider fixture with optional deterministic creation failure.
         init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
@@ -213,6 +224,11 @@ import Testing
                 port: nil,
                 url: nil
             )
+        }
+
+        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource {
+            creationRequests.continuation.yield(requestID)
+            return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
         }
 
         @MainActor
@@ -336,6 +352,11 @@ import Testing
         #expect(workspace.focusedPanelId == before)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
+    }
+
+    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
     }
 
     @MainActor

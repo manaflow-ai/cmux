@@ -26,6 +26,8 @@ protocol SurfaceProvider: AnyObject {
     /// Create a new terminal on this machine (remote providers create it in the cmux-tui
     /// session; the local provider spawns a shell) and return its resource.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
+    /// Retries of one UI intent carry the same id so a remote mutation can replay its receipt.
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource
     /// Read the live working directory of a terminal's foreground process. Remote
     /// providers use this when a shortcut creates a sibling terminal; providers that
     /// cannot inspect a process return nil and preserve their normal daemon fallback.
@@ -63,6 +65,10 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, requestID: UUID) async throws -> SurfaceResource {
+        try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+    }
+
     /// Legacy providers predate the capability bit and are assumed to support
     /// previews until their concrete implementation says otherwise.
     var supportsPortPreviews: Bool { true }

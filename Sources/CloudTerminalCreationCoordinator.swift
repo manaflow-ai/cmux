@@ -11,25 +11,49 @@ final class CloudTerminalCreationCoordinator {
     typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
     typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
-    private weak var panel: CloudTerminalPendingPanel?
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
+    private let onStart: @MainActor () -> Void
+    private let onFailure: @MainActor (Error) -> Void
+    private let onCancel: @MainActor () -> Void
     private let onSuccess: @MainActor () -> Void
     private var task: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var createdResource: SurfaceResource?
 
-    init(
+    convenience init(
         panel: CloudTerminalPendingPanel,
         create: @escaping Create,
         project: @escaping Project,
         onSuccess: @escaping @MainActor () -> Void,
         discardProjection: @escaping DiscardProjection = { _ in }
     ) {
-        self.panel = panel
+        self.init(
+            create: create,
+            project: project,
+            onStart: { [weak panel] in panel?.resetForRetry() },
+            onFailure: { [weak panel] _ in panel?.showFailure() },
+            onSuccess: onSuccess,
+            discardProjection: discardProjection
+        )
+    }
+
+    /// Runs the same create/project lifecycle for inline status and pending panes.
+    init(
+        create: @escaping Create,
+        project: @escaping Project,
+        onStart: @escaping @MainActor () -> Void = {},
+        onFailure: @escaping @MainActor (Error) -> Void,
+        onCancel: @escaping @MainActor () -> Void = {},
+        onSuccess: @escaping @MainActor () -> Void,
+        discardProjection: @escaping DiscardProjection = { _ in }
+    ) {
         self.create = create
         self.project = project
+        self.onStart = onStart
+        self.onFailure = onFailure
+        self.onCancel = onCancel
         self.onSuccess = onSuccess
         self.discardProjection = discardProjection
     }
@@ -41,9 +65,9 @@ final class CloudTerminalCreationCoordinator {
         guard task == nil else { return }
         generation &+= 1
         let operationGeneration = generation
-        panel?.resetForRetry()
+        onStart()
         task = Task { @MainActor [weak self] in
-            guard let self, let panel = self.panel else { return }
+            guard let self else { return }
             defer {
                 if self.generation == operationGeneration { self.task = nil }
             }
@@ -59,8 +83,7 @@ final class CloudTerminalCreationCoordinator {
                 try Task.checkCancellation()
                 let projectionResult = try await self.project(resource)
                 guard self.generation == operationGeneration,
-                      !Task.isCancelled,
-                      self.panel === panel else {
+                      !Task.isCancelled else {
                     if !projectionResult.reused {
                         self.discardProjection(projectionResult.projection)
                     }
@@ -68,12 +91,12 @@ final class CloudTerminalCreationCoordinator {
                 }
                 self.onSuccess()
             } catch is CancellationError {
+                if self.generation == operationGeneration { self.onCancel() }
                 return
             } catch {
                 guard self.generation == operationGeneration,
-                      !Task.isCancelled,
-                      self.panel === panel else { return }
-                panel.showFailure()
+                      !Task.isCancelled else { return }
+                self.onFailure(error)
             }
         }
     }
@@ -88,6 +111,7 @@ final class CloudTerminalCreationCoordinator {
         generation &+= 1
         task?.cancel()
         task = nil
+        onCancel()
     }
 
     deinit {

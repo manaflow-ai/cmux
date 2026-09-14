@@ -15,7 +15,7 @@ struct CloudPaneCreationFailure: Identifiable, Equatable {
         title = String(
             format: String(
                 localized: "cloudPane.newTerminalFailed.title",
-                defaultValue: "Couldn’t start a terminal on %@"
+                defaultValue: "Couldn’t open a terminal on %@"
             ),
             machine.rawValue
         )
@@ -25,7 +25,7 @@ struct CloudPaneCreationFailure: Identifiable, Equatable {
             : diagnostic.label
         recoveryText = String(
             localized: "cloudPane.newTerminalFailed.recovery",
-            defaultValue: "Check that the machine is connected, then try Cmd+D or Cmd+T again."
+            defaultValue: "Check that the machine is connected, then retry this request."
         )
     }
 

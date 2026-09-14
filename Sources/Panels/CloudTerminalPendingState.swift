@@ -18,6 +18,6 @@ final class CloudTerminalPendingState {
 
     /// Shows a safe, localized failure message without exposing provider details.
     func showFailure() {
-        phase = .failed(String(localized: "cloudTerminal.creation.failed.detail", defaultValue: "The Cloud service did not accept the terminal request."))
+        phase = .failed(String(localized: "cloudTerminal.creation.failed.detail", defaultValue: "The Cloud terminal request could not complete. Retry to continue."))
     }
 }

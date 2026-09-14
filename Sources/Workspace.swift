@@ -10494,8 +10494,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
-
     private func teardownPanelResources(retireDock: Bool) {
+        cloudPaneCreationFailureStore.cancelAll()
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()

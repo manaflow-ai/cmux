@@ -8530,55 +8530,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud service did not accept the terminal request."
+            "value": "The Cloud terminal request could not complete. Retry to continue."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud サービスがターミナル要求を受け付けませんでした。"
+            "value": "Cloud ターミナルのリクエストを完了できませんでした。再試行して続行してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Cloud-Dienst hat die Terminalanfrage nicht akzeptiert."
+            "value": "Die Cloud-Terminal-Anfrage konnte nicht abgeschlossen werden. Versuchen Sie es erneut, um fortzufahren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le service Cloud n’a pas accepté la demande de terminal."
+            "value": "La demande de terminal Cloud n’a pas pu aboutir. Réessayez pour continuer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم تقبل خدمة Cloud طلب الطرفية."
+            "value": "تعذّر إكمال طلب طرفية Cloud. أعد المحاولة للمتابعة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servicio Cloud no aceptó la solicitud del terminal."
+            "value": "No se pudo completar la solicitud de terminal de Cloud. Reintenta para continuar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 服務未接受終端機要求。"
+            "value": "無法完成 Cloud 終端機請求。請重試以繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 服务未接受终端请求。"
+            "value": "无法完成 Cloud 终端请求。请重试以继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 서비스가 터미널 요청을 수락하지 않았습니다."
+            "value": "Cloud 터미널 요청을 완료할 수 없습니다. 계속하려면 다시 시도하세요."
           }
         }
       }
@@ -8589,55 +8589,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud terminal could not start"
+            "value": "Cloud terminal could not be opened"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloudターミナルを起動できませんでした"
+            "value": "Cloud ターミナルを開けませんでした"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Terminal konnte nicht gestartet werden"
+            "value": "Cloud-Terminal konnte nicht geöffnet werden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de démarrer le terminal Cloud"
+            "value": "Impossible d’ouvrir le terminal Cloud"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر بدء طرفية Cloud"
+            "value": "تعذّر فتح طرفية Cloud"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo iniciar el terminal de Cloud"
+            "value": "No se pudo abrir la terminal de Cloud"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法啟動 Cloud 終端機"
+            "value": "無法開啟 Cloud 終端機"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法启动 Cloud 终端"
+            "value": "无法打开 Cloud 终端"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 터미널을 시작할 수 없음"
+            "value": "Cloud 터미널을 열 수 없습니다"
           }
         }
       }
@@ -128030,55 +128030,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn’t start a terminal on %@"
+            "value": "Couldn’t open a terminal on %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ でターミナルを開始できませんでした"
+            "value": "%@ でターミナルを開けませんでした"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法在 %@ 上启动终端"
+            "value": "无法在 %@ 上打开终端"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal auf %@ konnte nicht gestartet werden"
+            "value": "Auf %@ konnte kein Terminal geöffnet werden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de démarrer un terminal sur %@"
+            "value": "Impossible d’ouvrir un terminal sur %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر بدء تشغيل طرفية على %@"
+            "value": "تعذّر فتح طرفية على %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo iniciar una terminal en %@"
+            "value": "No se pudo abrir una terminal en %@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法在 %@ 上啟動終端機"
+            "value": "無法在 %@ 上開啟終端機"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 터미널을 시작할 수 없습니다"
+            "value": "%@에서 터미널을 열 수 없습니다"
           }
         }
       }
@@ -128089,121 +128089,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check that the machine is connected, then try Cmd+D or Cmd+T again."
+            "value": "Check that the machine is connected, then retry this request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンが接続されていることを確認してから、もう一度 Cmd+D または Cmd+T を試してください。"
+            "value": "マシンが接続されていることを確認してから、このリクエストを再試行してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prüfen Sie, ob der Rechner verbunden ist, und versuchen Sie Cmd+D oder Cmd+T erneut."
+            "value": "Prüfen Sie, ob der Rechner verbunden ist, und wiederholen Sie dann diese Anfrage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vérifiez que la machine est connectée, puis réessayez avec Cmd+D ou Cmd+T."
+            "value": "Vérifiez que la machine est connectée, puis réessayez cette demande."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحقق من اتصال الجهاز، ثم جرّب Cmd+D أو Cmd+T مرة أخرى."
+            "value": "تحقق من اتصال الجهاز، ثم أعد محاولة هذا الطلب."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Comprueba que la máquina esté conectada y vuelve a intentarlo con Cmd+D o Cmd+T."
+            "value": "Comprueba que la máquina esté conectada y vuelve a intentar esta solicitud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "確認機器已連線，然後再次嘗試 Cmd+D 或 Cmd+T。"
+            "value": "確認機器已連線，然後重試此請求。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请确认机器已连接，然后再次尝试 Cmd+D 或 Cmd+T。"
+            "value": "请确认机器已连接，然后重试此请求。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "머신이 연결되어 있는지 확인한 다음 Cmd+D 또는 Cmd+T를 다시 시도하세요."
+            "value": "머신이 연결되어 있는지 확인한 다음 이 요청을 다시 시도하세요."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Provjerite je li mašina povezana, a zatim ponovo pokušajte Cmd+D ili Cmd+T."
+            "value": "Provjerite je li mašina povezana, a zatim ponovite ovaj zahtjev."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontrollér, at maskinen er tilsluttet, og prøv derefter Cmd+D eller Cmd+T igen."
+            "value": "Kontrollér, at maskinen er tilsluttet, og prøv derefter denne anmodning igen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verifica che la macchina sia connessa, quindi riprova con Cmd+D o Cmd+T."
+            "value": "Verifica che la macchina sia connessa, quindi riprova questa richiesta."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពិនិត្យ​ម៉ាស៊ីន​ថា​បាន​តភ្ជាប់ រួច​សាកល្បង Cmd+D ឬ Cmd+T ម្តងទៀត។"
+            "value": "ពិនិត្យថាម៉ាស៊ីនបានតភ្ជាប់ រួចសាកល្បងសំណើនេះម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontroller at maskinen er tilkoblet, og prøv Cmd+D eller Cmd+T igjen."
+            "value": "Kontroller at maskinen er tilkoblet, og prøv deretter denne forespørselen igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sprawdź, czy komputer jest połączony, a następnie spróbuj ponownie użyć Cmd+D lub Cmd+T."
+            "value": "Sprawdź, czy komputer jest połączony, a następnie ponów to żądanie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verifique se a máquina está conectada e tente Cmd+D ou Cmd+T novamente."
+            "value": "Verifique se a máquina está conectada e tente esta solicitação novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Убедитесь, что компьютер подключён, затем повторите попытку с Cmd+D или Cmd+T."
+            "value": "Убедитесь, что компьютер подключён, затем повторите этот запрос."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตรวจสอบว่าเครื่องเชื่อมต่ออยู่ แล้วลอง Cmd+D หรือ Cmd+T อีกครั้ง"
+            "value": "ตรวจสอบว่าเครื่องเชื่อมต่ออยู่ แล้วลองคำขอนี้อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Makinenin bağlı olduğunu kontrol edin, ardından Cmd+D veya Cmd+T tuşlarına tekrar basın."
+            "value": "Makinenin bağlı olduğunu kontrol edin, ardından bu isteği yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перевірте підключення комп’ютера, а потім знову спробуйте Cmd+D або Cmd+T."
+            "value": "Перевірте підключення комп’ютера, а потім повторіть цей запит."
           }
         }
       }

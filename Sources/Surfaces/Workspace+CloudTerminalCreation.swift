@@ -121,12 +121,14 @@ extension Workspace {
             pendingPanel = nil
         }
 
-        let scope = catalog.beginProjectionMutation(for: [resource.id])
-        var projectionMutationEnded = false
+        var scope: [SurfaceMachineID: UUID]?
+        let beginProjectionMutation: @MainActor () -> Void = {
+            if scope == nil { scope = catalog.beginProjectionMutation(for: [resource.id]) }
+        }
         let endProjectionMutation: @MainActor () -> Void = {
-            guard !projectionMutationEnded else { return }
-            projectionMutationEnded = true
-            catalog.endProjectionMutation(scope)
+            guard let current = scope else { return }
+            scope = nil
+            catalog.endProjectionMutation(current)
         }
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
@@ -138,7 +140,8 @@ extension Workspace {
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,
-                        splitDirection: direction
+                        splitDirection: direction,
+                        requestID: requestID
                     )
                 }
                 let workingDirectory = await provider.currentWorkingDirectory(of: resource)
@@ -146,7 +149,8 @@ extension Workspace {
                     command: nil,
                     cwd: workingDirectory,
                     name: nil,
-                    remoteWorkspaceID: remoteWorkspaceID
+                    remoteWorkspaceID: remoteWorkspaceID,
+                    requestID: requestID
                 )
             } catch {
                 endProjectionMutation()
@@ -154,8 +158,12 @@ extension Workspace {
             }
         }
         let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] created in
+            guard let self, !self.isRetiredFromOwningTabManager else {
+                endProjectionMutation()
+                throw CancellationError()
+            }
             if let pendingPanel {
-                guard let self, self.panels[pendingPanel.id] != nil else {
+                guard self.panels[pendingPanel.id] != nil else {
                     endProjectionMutation()
                     throw CancellationError()
                 }
@@ -171,9 +179,17 @@ extension Workspace {
         }
         if let pendingPanel {
             let coordinator = CloudTerminalCreationCoordinator(
-                panel: pendingPanel,
                 create: create,
                 project: project,
+                onStart: { [weak pendingPanel] in
+                    beginProjectionMutation()
+                    pendingPanel?.resetForRetry()
+                },
+                onFailure: { [weak pendingPanel] _ in
+                    endProjectionMutation()
+                    pendingPanel?.showFailure()
+                },
+                onCancel: endProjectionMutation,
                 onSuccess: { [weak self, weak pendingPanel] in
                     endProjectionMutation()
                     guard let self, let pendingPanel,
@@ -193,15 +209,17 @@ extension Workspace {
             pendingPanel.onRetry = { coordinator.retry() }
             coordinator.start()
         } else {
-            Task { @MainActor in
-                defer { endProjectionMutation() }
-                do {
-                    let created = try await create()
-                    _ = try await project(created)
-                } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
+            cloudPaneCreationFailureStore.run(
+                machine: machine,
+                requestID: requestID,
+                create: create,
+                project: project,
+                onStart: beginProjectionMutation,
+                onFinish: endProjectionMutation,
+                discardProjection: { projection in
+                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
-            }
+            )
         }
         return true
     }

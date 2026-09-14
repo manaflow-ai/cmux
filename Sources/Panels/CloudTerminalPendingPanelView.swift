@@ -21,7 +21,7 @@ struct CloudTerminalPendingPanelView: View {
                     .frame(maxWidth: 360)
             case .failed(let detail):
                 CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
-                Text(String(localized: "cloudTerminal.creation.failed.title", defaultValue: "Cloud terminal could not start"))
+                Text(String(localized: "cloudTerminal.creation.failed.title", defaultValue: "Cloud terminal could not be opened"))
                     .cmuxFont(size: 14, weight: .semibold)
                     .foregroundStyle(.primary)
                 Text(detail)
