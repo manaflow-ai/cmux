@@ -145,23 +145,6 @@ final class SurfaceCatalog {
         requestCloudWorkspaceProjection(localWorkspaceID)
     }
 
-    /// Persists the machine and remote workspace identity behind a local workspace.
-    func bindCloudWorkspace(
-        localWorkspaceID: UUID,
-        machine: SurfaceMachineID,
-        remoteWorkspaceID: String?,
-        generatedTitle: String? = nil
-    ) {
-        cloudWorkspaceRenameService.bind(
-            localWorkspaceID: localWorkspaceID,
-            machine: machine,
-            remoteWorkspaceID: remoteWorkspaceID,
-            generatedTitle: generatedTitle
-        )
-        requestCloudWorkspaceProjection(localWorkspaceID)
-        cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
-    }
-
     // MARK: Providers
 
     func register(_ provider: any SurfaceProvider) {

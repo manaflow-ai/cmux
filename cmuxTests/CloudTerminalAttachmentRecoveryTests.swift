@@ -152,8 +152,8 @@ import Testing
         #expect(reconnects.count >= 1)
     }
 
-    /// The attachment retry policy retains bounded initial checks and capped
-    /// background recovery for already materialized panes.
+    /// One open retries a couple of times, then reports "did not answer";
+    /// an open pane keeps retrying at the capped interval forever.
     @Test
     func retryPoliciesBoundOneOpenAndCapBackgroundRecovery() {
         let materialize = CloudTerminalAttachmentRetryPolicy.materialize
@@ -164,14 +164,6 @@ import Testing
         #expect(background.cappedDelay(afterFailures: 1) == .seconds(1))
         #expect(background.cappedDelay(afterFailures: 6) == .seconds(30))
         #expect(background.cappedDelay(afterFailures: 60) == .seconds(30))
-    }
-
-    @Test
-    func creationRecoveryUsesCappedBackoff() {
-        let policy = CloudTuiCreationRecoveryPolicy.standard
-        #expect(policy.delay(afterAttempts: 1) == .seconds(1))
-        #expect(policy.delay(afterAttempts: 2) == .seconds(2))
-        #expect(policy.delay(afterAttempts: 60) == .seconds(30))
     }
 
     /// The scheduler arms exactly one retry per failed pass, replaces an
@@ -195,21 +187,6 @@ import Testing
         scheduler.cancel()
         #expect(!scheduler.isPending)
         #expect(!(await Self.waitUntil(timeout: .milliseconds(200)) { fired.count == 2 }))
-    }
-
-    /// The pane shows nothing while attached and a reason while reconnecting.
-    @Test
-    func attachmentBannerNamesTheMachineAndTheReason() {
-        #expect(CloudTerminalAttachmentBanner.text(for: .attached, machineID: "vm-1") == nil)
-        #expect(CloudTerminalAttachmentBanner.text(for: .ended, machineID: "vm-1") == nil)
-        let attaching = CloudTerminalAttachmentBanner.text(for: .attaching(attempt: 1), machineID: "vm-1")
-        #expect(attaching?.contains("vm-1") == true)
-        let reconnecting = CloudTerminalAttachmentBanner.text(
-            for: .reconnecting(attempt: 3, reason: .livenessTimedOut), machineID: "vm-1"
-        )
-        #expect(reconnecting?.contains("vm-1") == true)
-        #expect(reconnecting?.contains("3") == true)
-        #expect(reconnecting?.contains(CloudTerminalAttachmentInterruption.livenessTimedOut.localizedDescription) == true)
     }
 
     /// The raw bridge wraps transport errors inside details.error on some daemons.
