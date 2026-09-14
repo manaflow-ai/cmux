@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { afterEach, describe, expect, test } from "bun:test";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -94,6 +94,7 @@ async function fixture(peer: boolean) {
   writeFileSync(join(dir, "calls.jsonl"), "");
   const socket = join(dir, "peer.sock");
   const server = createServer();
+  const terminalRuns = new Set<() => Promise<void>>();
   if (peer) {
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(socket, resolve); });
     mkdirSync(join(dir, ".cmux/peers"), { recursive: true });
@@ -111,9 +112,29 @@ async function fixture(peer: boolean) {
     }),
     runInTerminal: (script: string, ids: string[]) => {
       chmodSync(shim, 0o755);
-      return spawnSync("sh", ["-c", script, "guest-burst", ...ids], {
-        encoding: "utf8", timeout: 30_000,
+      const child = spawn("sh", ["-c", script, "guest-burst", ...ids], {
+        detached: true, stdio: ["ignore", "pipe", "pipe"],
         env: { NODE_ENV: "test", PATH: `${dir}:${process.env.PATH}`, HOME: dir, CMUX_TUI_BIN: daemon },
+      });
+      let stdout = "", stderr = "";
+      child.stdout.setEncoding("utf8").on("data", chunk => { stdout += chunk; });
+      child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+      const closed = new Promise<void>(resolve => child.once("close", () => resolve()));
+      const stop = async () => {
+        // The runner's cancellation must also reap the shell's daemon children.
+        if (child.pid !== undefined) {
+          try { process.kill(-child.pid, "SIGKILL"); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+        }
+        await closed;
+      };
+      terminalRuns.add(stop);
+      return new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", status => {
+          terminalRuns.delete(stop);
+          resolve({ status, stdout, stderr });
+        });
       });
     },
     seedWorkspaces: (ids: string[]) => {
@@ -121,7 +142,11 @@ async function fixture(peer: boolean) {
       writeFileSync(join(dir, "graph.json"), JSON.stringify(state));
     },
     calls: () => readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(x => JSON.parse(x)),
-    cleanup: async () => { if (peer) await new Promise<void>(resolve => server.close(() => resolve())); rmSync(dir, { recursive: true, force: true }); },
+    cleanup: async () => {
+      await Promise.all([...terminalRuns].map(stop => stop()));
+      if (peer) await new Promise<void>(resolve => server.close(() => resolve()));
+      rmSync(dir, { recursive: true, force: true });
+    },
     route: peer ? ["--socket", socket] : ["--session", "cloud"],
   };
 }
@@ -295,24 +320,28 @@ for (const peer of [false, true]) describe(`guest workspace close contract (peer
   });
 });
 
-test("the in-terminal close loop forwards one close per workspace and stops on failure", async () => {
-  const f = await fixture(false);
-  try {
+describe("in-terminal close loop", () => {
+  let activeFixture: Awaited<ReturnType<typeof fixture>> | undefined;
+  afterEach(async () => { await activeFixture?.cleanup(); activeFixture = undefined; });
+
+  test("forwards one close per workspace and stops on failure", async () => {
+    const f = await fixture(false);
+    activeFixture = f;
     const ids = Array.from({ length: 15 }, (_, index) => `ws_cmux${index + 1}`);
     f.seedWorkspaces(["ws_agi", ...ids]);
-    const result = f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ids);
+    const result = await f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ids);
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     expect(f.calls()).toEqual(ids.map(id => [...f.route, "workspace", id, "close"]));
     expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toEqual(["ws_agi"]);
     expect(f.read().terminals).toEqual(f.graph.terminals);
 
-    const failed = f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ["ws_missing", "ws_agi"]);
+    const failed = await f.runInTerminal('set -e; for id do cmux workspace close --workspace "$id" --focus false >/dev/null; done', ["ws_missing", "ws_agi"]);
     expect(failed.status).toBe(2);
     expect(f.calls().at(-1)).toEqual([...f.route, "workspace", "ws_missing", "close"]);
     expect(f.calls()).toHaveLength(ids.length + 1);
     expect(f.read().workspaces.map((workspace: { id: string }) => workspace.id)).toEqual(["ws_agi"]);
-  } finally { await f.cleanup(); }
+  });
 });
 
 test("topology help is localized and works before daemon installation", () => {
