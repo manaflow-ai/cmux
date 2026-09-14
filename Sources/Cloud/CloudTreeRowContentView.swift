@@ -25,7 +25,6 @@ enum CloudTreeIconPalette {
     static let machine = Color.accentColor
 }
 
-@MainActor
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
