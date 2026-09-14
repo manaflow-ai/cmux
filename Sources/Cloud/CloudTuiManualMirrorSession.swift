@@ -80,7 +80,8 @@ final class CloudTuiManualMirrorSession {
         guard let state = CloudManualMirrorPresentation(
             phase: phase,
             replayReceived: diagnosticReplayReceived,
-            firstFramePresented: presentationReadiness.phase == .ready
+            firstFramePresented: presentationReadiness.phase == .ready,
+            surfaceResolutionActive: remoteSurfaceID == 0 && !automaticReconnectSuppressed
         ).connectionState else { return nil }
         var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
@@ -737,7 +738,6 @@ final class CloudTuiManualMirrorSession {
             reconcileRemoteGrid()
         }
     }
-
     // MARK: - Requests and sizing
 
     private func sendPing() {

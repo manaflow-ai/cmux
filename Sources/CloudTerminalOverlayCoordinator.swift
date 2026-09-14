@@ -138,8 +138,10 @@ final class CloudTerminalOverlayCoordinator {
             if presentation.showsProgress {
                 if let onCancel {
                     onCancel()
-                } else {
-                    self.session?.cancelConnectionAttempt()
+                } else if let session = self.session {
+                    session.cancelConnectionAttempt()
+                } else if let dismissalID {
+                    self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
                 }
             } else if let dismissalID {
                 self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)

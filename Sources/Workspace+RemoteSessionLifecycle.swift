@@ -143,6 +143,12 @@ extension Workspace {
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        if let surfaceId,
+           let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.retryConnection()
+        }
         // `DisableRemoteConnections` (MDM): a configuration retained from
         // before the policy activated must not redial. New connections are
         // refused by `configureRemoteConnection`, and the enforcement observer

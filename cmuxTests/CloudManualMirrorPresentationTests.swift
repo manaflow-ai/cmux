@@ -40,6 +40,7 @@ struct CloudManualMirrorPresentationTests {
     @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
         #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
+        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false, surfaceResolutionActive: true).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, firstFramePresented: true).connectionState == .connected)
@@ -63,8 +64,12 @@ struct CloudManualMirrorPresentationTests {
         #expect(session.retryConnection(cancelOnly: true))
         #expect(session.phase == .idle)
         #expect(session.connectionPresentation == nil)
+        #expect(!session.allowsAutomaticReconnect)
         #expect(refreshes == 0)
         #expect(!session.cancelConnectionAttempt())
+        #expect(session.retryConnection())
+        #expect(session.allowsAutomaticReconnect)
+        #expect(refreshes == 1)
     }
 
     @Test @MainActor
