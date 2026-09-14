@@ -11,7 +11,7 @@ final class CloudTerminalCreationCoordinator {
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
-    private let onSuccess: @MainActor () -> Void
+    private let onSuccess: @MainActor (SurfaceProjection) -> Void
     private let onStart: @MainActor () -> Void
     private let onFinish: @MainActor () -> Void
     private var task: Task<Void, Never>?
@@ -23,7 +23,7 @@ final class CloudTerminalCreationCoordinator {
         panel: CloudTerminalPendingPanel,
         create: @escaping Create,
         project: @escaping Project,
-        onSuccess: @escaping @MainActor () -> Void,
+        onSuccess: @escaping @MainActor (SurfaceProjection) -> Void,
         discardProjection: @escaping DiscardProjection = { _ in },
         onStart: @escaping @MainActor () -> Void = {},
         onFinish: @escaping @MainActor () -> Void = {}
@@ -72,7 +72,7 @@ final class CloudTerminalCreationCoordinator {
                     if !result.reused { self.discardProjection(result.projection) }
                     return
                 }
-                self.onSuccess()
+                self.onSuccess(result.projection)
             } catch is CancellationError {
                 if !self.cancelled { panel.showFailure(canRetry: self.createdResource != nil) }
             } catch {

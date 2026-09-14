@@ -33,6 +33,7 @@ extension Workspace {
     ) -> CloudTerminalPendingPanel? {
         let allowsFocus = focus && (TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true)
         guard let pending = installCloudTerminalPendingPanel(machine: machine, at: destination, focus: allowsFocus) else { return nil }
+        var focusToRestore: UUID?
         var endMutation: (() -> Void)?
         let finishMutation: () -> Void = {
             endMutation?()
@@ -47,6 +48,7 @@ extension Workspace {
                 let previousPanelID = self.focusedPanelId
                 let stillFocused = allowsFocus && previousPanelID == pending.id
                     && AppDelegate.shared?.tabManagerFor(tabId: self.id)?.selectedTabId == self.id
+                focusToRestore = stillFocused ? nil : previousPanelID
                 let result = try await catalog.project(
                     created.id,
                     into: .tab(workspaceID: self.id, paneID: pane.id.uuidString, index: nil),
@@ -66,11 +68,20 @@ extension Workspace {
                 }
                 return result
             },
-            onSuccess: { [weak self, weak pending] in
+            onSuccess: { [weak self, weak pending] projection in
                 guard let self, let pending, self.panels[pending.id] === pending else { return }
                 pending.onCancel = nil
                 pending.onRetry = nil
                 _ = self.closePanel(pending.id, force: true)
+                if let focusToRestore {
+                    // Retiring a tab selects its neighbor. Finish the replacement
+                    // through the same focus owner as other background creations.
+                    self.preserveFocusAfterNonFocusSplit(
+                        preferredPanelId: focusToRestore,
+                        splitPanelId: projection.panelID,
+                        previousHostedView: nil
+                    )
+                }
             },
             discardProjection: { projection in
                 catalog.endProjections(panelID: projection.panelID, reason: .replaced)
