@@ -10,8 +10,6 @@ extension CmuxTuiSurfaceProvider {
     }
 }
 
-}
-
 
 /// Two more headless terminal primitives over the machine's link, beside `readScreen`
 /// and `waitForScreen`: the process's EXIT (a fact the daemon records) and its retained
