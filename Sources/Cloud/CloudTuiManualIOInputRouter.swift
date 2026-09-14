@@ -20,6 +20,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private let inputChunkByteLimit = 16 * 1024
     private var inputBytes = Data()
     private var inputFlushScheduled = false
+    private let admission = CloudTuiManualIOAdmission()
 
     init(
         surfaceID: UInt64,
@@ -53,6 +54,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             flushInputBytes()
             self.connection = connection
             guard let connection else { return }
+            admission.reopen()
             for line in pendingLines { connection.sendInput(line: line) }
             pendingLines.removeAll(keepingCapacity: true)
             pendingByteCount = 0
@@ -61,6 +63,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     func invalidate() {
+        admission.close()
         queue.async { [self] in
             connection = nil
             inputBytes.removeAll(keepingCapacity: false)
@@ -70,11 +73,26 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Enqueues one manual input event.
-    func send(_ input: TerminalManualInput) {
+    /// Returns whether callback capacity was reserved, not whether input arrived.
+    @discardableResult
+    func send(_ input: TerminalManualInput) -> Bool {
+        let cost: Int
+        switch input {
+        case .bytes(let bytes): cost = bytes.count
+        case .namedKey(let name): cost = name.utf8.count
+        }
+        switch admission.reserve(cost) {
+        case .closed: return false
+        case .rejected:
+            queue.async { [self] in connection?.close() }
+            return false
+        case .reserved: break
+        }
         // Keep base64/JSON work off Ghostty's synchronous I/O callback. The
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
+            defer { admission.release(cost) }
             switch input {
             case .bytes(let bytes):
                 guard !bytes.isEmpty else { return }
@@ -107,6 +125,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
                 ))
             }
         }
+        return true
     }
 
     private func flushInputBytes() {

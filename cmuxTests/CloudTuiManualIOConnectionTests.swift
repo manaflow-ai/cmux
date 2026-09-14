@@ -8,6 +8,34 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test func callbackAdmissionRejectsBeforeRouterQueueRuns() async throws {
+        let queue = DispatchQueue(label: "test.cloud-callback-admission")
+        let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+        let bytes = Data(repeating: 0x61, count: 128 * 1024)
+        queue.suspend()
+        #expect(router.send(.bytes(bytes)))
+        #expect(router.send(.bytes(bytes)))
+        #expect(!router.send(.bytes(Data([0x61]))))
+        #expect(!router.send(.bytes(Data([0x61]))))
+        router.invalidate()
+        queue.resume()
+        try await Self.blocking { queue.sync {} }
+    }
+
+    @Test func commandAdmissionRejectsBeforeSocketQueueRuns() async throws {
+        let queue = DispatchQueue(label: "test.cloud-command-admission")
+        try await Self.withConnection(queue: queue) { connection, _ in
+            let line = Data(repeating: 0x61, count: 128 * 1024)
+            queue.suspend()
+            #expect(connection.sendInput(line: line))
+            #expect(connection.sendInput(line: line))
+            #expect(!connection.sendInput(line: Data([0x61])))
+            #expect(!connection.send(line: Data([0x61])))
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+        }
+    }
+
     @Test func burstSurvivesAConsumerWaitingForAnInputRoundTrip() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<100).map { Data("\u{1b}[?2026hchunk-\($0)\u{1b}[?2026l".utf8) }

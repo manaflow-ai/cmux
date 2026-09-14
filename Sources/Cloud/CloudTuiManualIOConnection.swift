@@ -46,6 +46,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
     private var inputWindow = CloudTuiManualIOInputWindow()
+    private let admission = CloudTuiManualIOAdmission()
     private var closed = false
 
     init(
@@ -123,19 +124,32 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Enqueues an already framed JSON line. Used by the input router so it can
     /// preserve ordering while a connection is being rebound.
-    func send(line: Data) {
-        queue.async { [self, line] in
-            enqueueCommandLocked(line, needsReceipt: false)
-        }
+    /// A true result reserves handoff capacity; it does not certify delivery.
+    @discardableResult
+    func send(line: Data) -> Bool {
+        enqueue(line, needsReceipt: false)
     }
 
     /// Receipts retire on the socket queue without yielding to the renderer.
     /// Shared-stream reads still follow frame demand: a paused consumer stops
     /// input at 32 outstanding replies, and its next demand resumes the window.
-    func sendInput(line: Data) {
-        queue.async { [self, line] in
-            enqueueCommandLocked(line, needsReceipt: true)
+    /// Returns false if bounded handoff admission is closed or exhausted.
+    @discardableResult
+    func sendInput(line: Data) -> Bool {
+        enqueue(line, needsReceipt: true)
+    }
+
+    private func enqueue(_ line: Data, needsReceipt: Bool) -> Bool {
+        switch admission.reserve(line.count) {
+        case .closed: return false
+        case .rejected: close(); return false
+        case .reserved: break
         }
+        queue.async { [self, line] in
+            defer { admission.release(line.count) }
+            enqueueCommandLocked(line, needsReceipt: needsReceipt)
+        }
+        return true
     }
 
     private func enqueueCommandLocked(_ line: Data, needsReceipt: Bool) {
@@ -164,6 +178,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// Closes only this attachment connection. The remote terminal session stays
     /// owned by cmux-tui and can be attached again later.
     func close() {
+        admission.close()
         queue.async { [self] in
             closeLocked()
         }
@@ -386,6 +401,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
+        admission.close()
         inputWindow = CloudTuiManualIOInputWindow()
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
