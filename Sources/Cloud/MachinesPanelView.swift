@@ -607,7 +607,7 @@ struct MachinesPanelView: View {
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),
-            reveal: devicesModel.revealRequest,
+            reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
