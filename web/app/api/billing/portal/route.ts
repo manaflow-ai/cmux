@@ -18,6 +18,7 @@ import {
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
+import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -75,6 +76,9 @@ export async function GET(request: NextRequest) {
     const returnUrl = new URL("/dashboard/billing", requestOrigin(request)).toString();
     const target = request.nextUrl.searchParams.get("plan");
     const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
+    if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
+      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)), 302);
+    }
     const session = wantsSwitch
       ? await personalPortalSession({
           userId: user.id, origin: requestOrigin(request), target,

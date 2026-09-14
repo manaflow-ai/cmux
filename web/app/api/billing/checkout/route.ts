@@ -129,9 +129,6 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   const intervalError = unavailableIntervalResponse(request);
   if (intervalError) return intervalError;
-  if (plan === GO_PLAN_ID && !(await isGoPlanEnabled())) {
-    return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
-  }
   const interval = CHECKOUT_BILLING_INTERVAL;
   const rawCallbackScheme = request.nextUrl.searchParams.get("cmux_scheme");
   const verifiedRelayScheme = verifiedAppPricingRelayScheme(request.nextUrl);
@@ -227,6 +224,9 @@ async function stripePersonalCheckout(
       (await stackServerApp.getUser({ or: "return-null" })) ??
       (await stackServerApp.getUser({ or: "anonymous" }));
     if (!user) throw new Error("Checkout account is unavailable");
+    if (plan === GO_PLAN_ID && !(await isGoPlanEnabled(user.id))) {
+      return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
+    }
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
