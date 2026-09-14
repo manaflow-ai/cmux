@@ -158,6 +158,7 @@ struct CloudActivationPolicyTests {
                 machineCache: cache,
                 browserTunnel: browser,
                 terminalTunnel: terminal,
+                remoteEnabled: { true },
                 resolveCloudMachine: { nil }
             )
         }

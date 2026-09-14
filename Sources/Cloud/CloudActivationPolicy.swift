@@ -106,6 +106,7 @@ struct CloudActivationPolicy: Sendable {
         machineCache: CloudMachineCache = CloudMachineCache(),
         browserTunnel: VMTunnelManager = VMTunnelManager(purpose: .browser),
         terminalTunnel: VMTunnelManager = VMTunnelManager(purpose: .terminal),
+        remoteEnabled: @escaping @Sendable () -> Bool = { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) },
         resolveCloudMachine: @escaping @Sendable () async -> Bool? = { await listedFleetHasMachine() }
     ) -> CloudActivationPolicy {
         // nonisolated(unsafe): UserDefaults is documented thread-safe but not
@@ -113,7 +114,7 @@ struct CloudActivationPolicy: Sendable {
         nonisolated(unsafe) let toggleDefaults = defaults
         return CloudActivationPolicy(
             isCloudMachinesEnabled: {
-                CloudMachinesFeature.offMainIsEnabled(defaults: toggleDefaults)
+                CloudMachinesFeature.isEnabled(defaults: toggleDefaults, policy: ManagedDevicePolicy(), remoteEnabled: remoteEnabled())
             },
             hasUsedCloud: {
                 machineCache.hasAnyMachine == true
