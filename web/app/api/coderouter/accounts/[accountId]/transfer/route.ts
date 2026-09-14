@@ -28,12 +28,12 @@ export function makeCoderouterTransferHandler(
   ): Promise<Response> {
     const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
+    if (!resolved.value.team.manageAccounts) {
+      return Response.json({ error: "forbidden" }, { status: 403 });
+    }
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
-    }
-    if (!resolved.value.team.manageAccounts) {
-      return Response.json({ error: "forbidden" }, { status: 403 });
     }
     let body: unknown;
     try {

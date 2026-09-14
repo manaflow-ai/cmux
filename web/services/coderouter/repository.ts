@@ -13,10 +13,6 @@ import {
 import type { EncryptedCredential } from "./encryption";
 import { ownerFromProviderKey, providerIdentityKey } from "./codexIdentity";
 import {
-  assertAccountDeletionUserMutationAllowed,
-  assertNoAccountDeletionUserMutationInProgress,
-} from "../account/deletionLock";
-import {
   credentialExpiresAt,
   credentialLabel,
   type CodeRouterAccountSummary,
@@ -27,8 +23,6 @@ import {
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
 const REFRESH_LEASE_MS = 30_000;
-
-type CodeRouterDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 export class CodeRouterLeaseBusy extends Error {
   readonly _tag = "CodeRouterLeaseBusy";
@@ -468,76 +462,46 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  if (input.credential.accountId !== input.accountId || input.credential.teamId !== input.destinationTeamId) {
+    throw new CodeRouterCredentialRace("transfer envelope scope mismatch");
+  }
   const expectedRevision = input.credential.credentialRevision - 1;
-  if (expectedRevision < 0) return false;
   return await cloudDb().transaction(async (tx) => {
-    // Transfers can run in either direction. Acquiring both team locks in a
-    // stable order prevents A -> B and B -> A from deadlocking each other.
+    // Coordinate with account deletion using its existing team lock. Sorting
+    // both teams prevents opposite-direction transfers from deadlocking.
     for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
-      await lockHandoffTeam(tx, teamId);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`);
     }
-    await lockCoderouterAccountMutation(tx, input.stackUserId);
-    const [currentCredential] = await tx
-      .select({ credentialRevision: coderouterCredentials.credentialRevision })
-      .from(coderouterCredentials)
-      .where(and(
-        eq(coderouterCredentials.accountId, input.accountId),
-        eq(coderouterCredentials.teamId, input.sourceTeamId),
-      ))
-      .limit(1);
-    if (!currentCredential) return false;
-    if (currentCredential.credentialRevision !== expectedRevision) {
-      throw new CodeRouterCredentialRace("credential revision changed");
-    }
-    const [updated] = await tx.update(coderouterAccounts)
-      .set({
-        teamId: input.destinationTeamId,
-        vaultRevision: input.credential.credentialRevision,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(coderouterAccounts.id, input.accountId),
-        eq(coderouterAccounts.teamId, input.sourceTeamId),
-        eq(coderouterAccounts.vaultRevision, expectedRevision),
-      ))
-      .returning({ id: coderouterAccounts.id });
-    if (!updated) return false;
+    // Match refresh/replacement lock order: credential first, then account.
+    // Encryption happens before this transaction, so compare the source
+    // revision instead of overwriting a refresh that completed in the meantime.
     const [updatedCredential] = await tx.update(coderouterCredentials)
       .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
       .where(and(
         eq(coderouterCredentials.accountId, input.accountId),
         eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.provider, input.credential.provider),
         eq(coderouterCredentials.credentialRevision, expectedRevision),
       ))
       .returning({ accountId: coderouterCredentials.accountId });
-    if (!updatedCredential) {
-      throw new CodeRouterCredentialRace("credential changed during transfer");
-    }
-    // Existing sessions belong to the source team and must not retain access
-    // to an account after it moves. New sessions in the destination team will
-    // establish fresh bindings through the normal placement path.
-    await tx
-      .delete(coderouterSessionAccounts)
-      .where(eq(coderouterSessionAccounts.accountId, input.accountId));
+    if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
+    const [updated] = await tx.update(coderouterAccounts)
+      .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.provider, input.credential.provider),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+        isNull(coderouterAccounts.refreshLeaseId),
+      ))
+      .returning({ id: coderouterAccounts.id });
+    if (!updated) throw new CodeRouterCredentialRace("transfer account changed or refresh is in progress");
+    await tx.delete(coderouterSessionAccounts).where(and(
+      eq(coderouterSessionAccounts.accountId, input.accountId),
+      eq(coderouterSessionAccounts.teamId, input.sourceTeamId),
+    ));
     return true;
   });
-}
-
-async function lockCoderouterAccountMutation(
-  tx: CodeRouterDbTransaction,
-  stackUserId: string,
-): Promise<void> {
-  await assertAccountDeletionUserMutationAllowed(tx, stackUserId);
-  await assertNoAccountDeletionUserMutationInProgress(tx, stackUserId);
-}
-
-async function lockHandoffTeam(
-  tx: CodeRouterDbTransaction,
-  teamId: string,
-): Promise<void> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`,
-  );
 }
 
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
