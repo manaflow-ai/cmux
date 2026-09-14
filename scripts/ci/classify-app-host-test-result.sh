@@ -15,6 +15,35 @@ case "$original_status" in
     ;;
 esac
 
+# This script is the one rule that grades an app-host batch, whatever its exit
+# status. Three conditions come before the status because no status or summary
+# can outweigh them.
+if [ ! -r "$output_path" ]; then
+  echo "FAIL: app-host test output could not be classified" >&2
+  exit 1
+fi
+
+# A dead app host loses the verdicts pending in that launch. xcodebuild
+# relaunches the host and the summary printed afterwards covers only the last
+# launch, so a clean "(0 unexpected)" line says nothing about the tests that
+# were running when the host died.
+if grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$output_path"; then
+  echo "App host died during the run; the verdicts pending in that launch were lost" >&2
+  exit 1
+fi
+
+# A run that executed nothing proves nothing. swift-testing prints a line per
+# test while XCTest prints only "Executed N tests", so both shapes count.
+swift_testing_tests="$(grep -cE '(✔|✘) Test ' "$output_path" || true)"
+xctest_tests="$(
+  grep -oE 'Executed [0-9]+ tests?' "$output_path" \
+    | grep -oE '[0-9]+' | sort -rn | head -n 1 || true
+)"
+if [ "$(( ${swift_testing_tests:-0} + ${xctest_tests:-0} ))" -eq 0 ]; then
+  echo "No tests executed" >&2
+  exit 1
+fi
+
 if [ "$original_status" -eq 0 ]; then
   exit 0
 fi
