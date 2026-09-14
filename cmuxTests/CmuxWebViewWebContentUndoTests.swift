@@ -147,6 +147,46 @@ final class CmuxWebViewWebContentUndoTests {
         }
     }
 
+    /// Every WebKit view embedded by cmux must keep page edit commands out of
+    /// the window's shared undo stack. Markdown previews use a distinct
+    /// `WKWebView` subclass, so covering only `CmuxWebView` would leave the
+    /// stale-target lifetime bug reachable through that surface.
+    @Test
+    @MainActor
+    func markdownWebContentUndoManagerIsScopedPerWebView() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let markdownWebView = MarkdownWebView(
+            frame: container.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        container.addSubview(markdownWebView)
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            markdownWebView.removeFromSuperview()
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let webViewUndoManager = try #require(markdownWebView.undoManager)
+        #expect(webViewUndoManager !== window.undoManager)
+
+        let spy = WebContentUndoSpy()
+        webViewUndoManager.registerUndo(withTarget: spy) { $0.undoCount += 1 }
+        #expect(webViewUndoManager.canUndo)
+        #expect(window.undoManager?.canUndo == false)
+    }
+
     @MainActor
     private func withBrowserUndoWindow(
         _ body: (NSWindow, CmuxWebView, () -> [NSEvent]) throws -> Void

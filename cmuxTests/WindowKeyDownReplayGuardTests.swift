@@ -417,6 +417,41 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
+    func applicationSendEventRoutesTerminalUndoBeforeAppKitMenu() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let probe = MenuActionProbe()
+        let previousMenu = installUndoMenu(probe: probe)
+        defer { NSApp.mainMenu = previousMenu }
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandZKeyDownEvent(
+            modifiers: [.command],
+            windowNumber: window.windowNumber
+        ) else {
+            Issue.record("Failed to construct Undo key event")
+            return
+        }
+
+        NSApp.sendEvent(event)
+
+        #expect(
+            probe.callCount == 0,
+            Comment(rawValue: "Application-level key-equivalent dispatch must not reach AppKit's Undo menu while a terminal owns focus")
+        )
+        #expect(
+            terminal.afterMenuMissEvents.map { $0.charactersIgnoringModifiers } == ["z"],
+            "Application-level Undo should use the same terminal routing path as window key equivalents"
+        )
+    }
+
+    @Test
     func terminalHostedEditableResponderKeepsLocalUndo() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
