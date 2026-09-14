@@ -32,6 +32,13 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"Idle timed out|Post-test timed out)",
     re.IGNORECASE,
 )
+_APP_HOST_SIGNAL_RE = re.compile(
+    r"(?:\*\*\*[^\n]*|(?:received|terminated|killed|stopped|signal(?:ed)?)[^\n]*)"
+    r"\bSIG(?:ABRT|ALRM|BUS|CHLD|CONT|FPE|HUP|ILL|INT|IO|IOT|KILL|PIPE|POLL|"
+    r"PROF|QUIT|SEGV|STOP|SYS|TERM|TRAP|TSTP|TTIN|TTOU|URG|USR1|USR2|"
+    r"VTALRM|XCPU|XFSZ)\b",
+    re.IGNORECASE,
+)
 _ASSERTION_RE = re.compile(
     r"(?:✘ Test .* recorded an issue|Expectation failed|"
     r"XCTAssert.*failed|Test run with .* failed|"
@@ -77,7 +84,9 @@ def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
                 and "program crashed" not in cleaned.lower()
             ):
                 compile_line = cleaned
-        if app_host_line is None and _APP_HOST_FAILURE_RE.search(raw_line):
+        if app_host_line is None and (
+            _APP_HOST_FAILURE_RE.search(raw_line) or _APP_HOST_SIGNAL_RE.search(raw_line)
+        ):
             app_host_line = _clean_line(raw_line)
         if assertion_line is None and _ASSERTION_RE.search(raw_line):
             assertion_line = _clean_line(raw_line)
