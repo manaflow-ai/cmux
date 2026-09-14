@@ -120,7 +120,8 @@ if (cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 CMUX_TUI_CLIENT_FET
   exit 1
 fi
 # An all-zero attempt count is rejected like a bare 0, not normalized into "zero attempts".
-for bad in 0 00 x ''; do
+# (An empty value means unset and takes the default, so it is not in this list.)
+for bad in 0 00 x; do
   if (cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_ATTEMPTS="$bad" "$RESOLVER" >/dev/null 2>&1); then
     echo "FAIL: CMUX_TUI_CLIENT_FETCH_ATTEMPTS='$bad' must be rejected"
     exit 1
