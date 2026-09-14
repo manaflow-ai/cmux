@@ -462,53 +462,44 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  if (input.credential.accountId !== input.accountId || input.credential.teamId !== input.destinationTeamId) {
+    throw new CodeRouterCredentialRace("transfer envelope scope mismatch");
+  }
   const expectedRevision = input.credential.credentialRevision - 1;
-  if (
-    input.credential.accountId !== input.accountId ||
-    input.credential.teamId !== input.destinationTeamId ||
-    !Number.isSafeInteger(expectedRevision) || expectedRevision < 1
-  ) throw new CodeRouterCredentialRace("invalid transfer envelope identity");
-
   return await cloudDb().transaction(async (tx) => {
-    // Share deletion's team lock. A stable order also serializes opposing
-    // transfers without a source/destination lock inversion.
+    // Coordinate with account deletion using its existing team lock. Sorting
+    // both teams prevents opposite-direction transfers from deadlocking.
     for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`,
-      );
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`);
     }
-    const now = new Date();
-    // Match refresh/replacement's credential-then-account write order and
-    // revision guards. A conflict rolls back the entire move.
+    // Match refresh/replacement lock order: credential first, then account.
+    // Encryption happens before this transaction, so compare the source
+    // revision instead of overwriting a refresh that completed in the meantime.
     const [updatedCredential] = await tx.update(coderouterCredentials)
-      .set({ ...encryptedValues(input.credential), updatedAt: now })
+      .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
       .where(and(
         eq(coderouterCredentials.accountId, input.accountId),
         eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.provider, input.credential.provider),
         eq(coderouterCredentials.credentialRevision, expectedRevision),
       ))
       .returning({ accountId: coderouterCredentials.accountId });
     if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
-
     const [updated] = await tx.update(coderouterAccounts)
-      .set({
-        teamId: input.destinationTeamId,
-        vaultRevision: input.credential.credentialRevision,
-        state: sql`case when ${coderouterAccounts.state} = 'refreshing' then 'active' else ${coderouterAccounts.state} end`,
-        refreshLeaseId: null,
-        refreshLeaseExpiresAt: null,
-        updatedAt: now,
-      })
+      .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
         eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.provider, input.credential.provider),
         eq(coderouterAccounts.vaultRevision, expectedRevision),
-        // An active refresh may rotate the provider token. Wait for its
-        // result instead of moving a snapshot which is about to expire.
-        or(isNull(coderouterAccounts.refreshLeaseExpiresAt), lte(coderouterAccounts.refreshLeaseExpiresAt, now)),
+        isNull(coderouterAccounts.refreshLeaseId),
       ))
       .returning({ id: coderouterAccounts.id });
-    if (!updated) throw new CodeRouterCredentialRace("transfer account revision changed or refresh is active");
+    if (!updated) throw new CodeRouterCredentialRace("transfer account changed or refresh is in progress");
+    await tx.delete(coderouterSessionAccounts).where(and(
+      eq(coderouterSessionAccounts.accountId, input.accountId),
+      eq(coderouterSessionAccounts.teamId, input.sourceTeamId),
+    ));
     return true;
   });
 }
