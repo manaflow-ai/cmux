@@ -810,6 +810,7 @@
 		8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
+				DEC1CE000000000000000032 /* CloudTreeDeviceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000031 /* CloudTreeDeviceRow.swift */; };
 				DEC1CE000000000000000036 /* CloudTreeDeviceRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000035 /* CloudTreeDeviceRowContent.swift */; };
 				8C03E14179CE9409E306054B /* CloudTreeDevicesEmptyCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0E1505C0F4E87D29858B72 /* CloudTreeDevicesEmptyCell.swift */; };
 				D89CD9078DCFB9C6A284675B /* CloudTreeDevicesEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E53580E2DFD42DB9F7FEC5 /* CloudTreeDevicesEmptyView.swift */; };
