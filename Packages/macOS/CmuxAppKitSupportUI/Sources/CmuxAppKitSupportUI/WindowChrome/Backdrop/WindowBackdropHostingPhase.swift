@@ -1,7 +1,7 @@
 /// AppKit hosting strategy for a window backdrop.
 public enum WindowBackdropHostingPhase: String, Equatable, Sendable {
-    /// The window is opaque and filled directly.
-    case opaqueWindowFill
+    /// The window stays opaque while a real root layer owns its backdrop.
+    case opaqueRootBackdrop
 
     /// The window is transparent and uses a root backdrop layer.
     case transparentRootBackdrop

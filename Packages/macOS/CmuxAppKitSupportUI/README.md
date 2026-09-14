@@ -37,6 +37,7 @@ The window background fill and how it is applied to AppKit.
 - `WindowBackdropControllerDependencies.swift`: protocol of app-provided side effects the controller needs (injected).
 - `WindowBackdropController.swift`: `@MainActor` type that applies a plan/snapshot to an `NSWindow`.
 - `WindowBackdropApplicationResult.swift`: what changed after the controller ran.
+- `WindowRootBackdropView.swift`: shared filterless root layer with pane-exclusion masking.
 - `WindowBackdropLayer.swift`: SwiftUI view that renders the resolved backdrop for one role.
 - `LayerBackedBackdropColor.swift`: internal non-hit-testing AppKit color fill for transparent windows.
 

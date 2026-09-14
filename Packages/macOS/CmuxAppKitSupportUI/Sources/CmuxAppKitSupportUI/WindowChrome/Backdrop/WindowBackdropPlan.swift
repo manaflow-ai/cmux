@@ -40,7 +40,7 @@ public struct WindowBackdropPlan {
 
     /// Whether the window should be transparent.
     public var usesTransparentWindow: Bool {
-        hostingPhase != .opaqueWindowFill
+        hostingPhase != .opaqueRootBackdrop
     }
 
     /// Whether the plan uses window glass.

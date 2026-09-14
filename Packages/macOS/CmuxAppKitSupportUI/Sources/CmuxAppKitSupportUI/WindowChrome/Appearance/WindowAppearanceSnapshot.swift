@@ -282,8 +282,10 @@ public struct WindowAppearanceSnapshot {
             )
         }
 
+        // Keep the WindowServer fill aligned with the shared AppKit root so
+        // uncovered titlebar and rounded-corner pixels cannot expose stale data.
         return WindowBackdropPlan(
-            hostingPhase: .opaqueWindowFill,
+            hostingPhase: .opaqueRootBackdrop,
             windowBackgroundColor: compositedTerminalBackgroundColor,
             windowIsOpaque: true,
             rootPolicy: rootPolicy,
