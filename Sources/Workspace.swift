@@ -7520,18 +7520,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        if let failure = cloudMaterializationFailures[surfaceId] {
-            return Self.cloudMaterializationFailurePresentation(
-                detail: failure.detail,
-                reference: failure.reference
-            )
-        }
         // A native Cloud pane owns its presentation through the attachment
         // session. Do not let a stale workspace controller state cover a
         // usable terminal when the catalog projection is being refreshed.
         if let panel = panels[surfaceId] as? TerminalPanel,
            let attachment = panel.cloudAttachment {
             return attachment.presentation
+        }
+        if let failure = cloudMaterializationFailures[surfaceId] {
+            return Self.cloudMaterializationFailurePresentation(
+                detail: failure.detail,
+                reference: failure.reference
+            )
         }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
