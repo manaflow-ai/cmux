@@ -311,7 +311,9 @@ struct DevicesCloudTreeBuilderTests {
             includeLocalMachine: false, source: .cloudWithDevicesSection,
             devicesSection: CloudTreeDevicesSection(discoveryEnabled: false, incomingAccessEnabled: true)
         )
-        let section = try #require(nodes.first)
+        // The merged shape always leads with the Cloud Machines section, even
+        // when the fleet is empty, so locate My Devices by id rather than position.
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
         guard case .devicesSection(let state) = section.kind else {
             Issue.record("Expected My Devices controls even with discovery off")
             return

@@ -52,7 +52,8 @@ struct DevicesSidebarModeTests {
         #expect(RightSidebarMode.from(cliArgument: "machines") == .machines, "the Cloud spelling is untouched")
         #expect(RightSidebarMode.machines.rawValue == "machines")
         #expect(RightSidebarMode.machines.shortcutAction == .switchRightSidebarToMachines)
-        #expect(!RightSidebarMode.machines.canOpenAsPane)
+        // The Cloud tool opens as a pane since 2f8f5af7a0c; the aliases must not change that.
+        #expect(RightSidebarMode.machines.canOpenAsPane)
     }
 
     @Test("Cloud appears once when either machine source is enabled")
