@@ -1062,7 +1062,6 @@ struct RemoteResumeBindingTests {
             remoteConfiguration(preserveAfterTerminalExit: false, persistentDaemonSlot: nil),
             autoConnect: false
         )
-        workspace.activeRemoteSessionControllerID = UUID()
         let missingDaemonSlot = Workspace()
         missingDaemonSlot.configureRemoteConnection(
             remoteConfiguration(preserveAfterTerminalExit: true, persistentDaemonSlot: nil),
