@@ -53,6 +53,11 @@ private final class DockRuntimeParityUnreadObserver {
 }
 
 @MainActor
+private final class DockRuntimeParityKeyWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+}
+
+@MainActor
 private extension DockSplitStore {
     @discardableResult
     func seedRuntimeParityPanel(_ panel: any Panel) throws -> PaneID {
@@ -222,6 +227,7 @@ struct DockRuntimeParityTests {
 
     private func withAppContext(
         fileExplorerState: FileExplorerState? = FileExplorerState(),
+        window suppliedWindow: NSWindow? = nil,
         _ body: @MainActor (AppDelegate, TabManager, Workspace, UUID) async throws -> Void
     ) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
@@ -237,7 +243,7 @@ struct DockRuntimeParityTests {
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
             let windowID = UUID()
-            let window = NSWindow(
+            let window = suppliedWindow ?? NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
@@ -1273,18 +1279,163 @@ struct DockRuntimeParityTests {
         }
     }
 
+    @Test("Focused Dock terminal bell is silent without unread or flash")
+    func focusedDockTerminalBellSuppressesEveryAttentionEffect() async throws {
+        let keyWindow = DockRuntimeParityKeyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        try await withAppContext(window: keyWindow) { appDelegate, _, _, windowID in
+            let notificationStore = TerminalNotificationStore.shared
+            let previousNotificationStore = appDelegate.notificationStore
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            let defaults = UserDefaults.standard
+            let paneFlashHadValue = defaults.object(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            ) != nil
+            let previousPaneFlashEnabled = defaults.bool(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            )
+            appDelegate.notificationStore = notificationStore
+            AppFocusState.overrideIsFocused = true
+            defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+            defer {
+                if paneFlashHadValue {
+                    defaults.set(
+                        previousPaneFlashEnabled,
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                }
+                notificationStore.markRead(forTabId: windowID)
+                appDelegate.notificationStore = previousNotificationStore
+                AppFocusState.overrideIsFocused = previousFocusOverride
+            }
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let terminal = TerminalPanel(
+                workspaceId: windowID,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            dock.setVisibleInUI(true)
+            defer { dock.setVisibleInUI(false) }
+            dock.focusPanel(terminal.id)
+            appDelegate.keyboardFocusCoordinator(for: keyWindow)?
+                .noteRightSidebarInteraction(mode: .dock)
+            keyWindow.contentView?.addSubview(terminal.hostedView)
+
+            let ownsActiveFocus = try #require(
+                terminal.surface.terminalBellOwnsActiveFocus
+            )
+            #expect(ownsActiveFocus())
+            GhosttySurfaceScrollView.resetFlashCounts()
+
+            let admittedAudio = GhosttyApp.shared.ringBell(
+                surface: terminal.surface,
+                presentation: TerminalBellPresentation(
+                    systemSoundEnabled: false,
+                    customAudioPath: nil,
+                    customAudioVolume: 0.5,
+                    visualBellEnabled: true
+                )
+            )
+
+            #expect(!admittedAudio)
+            #expect(!notificationStore.hasManualUnread(
+                forTabId: windowID,
+                surfaceId: terminal.id
+            ))
+            #expect(GhosttySurfaceScrollView.flashCount(for: terminal.id) == 0)
+        }
+    }
+
+    @Test("Workspace-to-Dock transfer replaces stale terminal bell focus routing")
+    func workspaceToDockTransferReplacesTerminalBellFocusRouting() async throws {
+        let keyWindow = DockRuntimeParityKeyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        try await withAppContext(window: keyWindow) { appDelegate, _, workspace, windowID in
+            let previousFocusOverride = AppFocusState.overrideIsFocused
+            AppFocusState.overrideIsFocused = true
+            defer { AppFocusState.overrideIsFocused = previousFocusOverride }
+
+            let terminal = try #require(workspace.focusedTerminalPanel)
+            let workspaceFocusOwner = try #require(
+                terminal.surface.terminalBellOwnsActiveFocus
+            )
+            let detached = try #require(workspace.detachSurface(panelId: terminal.id))
+            #expect(!workspaceFocusOwner())
+
+            let dock = appDelegate.windowDock(forWindowId: windowID)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            #expect(dock.attachDetachedSurface(
+                detached,
+                inPane: dockPane,
+                focus: true
+            ) == terminal.id)
+            dock.setVisibleInUI(true)
+            defer { dock.setVisibleInUI(false) }
+            dock.focusPanel(terminal.id)
+            appDelegate.keyboardFocusCoordinator(for: keyWindow)?
+                .noteRightSidebarInteraction(mode: .dock)
+            keyWindow.contentView?.addSubview(terminal.hostedView)
+
+            let dockFocusOwner = try #require(
+                terminal.surface.terminalBellOwnsActiveFocus
+            )
+            #expect(dockFocusOwner())
+            #expect(!workspaceFocusOwner())
+            #expect(!GhosttyApp.shared.ringBell(
+                surface: terminal.surface,
+                presentation: TerminalBellPresentation(
+                    systemSoundEnabled: false,
+                    customAudioPath: nil,
+                    customAudioVolume: 0.5,
+                    visualBellEnabled: false
+                )
+            ))
+        }
+    }
+
     @Test("Terminal bell in a non-key cmux window marks its Dock pane unread")
     func terminalBellInNonKeyCmuxWindowMarksDockPaneUnread() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
             let previousFocusOverride = AppFocusState.overrideIsFocused
+            let defaults = UserDefaults.standard
+            let paneFlashHadValue = defaults.object(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            ) != nil
+            let previousPaneFlashEnabled = defaults.bool(
+                forKey: NotificationPaneFlashSettings.enabledKey
+            )
             let ownerWindow = try #require(
                 appDelegate.windowForMainWindowId(windowID)
             )
             appDelegate.notificationStore = notificationStore
             AppFocusState.overrideIsFocused = true
+            defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
             defer {
+                if paneFlashHadValue {
+                    defaults.set(
+                        previousPaneFlashEnabled,
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                } else {
+                    defaults.removeObject(
+                        forKey: NotificationPaneFlashSettings.enabledKey
+                    )
+                }
                 notificationStore.markRead(forTabId: windowID)
                 appDelegate.notificationStore = previousNotificationStore
                 AppFocusState.overrideIsFocused = previousFocusOverride
@@ -1313,14 +1464,25 @@ struct DockRuntimeParityTests {
                 ) === dock
             )
             #expect(NSApp.keyWindow !== ownerWindow)
+            #expect(terminal.surface.terminalBellOwnsActiveFocus?() == false)
+            GhosttySurfaceScrollView.resetFlashCounts()
 
-            let visualBell = try #require(terminal.surface.onVisualBell)
-            visualBell()
+            let admittedAudio = GhosttyApp.shared.ringBell(
+                surface: terminal.surface,
+                presentation: TerminalBellPresentation(
+                    systemSoundEnabled: false,
+                    customAudioPath: nil,
+                    customAudioVolume: 0.5,
+                    visualBellEnabled: true
+                )
+            )
 
+            #expect(admittedAudio)
             #expect(notificationStore.hasManualUnread(
                 forTabId: windowID,
                 surfaceId: terminal.id
             ))
+            #expect(GhosttySurfaceScrollView.flashCount(for: terminal.id) == 1)
             #expect(NSApp.keyWindow !== ownerWindow)
         }
     }

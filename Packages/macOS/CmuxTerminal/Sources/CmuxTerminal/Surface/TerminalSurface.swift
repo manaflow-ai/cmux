@@ -248,6 +248,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Owners use the reveal edge to sample a pane whose grid did not change
     /// while it was hidden.
     @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// Resolves whether this exact surface owns active keyboard focus for a terminal bell.
+    @MainActor public var terminalBellOwnsActiveFocus: (@MainActor () -> Bool)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.

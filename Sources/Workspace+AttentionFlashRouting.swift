@@ -29,33 +29,53 @@ extension Workspace {
                 restore: restore
             )
         }
+        terminalPanel.surface.terminalBellOwnsActiveFocus = { [weak self, weak terminalPanel] in
+            guard let self, let terminalPanel else { return false }
+            return self.terminalBellRoutingTarget(for: terminalPanel)?.ownsActiveFocus ?? false
+        }
         terminalPanel.surface.onVisualBell = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel,
-                  let target = self.surfaceOwnershipTarget(for: terminalPanel.id),
-                  let ownedTerminal = target.panel as? TerminalPanel,
-                  ownedTerminal === terminalPanel else {
+                  let routingTarget = self.terminalBellRoutingTarget(for: terminalPanel) else {
                 return
             }
-            let ownerWindow = self.owningTabManager?.window
-            let ownsActiveFocus = AppFocusState.isAppFocused()
-                && ownerWindow?.isKeyWindow == true
-                && AppDelegate.shared?.ownsMainPanelKeyboardFocus(
-                    workspaceId: self.id,
-                    containerPanelId: target.containerPanelID,
-                    surfaceId: target.surfaceID,
-                    in: ownerWindow
-                ) == true
-            let response = TerminalVisualBellResponse.resolve(
-                ownsActiveFocus: ownsActiveFocus,
-                isManuallyUnread: self.manualUnreadPanelIds.contains(target.containerPanelID)
+            let response = TerminalBellResponse.resolve(
+                ownsActiveFocus: routingTarget.ownsActiveFocus,
+                isManuallyUnread: self.manualUnreadPanelIds.contains(
+                    routingTarget.ownership.containerPanelID
+                )
             )
             if response.marksUnread {
-                self.markPanelUnread(target.containerPanelID)
+                self.markPanelUnread(routingTarget.ownership.containerPanelID)
             }
             if response.flashes {
-                ownedTerminal.triggerFlash(reason: .notificationArrival)
+                routingTarget.terminal.triggerFlash(reason: .notificationArrival)
             }
         }
+    }
+
+    /// Resolves both BEL effects from the same exact, owner-scoped focus state.
+    private func terminalBellRoutingTarget(
+        for terminalPanel: TerminalPanel
+    ) -> (
+        ownership: WorkspaceSurfaceOwnershipTarget,
+        terminal: TerminalPanel,
+        ownsActiveFocus: Bool
+    )? {
+        guard let target = surfaceOwnershipTarget(for: terminalPanel.id),
+              let ownedTerminal = target.panel as? TerminalPanel,
+              ownedTerminal === terminalPanel else {
+            return nil
+        }
+        let ownerWindow = owningTabManager?.window
+        let ownsActiveFocus = AppFocusState.isAppFocused()
+            && ownerWindow?.isKeyWindow == true
+            && AppDelegate.shared?.ownsMainPanelKeyboardFocus(
+                workspaceId: id,
+                containerPanelId: target.containerPanelID,
+                surfaceId: target.surfaceID,
+                in: ownerWindow
+            ) == true
+        return (target, ownedTerminal, ownsActiveFocus)
     }
 
     func triggerFocusFlash(panelId: UUID) {
@@ -127,16 +147,26 @@ extension Workspace {
 /// Ghostty's `attention` bell feature asks for attention only when the surface
 /// is not the one being used. A bell in the terminal you are typing into —
 /// readline beeping at the end of the line, `less` at the last page — is
-/// feedback to you, not news from a background pane, so it must not render as
-/// a notification arriving (the same flash `cmux notify` produces).
-struct TerminalVisualBellResponse: Equatable {
+/// feedback to you, not news from a background pane, so it must be silent and
+/// must not render as a notification arriving (the same flash `cmux notify`
+/// produces).
+struct TerminalBellResponse: Equatable {
+    let playsSound: Bool
     let marksUnread: Bool
     let flashes: Bool
 
-    static func resolve(ownsActiveFocus: Bool, isManuallyUnread: Bool) -> TerminalVisualBellResponse {
-        if ownsActiveFocus {
-            return TerminalVisualBellResponse(marksUnread: false, flashes: false)
+    static func resolve(ownsActiveFocus: Bool?, isManuallyUnread: Bool) -> TerminalBellResponse {
+        if ownsActiveFocus == true {
+            return TerminalBellResponse(
+                playsSound: false,
+                marksUnread: false,
+                flashes: false
+            )
         }
-        return TerminalVisualBellResponse(marksUnread: !isManuallyUnread, flashes: true)
+        return TerminalBellResponse(
+            playsSound: true,
+            marksUnread: !isManuallyUnread,
+            flashes: true
+        )
     }
 }

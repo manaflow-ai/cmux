@@ -94,10 +94,18 @@ extension DockSplitStore {
                 style: GhosttySurfaceScrollView.flashStyle(for: reason)
             )
         }
+        terminal.surface.terminalBellOwnsActiveFocus = { [weak self, weak terminal] in
+            guard let self, let terminal,
+                  let mountedTerminal = self.panels[terminal.id] as? TerminalPanel,
+                  mountedTerminal === terminal else {
+                return false
+            }
+            return self.terminalBellOwnsActiveFocus(for: mountedTerminal)
+        }
         guard scope == .global else {
             // The legacy workspace Dock is not rendered by the sidebar. Audio
-            // still rings, but visual BEL attention must not create a phantom
-            // workspace target that navigation cannot reveal.
+            // still follows exact focus, but visual BEL attention must not create
+            // a phantom workspace target that navigation cannot reveal.
             terminal.surface.onVisualBell = nil
             return
         }
@@ -107,24 +115,33 @@ extension DockSplitStore {
                   mountedTerminal === terminal else {
                 return
             }
-            let ownsActiveFocus = self.ownerWindowHasActiveFocus(for: terminal)
-                && self.panelIsActiveInVisibleDockPane(terminal.id)
-                && AppDelegate.shared?.focusedDockStoreForShortcut(
-                    preferredWindow: terminal.surface.uiWindow
-                ) === self
-            if !ownsActiveFocus,
-               let notificationStore = self.resolvedNotificationStore(),
-               !notificationStore.hasManualUnread(
+            let notificationStore = self.resolvedNotificationStore()
+            let response = TerminalBellResponse.resolve(
+                ownsActiveFocus: self.terminalBellOwnsActiveFocus(for: mountedTerminal),
+                isManuallyUnread: notificationStore?.hasManualUnread(
                     forTabId: self.workspaceId,
                     surfaceId: terminal.id
-               ) {
-                notificationStore.markWindowDockSurfaceUnread(
+                ) == true
+            )
+            if response.marksUnread {
+                notificationStore?.markWindowDockSurfaceUnread(
                     windowId: self.workspaceId,
                     surfaceId: terminal.id
                 )
             }
-            mountedTerminal.triggerFlash(reason: .notificationArrival)
+            if response.flashes {
+                mountedTerminal.triggerFlash(reason: .notificationArrival)
+            }
         }
+    }
+
+    /// Whether this exact Dock terminal owns active app, window, pane, and Dock focus.
+    private func terminalBellOwnsActiveFocus(for terminal: TerminalPanel) -> Bool {
+        ownerWindowHasActiveFocus(for: terminal)
+            && panelIsActiveInVisibleDockPane(terminal.id)
+            && AppDelegate.shared?.focusedDockStoreForShortcut(
+                preferredWindow: terminal.surface.uiWindow
+            ) === self
     }
 
     /// Whether this Dock terminal's owning main window currently owns app focus.

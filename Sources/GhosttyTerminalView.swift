@@ -2766,17 +2766,27 @@ class GhosttyApp {
     }
 
     /// Presents one terminal bell without exposing process-level attention.
+    ///
+    /// - Returns: Whether audio dispatch was admitted for the originating surface.
+    @discardableResult
     @MainActor
     func ringBell(
         surface: TerminalSurface?,
         presentation: TerminalBellPresentation
-    ) {
-        terminalBellService.ring(
-            presentation: presentation
+    ) -> Bool {
+        let response = TerminalBellResponse.resolve(
+            ownsActiveFocus: surface?.terminalBellOwnsActiveFocus?(),
+            isManuallyUnread: false
         )
+        if response.playsSound {
+            terminalBellService.ring(
+                presentation: presentation
+            )
+        }
         if presentation.visualBellEnabled {
             surface?.onVisualBell?()
         }
+        return response.playsSound
     }
 
     private func applyDefaultBackground(

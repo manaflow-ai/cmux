@@ -302,6 +302,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
 
             #expect(targetWorkspace.manualUnreadPanelIds.isEmpty)
             #expect(tabManager.selectedTabId == selectedWorkspace.id)
+            #expect(targetTerminal.surface.terminalBellOwnsActiveFocus?() == false)
 
             let presentation = TerminalBellPresentation(
                 systemSoundEnabled: false,
@@ -399,20 +400,51 @@ struct GhosttyEnsureFocusWindowActivationTests {
     }
 
     @Test
-    func terminalBellInFocusedTerminalIsNotANotification() {
+    func terminalBellEffectsFollowExactFocusOwnership() {
         // Readline beeps when you press ← at the start of the line. In the
-        // terminal you are typing into, that bell must neither flash the pane
-        // like an arriving `cmux notify` nor mark it unread.
-        let focused = TerminalVisualBellResponse.resolve(ownsActiveFocus: true, isManuallyUnread: false)
-        #expect(focused == TerminalVisualBellResponse(marksUnread: false, flashes: false))
+        // terminal you are typing into, that bell is neither audible nor an
+        // arriving-notification flash/unread marker.
+        let focused = TerminalBellResponse.resolve(
+            ownsActiveFocus: true,
+            isManuallyUnread: false
+        )
+        #expect(focused == TerminalBellResponse(
+            playsSound: false,
+            marksUnread: false,
+            flashes: false
+        ))
 
-        // A background pane still gets the attention treatment.
-        let background = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: false)
-        #expect(background == TerminalVisualBellResponse(marksUnread: true, flashes: true))
+        // A background pane keeps every configured attention effect.
+        let background = TerminalBellResponse.resolve(
+            ownsActiveFocus: false,
+            isManuallyUnread: false
+        )
+        #expect(background == TerminalBellResponse(
+            playsSound: true,
+            marksUnread: true,
+            flashes: true
+        ))
 
-        // Already-unread panes flash again but are not re-marked.
-        let alreadyUnread = TerminalVisualBellResponse.resolve(ownsActiveFocus: false, isManuallyUnread: true)
-        #expect(alreadyUnread == TerminalVisualBellResponse(marksUnread: false, flashes: true))
+        // Already-unread panes still sound and flash but are not re-marked.
+        let alreadyUnread = TerminalBellResponse.resolve(
+            ownsActiveFocus: false,
+            isManuallyUnread: true
+        )
+        #expect(alreadyUnread == TerminalBellResponse(
+            playsSound: true,
+            marksUnread: false,
+            flashes: true
+        ))
+    }
+
+    @Test
+    func terminalBellWithoutFocusCallbackKeepsCompatibilitySound() {
+        let missingFocusOwner = TerminalBellResponse.resolve(
+            ownsActiveFocus: nil,
+            isManuallyUnread: false
+        )
+
+        #expect(missingFocusOwner.playsSound)
     }
 
     @Test
@@ -455,6 +487,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
             ownerWindow.orderOut(nil)
             #expect(NSApp.keyWindow !== ownerWindow)
             #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(terminal.surface.terminalBellOwnsActiveFocus?() == false)
 
             let visualBell = try #require(terminal.surface.onVisualBell)
             visualBell()
@@ -536,6 +569,7 @@ struct GhosttyEnsureFocusWindowActivationTests {
                 surfaceId: terminal.id
             ))
             #expect(workspace.manualUnreadPanelIds.isEmpty)
+            #expect(terminal.surface.terminalBellOwnsActiveFocus?() == false)
 
             let visualBell = try #require(terminal.surface.onVisualBell)
             visualBell()
