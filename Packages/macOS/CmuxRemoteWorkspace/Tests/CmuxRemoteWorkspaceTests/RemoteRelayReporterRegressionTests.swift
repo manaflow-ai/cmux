@@ -40,6 +40,22 @@ struct RemoteRelayReporterRegressionTests {
         ]) != .allowed)
     }
 
+    @Test("unknown parameters cannot become future implicit selectors", arguments: ["target", "selector", "metadata"])
+    func unknownParameters(key: String) throws {
+        let params: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": remoteSurface.uuidString,
+            "text": "echo scoped",
+            key: ["id": localSurface.uuidString]
+        ]
+        #expect(decision("surface.send_text", params) != .allowed)
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": "unknown-parameter", "method": "surface.send_text", "params": params
+        ])
+        #expect(RemoteRelayCommandPolicy().evaluate(commandLine: data,
+            workspaceAliases: [:], surfaceAliases: [:]) != .allow)
+    }
+
     @Test("removing live ownership invalidates a previously authorized selector")
     func revokedOwnership() {
         let policy = RemoteRelayAuthorizationPolicy()

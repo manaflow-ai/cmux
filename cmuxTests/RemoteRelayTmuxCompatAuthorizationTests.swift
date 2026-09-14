@@ -141,6 +141,29 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         #expect(revoked.errorResponse?.contains("remote_relay_surface_denied") == true)
     }
 
+    @Test
+    func admittedRequestCannotOutliveItsConnectionAtDispatch() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        let admitted = try fixture.authorize(method: "surface.list", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        try #require(admitted.errorResponse == nil)
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        guard case .ok? = coordinator.handle(admitted.request) else {
+            Issue.record("An active connection must be able to list its surfaces")
+            return
+        }
+        // Same workspace and same terminal UUIDs, but a replacement SSH
+        // controller now owns them. The previously admitted request is stale.
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        guard case .err? = coordinator.handle(admitted.request) else {
+            Issue.record("A request admitted for the retired connection reached dispatch")
+            return
+        }
+    }
+
     @MainActor
     private struct Fixture {
         let appDelegate: AppDelegate
