@@ -10,6 +10,9 @@ import CmuxTerminal
 
 extension TerminalWindowPortalLifecycleTests {
 
+    // The parking regression stays in the app-host suite so it exercises the
+    // same window-owned portal hierarchy used by workspace mounting.
+
     @MainActor
     func testParkingWorkspaceEntriesRemovesHostedLayersButRetainsBindingState() throws {
         let window = makeTestWindow(
