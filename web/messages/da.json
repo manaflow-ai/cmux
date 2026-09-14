@@ -3865,5 +3865,17 @@
         "action": "Administrer abonnement"
       }
     }
+  },
+  "notFoundPage": {
+    "metaTitle": "Page not found | cmux",
+    "metaDescription": "The requested cmux page could not be found.",
+    "title": "Denne side er ikke i dette arbejdsområde.",
+    "docsAction": "Læs dokumentationen",
+    "supportAction": "Kontakt support",
+    "terminalCommand": "cmux welcome",
+    "terminalLastLogin": "Last login: Fri Sep 11 14:33:34 on ttys039",
+    "terminalDragLabel": "Træk terminalvinduet",
+    "terminalWelcome": "  ::\n    ::::              cmux\n      ::::::\n        ::::::        the open source terminal\n      ::::::          built for coding agents\n    :::\n  ::\n\n  Shortcuts\n\n  ⌘N                  New workspace\n  ⌘T                  New tab\n  ⌘P                  Go to workspace\n  ⌘B                  Toggle Left Sidebar\n  ⌘⌥B                 Toggle Right Sidebar\n  ⌘D                  Split right\n  ⌘⇧D                 Split down\n  ⌘⇧P                 Command palette\n  ⌘⇧R                 Rename workspace\n  ⌘⇧L                 New browser\n  ⌘⇧U                 Jump to latest unread\n  ⌥⌘U                 Toggle unread\n\n  Docs                https://cmux.com/docs\n  Community           https://cmux.com/community\n  Source              https://cmux.com/source\n  Email               founders@manaflow.com\n\n  Run cmux --help for all commands.\n  Run cmux shortcuts to edit shortcuts.\n  Run cmux feedback to report a bug.",
+    "footer": "Manglende sider stopper ikke arbejdet."
   }
 }
