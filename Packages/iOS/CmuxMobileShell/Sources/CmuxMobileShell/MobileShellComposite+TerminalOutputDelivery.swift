@@ -24,6 +24,9 @@ extension MobileShellComposite {
                 "sync.scroll_lease=reconnect_resolved surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue)"
             )
         }
+        if terminalReconnectLocalScrollSurfaceIDs.isEmpty {
+            terminalReconnectLocalScrollLeaseExpiresAt = nil
+        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {

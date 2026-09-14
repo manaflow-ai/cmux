@@ -16,7 +16,12 @@ extension MobileShellComposite {
     public func ownsLocalPrimaryScreenScroll(surfaceID: String) -> Bool {
         (usesScreenAnchoredRenderGrid
             && terminalActiveScreenBySurfaceID[surfaceID] == .primary)
-            || terminalReconnectLocalScrollSurfaceIDs.contains(surfaceID)
+            || (
+                terminalReconnectLocalScrollSurfaceIDs.contains(surfaceID)
+                    && terminalReconnectLocalScrollLeaseExpiresAt.map {
+                        $0 > (runtime?.now() ?? Date())
+                    } == true
+            )
     }
 
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the
