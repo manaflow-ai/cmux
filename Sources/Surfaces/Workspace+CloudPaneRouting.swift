@@ -140,9 +140,8 @@ final class CloudWorkspaceRenameService {
         return (found.0, found.1)
     }
 
-    /// Converts a local workspace title into the daemon name used by the
-    /// legacy projection path, stripping the generated machine prefix when
-    /// requested while preserving explicit user text.
+    /// Converts a local title into the daemon name, removing only the generated
+    /// machine prefix used by legacy unbound Cloud workspaces.
     func remoteName(
         fromLocalTitle title: String,
         machine: SurfaceMachineID,

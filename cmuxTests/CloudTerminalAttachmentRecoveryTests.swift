@@ -189,21 +189,6 @@ import Testing
         #expect(!(await Self.waitUntil(timeout: .milliseconds(200)) { fired.count == 2 }))
     }
 
-    /// The pane shows nothing while attached and a reason while reconnecting.
-    @Test
-    func attachmentBannerNamesTheMachineAndTheReason() {
-        #expect(CloudTerminalAttachmentBanner.text(for: .attached, machineID: "vm-1") == nil)
-        #expect(CloudTerminalAttachmentBanner.text(for: .ended, machineID: "vm-1") == nil)
-        let attaching = CloudTerminalAttachmentBanner.text(for: .attaching(attempt: 1), machineID: "vm-1")
-        #expect(attaching?.contains("vm-1") == true)
-        let reconnecting = CloudTerminalAttachmentBanner.text(
-            for: .reconnecting(attempt: 3, reason: .livenessTimedOut), machineID: "vm-1"
-        )
-        #expect(reconnecting?.contains("vm-1") == true)
-        #expect(reconnecting?.contains("3") == true)
-        #expect(reconnecting?.contains(CloudTerminalAttachmentInterruption.livenessTimedOut.localizedDescription) == true)
-    }
-
     /// The raw bridge wraps transport errors inside details.error on some daemons.
     @Test(arguments: ["transport.timeout", "transport.closed"])
     func nestedTransportFailuresRemainRetryable(code: String) {

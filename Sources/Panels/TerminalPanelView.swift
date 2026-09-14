@@ -122,9 +122,6 @@ struct TerminalPanelView: View {
             .id(panel.id)
             .background(Color.clear)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .top) {
-                CloudTerminalAttachmentBanner(status: panel.cloudAttachment)
-            }
 #if DEBUG
             .reportTerminalViewportGeometryForUITest(panel: panel)
 #endif

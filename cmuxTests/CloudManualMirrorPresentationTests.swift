@@ -18,6 +18,35 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func coordinatorRemovesReconnectCardWhenReadySnapshotArrives() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        )
+        let anchor = GhosttyTerminalView.HostContainerView(frame: hosted.bounds)
+        owner.updateAnchor(anchor, visible: true, ownershipGeneration: 1)
+        let reconnecting = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Reconnecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: reconnecting,
+            onReconnect: {}
+        )
+        #expect(owner.overlay != nil)
+
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: nil,
+            onReconnect: {}
+        )
+        #expect(owner.overlay == nil)
+        #expect(anchor.subviews.isEmpty)
+    }
+
+    @Test @MainActor
     func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
