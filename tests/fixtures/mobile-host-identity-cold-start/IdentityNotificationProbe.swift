@@ -26,9 +26,9 @@ final class IdentityNotificationProbe {
                 guard let self,
                       UserDefaults.standard.string(forKey: "mobileHost.deviceID") != nil else { return }
                 let ready = MobileHostIdentity.deviceIDIfReady() != nil
-                wasReady.append(ready)
+                self.wasReady.append(ready)
                 IdentityColdStartFixture.emit(["event": "defaults-observer-entered", "snapshot_ready": ready])
-                notificationValues.append(MobileHostIdentity.deviceID())
+                self.notificationValues.append(MobileHostIdentity.deviceID())
                 IdentityColdStartFixture.emit(["event": "defaults-observer-returned"])
             }
         }
