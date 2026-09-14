@@ -2152,9 +2152,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        let terminalSurfaceTeardownTickets = GhosttyApp.terminalSurfaceRegistry
+            .allSurfacesUnordered()
+            .compactMap { ($0 as? TerminalSurface)?.teardownSurface() }
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
+            || !terminalSurfaceTeardownTickets.isEmpty
         guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
@@ -2166,6 +2170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "terminalSurfaces": String(terminalSurfaceTeardownTickets.count),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
@@ -2177,6 +2182,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
+                }
+                guard !Task.isCancelled else { return }
+                if !terminalSurfaceTeardownTickets.isEmpty {
+                    var surfaceTeardownResults: [Bool] = []
+                    await withTaskGroup(of: Bool.self) { group in
+                        for ticket in terminalSurfaceTeardownTickets {
+                            group.addTask {
+                                await ticket.wait(timeout: .seconds(15))
+                            }
+                        }
+                        for await completed in group {
+                            surfaceTeardownResults.append(completed)
+                        }
+                    }
+                    let incompleteCount = surfaceTeardownResults.filter { !$0 }.count
+                    if incompleteCount > 0 {
+                        StartupBreadcrumbLog.append(
+                            "appDelegate.shouldTerminate.surfaceTeardownDeadline",
+                            fields: ["incomplete": String(incompleteCount)]
+                        )
+                    }
                 }
                 guard !Task.isCancelled else { return }
                 for cleanupTask in simulatorCleanupTasks {
@@ -2224,6 +2250,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 cleanupDeadline = .seconds(155)
             } else if !markedForKill.isEmpty {
                 cleanupDeadline = .milliseconds(8_500)
+            } else if !terminalSurfaceTeardownTickets.isEmpty {
+                cleanupDeadline = .seconds(20)
             } else {
                 cleanupDeadline = .seconds(5)
             }
@@ -19136,7 +19164,7 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
-private extension NSWindow {
+extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
               textView.isFieldEditor,

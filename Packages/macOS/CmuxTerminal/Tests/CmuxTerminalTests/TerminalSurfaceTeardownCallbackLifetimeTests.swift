@@ -35,6 +35,21 @@ import Testing
         #expect(registry.topologyGeneration == teardownGeneration)
     }
 
+    @Test func explicitTeardownReturnsAwaitableNativeFreeTicket() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        let ticket = try #require(surface.teardownSurface())
+
+        #expect(await ticket.wait(timeout: .seconds(2)))
+        #expect(recorder.events == [.nativeFree])
+    }
+
     @Test func deinitOnlyTeardownStillRetiresRegistryOwnership() throws {
         let registry = TerminalSurfaceRegistry()
         var surface: TerminalSurface? = makeSurface(registry: registry)
