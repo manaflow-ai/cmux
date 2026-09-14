@@ -15,6 +15,11 @@ extension CloudPortsVPNWarning {
         String(localized: "cloud.ports.vpnOff.configure", defaultValue: "Configure cmux VPN")
     }
 
+    /// Short action label that remains readable in a narrow Ports callout.
+    var actionTitle: String {
+        String(localized: "cloud.ports.vpnOff.action", defaultValue: "Set Up VPN…")
+    }
+
     /// Localized title shown beside the Cloud Ports group.
     var title: String {
         String(localized: "cloud.ports.vpnOff.title", defaultValue: "Cloud VPN is off")
