@@ -2434,7 +2434,7 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
+        if workspace.isRemoteWorkspace || workspace.cloudVMID != nil {
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
@@ -2472,6 +2472,25 @@ struct ContentView: View {
         }
 
         fileExplorerStore.showHiddenFiles = true
+
+        if let cloudBinding = tab.cloudVMBinding {
+            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            guard shouldSyncFileExplorerStore else {
+                fileExplorerStore.applyWorkspaceRoot(.none)
+                return
+            }
+            fileExplorerStore.applyWorkspaceRoot(
+                .remoteCloud(
+                    workspaceId: tab.id,
+                    vmID: cloudBinding.vmID,
+                    displayTarget: cloudBinding.vmID,
+                    rootPath: tab.trustedRemoteCurrentDirectory,
+                    isAvailable: ManagedCloudPolicy.isEnabled,
+                    unavailableDetail: ManagedCloudPolicy.isEnabled ? nil : ManagedCloudPolicy.disabledMessage
+                )
+            )
+            return
+        }
 
         if tab.usesRemoteDirectoryProvenance {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
