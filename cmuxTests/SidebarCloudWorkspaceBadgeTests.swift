@@ -63,41 +63,94 @@ struct SidebarCloudWorkspaceBadgeTests {
         }
     }
 
-    /// Ensures the secondary badge keeps title space at narrow widths.
-    @Test(arguments: [false, true], [180.0, 280.0])
-    func cloudBadgeIsSecondaryAndKeepsNarrowTitlesVisible(dark: Bool, width: Double) throws {
+    /// Exercises the real row geometry across selection, density, scaling, and pinning.
+    @Test(arguments: [180.0, 280.0], [false, true])
+    func cloudBadgeLeadsTitleWithoutDisplacingPin(width: Double, isPinned: Bool) throws {
+        for dark in [false, true] {
+            for isActive in [false, true] {
+                for compact in [false, true] {
+                    for magnification in [100, 150] {
+                        try verifyCloudBadge(width: width, isPinned: isPinned, dark: dark,
+                            isActive: isActive, compact: compact, magnification: magnification)
+                    }
+                }
+            }
+        }
+    }
+
+    private func verifyCloudBadge(
+        width: Double, isPinned: Bool, dark: Bool, isActive: Bool, compact: Bool, magnification: Int
+    ) throws {
         let defaults = Self.makeDefaults()
         defaults.set(false, forKey: "sidebarWrapWorkspaceTitles")
-        defaults.set(true, forKey: "sidebarHideAllDetails")
+        defaults.set(compact, forKey: "sidebarHideAllDetails")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
-        let workspace = Workspace(title: "Same project with a long workspace name", initialSurface: .cloudVMLoading)
+        let workspace = Workspace(title: "Same project with a long workspace name",
+            workingDirectory: "/home/cmux", initialSurface: .cloudVMLoading)
+        workspace.isPinned = isPinned
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
         let localSnapshot = factory.makeSnapshot()
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false)
+        workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
         let cloudSnapshot = factory.makeSnapshot()
-        let cell = SidebarAppKitRowCellTests.configuredCell(model: Self.makeModel(settings: settings, workspaceSnapshot: cloudSnapshot, colorSchemeIsDark: dark))
+        let model = Self.makeModel(settings: settings, workspaceSnapshot: cloudSnapshot,
+            colorSchemeIsDark: dark, isActive: isActive, magnification: magnification)
+        let cell = SidebarAppKitRowCellTests.configuredCell(model: model, tab: workspace)
         cell.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        cell.frame = NSRect(x: 0, y: 0, width: width, height: 100)
+        let height = cell.layoutContent(model: model, width: width, apply: false)
+        cell.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        let window = NSWindow(contentRect: cell.frame, styleMask: [], backing: .buffered, defer: false)
+        window.contentView = cell
+        defer { window.contentView = nil }
         cell.layoutSubtreeIfNeeded()
-        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: cell).compactMap { $0 as? NSImageView }.first {
+        let images = SidebarAppKitRowCellTests.descendants(of: cell).compactMap { $0 as? NSImageView }
+        let badges = images.filter {
             $0.accessibilityIdentifier() == "sidebarCloudBadge"
-        })
+        }
+        #expect(badges.count == 1)
+        let badge = try #require(badges.first)
         let title = try #require(SidebarAppKitRowCellTests.descendants(of: cell).compactMap { $0 as? SidebarRowTextView }.first {
             $0.stringValue == cloudSnapshot.title
         })
+        let bitmap = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: bitmap)
+        #if compiler(>=6.2)
+        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])),
+            named: "cloud-\(Int(width))-pin\(isPinned)-active\(isActive)-compact\(compact)-dark\(dark)-scale\(magnification).png")
+        #endif
         #expect(!badge.isHidden)
         #expect(badge.image != nil)
         #expect(badge.toolTip == "Cloud workspace on vivid-newt")
         #expect(badge.contentTintColor != title.textColor)
         #expect(title.frame.width > 60)
-        #expect(title.frame.maxX <= badge.frame.minX)
-        #expect(badge.frame.maxX <= width)
-        let height = cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false)
-        cell.applyRebuiltModel(Self.makeModel(settings: settings, workspaceSnapshot: localSnapshot, colorSchemeIsDark: dark))
+        #expect(badge.frame.maxX + 8 == title.frame.minX)
+        #expect(title.frame.maxX <= width)
+        #expect(title.lineBreakMode == .byTruncatingTail)
+        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
+        let pins = images.filter { !$0.isHidden && $0.toolTip == String(
+            localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") }
+        #expect(pins.count == (isPinned ? 1 : 0))
+        if isPinned {
+            let pin = try #require(pins.first)
+            #expect(pin.frame.maxX + 8 == badge.frame.minX)
+            #expect(pin.frame.midY == badge.frame.midY)
+        }
+        let cloudTitleFrame = title.frame
+        let directoryFrames = SidebarAppKitRowCellTests.descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .filter { !$0.isHidden && $0.stringValue.contains("/home/cmux") }
+            .map(\.frame)
+        #expect(directoryFrames.isEmpty == compact)
+        cell.applyRebuiltModel(Self.makeModel(settings: settings, workspaceSnapshot: localSnapshot,
+            colorSchemeIsDark: dark, isActive: isActive, magnification: magnification))
         cell.layoutSubtreeIfNeeded()
         #expect(badge.isHidden)
+        #expect(title.frame.minX < cloudTitleFrame.minX)
+        #expect(title.frame.maxX == cloudTitleFrame.maxX)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace") == false)
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
+        #expect(SidebarAppKitRowCellTests.descendants(of: cell).compactMap { $0 as? SidebarRowTextView }
+            .filter { !$0.isHidden && $0.stringValue.contains("/home/cmux") }.map(\.frame) == directoryFrames)
     }
 
     /// SwiftUI consumers track Cloud identity through Workspace's existing read facade.
@@ -173,14 +226,16 @@ struct SidebarCloudWorkspaceBadgeTests {
     private static func makeModel(
         settings: SidebarTabItemSettingsSnapshot,
         workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
-        colorSchemeIsDark: Bool = true
+        colorSchemeIsDark: Bool = true,
+        isActive: Bool = false,
+        magnification: Int = 100
     ) -> SidebarWorkspaceRowModel {
         return SidebarWorkspaceRowModel(
             workspaceId: UUID(),
             index: 0,
             snapshot: workspaceSnapshot,
             settings: settings,
-            isActive: false,
+            isActive: isActive,
             isMultiSelected: false,
             hasUserCustomTitle: false,
             canCloseWorkspace: true,
@@ -197,7 +252,7 @@ struct SidebarCloudWorkspaceBadgeTests {
             shortcutHintText: nil,
             showsShortcutHints: false,
             colorSchemeIsDark: colorSchemeIsDark,
-            globalFontMagnificationPercent: 100,
+            globalFontMagnificationPercent: magnification,
             isChecklistExpanded: false,
             checklistAddFieldActivationToken: 0,
             isChecklistPopoverPresented: false,
