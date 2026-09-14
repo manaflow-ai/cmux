@@ -696,7 +696,8 @@ actor VMClient {
     /// Build the shared client with its injected auth dependency. Call once at
     /// the composition root.
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
+    @discardableResult
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) -> CloudReadRequestCoordinator {
         let reads = CloudReadRequestCoordinator(onNetworkChange: { online in
             await MainActor.run {
                 NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": online])
@@ -705,6 +706,7 @@ actor VMClient {
         })
         shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, readRequests: reads)
         Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
+        return reads
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -2562,63 +2564,6 @@ actor VMClient {
 
 // MARK: - Per-machine coderouter usage
 
-/// Token and spend totals for one machine over the usage window, as
-/// `GET /api/coderouter/vm-usage/team` reports them.
-struct MachineUsageTotals: Equatable, Sendable {
-    let inputTokens: Int
-    let cachedInputTokens: Int
-    let outputTokens: Int
-    let totalTokens: Int
-    /// What the same traffic would have cost at list API prices.
-    let apiEquivalentUsd: Double
-
-    /// Nothing to show for a machine that has not routed a single token.
-    var isEmpty: Bool { totalTokens <= 0 && apiEquivalentUsd <= 0 }
-}
-
-/// One machine's usage readout: the row shows `totals` labeled with
-/// `periodDays`. `vmID` is the id `GET /api/vm` returns as the machine id, so
-/// it matches ``MachineSnapshot/id`` directly.
-struct MachineUsageSnapshot: Equatable, Sendable {
-    let vmID: String
-    /// The provider machine id, the `id` that `GET /api/vm` lists. Rows key
-    /// on it when present because `vmID` is the backend's own uuid.
-    let providerVmID: String?
-    let displayName: String?
-    let periodDays: Int
-    let asOf: Date?
-    let totals: MachineUsageTotals
-}
-
-/// The team-wide usage payload. `kind == .unavailable` means the backend has no
-/// usage store for this team (no rows are rendered, no error is surfaced).
-struct TeamMachineUsage: Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case ready
-        case unavailable
-    }
-
-    let teamID: String
-    let periodDays: Int
-    let kind: Kind
-    let asOf: Date?
-    let machines: [MachineUsageSnapshot]
-
-    /// The lookup the machines panel keys rows by. Empty when the backend says
-    /// usage is unavailable; blank ids are dropped; the first entry wins when
-    /// the backend repeats a machine.
-    var byMachineID: [String: MachineUsageSnapshot] {
-        guard kind == .ready else { return [:] }
-        var result: [String: MachineUsageSnapshot] = [:]
-        for machine in machines {
-            for key in [machine.providerVmID ?? "", machine.vmID] where !key.isEmpty && result[key] == nil {
-                result[key] = machine
-            }
-        }
-        return result
-    }
-}
-
 enum MachineUsageClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
@@ -2651,19 +2596,23 @@ actor MachineUsageClient {
     @MainActor private(set) static var shared: MachineUsageClient?
 
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = MachineUsageClient(session: session, auth: auth, operations: operations)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil,
+                          readRequests: CloudReadRequestCoordinator? = nil) {
+        shared = MachineUsageClient(session: session, auth: auth, operations: operations,
+                                    readRequests: readRequests ?? CloudReadRequestCoordinator(budget: .seconds(15)))
     }
 
     private let session: URLSession
     private let auth: AuthCoordinator
-    private let readRequests = CloudReadRequestCoordinator(budget: .seconds(15))
+    private let readRequests: CloudReadRequestCoordinator
     nonisolated let operations: CloudOperationRecorder?
 
-    init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil) {
+    init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil,
+         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(budget: .seconds(15))) {
         self.session = session
         self.auth = auth
         self.operations = operations
+        self.readRequests = readRequests
     }
 
     private func withOperation<T>(_ kind: CloudOperationKind, foreground: Bool, _ work: () async throws -> T) async rethrows -> T {
@@ -2674,7 +2623,7 @@ actor MachineUsageClient {
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
             let context = CloudOperationContext.current
-            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero)
+            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
             let identity = await auth.authenticatedSessionIdentity
             let selectedTeam = await auth.resolvedTeamID
             let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
