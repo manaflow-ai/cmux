@@ -155,19 +155,23 @@ final class AgentSessionProcessStore {
     }
 
     private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
-        Task.detached(priority: .utility) { [weak self] in
+        let descriptor = fileHandle.fileDescriptor
+        return Task.detached(priority: .utility) { [weak self, fileHandle] in
+            // Keep this handle alive until its reader finishes; the descriptor
+            // must not be closed and reused while a read is in progress.
+            defer { withExtendedLifetime(fileHandle) {} }
+            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
             while !Task.isCancelled {
-                let data: Data
-                do {
-                    data = try fileHandle.read(upToCount: 64 * 1024) ?? Data()
-                } catch {
-                    data = Data()
+                // FileHandle.read(upToCount:) fills the requested buffer before
+                // returning on macOS. A JSONL peer waits for our next request,
+                // so read the available bytes with one syscall instead.
+                let count = buffer.withUnsafeMutableBytes {
+                    Darwin.read(descriptor, $0.baseAddress, $0.count)
                 }
-
+                if count < 0 && errno == EINTR { continue }
+                let data = count > 0 ? Data(buffer.prefix(count)) : Data()
                 await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
-                if data.isEmpty {
-                    return
-                }
+                if data.isEmpty { return }
             }
         }
     }

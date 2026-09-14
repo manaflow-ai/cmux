@@ -73,7 +73,7 @@ struct CodexAppServerSessionTests {
                 store.closeAll()
             }
         }
-        let submitted = try? await submission.value
+        let submitted: Void? = try? await submission.value
         #expect(submitted != nil)
         #expect(answer == "2")
         #expect(completedWhileRunning)
