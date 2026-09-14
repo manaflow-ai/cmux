@@ -14,8 +14,6 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var vpnHeader: CloudPortsGroupHeaderView?
-    private var vpnCallout: CloudPortsVPNEmptyStateContent?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
@@ -56,39 +54,23 @@ final class CloudTreeCellView: NSTableCellView {
     ///   - machineActions: Actions for machine and creation controls.
     ///   - nodeActions: Actions for workspace and surface controls.
     ///   - style: The visual preset for the row.
-    ///   - showsCloudVPNWarning: Whether the Ports group exposes the VPN affordance.
     func configure(
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current,
-        showsCloudVPNWarning: Bool = false
+        style: CloudTreeStyle = CloudTreeStyleStore.current
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
-        let showsCallout = showsCloudVPNWarning && node.isPortsEmptyPlaceholder
-        let showsPortsHeader = showsCloudVPNWarning && node.isPortsGroup
-        displayHost.isHidden = showsCallout || showsPortsHeader
+        displayHost.isHidden = false
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
-        if showsPortsHeader {
-            let header = vpnHeader ?? makeVPNHeader()
-            header.isHidden = false
-            header.configure(style: style, setup: machineActions.setupVPN)
-        } else {
-            vpnHeader?.isHidden = true
-        }
-        if showsCallout {
-            let callout = vpnCallout ?? makeVPNCallout()
-            callout.isHidden = false
-            callout.configure(style: style, setup: machineActions.setupVPN)
-        } else { vpnCallout?.isHidden = true }
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
@@ -116,15 +98,13 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
-        } else if showsCloudVPNWarning, case .portsGroup = node.kind {
-            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
         } else {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else {
-            setAccessibilityLabel(showsCallout ? CloudPortsVPNWarning().setupTitle : node.searchableTitle)
+            setAccessibilityLabel(node.searchableTitle)
         }
     }
 
@@ -148,34 +128,6 @@ final class CloudTreeCellView: NSTableCellView {
         buttonsCenterConstraint = center
         buttonsHost = host
         return host
-    }
-
-    private func makeVPNCallout() -> CloudPortsVPNEmptyStateContent {
-        let callout = CloudPortsVPNEmptyStateContent(frame: .zero)
-        callout.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(callout)
-        NSLayoutConstraint.activate([
-            callout.leadingAnchor.constraint(equalTo: displayHost.leadingAnchor),
-            callout.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
-            callout.topAnchor.constraint(equalTo: topAnchor),
-            callout.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        vpnCallout = callout
-        return callout
-    }
-
-    private func makeVPNHeader() -> CloudPortsGroupHeaderView {
-        let header = CloudPortsGroupHeaderView(frame: .zero)
-        header.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(header)
-        NSLayoutConstraint.activate([
-            header.leadingAnchor.constraint(equalTo: displayHost.leadingAnchor),
-            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
-            header.topAnchor.constraint(equalTo: topAnchor),
-            header.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-        vpnHeader = header
-        return header
     }
 
     func setHovered(_ hovered: Bool) {
