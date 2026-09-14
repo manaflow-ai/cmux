@@ -232,6 +232,36 @@ private func setFontBindingResult(_ result: Bool)
         #expect(surface.sessionFontSizeOverrideBasePoints() == 12)
     }
 
+    @Test func bindingActionIsNotSentForAnUnregisteredRuntimeSurface() {
+        var template = CmuxSurfaceConfigTemplate()
+        template.setFontSize(12, isExplicitOverride: false)
+        let registry = FakeSurfaceRegistry()
+        let surface = makeSurface(
+            configTemplate: template,
+            registry: registry
+        )
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(
+            byteCount: 1,
+            alignment: 1
+        )
+        // Installed but never registered for this surface, like a pointer that
+        // was freed or now belongs to another surface.
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        beginFontState(runtimeSurface, 12, false, 12)
+        defer {
+            endFontState()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+
+        #expect(!surface.performInternalBindingAction("set_font_size:20"))
+        #expect(
+            GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(
+                runtimeSurface
+            ) == 12
+        )
+    }
+
     @Test func zeroNetLiveAdjustmentMakesFollowerExplicit() throws {
         var template = CmuxSurfaceConfigTemplate()
         template.setFontSize(12, isExplicitOverride: false)
