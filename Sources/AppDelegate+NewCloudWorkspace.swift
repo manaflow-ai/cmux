@@ -29,12 +29,18 @@ extension AppDelegate {
 
     /// Creates on the VM captured by the shared New Workspace action.
     @discardableResult
-    func performNewCloudWorkspaceOnCurrentMachineAction(tabManager: TabManager, vmID: String) -> Bool {
+    func performNewCloudWorkspaceOnCurrentMachineAction(
+        tabManager: TabManager,
+        vmID: String,
+        destination: CloudWorkspaceGroupDestination? = nil
+    ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
               coordinator.isAvailable else { return false }
         return operationController.start(key: "new-cloud-workspace.\(vmID)") {
-            _ = try await coordinator.createOnMachine(id: vmID, focus: true)
+            guard let workspaceID = try await coordinator.createOnMachine(id: vmID, focus: true),
+                  !Task.isCancelled, coordinator.isAvailable else { return }
+            destination?.apply(workspaceID: workspaceID)
         }
     }
 
