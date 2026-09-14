@@ -66,6 +66,10 @@ mock.module("../i18n/navigation", () => ({
       {children}
     </a>
   ),
+  redirect: () => undefined,
+  usePathname: () => "/pricing",
+  useRouter: () => ({}),
+  getPathname: () => "/pricing",
 }));
 
 mock.module("../app/[locale]/components/site-header", () => ({

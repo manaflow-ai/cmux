@@ -270,6 +270,9 @@ extension CmxIrohHostRuntime {
             cached: authoritativeDiscovery,
             minimumRevision: minimumRevision
         )
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
         authoritativeDiscovery = discovery
         return discovery
     }

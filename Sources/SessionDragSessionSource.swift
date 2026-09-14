@@ -49,9 +49,9 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         )
 #endif
         finishDrag()
-        // AppKit can retain the tab-transfer UTI after the source ends. Clear
+        // AppKit can retain the tab-transfer UTI after the source ends. Revoke
         // only this registration's capability so a newer drag is untouched.
-        transferRegistration.clearResidualCapability(from: session.draggingPasteboard)
+        transferRegistry.end(from: session.draggingPasteboard)
     }
 
     /// Retains the source view until AppKit delivers this source's `endedAt` callback.

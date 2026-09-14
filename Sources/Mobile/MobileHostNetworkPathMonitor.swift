@@ -9,16 +9,20 @@ import Foundation
 /// ``DeviceRegistryClient`` mirrors from `statusUpdates()`) needs an explicit
 /// trigger to refresh; ``MobileHostService`` owns the republish action and
 /// this type owns the observation: one `NWPathMonitor`, a path signature for
-/// duplicate suppression, and nothing else.
+/// route duplicate suppression, and a separate typed reachability baseline.
 ///
 /// Every observation that differs from the previous one fires `onPathChange`,
 /// *including the first*: the initial callback can arrive after the
 /// listener-ready route publish and describe a different path than those
 /// routes were computed on (e.g. Tailscale came up in between), so treating
-/// it as a silent baseline would swallow that first real change. Republishing
-/// is cheap because downstream consumers dedup unchanged routes; only an
-/// observation identical to the previous one is skipped (`NWPathMonitor` can
-/// deliver duplicate callbacks).
+/// it as a silent baseline would swallow that first real change. The optional
+/// reachability callback has a narrower contract: it fires for the first
+/// observation and only when the Boolean usable-path value changes after
+/// that. Keeping route freshness separate from reachability transitions means
+/// interface/address churn cannot repeatedly restart relay-policy recovery.
+/// Republishing is cheap because downstream consumers dedup unchanged routes;
+/// only an observation identical to the previous one is skipped
+/// (`NWPathMonitor` can deliver duplicate callbacks).
 ///
 /// The signature includes the local IPv4 addresses (from `getifaddrs`) on top
 /// of `NWPath`'s status/interfaces/gateways: two networks can present the same
@@ -34,18 +38,26 @@ final class MobileHostNetworkPathMonitor {
     private let monitor = NWPathMonitor()
     /// Signature of the last observed path, for duplicate suppression.
     private var lastSignature: String?
+    /// Last typed reachability value delivered to the optional lifecycle sink.
+    /// This is separate from `lastSignature`: route changes can be meaningful
+    /// without changing whether the path is usable.
+    private var lastReachability: Bool?
     private let onPathChange: @MainActor () -> Void
+    private let onReachabilityChange: @MainActor (Bool) -> Void
     /// Returns the machine's local IPv4 addresses; injectable for tests.
     /// Called on the monitor queue, off-main.
     private let localIPv4Addresses: @Sendable () -> [String]
 
+    /// Creates a monitor with separate route-refresh and reachability sinks.
     init(
         onPathChange: @escaping @MainActor () -> Void,
+        onReachabilityChange: @escaping @MainActor (Bool) -> Void = { _ in },
         localIPv4Addresses: @escaping @Sendable () -> [String] = {
             MobileHostNetworkPathMonitor.systemLocalIPv4Addresses()
         }
     ) {
         self.onPathChange = onPathChange
+        self.onReachabilityChange = onReachabilityChange
         self.localIPv4Addresses = localIPv4Addresses
     }
 
@@ -54,13 +66,14 @@ final class MobileHostNetworkPathMonitor {
     func start(queue: DispatchQueue) {
         monitor.pathUpdateHandler = { [weak self, localIPv4Addresses] path in
             let signature = Self.signature(
-                status: String(describing: path.status),
+                status: Self.statusName(path.status),
                 interfaceNames: path.availableInterfaces.map(\.name),
                 gateways: path.gateways.map { String(describing: $0) },
                 localAddresses: localIPv4Addresses()
             )
+            let isOnline = Self.isOnline(status: path.status)
             Task { @MainActor [weak self] in
-                self?.handleObservation(signature: signature)
+                self?.handleObservation(signature: signature, isOnline: isOnline)
             }
         }
         monitor.start(queue: queue)
@@ -70,14 +83,44 @@ final class MobileHostNetworkPathMonitor {
         monitor.cancel()
     }
 
-    private func handleObservation(signature: String) {
+    /// Applies one deduplicated monitor observation on the main actor.
+    private func handleObservation(signature: String, isOnline: Bool) {
         let changed = Self.shouldReportPathChange(
             previousSignature: lastSignature,
             newSignature: signature
         )
+        let reachabilityChanged = Self.shouldReportReachabilityChange(
+            previousReachability: lastReachability,
+            newReachability: isOnline
+        )
         lastSignature = signature
+        lastReachability = isOnline
         guard changed else { return }
+        if reachabilityChanged {
+            onReachabilityChange(isOnline)
+        }
         onPathChange()
+    }
+
+    /// Converts the typed platform path status into the binary reachability
+    /// value used by the privacy-safe diagnostic taxonomy.
+    nonisolated static func isOnline(status: NWPath.Status) -> Bool {
+        status == .satisfied
+    }
+
+    /// Produces the stable status component used in path signatures without
+    /// depending on Foundation's textual description of ``NWPath.Status``.
+    private nonisolated static func statusName(_ status: NWPath.Status) -> String {
+        switch status {
+        case .satisfied:
+            return "satisfied"
+        case .unsatisfied:
+            return "unsatisfied"
+        case .requiresConnection:
+            return "requiresConnection"
+        @unknown default:
+            return "unknown"
+        }
     }
 
     /// Stable identity of a network path for change detection. Order-insensitive
@@ -133,5 +176,14 @@ final class MobileHostNetworkPathMonitor {
         newSignature: String
     ) -> Bool {
         previousSignature != newSignature
+    }
+
+    /// Reports the first reachability sample and later Boolean transitions,
+    /// while ignoring route/interface churn that leaves usability unchanged.
+    nonisolated static func shouldReportReachabilityChange(
+        previousReachability: Bool?,
+        newReachability: Bool
+    ) -> Bool {
+        previousReachability != newReachability
     }
 }

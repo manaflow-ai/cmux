@@ -5,6 +5,41 @@ import Testing
 @testable import CmuxIrohTransport
 
 extension CmxIrohHostRuntimeTests {
+    @Test("cancelled pushed revision is reported as superseded")
+    func cancelledPushedRevisionIsSuperseded() async throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: now)
+        let broker = TestRevisionedHostBroker(
+            binding: fixture.binding,
+            discoveries: [fixture.discovery]
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [
+                TestIrohEndpoint(identity: fixture.endpointID),
+            ]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() }
+        )
+        try await runtime.start()
+
+        let start = AsyncStream<Void>.makeStream()
+        let reconciliation = Task {
+            for await _ in start.stream {
+                break
+            }
+            return await runtime.reconcileConnectivityRevision(2)
+        }
+        reconciliation.cancel()
+        start.continuation.yield(())
+        start.continuation.finish()
+
+        #expect(await reconciliation.value == .failed(.superseded))
+        await runtime.stop()
+    }
+
     @Test("pushed revision reconciles the Mac without re-registering")
     func pushedRevisionReconcilesMacReadOnly() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)

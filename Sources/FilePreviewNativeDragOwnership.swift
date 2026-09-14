@@ -25,7 +25,7 @@ struct FilePreviewNativeDragOwnership {
 
     /// Revokes only this drag's registrations and residual representations.
     func finish(from pasteboard: NSPasteboard) {
-        transferRegistration?.clearResidualCapability(from: pasteboard)
+        transferRegistry?.end(from: pasteboard)
         if let transferRegistration {
             transferRegistry?.end(transferRegistration)
         }

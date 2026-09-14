@@ -6,18 +6,24 @@ import Foundation
 extension MobileHostIrohRuntime {
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
         let service = relayPolicyService
-        let effective = await service?.effectivePolicy() ?? relayPolicyEffective
+        let resolvedEffective = await service?.effectivePolicy() ?? relayPolicyEffective
+        let endpointEffective = relayPolicyAppliedEffective ?? resolvedEffective
         let diagnostics = await service?.diagnosticsSnapshot() ?? relayPolicyDiagnostics
-        let managedPolicy = await service?.managedPolicy() ?? effective?.managedPolicy
+        let managedPolicy = await service?.managedPolicy() ?? resolvedEffective?.managedPolicy
+        let appliedAuthorityRevoked = relayPolicyAppliedFailure == .policyExpired
         let runtimeState = await runtime?.snapshot().state
         let selectedPath = await runtime?.selectedTransportPath(
-            relayPolicy: effective
+            relayPolicy: endpointEffective
         ) ?? .unavailable
-        let configuration = effective?.requestedConfiguration
+        let configuration = resolvedEffective?.requestedConfiguration
         let requested = configuration?.activePreference
-        let selectedIDs = configuration?.selectedManagedRelayIDs.isEmpty == false
-            ? configuration?.selectedManagedRelayIDs ?? []
-            : Set(diagnostics?.selectedRelayIDs ?? [])
+        let selectedIDs: Set<String> = if appliedAuthorityRevoked {
+            []
+        } else if configuration?.selectedManagedRelayIDs.isEmpty == false {
+            configuration?.selectedManagedRelayIDs ?? []
+        } else {
+            Set(diagnostics?.selectedRelayIDs ?? [])
+        }
         let configuredCredentialIDs = if let service, let activeAccountID {
             await service.configuredCustomCredentialRelayIDs(accountID: activeAccountID)
         } else {
@@ -35,7 +41,7 @@ extension MobileHostIrohRuntime {
         return CmxIrohSettingsSnapshot(
             runtimeStatus: Self.settingsRuntimeStatus(
                 runtimeState,
-                failure: diagnostics?.failure,
+                failure: appliedAuthorityRevoked ? .policyExpired : diagnostics?.failure,
                 selectedPath: selectedPath
             ),
             selectedTransportPath: selectedPath,
@@ -54,11 +60,17 @@ extension MobileHostIrohRuntime {
                 configuration: configuration,
                 configuredCredentialIDs: configuredCredentialIDs
             ),
-            policySource: Self.settingsPolicySource(effective),
-            policySequence: diagnostics?.policySequence,
-            policyExpiresAt: diagnostics?.policyExpiresAt,
-            staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
-            failureDescription: diagnostics?.failure?.rawValue,
+            policySource: appliedAuthorityRevoked
+                ? .unavailable
+                : Self.settingsPolicySource(resolvedEffective),
+            policySequence: appliedAuthorityRevoked ? nil : diagnostics?.policySequence,
+            policyExpiresAt: appliedAuthorityRevoked ? nil : diagnostics?.policyExpiresAt,
+            staleRelayIDs: appliedAuthorityRevoked
+                ? []
+                : Set(diagnostics?.staleRelayIDs ?? []),
+            failureDescription: appliedAuthorityRevoked
+                ? CmxIrohRelayPolicyFailure.policyExpired.rawValue
+                : diagnostics?.failure?.rawValue,
             debugTransportVerificationMode: debugTransportVerificationMode
         )
     }

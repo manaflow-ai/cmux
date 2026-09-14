@@ -42,6 +42,16 @@ public struct TransportIncidentPolicy: Sendable {
         /// When false, retain breadcrumbs but suppress individual failure
         /// captures. Outage escalation remains enabled.
         public var captureIndividualFailures: Bool
+        /// Fraction of ordinary reportable failures admitted to Sentry.
+        /// Breadcrumbs and structured-log budgets are unaffected.
+        public var failureSampleRate: Double
+        /// Fraction of sustained outage incidents admitted to Sentry.
+        /// Outage decisions still re-arm when a sample is dropped, preventing
+        /// a retry storm from repeatedly drawing against the same episode.
+        public var outageSampleRate: Double
+        /// Whether environmental failures are suppressed while the last
+        /// reachability event says the host has no usable network path.
+        public var suppressOfflineFailures: Bool
 
         public init(
             signatureCooldown: TimeInterval = 600,
@@ -49,7 +59,10 @@ public struct TransportIncidentPolicy: Sendable {
             outageFailureThreshold: Int = 5,
             outageMinimumDuration: TimeInterval = 60,
             outageRearmInterval: TimeInterval = 3600,
-            captureIndividualFailures: Bool = true
+            captureIndividualFailures: Bool = true,
+            failureSampleRate: Double = 1,
+            outageSampleRate: Double = 1,
+            suppressOfflineFailures: Bool = true
         ) {
             self.signatureCooldown = signatureCooldown
             self.hourlyCaptureLimit = hourlyCaptureLimit
@@ -57,7 +70,27 @@ public struct TransportIncidentPolicy: Sendable {
             self.outageMinimumDuration = outageMinimumDuration
             self.outageRearmInterval = outageRearmInterval
             self.captureIndividualFailures = captureIndividualFailures
+            self.failureSampleRate = min(1, max(0, failureSampleRate))
+            self.outageSampleRate = min(1, max(0, outageSampleRate))
+            self.suppressOfflineFailures = suppressOfflineFailures
         }
+
+        /// A low-volume policy for the long-lived macOS host/daemon.
+        ///
+        /// Host failures are commonly produced while a laptop is asleep,
+        /// offline, or behind a captive portal. The host keeps breadcrumbs and
+        /// sampled structured logs for those episodes, while only a small,
+        /// bounded fraction of actionable incidents becomes an error event.
+        public static let macHost = Self(
+            signatureCooldown: 3_600,
+            hourlyCaptureLimit: 6,
+            outageFailureThreshold: 7,
+            outageMinimumDuration: 120,
+            outageRearmInterval: 21_600,
+            failureSampleRate: 0.05,
+            outageSampleRate: 0.25,
+            suppressOfflineFailures: true
+        )
     }
 
     /// A reportable incident distilled from the event stream.
@@ -170,6 +203,13 @@ public struct TransportIncidentPolicy: Sendable {
         switch event.code {
         case .reachabilityChanged:
             reachable = event.a.map { $0 == 1 }
+            // A path transition starts a fresh episode. Failures collected on
+            // the old path must not combine with the new path to manufacture
+            // an outage, and an offline interval must never keep an outage
+            // streak alive while the device has no route.
+            streakCount = 0
+            streakFirstTNanos = nil
+            outageFiredTNanos = nil
             return nil
         case .appLifecycleChanged:
             appPhase = event.a.flatMap(DiagnosticAppLifecyclePhase.init(rawValue:))
@@ -239,18 +279,24 @@ public struct TransportIncidentPolicy: Sendable {
         return nil
     }
 
+    /// Determines whether a classified failure may enter incident capture.
     private func isReportable(event: DiagnosticEvent, failure: DiagnosticFailureKind?) -> Bool {
+        if configuration.suppressOfflineFailures,
+           reachable == false,
+           let failure,
+           Self.environmentalFailureKinds.contains(failure) {
+            return false
+        }
         switch failure {
         case .some(.none), .some(.cancelled), .some(.superseded):
             // Expected lifecycle churn: an intentional close, a dial replaced by
             // a newer attempt, or a cooperative cancellation.
             return false
         case .some(.offline):
-            // Offline failures while the device itself reports no network path
-            // are environmental, not diagnosable defects. When reachability is
-            // unknown or claims a usable path, an offline classification IS
-            // interesting (e.g. a stale local socket).
-            return reachable != false
+            // The transport classifier has already identified this as an
+            // offline condition. It is routine whether or not the first path
+            // observation has arrived yet, so keep it breadcrumb/log-only.
+            return !configuration.suppressOfflineFailures
         case .some(.transportIdleTimedOut):
             // Idle expiry while backgrounded is scene suspension. In the
             // foreground it is a real defect (sessions dying under the user).
@@ -264,6 +310,24 @@ public struct TransportIncidentPolicy: Sendable {
         }
     }
 
+    /// Failure categories attributable to an absent local network path.
+    ///
+    /// Definitive identity and protocol failures stay reportable even while a
+    /// stale reachability snapshot says offline; authorization errors are
+    /// included because an offline token refresh cannot prove auth state.
+    public static let environmentalFailureKinds: Set<DiagnosticFailureKind> = [
+        .timedOut,
+        .connectionRefused,
+        .hostUnreachable,
+        .dnsFailed,
+        .policyUnavailable,
+        .endpointUnavailable,
+        .authorizationFailed,
+        .unknown,
+        .noRoute,
+    ]
+
+    /// Attempts one sampled sustained-outage incident.
     private mutating func decideOutage(
         event: DiagnosticEvent,
         signature: String,
@@ -279,6 +343,13 @@ public struct TransportIncidentPolicy: Sendable {
             return nil
         }
         outageFiredTNanos = event.tNanos
+        guard shouldSample(
+            rate: configuration.outageSampleRate,
+            signature: "transport-outage",
+            event: event
+        ) else {
+            return nil
+        }
         let duration = Int(elapsedSeconds(from: firstTNanos, to: event.tNanos).rounded())
         let title = titleFormatter.outageTitle(
             event: event,
@@ -303,6 +374,7 @@ public struct TransportIncidentPolicy: Sendable {
         )
     }
 
+    /// Attempts one sampled per-signature failure incident.
     private mutating func decideFailureCapture(
         event: DiagnosticEvent,
         signature: String,
@@ -321,14 +393,17 @@ public struct TransportIncidentPolicy: Sendable {
             }
         }
 
+        guard shouldSample(
+            rate: configuration.failureSampleRate,
+            signature: signature,
+            event: event
+        ) else {
+            recordPending(signature: signature, at: event.tNanos)
+            return nil
+        }
+
         guard admitCaptureWithinBudget(at: event.tNanos) else {
-            var state = signatureStates[signature]
-                ?? SignatureState(lastCaptureTNanos: nil, pendingCount: 0, firstPendingTNanos: nil)
-            state.pendingCount += 1
-            if state.firstPendingTNanos == nil {
-                state.firstPendingTNanos = event.tNanos
-            }
-            signatureStates[signature] = state
+            recordPending(signature: signature, at: event.tNanos)
             droppedByBudget += 1
             return nil
         }
@@ -366,6 +441,46 @@ public struct TransportIncidentPolicy: Sendable {
             reachable: reachable,
             appPhase: appPhase
         )
+    }
+
+    private mutating func recordPending(signature: String, at tNanos: UInt64) {
+        var state = signatureStates[signature]
+            ?? SignatureState(lastCaptureTNanos: nil, pendingCount: 0, firstPendingTNanos: nil)
+        state.pendingCount += 1
+        if state.firstPendingTNanos == nil {
+            state.firstPendingTNanos = tNanos
+        }
+        signatureStates[signature] = state
+    }
+
+    /// Deterministic per-event sampling. A stable hash keeps a single event
+    /// decision reproducible in tests and avoids introducing a random source
+    /// into the diagnostic drain task.
+    private func shouldSample(
+        rate: Double,
+        signature: String,
+        event: DiagnosticEvent
+    ) -> Bool {
+        guard rate < 1 else { return true }
+        guard rate > 0 else { return false }
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in signature.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 1_099_511_628_211
+        }
+        for value in [
+            event.tNanos,
+            UInt64(bitPattern: Int64(event.a ?? 0)),
+            UInt64(bitPattern: Int64(event.b ?? 0)),
+            UInt64(bitPattern: Int64(event.c ?? 0)),
+        ] {
+            for shift in stride(from: UInt64(0), through: 56, by: 8) {
+                let byte = (value >> shift) & 0xff
+                hash ^= byte
+                hash &*= 1_099_511_628_211
+            }
+        }
+        return Double(hash) / Double(UInt64.max) < rate
     }
 
     /// Sliding-window budget admission for failure captures.

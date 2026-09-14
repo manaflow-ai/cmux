@@ -36,16 +36,22 @@ emits:
    the `iroh_diag` socket verb and iOS Settings export produce).
 
 The policy suppresses what an operator can already attribute (cancelled or
-superseded dials, offline failures while reachability reports no network,
-idle timeouts while backgrounded), coalesces repeats behind a 10-minute
-per-signature cooldown, caps failure captures per hour, and escalates a
-sustained no-success failure streak into one error-severity
-`transport-outage` event. Environment (reachability, app lifecycle phase,
-seconds since last success, consecutive-failure count) rides on every capture.
-Only a user-usable outcome (`pairOk`, `rpcReady`, or `recoverySucceeded`)
-resets that streak. Discovery, endpoint startup, socket connection,
-authentication, and admission remain progress breadcrumbs because any of them
-can succeed repeatedly while a later phase keeps the phone unusable.
+superseded dials, explicit offline failures, transient route/policy failures
+while reachability reports no network, and idle timeouts while backgrounded),
+coalesces repeats behind a per-signature cooldown, caps failure captures per
+hour, and escalates a sustained no-success failure streak into one
+error-severity `transport-outage` event. The long-lived macOS host uses a
+one-hour signature gate, a six-ordinary-failure hourly cap, and deterministic
+sampling of ordinary failures/outages within each process lifetime; sustained
+outage escalation has its own rearm interval. These in-memory gates reset on
+process restart, while the stateless SDK-side filter continues dropping
+routine listener health/retry messages after every launch. Environment
+(reachability, app lifecycle phase, seconds since last success,
+consecutive-failure count) rides on every capture. Only a user-usable outcome
+(`pairOk`, `rpcReady`, or `recoverySucceeded`) resets that streak. Discovery,
+endpoint startup, socket connection, authentication, and admission remain
+progress breadcrumbs because any of them can succeed repeatedly while a later
+phase keeps the phone unusable.
 
 ## iOS Axiom outcomes
 
@@ -75,7 +81,12 @@ therefore cannot accept an Axiom upload.
   (target `CmuxSentryReporting`, pure core in `CmuxSentryScrubbing`).
 - macOS: `AppDelegate` sets the tap on
   `MobileHostIrohRuntime.hostDiagnosticLog` (role `macHost`) after
-  `SentrySDK.start`, gated by `MacSentryStartupPolicy` as before.
+  `SentrySDK.start`, gated by `MacSentryStartupPolicy` as before. The SDK
+  `beforeSend` hook drops routine listener health/retry and offline operational noise;
+  deterministic transport sampling is owned by the incident policy, while
+  crashes, hangs, and other loggers are unaffected. The host pauses
+  relay-policy retries while `NWPathMonitor`
+  reports no usable path and wakes one refresh when the path returns.
 
 ## Reading an issue
 

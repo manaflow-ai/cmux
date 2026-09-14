@@ -9,14 +9,15 @@ import Testing
     private func dialFailed(
         at seconds: UInt64,
         failure: DiagnosticFailureKind = .policyUnavailable,
-        transport: DiagnosticTransportKind = .iroh
+        transport: DiagnosticTransportKind = .iroh,
+        attempt: Int = 1
     ) -> DiagnosticEvent {
         DiagnosticEvent(
             code: .transportDialFailed,
             tNanos: seconds * Self.second,
             a: transport.rawValue,
             b: failure.rawValue,
-            c: 1
+            c: attempt
         )
     }
 
@@ -75,17 +76,155 @@ import Testing
         #expect(policy.decide(dialFailed(at: 12, failure: .none)) == nil)
     }
 
-    @Test func offlineSuppressedOnlyWhileUnreachable() {
+    @Test func explicitOfflineClassificationIsAlwaysSuppressed() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
         #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
         _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 11 * Self.second, a: 1))
-        #expect(policy.decide(dialFailed(at: 12, failure: .offline)) != nil)
+        #expect(policy.decide(dialFailed(at: 12, failure: .offline)) == nil)
     }
 
-    @Test func offlineReportedWhenReachabilityUnknown() {
+    @Test func offlineSuppressedWhenReachabilityUnknown() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
-        #expect(policy.decide(dialFailed(at: 10, failure: .offline)) != nil)
+        #expect(policy.decide(dialFailed(at: 10, failure: .offline)) == nil)
+    }
+
+    @Test func offlinePathSuppressesTransientPolicyAndEndpointFailures() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
+
+        #expect(policy.decide(dialFailed(at: 10, failure: .policyUnavailable)) == nil)
+        #expect(policy.decide(dialFailed(at: 11, failure: .endpointUnavailable)) == nil)
+        #expect(policy.decide(dialFailed(at: 12, failure: .authorizationFailed)) == nil)
+        #expect(policy.decide(dialFailed(at: 13, failure: .unknown)) == nil)
+    }
+
+    @Test func offlineFailuresDoNotEscalateAnOutage() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
+
+        for second in stride(from: UInt64(10), through: 200, by: 30) {
+            #expect(policy.decide(dialFailed(at: second, failure: .policyUnavailable)) == nil)
+        }
+
+        _ = policy.decide(DiagnosticEvent(
+            code: .reachabilityChanged,
+            tNanos: 201 * Self.second,
+            a: 1
+        ))
+        let firstOnlineFailure = policy.decide(dialFailed(
+            at: 202,
+            failure: .policyUnavailable
+        ))
+        #expect(firstOnlineFailure?.kind == .failure)
+        #expect(firstOnlineFailure?.consecutiveFailures == 1)
+    }
+
+    @Test func macHostConfigurationUsesSamplingAndLongerGates() {
+        let configuration = TransportIncidentPolicy.Configuration.macHost
+        #expect(configuration.signatureCooldown >= 3_600)
+        #expect(configuration.hourlyCaptureLimit <= 10)
+        #expect(configuration.failureSampleRate == 0.05)
+        #expect(configuration.outageSampleRate == 0.25)
+        #expect(configuration.suppressOfflineFailures)
+    }
+
+    @Test func zeroFailureSampleRateKeepsBreadcrumbOnlySemantics() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 30,
+                outageFailureThreshold: 100,
+                outageMinimumDuration: 10_000,
+                outageRearmInterval: 3_600,
+                failureSampleRate: 0,
+                outageSampleRate: 0
+            ),
+            locale: englishLocale
+        )
+
+        #expect(policy.decide(dialFailed(at: 10)) == nil)
+        #expect(policy.decide(dialFailed(at: 20)) == nil)
+    }
+
+    @Test func fractionalFailureSamplingIsDeterministicAndBounded() {
+        let configuration = TransportIncidentPolicy.Configuration(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 2_000,
+            outageFailureThreshold: 10_000,
+            outageMinimumDuration: 10_000,
+            outageRearmInterval: 3_600,
+            failureSampleRate: 0.05,
+            outageSampleRate: 0.25
+        )
+        var firstPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var secondPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var firstCapturedPositions: [Int] = []
+        var secondCapturedPositions: [Int] = []
+        for index in 0 ..< 1_000 {
+            let event = dialFailed(
+                at: UInt64(index + 1),
+                attempt: index
+            )
+            if firstPolicy.decide(event) != nil {
+                firstCapturedPositions.append(index)
+            }
+            if secondPolicy.decide(event) != nil {
+                secondCapturedPositions.append(index)
+            }
+        }
+
+        #expect(firstCapturedPositions == secondCapturedPositions)
+        // The deterministic hash should retain roughly 5% of ordinary
+        // failures; keep the assertion broad enough to be stable across
+        // compiler/platform implementations while still catching a disabled
+        // or unbounded sampler.
+        #expect(firstCapturedPositions.count > 10)
+        #expect(firstCapturedPositions.count < 120)
+    }
+
+    @Test func fractionalOutageSamplingIsDeterministicAndBounded() {
+        let configuration = TransportIncidentPolicy.Configuration(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 2_000,
+            outageFailureThreshold: 1,
+            outageMinimumDuration: 0,
+            outageRearmInterval: 0,
+            failureSampleRate: 0.05,
+            outageSampleRate: 0.25
+        )
+        var firstPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var secondPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var firstCapturedPositions: [Int] = []
+        var secondCapturedPositions: [Int] = []
+        for index in 0 ..< 1_000 {
+            let event = dialFailed(
+                at: UInt64(index + 1),
+                attempt: index
+            )
+            if firstPolicy.decide(event)?.kind == .outage {
+                firstCapturedPositions.append(index)
+            }
+            if secondPolicy.decide(event)?.kind == .outage {
+                secondCapturedPositions.append(index)
+            }
+        }
+
+        #expect(firstCapturedPositions == secondCapturedPositions)
+        #expect(firstCapturedPositions.count > 120)
+        #expect(firstCapturedPositions.count < 380)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {
@@ -274,16 +413,13 @@ import Testing
         // Exhaust the hourly budget with one signature...
         #expect(policy.decide(dialFailed(at: 10)) != nil)
         // ...then a brand-new signature arrives while the budget is empty.
-        let unreachable = DiagnosticEvent(
-            code: .pairUnreachable,
-            tNanos: 20 * Self.second
-        )
-        #expect(policy.decide(unreachable) == nil)
+        let identityMismatch = dialFailed(at: 20, failure: .identityMismatch)
+        #expect(policy.decide(identityMismatch) == nil)
         // Once the window slides, the never-captured signature must capture
         // immediately: a budget drop is not a capture, so no cooldown applies.
-        let afterWindow = DiagnosticEvent(
-            code: .pairUnreachable,
-            tNanos: (10 + 3700) * Self.second
+        let afterWindow = dialFailed(
+            at: 10 + 3700,
+            failure: .identityMismatch
         )
         let captured = policy.decide(afterWindow)
         #expect(captured != nil)

@@ -526,6 +526,20 @@ extension MobileHostIrohRuntime {
             activeAppInstanceID = appInstanceID
             throw CancellationError()
         }
+        let resolvedPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
+        guard revision == lifecycleRevision,
+              !Task.isCancelled,
+              !signOutIntentActive,
+              desiredActive,
+              observedAccountID == accountID else {
+            // The succeeding reconcile owns this runtime. Retaining it lets a
+            // sign-out or account-switch transition capture a binding that was
+            // registered while activation was being superseded.
+            runtime = hostRuntime
+            activeAccountID = accountID
+            activeAppInstanceID = appInstanceID
+            throw CancellationError()
+        }
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
@@ -535,8 +549,10 @@ extension MobileHostIrohRuntime {
             a: DiagnosticTransportKind.iroh.rawValue
         ))
         relayPolicyService = resolvedPolicyService
+        relayPolicyAppliedEffective = resolvedEffectivePolicy
+        relayPolicyAppliedFailure = resolvedPolicyDiagnostics?.failure
         relayPolicyEffective = resolvedEffectivePolicy
-        relayPolicyDiagnostics = await resolvedPolicyService?.diagnosticsSnapshot()
+        relayPolicyDiagnostics = resolvedPolicyDiagnostics
         relayPolicyEndpointID = derivedEndpointID
         observeSelectedPathChanges(
             runtime: hostRuntime,
