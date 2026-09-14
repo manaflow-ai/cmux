@@ -477,7 +477,7 @@ final class AppearanceSettingsTests: XCTestCase {
         XCTAssertTrue(synchronizedAppearanceWasCleared)
     }
 
-    func testDefaultsObserverAppliesLiveAppearanceWhenStoredModeChanges() {
+    func testDefaultsObserverAppliesLiveAppearanceWhenStoredModeChanges() async {
         let suiteName = "AppearanceSettingsTests.DefaultsObserver.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -489,6 +489,7 @@ final class AppearanceSettingsTests: XCTestCase {
         var appliedAppearanceName: NSAppearance.Name?
         var synchronizedAppearanceName: NSAppearance.Name?
         var synchronizedSource: String?
+        let applied = expectation(description: "appearance defaults are applied")
         let liveEnvironment = AppearanceSettings.LiveApplyEnvironment(
             setApplicationAppearance: { appearance in
                 appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
@@ -496,6 +497,7 @@ final class AppearanceSettingsTests: XCTestCase {
             synchronizeTerminalThemeWithAppearance: { appearance, source in
                 synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
                 synchronizedSource = source
+                applied.fulfill()
             },
             systemAppearance: {
                 XCTFail("Dark mode should not resolve system appearance")
@@ -505,16 +507,13 @@ final class AppearanceSettingsTests: XCTestCase {
         let observer = AppearanceSettingsUserDefaultsObserver(
             environment: .init(
                 addDefaultsObserver: { handler in
-                    notificationCenter.addObserver(
-                        forName: UserDefaults.didChangeNotification,
-                        object: nil,
-                        queue: nil
-                    ) { _ in
-                        handler()
-                    }
+                    UserDefaultsSettingsChangeObserver(
+                        notificationCenter: notificationCenter,
+                        action: handler
+                    )
                 },
                 removeObserver: { observer in
-                    notificationCenter.removeObserver(observer)
+                    observer.cancel()
                 },
                 currentRawValue: {
                     defaults.string(forKey: AppearanceSettings.appearanceModeKey)
@@ -535,6 +534,7 @@ final class AppearanceSettingsTests: XCTestCase {
         observer.startObserving()
         defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
         notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
+        await fulfillment(of: [applied], timeout: 2)
 
         XCTAssertEqual(appliedAppearanceName, .darkAqua)
         XCTAssertEqual(synchronizedAppearanceName, .darkAqua)
