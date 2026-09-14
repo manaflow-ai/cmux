@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudImagePaste
 
 extension TextBoxInputContainer {
     /// A composer must never submit a Mac path or send an attachment before Submit.

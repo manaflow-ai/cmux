@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxCloudImagePaste
 import Foundation
 
 /// Sends Ghostty manual-surface input to a remote cmux-tui PTY.

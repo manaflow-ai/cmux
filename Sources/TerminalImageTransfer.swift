@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudImagePaste
 import CmuxTerminal
 import AppKit
 import CmuxRemoteSession
