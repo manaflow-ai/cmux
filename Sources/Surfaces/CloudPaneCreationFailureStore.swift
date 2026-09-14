@@ -14,11 +14,9 @@ final class CloudPaneCreationFailureStore {
         if case .failed(let failure) = phase { return failure }
         return nil
     }
-    var isPending: Bool {
-        if case .starting = phase { return true }
-        return false
-    }
     var canRetry: Bool { failedRequestID.flatMap { requests[$0] } != nil }
+    /// Whether a request is still creating or projecting (tests and diagnostics).
+    var hasActiveRequests: Bool { !requests.isEmpty }
 
     /// Starts a request and invalidates failures from every older request.
     func beginRequest() -> UUID {
@@ -40,8 +38,10 @@ final class CloudPaneCreationFailureStore {
         phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText))
     }
 
-    /// Retains each independent shortcut intent until it completes or is dismissed.
-    /// Retry reuses its creation receipt through the same coordinator as a pending pane.
+    /// Retains each independent intent until it completes or is dismissed. Retry
+    /// reuses its creation receipt through the same coordinator. `inlineFailure`
+    /// lets a reserved pane show the failure itself; without it the workspace card
+    /// is used.
     func run(
         machine: SurfaceMachineID,
         requestID: UUID,
@@ -49,6 +49,7 @@ final class CloudPaneCreationFailureStore {
         project: @escaping CloudTerminalCreationCoordinator.Project,
         onStart: @escaping @MainActor () -> Void,
         onFinish: @escaping @MainActor () -> Void,
+        inlineFailure: (@MainActor (Error) -> Void)? = nil,
         discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection
     ) {
         let coordinator = CloudTerminalCreationCoordinator(
@@ -57,7 +58,7 @@ final class CloudPaneCreationFailureStore {
             onStart: { [weak self] in
                 if self?.activeRequestID == requestID {
                     self?.failedRequestID = nil
-                    self?.phase = .starting
+                    self?.phase = .idle
                 }
                 onStart()
             },
@@ -66,7 +67,11 @@ final class CloudPaneCreationFailureStore {
                 #if DEBUG
                 cmuxDebugLog("cloud.pane.createFailed request=\(requestID) machine=\(machine.rawValue) error=\(String(reflecting: error))")
                 #endif
-                self?.present(machine: machine, error: error, requestID: requestID)
+                if let inlineFailure {
+                    inlineFailure(error)
+                } else {
+                    self?.present(machine: machine, error: error, requestID: requestID)
+                }
             },
             onCancel: { [weak self] in
                 onFinish()
@@ -88,6 +93,21 @@ final class CloudPaneCreationFailureStore {
     func retry(id: UUID) {
         guard failure?.id == id, let failedRequestID, let coordinator = requests[failedRequestID] else { return }
         coordinator.retry()
+    }
+
+    /// Repeats one retained request by id (a reserved pane's Reconnect).
+    func retry(requestID: UUID) {
+        requests[requestID]?.retry()
+    }
+
+    /// Ends one retained request by id (a reserved pane closed by the user).
+    func cancel(requestID: UUID) {
+        requests.removeValue(forKey: requestID)?.cancel()
+        if activeRequestID == requestID { activeRequestID = nil }
+        if failedRequestID == requestID {
+            failedRequestID = nil
+            phase = .idle
+        }
     }
 
     /// Cancels the newest local open request while leaving any remote terminal alive.

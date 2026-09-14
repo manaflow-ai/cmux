@@ -196,6 +196,14 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                // A cloud machine gets its pane at once; the sidebar shares the
+                // shortcut routes' optimistic path. The local machine and a missing
+                // workspace keep the awaited create below.
+                if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
+                   let workspace = Workspace.liveWorkspace(id: workspaceID),
+                   workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
+                    return
+                }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
@@ -213,6 +221,11 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
+                    if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
+                       let workspace = Workspace.liveWorkspace(id: workspaceID),
+                       workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
+                        return
+                    }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)

@@ -753,6 +753,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         at destination: SurfaceDestination,
         focus: Bool
     ) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: nil)
+    }
+
+    /// `adopting` binds the attachment to an optimistic pane the workspace already
+    /// inserted instead of creating a second one; browsers never reserve panes.
+    func materialize(
+        _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?,
+        at destination: SurfaceDestination,
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation?
+    ) async throws -> SurfaceProjection {
         let created: (workspaceID: UUID, panelID: UUID)
         var createdPlacement: SurfaceRemotePlacement?
         switch resource.kind {
@@ -761,7 +773,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 resource,
                 remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
-                focus: focus
+                focus: focus,
+                adopting: reservation
             )
             created = (manual.workspaceID, manual.panelID)
             createdPlacement = manual.remotePlacement

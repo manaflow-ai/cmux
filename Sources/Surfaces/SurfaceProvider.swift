@@ -23,6 +23,10 @@ protocol SurfaceProvider: AnyObject {
     /// Same operation with an exact remote placement. A terminal can appear in several
     /// daemon tabs, so callers that came from a workspace pointer pass that tab here.
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
+    /// Same operation into a pane the workspace already reserved for this resource
+    /// (optimistic creation). A provider that cannot adopt materializes a fresh pane;
+    /// the caller then closes the reservation when the returned panel differs.
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection
     /// Create a new terminal on this machine (remote providers create it in the cmux-tui
     /// session; the local provider spawns a shell) and return its resource.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
@@ -83,6 +87,10 @@ extension SurfaceProvider {
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, at: destination, focus: focus)
+    }
+
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
+        try await materialize(resource, remoteView: remoteView, at: destination, focus: focus)
     }
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {

@@ -16,6 +16,7 @@ struct CloudManualMirrorPresentationTests {
         var recoveries = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_recovery", remoteSurfaceID: 17,
+            presentationPolicy: .immediate,
             onNeedsReconnect: { recoveries += 1 }
         )
         defer { session.stop() }
@@ -184,6 +185,7 @@ struct CloudManualMirrorPresentationTests {
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_live", remoteSurfaceID: 17,
+            presentationPolicy: .immediate,
             onNeedsReconnect: {}
         )
         defer { session.stop() }
@@ -254,21 +256,29 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
-    func unavailableSurfaceResolutionLeavesRefreshToProviderAndRemainsRetryable() {
+    func unavailableSurfaceResolutionLeavesRefreshToProviderAndRemainsRetryable() async throws {
         var reconnectRequests = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine",
             terminalID: "term_0123456789abcdef0123456789abcdef",
             remoteSurfaceID: 17,
+            presentationPolicy: CloudTerminalConnectionPresentationPolicy(
+                progressGrace: .milliseconds(40), failureGrace: .milliseconds(120)
+            ),
             onNeedsReconnect: { reconnectRequests += 1 }
         )
         defer { session.stop() }
         session.markSurfaceResolutionUnavailable()
         session.markSurfaceResolutionUnavailable()
         // The provider schedules resolution retries with backoff. A failed
-        // resolution must not immediately request the same refresh again.
+        // resolution must not immediately request the same refresh again, and
+        // while that automatic recovery runs the pane stays quiet, then shows
+        // progress, and offers Reconnect only once recovery keeps failing.
         #expect(reconnectRequests == 0)
-        #expect(session.connectionPresentation?.showsReconnectButton == true)
+        #expect(session.connectionPresentation == nil)
+        try await waitForSession { session.connectionPresentation?.showsProgress == true }
+        #expect(session.connectionPresentation?.showsReconnectButton == false)
+        try await waitForSession { session.connectionPresentation?.showsReconnectButton == true }
         #expect(session.retryConnection())
         #expect(reconnectRequests == 1)
         session.visibilityChanged(true)
@@ -304,7 +314,11 @@ struct CloudManualMirrorPresentationTests {
         #expect(session.phase == .disconnected)
         #expect(refreshes == 1)
         #expect(session.remoteSurfaceID == 17)
-        #expect(session.connectionPresentation?.showsReconnectButton == true)
+        // An explicit Reconnect is feedback the user asked for: progress shows
+        // immediately, and the attempt is not reported as a failure.
+        let presentation = try #require(session.connectionPresentation)
+        #expect(presentation.showsProgress)
+        #expect(!presentation.showsReconnectButton)
     }
 
     @Test @MainActor
@@ -313,7 +327,8 @@ struct CloudManualMirrorPresentationTests {
             machineID: "machine", terminalID: "term_old", remoteSurfaceID: 17, onNeedsReconnect: {}
         )
         let replacement = CloudTuiManualMirrorSession(
-            machineID: "machine", terminalID: "term_new", remoteSurfaceID: 18, onNeedsReconnect: {}
+            machineID: "machine", terminalID: "term_new", remoteSurfaceID: 18,
+            presentationPolicy: .immediate, onNeedsReconnect: {}
         )
         defer { old.stop(); replacement.stop() }
         let owner = CloudTerminalOverlayCoordinator()

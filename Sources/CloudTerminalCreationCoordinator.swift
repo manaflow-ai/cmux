@@ -1,6 +1,6 @@
 import Foundation
 
-/// Coordinates one asynchronous Cloud terminal creation without leaving an empty pane.
+/// Coordinates one asynchronous Cloud terminal creation behind a reserved pane.
 ///
 /// The coordinator retains a creation result after the remote terminal is born. If the
 /// first local projection fails while `cmux-tui` is restarting, Retry reuses that terminal
@@ -22,24 +22,7 @@ final class CloudTerminalCreationCoordinator {
     private var generation: UInt64 = 0
     private var createdResource: SurfaceResource?
 
-    convenience init(
-        panel: CloudTerminalPendingPanel,
-        create: @escaping Create,
-        project: @escaping Project,
-        onSuccess: @escaping @MainActor () -> Void,
-        discardProjection: @escaping DiscardProjection = { _ in }
-    ) {
-        self.init(
-            create: create,
-            project: project,
-            onStart: { [weak panel] in panel?.resetForRetry() },
-            onFailure: { [weak panel] _ in panel?.showFailure() },
-            onSuccess: onSuccess,
-            discardProjection: discardProjection
-        )
-    }
-
-    /// Runs the same create/project lifecycle for inline status and pending panes.
+    /// Runs the same create/project lifecycle for every optimistic pane.
     init(
         create: @escaping Create,
         project: @escaping Project,

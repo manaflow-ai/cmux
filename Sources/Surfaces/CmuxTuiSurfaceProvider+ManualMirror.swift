@@ -13,7 +13,8 @@ extension CmuxTuiSurfaceProvider {
         _ resource: SurfaceResource,
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
@@ -50,22 +51,43 @@ extension CmuxTuiSurfaceProvider {
         )
         let inputRouter = session.inputRouter
         do {
-            let created = try SurfacePaneFactory.makeCloudManualMirrorPane(
-                at: destination,
-                focus: focus,
-                onInput: { input in inputRouter.send(input) },
-                keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
-                onResize: { [weak session] sample in
-                    session?.apply(size: sample)
-                },
-                onRuntimeReady: { [weak session] in
-                    session?.runtimeReady()
-                },
-                onFocus: { [weak session] in
-                    session?.claimGeometry()
-                },
-                attachment: session.attachmentStatus
-            )
+            let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
+            if let reservation {
+                // The user's pane already exists; bind the attachment to it. A pane
+                // closed while the daemon created the terminal ends this request
+                // without a replacement pane, like closing any pending pane.
+                guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+                      let adopted = workspace.adoptReservedCloudTerminalPane(
+                          reservation,
+                          onResize: { [weak session] sample in session?.apply(size: sample) },
+                          onRuntimeReady: { [weak session] in session?.runtimeReady() },
+                          onFocus: { [weak session] in session?.claimGeometry() },
+                          attachment: session.attachmentStatus
+                      ) else {
+                    throw CancellationError()
+                }
+                created = adopted
+                reservation.inputRelay.attach(inputRouter)
+                // The card's grace counts from the moment the pane appeared.
+                session.startPresentationEpisode(elapsed: reservation.elapsed)
+            } else {
+                created = try SurfacePaneFactory.makeCloudManualMirrorPane(
+                    at: destination,
+                    focus: focus,
+                    onInput: { input in inputRouter.send(input) },
+                    keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
+                    onResize: { [weak session] sample in
+                        session?.apply(size: sample)
+                    },
+                    onRuntimeReady: { [weak session] in
+                        session?.runtimeReady()
+                    },
+                    onFocus: { [weak session] in
+                        session?.claimGeometry()
+                    },
+                    attachment: session.attachmentStatus
+                )
+            }
             session.bind(surface: created.surface)
             // Preserve the workspace's existing notification-dismissal hook
             // while re-claiming geometry when this pane receives explicit

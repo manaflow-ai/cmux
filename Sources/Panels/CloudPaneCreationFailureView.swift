@@ -16,10 +16,6 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 .padding(.top, 12)
                 .padding(.trailing, 16)
                 .transition(.move(edge: .top).combined(with: .opacity))
-            } else if failureStore.isPending {
-                CloudPaneCreationProgressView(onCancel: { failureStore.cancelActiveRequest() })
-                    .padding(.top, 12)
-                    .padding(.trailing, 16)
             }
         }
     }

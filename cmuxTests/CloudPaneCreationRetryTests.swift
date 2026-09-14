@@ -36,7 +36,6 @@ struct CloudPaneCreationRetryTests {
         store.retry(id: previousFailureID)
 
         #expect(store.failure?.id == currentFailureID)
-        #expect(!store.isPending)
         #expect(projects == 2)
         store.cancelAll()
     }
