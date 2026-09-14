@@ -6,7 +6,12 @@ import Observation
 @MainActor
 @Observable
 final class CloudPortAccessStore {
-    var coordinator: CloudTunnelCoordinator?
+    var coordinator: CloudTunnelCoordinator? {
+        didSet {
+            guard coordinator !== oldValue, let coordinator else { return }
+            for model in models.values { model.attach(coordinator: coordinator) }
+        }
+    }
     private(set) var models: [CloudHubPortForwarder.Key: CloudPortAccessModel] = [:]
 
     func model(machineID: String, target: CloudPortForwardTarget, make: () -> CloudPortAccessModel) -> CloudPortAccessModel {

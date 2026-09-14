@@ -11,42 +11,85 @@ import Testing
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
     @Test
-    func readinessGateKeepsLoadingAcrossOutOfOrderReplayAndFrameEvents() {
-        var gate = CloudTerminalReadinessGate()
-        gate.begin(baselineFrame: 10)
-
-        // A replay may arrive before the native renderer is presented.
-        let replayBeforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
-        #expect(!replayBeforePresentation)
-        #expect(gate.firstPresentedFrame == nil)
-        // A frame from the old generation cannot dismiss the loader.
-        let staleFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10)
-        #expect(!staleFrame)
-        #expect(gate.firstPresentedFrame == nil)
-        let firstPresentedFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
-        #expect(firstPresentedFrame)
-        #expect(gate.firstPresentedFrame == 11)
-        let laterFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
-        #expect(!laterFrame)
-
-        // Reconnect establishes a new generation baseline and requires a new frame.
-        gate.begin(baselineFrame: 20)
-        let reconnectBaseline = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
-        #expect(!reconnectBaseline)
-        let reconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
-        #expect(reconnectFrame)
-    }
-
-    @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
+        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, firstFramePresented: true).connectionState == .connected)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connected)
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
     }
 
     @Test @MainActor
-    func replayAloneKeepsTheCardUntilAVisibleFrame() async throws {
+    func cancellingAnActiveConnectionSuppressesAutomaticRecovery() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        var refreshes = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_cancel", remoteSurfaceID: 17,
+            onNeedsReconnect: { refreshes += 1 }
+        )
+        defer { session.stop() }
+        session.reconnect(socketPath: fixture.socketPath)
+        #expect(session.phase == .connecting)
+        #expect(session.cancelConnectionAttempt())
+        #expect(session.phase == .idle)
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(refreshes == 0)
+        session.visibilityChanged(true)
+        #expect(refreshes == 0)
+        #expect(session.connectionPresentation == nil)
+        #expect(session.retryConnection())
+        #expect(session.allowsAutomaticReconnect)
+        #expect(refreshes == 1)
+    }
+
+    @Test @MainActor
+    func progressCardDismissalInvokesCancellationCallback() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let destination = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let progress = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Connecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        var cancelled = 0
+        owner.apply(progress, in: destination, frame: destination.bounds, dismissalID: "cancel-test", onReconnect: {}, onCancel: {
+            cancelled += 1
+        })
+        let card = try #require(owner.overlay)
+        card.onDismiss?()
+        #expect(cancelled == 1)
+        #expect(owner.overlay == nil)
+    }
+
+    @Test @MainActor
+    func coordinatorRemovesReconnectCardWhenReadySnapshotArrives() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        )
+        let anchor = GhosttyTerminalView.HostContainerView(frame: hosted.bounds)
+        owner.updateAnchor(anchor, visible: true, ownershipGeneration: 1)
+        let reconnecting = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Reconnecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: reconnecting,
+            onReconnect: {}
+        )
+        #expect(owner.overlay != nil)
+
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: nil,
+            onReconnect: {}
+        )
+        #expect(owner.overlay == nil)
+        #expect(anchor.subviews.isEmpty)
+    }
+
+    @Test @MainActor
+    func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
@@ -86,20 +129,24 @@ struct CloudManualMirrorPresentationTests {
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
             "data": Data("cmux@cloud> ".utf8).base64EncodedString()
         ])
-        #expect(session.connectionPresentation?.showsProgress == true)
+        deadline = ContinuousClock.now + .seconds(5)
+        while session.connectionPresentation != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(session.connectionPresentation == nil)
         session.inputRouter.send(.bytes(Data("pwd\n".utf8)))
         let input = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(input.cmd == "send")
         #expect(input.surface == 17)
-        // Renderer observations are absent, as during a portal handoff. The
-        // healthy byte attachment remains visibly loading until a frame lands.
+        // Renderer observations are absent, as during a portal handoff. A
+        // healthy byte attachment must not become a connection failure.
         #expect(hosted.surfaceView.renderedFrameSequence == 0)
         synchronize()
-        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+        #expect(owner.overlay == nil)
         for visible in [false, true] {
             owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
             synchronize()
-            #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+            #expect(owner.overlay == nil)
         }
 
         // A real transport failure must still be shown after successful use.

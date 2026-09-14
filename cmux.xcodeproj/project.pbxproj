@@ -719,6 +719,7 @@
 		E58AA0A516704DF28E795531 /* CloudHubConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */; };		7A0CE100000000000000070E /* CloudHubDialing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070D /* CloudHubDialing.swift */; };
 		7A0CE100000000000000071A /* CloudHubPortForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */; };
 		7A0CE100000000000000070C /* CloudHubSocketClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070B /* CloudHubSocketClaim.swift */; };
+		C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */; };
 		7A0CE1000000000000000718 /* CloudLoopbackPortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */; };
 		7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */; };
 		45C9A2CF66756A75B4B9A8AF /* CloudMachineCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */; };
@@ -741,8 +742,11 @@
 		EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */; };
 		BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */; };
 		4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */; };
+		16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */; };
 		8B79FDC5C0ADF0CE973B31F2 /* CloudNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */; };
+		A12545000000000000000001 /* CloudNotificationSyncPendingAck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */; };
 		A12481400000000000000001 /* CloudNotificationSyncPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */; };
+		7032CCF3EC7D4E27A1BE5C19 /* CloudNotificationSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */; };
 		A12481300000000000000001 /* CloudNotificationSyncStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481300000000000000002 /* CloudNotificationSyncStore.swift */; };
 		A12481600000000000000001 /* CloudNotificationSyncStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481600000000000000002 /* CloudNotificationSyncStoreTests.swift */; };
 		B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */; };
@@ -760,6 +764,7 @@
 		118E574AA58D92C0A3FB893E /* CloudPlacementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */; };
 		CB32AB7B7AB792F21B5C5B36 /* CloudPlacementCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */; };
 		C5FB49903F3E8EA7192AB445 /* CloudPlacementTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAADF4DC604A997BD8DA561E /* CloudPlacementTestProvider.swift */; };
+		602239E07C1B45F48EA589ED /* CloudPortAccessLateCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D3896BB28B4549B3D33A83 /* CloudPortAccessLateCoordinatorTests.swift */; };
 		462AE599482B727CBF10308F /* CloudPortAccessModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36C92F1C880F7076AEBC8D7 /* CloudPortAccessModel.swift */; };
 		1EA5411EB2583A92811329BD /* CloudPortAccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0DE40E0EF99C9B041D39F44 /* CloudPortAccessStore.swift */; };
 		602239E07C1B45F48EA589EC /* CloudPortForwardAddressReuseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */; };
@@ -802,7 +807,6 @@
 		A38052AB06B7E0B46A215689 /* CloudTelemetrySending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3EBCFB7E8CD8163F74525C53 /* CloudTelemetrySending.swift */; };
 		3C939B66FD8358A0E08156BD /* CloudTelemetrySpan.swift in Sources */ = {isa = PBXBuildFile; fileRef = D995157010FFC40EB0D7460B /* CloudTelemetrySpan.swift */; };
 		B6DE6FA7480373F108723E63 /* CloudTelemetryUploader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26CFAFFB75F1B752AF93C8F6 /* CloudTelemetryUploader.swift */; };
-		EEDECB74EF421762EF8B1975 /* CloudTerminalAttachmentBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8DDCF09B5FC1FA72017163A /* CloudTerminalAttachmentBanner.swift */; };
 		566CF02BA2F7CCC0BD1E387E /* CloudTerminalAttachmentLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79064B52A25D34860A759BF8 /* CloudTerminalAttachmentLog.swift */; };
 		83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */; };
 		9D73C47C49EF5E117D921D05 /* CloudTerminalAttachmentResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A29A5C49E1A5590D63BCF886 /* CloudTerminalAttachmentResolver.swift */; };
@@ -810,7 +814,6 @@
 		43B3097AF67CF8FC236544B3 /* CloudTerminalAttachmentRetryScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E84EAB5FE90BA20FBC54BCA /* CloudTerminalAttachmentRetryScheduler.swift */; };
 		4730689B20A3D6E9403D773D /* CloudTerminalAttachmentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25416817A702A7AC5A032C33 /* CloudTerminalAttachmentState.swift */; };
 		9655E17F287CE06166FC8CE2 /* CloudTerminalAttachmentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2F34F568E7BBC7AE26E96E /* CloudTerminalAttachmentStatus.swift */; };
-		C12469AA0000000000000001 /* CloudTerminalCreationContractRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000002 /* CloudTerminalCreationContractRegressionTests.swift */; };
 		3EAC8AAF4F2E473CA9DA0194 /* CloudTerminalCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */; };
 		8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */; };
 		BD5C6A44F9B646C29565CF59 /* CloudTerminalOverlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */; };
@@ -819,16 +822,12 @@
 		5A68DA857AD44DBCB34ED6AC /* CloudTerminalPendingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD334809DDDD41EFAA9D90D0 /* CloudTerminalPendingPanel.swift */; };
 		C4E8746E6B6D40FBB96F13EB /* CloudTerminalPendingPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */; };
 		A1E6C4F3B7D9428CA6B7F0E1 /* CloudTerminalPendingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */; };
-		C12469AA0000000000000023 /* CloudTerminalReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000024 /* CloudTerminalReadiness.swift */; };
-		C12469AA0000000000000038 /* CloudTerminalReadinessGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */; };
-		C12469AA0000000042 /* CloudTerminalReadinessPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000043 /* CloudTerminalReadinessPhase.swift */; };
 		4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */; };
-		C12469AA0000000000000025 /* CloudTerminalStartupLoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */; };
-		C12469AA0000000000000036 /* CloudTerminalStartupTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */; };
 		8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
 		3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47E286761D314959F64AA002 /* CloudTreeCellView.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
+		C12539010000000000000001 /* CloudTreeGroupRowContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12539010000000000000002 /* CloudTreeGroupRowContent.swift */; };
 		A12501000000000000000002 /* CloudTreeLayoutMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12501000000000000000001 /* CloudTreeLayoutMetrics.swift */; };
 		A12501000000000000000003 /* CloudTreeLayoutMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */; };
 		B5C68F2FAFD21A103AFF429D /* CloudTreeMachineMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */; };
@@ -841,7 +840,6 @@
 		494BF5E2F1B8BF0369D2DEBC /* CloudTreeNode+ErrorCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FD541FCCB10442050052A1C /* CloudTreeNode+ErrorCopy.swift */; };
 		BCB8AE909A714847ACCD6845 /* CloudTreeNode+Organization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0796747B163A4DEE92E2D8BD /* CloudTreeNode+Organization.swift */; };
 		2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */; };
-		C12469AA0000000000000017 /* CloudTreeNodeActions+Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */; };
 		7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */; };
 		CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */; };
 		2B54959C9FCE4581A68D5B5E /* CloudTreeNodeBuilder+Signatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86177F3038E34E67921D97AC /* CloudTreeNodeBuilder+Signatures.swift */; };
@@ -869,12 +867,6 @@
 		17D9A335774C0C326A4B9B31 /* CloudTuiCommandLine+Placement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79FCF680CF0C607A42C4C638 /* CloudTuiCommandLine+Placement.swift */; };
 		EFD39AB12F5DF90B066159C4 /* CloudTuiCommandLine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */; };
 		A8328D481E6F60922DE0EC82 /* CloudTuiCommandRunning.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7A9EEC22A7E9365D0CC3451 /* CloudTuiCommandRunning.swift */; };
-		C12469AA0000000000000019 /* CloudTuiCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000020 /* CloudTuiCreationCoordinator.swift */; };
-		C12469AA0000000044 /* CloudTuiCreationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000045 /* CloudTuiCreationFailure.swift */; };
-		C12469AA0000000048 /* CloudTuiCreationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000049 /* CloudTuiCreationRecovery.swift */; };
-		C12469AA0000000000000040 /* CloudTuiCreationRecoveryPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000041 /* CloudTuiCreationRecoveryPolicy.swift */; };
-		C12469AA0000000000000013 /* CloudTuiCreationResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000014 /* CloudTuiCreationResolution.swift */; };
-		C12469AA0000000046 /* CloudTuiCreationResolutionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000047 /* CloudTuiCreationResolutionState.swift */; };
 		609019DB3EE8FFF70636C933 /* CloudTuiDaemonAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DDDCABD07F6F7DE10F55146 /* CloudTuiDaemonAnswer.swift */; };
 		C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */; };
 		C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324120000000000000001 /* CloudTuiManualIOCommand.swift */; };
@@ -890,7 +882,6 @@
 		153A3BF6310918434F479EC4 /* CloudTuiManualMirrorDeadlines.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1BD1D71927C6ACB18945C5 /* CloudTuiManualMirrorDeadlines.swift */; };
 		C11324610000000000000001 /* CloudTuiManualMirrorPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */; };
 		C11324510000000000000001 /* CloudTuiManualMirrorRequestKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */; };
-		C12469AA0000000000000034 /* CloudTuiManualMirrorSession+StartupPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000035 /* CloudTuiManualMirrorSession+StartupPresentation.swift */; };
 		C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */; };
 		7DF05591D7CA19FB26633003 /* CloudTuiManualMirrorWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38376D59ED0A80A041DDAF3A /* CloudTuiManualMirrorWatchdog.swift */; };
 		C11324430000000000000001 /* CloudTuiRemoteColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324440000000000000001 /* CloudTuiRemoteColors.swift */; };
@@ -946,6 +937,7 @@
 		73678AB2B787782A11CFB916 /* CloudVPNRowHeightRecordingOutline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F6AA633EBFB926590ACC01 /* CloudVPNRowHeightRecordingOutline.swift */; };
 		A629A83F7355025B4DD7D90B /* CloudVPNRowHeightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C38F578B90DA7AF04FC82007 /* CloudVPNRowHeightTests.swift */; };
 		C12489020000000000000001 /* CloudVPNSetupButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12489020000000000000002 /* CloudVPNSetupButton.swift */; };
+		C12539030000000000000001 /* CloudVPNSetupButtonRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12539030000000000000002 /* CloudVPNSetupButtonRepresentable.swift */; };
 		FA180397F33FBA8B9015B562 /* CloudVPNSetupModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3055A839520F46C3C7FCD198 /* CloudVPNSetupModel.swift */; };
 		3B2D0608A8C4D5074BEA96BF /* CloudVPNSetupNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CC5EDA83C23FE7F82363DC7 /* CloudVPNSetupNavigation.swift */; };
 		142C1512A9FF7D8D6D605D13 /* CloudVPNSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEE3497B1A91FBE5F449E3D /* CloudVPNSetupPanel.swift */; };
@@ -1141,6 +1133,7 @@
 		C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */; };
 		8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */; };
 		CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */; };
+		CC0033E15A1B2C3D4E5F0032 /* CMUXCLI+VMTuiWorkspaceNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */; };
 		C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */; };
 		7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */; };
 		06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */; };
@@ -1328,7 +1321,6 @@
 		3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */; };
 		81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */; };
 		5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */; };
-		C12469AA0000000000000015 /* CmuxTuiSurfaceProvider+CreationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000016 /* CmuxTuiSurfaceProvider+CreationRecovery.swift */; };
 		AA92C99C529DB9A24064AF48 /* CmuxTuiSurfaceProvider+Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BE30231700141C6F370FA63 /* CmuxTuiSurfaceProvider+Environment.swift */; };
 		A12093000000000000000002 /* CmuxTuiSurfaceProvider+Error.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12093000000000000000001 /* CmuxTuiSurfaceProvider+Error.swift */; };
 		7F81637D3CD3867FAA502D1E /* CmuxTuiSurfaceProvider+FileDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9E053B7E9AE536377476E4B /* CmuxTuiSurfaceProvider+FileDelivery.swift */; };
@@ -1811,6 +1803,7 @@
 		B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
 		A5F100000000000000000009 /* GhosttySurfaceScrollView+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */; };
+		D12374000000000000000007 /* GhosttySurfaceScrollView+RenderHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12374000000000000000008 /* GhosttySurfaceScrollView+RenderHealth.swift */; };
 		A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */; };
 		C0DEF828300000000000001 /* GhosttyTerminalImmediateHostedStateAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */; };
 		37106908DC3196DFD53D7812 /* GhosttyTerminalMouseRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */; };
@@ -2976,6 +2969,7 @@
 		C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70530000000000000001 /* submit-cmux-profile */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */; };
+		F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */; };
 		F11347000000000000000001 /* SurfaceCatalog+CloudPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */; };
 		E71A3B8404534D5699AA2E9B /* SurfaceCatalog+CloudRenameSubmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A4A80857B8A4530BD5BC498 /* SurfaceCatalog+CloudRenameSubmission.swift */; };
 		7E02669974964356A46288EB /* SurfaceCatalog+CloudWorkspaceProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */; };
@@ -3311,6 +3305,8 @@
 		F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
+		D12374000000000000000003 /* TerminalRenderHealthOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12374000000000000000004 /* TerminalRenderHealthOverlay.swift */; };
+		D12374000000000000000005 /* TerminalRenderHealthOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12374000000000000000006 /* TerminalRenderHealthOverlayController.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
 		D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */; };
 		862C77A9D235803A22B715B5 /* TerminalSearchNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62F3D413D19EEA3E96B1271 /* TerminalSearchNavigation.swift */; };
@@ -3539,7 +3535,6 @@
 		74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */; };
 		05944A51F29C4C628EA7107B /* Workspace+CloudRenameFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA4321A9DE80444085D19939 /* Workspace+CloudRenameFailure.swift */; };
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
-		C12469AA0000000000000027 /* Workspace+CloudTerminalLoading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000028 /* Workspace+CloudTerminalLoading.swift */; };
 		7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
@@ -4544,6 +4539,7 @@
 		03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudHubConnector.swift"; sourceTree = "<group>"; };		7A0CE100000000000000070D /* CloudHubDialing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubDialing.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubPortForwarder.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000070B /* CloudHubSocketClaim.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubSocketClaim.swift; sourceTree = "<group>"; };
+		C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInitialWorkspaceNamingTests.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForward.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForwardTests.swift; sourceTree = "<group>"; };
 		1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudMachineCache.swift; sourceTree = "<group>"; };
@@ -4568,8 +4564,11 @@
 		20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTestProvider.swift"; sourceTree = "<group>"; };
 		10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTests.swift"; sourceTree = "<group>"; };
 		5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNativeLayoutProjectionTests.swift"; sourceTree = "<group>"; };
+		503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationCorrelation.swift; sourceTree = "<group>"; };
 		FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSync.swift; sourceTree = "<group>"; };
+		A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncPendingAck.swift; sourceTree = "<group>"; };
 		A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncPersistence.swift; sourceTree = "<group>"; };
+		5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncState.swift; sourceTree = "<group>"; };
 		A12481300000000000000002 /* CloudNotificationSyncStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncStore.swift; sourceTree = "<group>"; };
 		A12481600000000000000002 /* CloudNotificationSyncStoreTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncStoreTests.swift; sourceTree = "<group>"; };
 		64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncTests.swift; sourceTree = "<group>"; };
@@ -4587,6 +4586,7 @@
 		A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPlacementCoordinator.swift; sourceTree = "<group>"; };
 		F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPlacementCoordinatorTests.swift; sourceTree = "<group>"; };
 		EAADF4DC604A997BD8DA561E /* CloudPlacementTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPlacementTestProvider.swift"; sourceTree = "<group>"; };
+		A6D3896BB28B4549B3D33A83 /* CloudPortAccessLateCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortAccessLateCoordinatorTests.swift; sourceTree = "<group>"; };
 		D36C92F1C880F7076AEBC8D7 /* CloudPortAccessModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPortAccessModel.swift"; sourceTree = "<group>"; };
 		D0DE40E0EF99C9B041D39F44 /* CloudPortAccessStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPortAccessStore.swift"; sourceTree = "<group>"; };
 		A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPortForwardAddressReuseTests.swift; sourceTree = "<group>"; };
@@ -4629,7 +4629,6 @@
 		3EBCFB7E8CD8163F74525C53 /* CloudTelemetrySending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetrySending.swift"; sourceTree = "<group>"; };
 		D995157010FFC40EB0D7460B /* CloudTelemetrySpan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetrySpan.swift"; sourceTree = "<group>"; };
 		26CFAFFB75F1B752AF93C8F6 /* CloudTelemetryUploader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTelemetryUploader.swift"; sourceTree = "<group>"; };
-		D8DDCF09B5FC1FA72017163A /* CloudTerminalAttachmentBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalAttachmentBanner.swift; sourceTree = "<group>"; };
 		79064B52A25D34860A759BF8 /* CloudTerminalAttachmentLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentLog.swift; sourceTree = "<group>"; };
 		BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentRecoveryTests.swift; sourceTree = "<group>"; };
 		A29A5C49E1A5590D63BCF886 /* CloudTerminalAttachmentResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentResolver.swift; sourceTree = "<group>"; };
@@ -4637,7 +4636,6 @@
 		1E84EAB5FE90BA20FBC54BCA /* CloudTerminalAttachmentRetryScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentRetryScheduler.swift; sourceTree = "<group>"; };
 		25416817A702A7AC5A032C33 /* CloudTerminalAttachmentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentState.swift; sourceTree = "<group>"; };
 		AB2F34F568E7BBC7AE26E96E /* CloudTerminalAttachmentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentStatus.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000002 /* CloudTerminalCreationContractRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationContractRegressionTests.swift; sourceTree = "<group>"; };
 		9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinator.swift; sourceTree = "<group>"; };
 		80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinatorTests.swift; sourceTree = "<group>"; };
 		DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalOverlayCoordinator.swift; sourceTree = "<group>"; };
@@ -4646,16 +4644,12 @@
 		FD334809DDDD41EFAA9D90D0 /* CloudTerminalPendingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalPendingPanel.swift; sourceTree = "<group>"; };
 		E8F65851AB2C41B7BE541DFE /* CloudTerminalPendingPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalPendingPanelView.swift; sourceTree = "<group>"; };
 		B4F7D1C29A6E43B8C5D0E2F1 /* CloudTerminalPendingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudTerminalPendingState.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000024 /* CloudTerminalReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReadiness.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReadinessGate.swift; sourceTree = "<group>"; };
-		C12469AA0000000043 /* CloudTerminalReadinessPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReadinessPhase.swift; sourceTree = "<group>"; };
 		030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReconnectOverlayView.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalStartupLoadingView.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalStartupTrace.swift; sourceTree = "<group>"; };
 		F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudToolPaneTests.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
 		47E286761D314959F64AA002 /* CloudTreeCellView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeCellView.swift; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
+		C12539010000000000000002 /* CloudTreeGroupRowContent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeGroupRowContent.swift; sourceTree = "<group>"; };
 		A12501000000000000000001 /* CloudTreeLayoutMetrics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeLayoutMetrics.swift; sourceTree = "<group>"; };
 		A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeLayoutMetricsTests.swift; sourceTree = "<group>"; };
 		ADC9BE77DF3A402B8EC51665 /* CloudTreeMachineMenuTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeMachineMenuTests.swift; sourceTree = "<group>"; };
@@ -4668,7 +4662,6 @@
 		7FD541FCCB10442050052A1C /* CloudTreeNode+ErrorCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeNode+ErrorCopy.swift"; sourceTree = "<group>"; };
 		0796747B163A4DEE92E2D8BD /* CloudTreeNode+Organization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeNode+Organization.swift"; sourceTree = "<group>"; };
 		1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNode.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeNodeActions+Destination.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudTreeNodeActions+Prompts.swift"; sourceTree = "<group>"; };
 		0F73B922CC243AB9A365C1B5 /* CloudTreeNodeActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeNodeActions.swift; sourceTree = "<group>"; };
 		86177F3038E34E67921D97AC /* CloudTreeNodeBuilder+Signatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeNodeBuilder+Signatures.swift"; sourceTree = "<group>"; };
@@ -4696,12 +4689,6 @@
 		79FCF680CF0C607A42C4C638 /* CloudTuiCommandLine+Placement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTuiCommandLine+Placement.swift"; sourceTree = "<group>"; };
 		47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTuiCommandLine.swift; sourceTree = "<group>"; };
 		D7A9EEC22A7E9365D0CC3451 /* CloudTuiCommandRunning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCommandRunning.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000020 /* CloudTuiCreationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationCoordinator.swift; sourceTree = "<group>"; };
-		C12469AA0000000045 /* CloudTuiCreationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationFailure.swift; sourceTree = "<group>"; };
-		C12469AA0000000049 /* CloudTuiCreationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationRecovery.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000041 /* CloudTuiCreationRecoveryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationRecoveryPolicy.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000014 /* CloudTuiCreationResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationResolution.swift; sourceTree = "<group>"; };
-		C12469AA0000000047 /* CloudTuiCreationResolutionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiCreationResolutionState.swift; sourceTree = "<group>"; };
 		3DDDCABD07F6F7DE10F55146 /* CloudTuiDaemonAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiDaemonAnswer.swift; sourceTree = "<group>"; };
 		C11322C20000000000000001 /* CloudTuiLegacySnapshotParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiLegacySnapshotParser.swift; sourceTree = "<group>"; };
 		C11324120000000000000001 /* CloudTuiManualIOCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualIOCommand.swift; sourceTree = "<group>"; };
@@ -4717,7 +4704,6 @@
 		BE1BD1D71927C6ACB18945C5 /* CloudTuiManualMirrorDeadlines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorDeadlines.swift; sourceTree = "<group>"; };
 		C11324620000000000000001 /* CloudTuiManualMirrorPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorPhase.swift; sourceTree = "<group>"; };
 		C11324520000000000000001 /* CloudTuiManualMirrorRequestKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorRequestKind.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000035 /* CloudTuiManualMirrorSession+StartupPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTuiManualMirrorSession+StartupPresentation.swift"; sourceTree = "<group>"; };
 		C11322F20000000000000001 /* CloudTuiManualMirrorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorSession.swift; sourceTree = "<group>"; };
 		38376D59ED0A80A041DDAF3A /* CloudTuiManualMirrorWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiManualMirrorWatchdog.swift; sourceTree = "<group>"; };
 		C11324440000000000000001 /* CloudTuiRemoteColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTuiRemoteColors.swift; sourceTree = "<group>"; };
@@ -4770,6 +4756,7 @@
 		A7F6AA633EBFB926590ACC01 /* CloudVPNRowHeightRecordingOutline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNRowHeightRecordingOutline.swift"; sourceTree = "<group>"; };
 		C38F578B90DA7AF04FC82007 /* CloudVPNRowHeightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNRowHeightTests.swift"; sourceTree = "<group>"; };
 		C12489020000000000000002 /* CloudVPNSetupButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupButton.swift; sourceTree = "<group>"; };
+		C12539030000000000000002 /* CloudVPNSetupButtonRepresentable.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupButtonRepresentable.swift; sourceTree = "<group>"; };
 		3055A839520F46C3C7FCD198 /* CloudVPNSetupModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Cloud/Tunnel/CloudVPNSetupModel.swift"; sourceTree = "<group>"; };
 		9CC5EDA83C23FE7F82363DC7 /* CloudVPNSetupNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Tunnel/CloudVPNSetupNavigation.swift"; sourceTree = "<group>"; };
 		7AEE3497B1A91FBE5F449E3D /* CloudVPNSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Cloud/Tunnel/CloudVPNSetupPanel.swift"; sourceTree = "<group>"; };
@@ -4948,6 +4935,7 @@
 		25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSelf.swift"; sourceTree = "<group>"; };
 		F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSnapshots.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTui.swift"; sourceTree = "<group>"; };
+		CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTuiWorkspaceNaming.swift"; sourceTree = "<group>"; };
 		EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPN.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPNAppManaged.swift"; sourceTree = "<group>"; };
 		7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceTodo.swift"; sourceTree = "<group>"; };
@@ -5059,7 +5047,6 @@
 		E3528E32A29B49E99C636F0B /* CmuxTuiSurfaceProvider+AgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AgentNaming.swift"; sourceTree = "<group>"; };
 		4D8BE7D3234A1F44E2A1C52B /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+AttachmentRecovery.swift"; sourceTree = "<group>"; };
 		E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CloseTerminal.swift"; sourceTree = "<group>"; };
-		C12469AA0000000000000016 /* CmuxTuiSurfaceProvider+CreationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+CreationRecovery.swift"; sourceTree = "<group>"; };
 		4BE30231700141C6F370FA63 /* CmuxTuiSurfaceProvider+Environment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+Environment.swift"; sourceTree = "<group>"; };
 		A12093000000000000000001 /* CmuxTuiSurfaceProvider+Error.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+Error.swift"; sourceTree = "<group>"; };
 		F9E053B7E9AE536377476E4B /* CmuxTuiSurfaceProvider+FileDelivery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+FileDelivery.swift"; sourceTree = "<group>"; };
@@ -5537,6 +5524,7 @@
 		B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
 		A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceScrollView+NotificationScroll.swift"; sourceTree = "<group>"; };
+		D12374000000000000000008 /* GhosttySurfaceScrollView+RenderHealth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceScrollView+RenderHealth.swift"; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
 		C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalImmediateHostedStateAction.swift; sourceTree = "<group>"; };
 		56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalMouseRoutingTests.swift; sourceTree = "<group>"; };
@@ -6682,6 +6670,7 @@
 		C0DE70530000000000000001 /* submit-cmux-profile */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/submit-cmux-profile"; sourceTree = SOURCE_ROOT; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgentNaming.swift"; sourceTree = "<group>"; };
+		F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudBinding.swift"; sourceTree = "<group>"; };
 		F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudPorts.swift"; sourceTree = "<group>"; };
 		4A4A80857B8A4530BD5BC498 /* SurfaceCatalog+CloudRenameSubmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudRenameSubmission.swift"; sourceTree = "<group>"; };
 		AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudWorkspaceProjection.swift"; sourceTree = "<group>"; };
@@ -7018,6 +7007,8 @@
 		F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPendingConfigurationReload.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
+		D12374000000000000000004 /* TerminalRenderHealthOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderHealthOverlay.swift; sourceTree = "<group>"; };
+		D12374000000000000000006 /* TerminalRenderHealthOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderHealthOverlayController.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
 		D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollSpeedSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		E62F3D413D19EEA3E96B1271 /* TerminalSearchNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/TerminalSearchNavigation.swift; sourceTree = "<group>"; };
@@ -7242,7 +7233,6 @@
 		2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudPlacementFailure.swift"; sourceTree = "<group>"; };
 		FA4321A9DE80444085D19939 /* Workspace+CloudRenameFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudRenameFailure.swift"; sourceTree = "<group>"; };
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
-		C12469AA0000000000000028 /* Workspace+CloudTerminalLoading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalLoading.swift"; sourceTree = "<group>"; };
 		E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudVPNSetupPane.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
@@ -7873,6 +7863,7 @@
 				3FB8309C25B29D6CEE17BD64 /* SurfaceSocketCommands+VMFileDelivery.swift */,
 				F9E053B7E9AE536377476E4B /* CmuxTuiSurfaceProvider+FileDelivery.swift */,
 				E655249E82FC412B9EC2CD21 /* CmuxTuiSurfaceProvider+CloseTerminal.swift */,
+				C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */,
 				DA32812C9009969F4AEA2380 /* CloudFileDelivery.swift */,
 				4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */,
 				122E7DF3DF3044E68322B11C /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift */,
@@ -7936,15 +7927,13 @@
 				1FE7223A65E72C46927A4F02 /* SurfacePaneFactory.swift */,
 				C28D6AEDE6B00F5C633ED2A8 /* CmuxTuiSnapshotParser.swift */,
 				EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */,
+				F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */,
 				7867A0020000000000000001 /* SurfaceProjectionRestoreStore.swift */,
 				66CA02CE5FE3E9DC871AD810 /* SurfaceCatalogModel.swift */,
 				A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */,
 				3B78E9F9B9C233418960CB37 /* SurfacePortEndpointCache.swift */,
 				A12093000000000000000001 /* CmuxTuiSurfaceProvider+Error.swift */,
 				7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */,
-				C12469AA0000000000000028 /* Workspace+CloudTerminalLoading.swift */,
-				C12469AA0000000000000016 /* CmuxTuiSurfaceProvider+CreationRecovery.swift */,
-				C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
@@ -8060,7 +8049,9 @@
 				D0F2A0000000000000000006 /* CloudBannerDismissal.swift */,
 				D0F2A0000000000000000008 /* CloudBannerDismissButton.swift */,
 				C12489010000000000000002 /* CloudPortsVPNEmptyStateContent.swift */,
+				C12539010000000000000002 /* CloudTreeGroupRowContent.swift */,
 				C12489020000000000000002 /* CloudVPNSetupButton.swift */,
+				C12539030000000000000002 /* CloudVPNSetupButtonRepresentable.swift */,
 				C12489040000000000000002 /* CloudTreeNode+CloudVPN.swift */,
 				C12489050000000000000002 /* CloudTreeOutlineView+CloudVPN.swift */,
 				D0F2A0000000000000000010 /* CloudPortsVPNWarning.swift */,
@@ -8076,7 +8067,10 @@
 				49DC04B459E0132708ACD366 /* CloudMachineLink.swift */,
 				47DA953E018A1329DF8C0255 /* CloudTuiCommandLine.swift */,
 				79FCF680CF0C607A42C4C638 /* CloudTuiCommandLine+Placement.swift */,
+				503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */,
+				A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */,
 				FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */,
+				5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */,
 				A12481100000000000000002 /* CloudTreeNodeContentSnapshot.swift */,
 				A12481200000000000000002 /* CloudTreeRowUpdate.swift */,
 				A12481300000000000000002 /* CloudNotificationSyncStore.swift */,
@@ -8133,19 +8127,6 @@
 				1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */,
 				352B2228561CD8C4B042302A /* CloudActivationPolicy.swift */,
 				7A0CE1000000000000000725 /* CloudTreeNodeActions+Prompts.swift */,
-				C12469AA0000000000000020 /* CloudTuiCreationCoordinator.swift */,
-				C12469AA0000000000000014 /* CloudTuiCreationResolution.swift */,
-				C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */,
-				C12469AA0000000000000024 /* CloudTerminalReadiness.swift */,
-				C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */,
-				C12469AA0000000000000035 /* CloudTuiManualMirrorSession+StartupPresentation.swift */,
-				C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */,
-				C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */,
-				C12469AA0000000000000041 /* CloudTuiCreationRecoveryPolicy.swift */,
-				C12469AA0000000043 /* CloudTerminalReadinessPhase.swift */,
-				C12469AA0000000045 /* CloudTuiCreationFailure.swift */,
-				C12469AA0000000047 /* CloudTuiCreationResolutionState.swift */,
-				C12469AA0000000049 /* CloudTuiCreationRecovery.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -8918,6 +8899,9 @@
 				F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */,
 				F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				D12374000000000000000008 /* GhosttySurfaceScrollView+RenderHealth.swift */,
+				D12374000000000000000006 /* TerminalRenderHealthOverlayController.swift */,
+				D12374000000000000000004 /* TerminalRenderHealthOverlay.swift */,
 				030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */,
 				DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */,
 				C0DE12220000000000000004 /* GhosttyNumericLocaleController.swift */,
@@ -9452,7 +9436,6 @@
 				A5001411 /* TerminalPanel.swift */,
 				8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */,
 				AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */,
-				D8DDCF09B5FC1FA72017163A /* CloudTerminalAttachmentBanner.swift */,
 				A12480000000000000000004 /* CloudPaneCreationFailureView.swift */,
 				791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */,
 				A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */,
@@ -10208,6 +10191,7 @@
 				74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */,
 				7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */,
 				CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */,
+				CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */,
 				F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */,
 				25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */,
 				A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */,
@@ -10703,6 +10687,7 @@
 				E241BE1D74A7459C8D9C16BC /* WorkspaceTitleProvenanceTests.swift */,
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
 				10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */,
+				C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */,
 				20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */,
 				F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */,
 				7752D68A758642EFA282C208 /* AutoNamingEngineTests.swift */,
@@ -11253,7 +11238,7 @@
 				C12093000000000000000001 /* CloudVPNExplicitActivationTests.swift */,
 				7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */,
 				A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */,
-				C12469AA0000000000000002 /* CloudTerminalCreationContractRegressionTests.swift */,
+				A6D3896BB28B4549B3D33A83 /* CloudPortAccessLateCoordinatorTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -12400,8 +12385,11 @@
 				A1B2C3D4E5F6071827364951 /* CloudMachineSurfacePresentation.swift in Sources */,
 				C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */,
 				A014F45D702B4F71A5E9FB18 /* CloudManualMirrorPresentation.swift in Sources */,
+				16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */,
 				8B79FDC5C0ADF0CE973B31F2 /* CloudNotificationSync.swift in Sources */,
+				A12545000000000000000001 /* CloudNotificationSyncPendingAck.swift in Sources */,
 				A12481400000000000000001 /* CloudNotificationSyncPersistence.swift in Sources */,
+				7032CCF3EC7D4E27A1BE5C19 /* CloudNotificationSyncState.swift in Sources */,
 				A12481300000000000000001 /* CloudNotificationSyncStore.swift in Sources */,
 				2B0931A2A26A368EFC78110C /* CloudOperationActivityView.swift in Sources */,
 				FEAD49850DB8AAA63F77E286 /* CloudOperationContext.swift in Sources */,
@@ -12441,7 +12429,6 @@
 				A38052AB06B7E0B46A215689 /* CloudTelemetrySending.swift in Sources */,
 				3C939B66FD8358A0E08156BD /* CloudTelemetrySpan.swift in Sources */,
 				B6DE6FA7480373F108723E63 /* CloudTelemetryUploader.swift in Sources */,
-				EEDECB74EF421762EF8B1975 /* CloudTerminalAttachmentBanner.swift in Sources */,
 				566CF02BA2F7CCC0BD1E387E /* CloudTerminalAttachmentLog.swift in Sources */,
 				9D73C47C49EF5E117D921D05 /* CloudTerminalAttachmentResolver.swift in Sources */,
 				4658DA26DAB751A74790718B /* CloudTerminalAttachmentRetryPolicy.swift in Sources */,
@@ -12454,15 +12441,11 @@
 				5A68DA857AD44DBCB34ED6AC /* CloudTerminalPendingPanel.swift in Sources */,
 				C4E8746E6B6D40FBB96F13EB /* CloudTerminalPendingPanelView.swift in Sources */,
 				A1E6C4F3B7D9428CA6B7F0E1 /* CloudTerminalPendingState.swift in Sources */,
-				C12469AA0000000000000023 /* CloudTerminalReadiness.swift in Sources */,
-				C12469AA0000000000000038 /* CloudTerminalReadinessGate.swift in Sources */,
-				C12469AA0000000042 /* CloudTerminalReadinessPhase.swift in Sources */,
 				4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */,
-				C12469AA0000000000000025 /* CloudTerminalStartupLoadingView.swift in Sources */,
-				C12469AA0000000000000036 /* CloudTerminalStartupTrace.swift in Sources */,
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,
+				C12539010000000000000001 /* CloudTreeGroupRowContent.swift in Sources */,
 				A12501000000000000000002 /* CloudTreeLayoutMetrics.swift in Sources */,
 				BE46EFA44C6E4699B64FE62E /* CloudTreeMachineResourceView.swift in Sources */,
 				239CDE3EB72D4EFBBBD92783 /* CloudTreeMachineRowContent.swift in Sources */,
@@ -12471,7 +12454,6 @@
 				494BF5E2F1B8BF0369D2DEBC /* CloudTreeNode+ErrorCopy.swift in Sources */,
 				BCB8AE909A714847ACCD6845 /* CloudTreeNode+Organization.swift in Sources */,
 				2F6A1B1B2A892D4CCD6BF386 /* CloudTreeNode.swift in Sources */,
-				C12469AA0000000000000017 /* CloudTreeNodeActions+Destination.swift in Sources */,
 				7A0CE1000000000000000726 /* CloudTreeNodeActions+Prompts.swift in Sources */,
 				CE3D444372B17491B0295AB0 /* CloudTreeNodeActions.swift in Sources */,
 				2B54959C9FCE4581A68D5B5E /* CloudTreeNodeBuilder+Signatures.swift in Sources */,
@@ -12497,12 +12479,6 @@
 				17D9A335774C0C326A4B9B31 /* CloudTuiCommandLine+Placement.swift in Sources */,
 				EFD39AB12F5DF90B066159C4 /* CloudTuiCommandLine.swift in Sources */,
 				A8328D481E6F60922DE0EC82 /* CloudTuiCommandRunning.swift in Sources */,
-				C12469AA0000000000000019 /* CloudTuiCreationCoordinator.swift in Sources */,
-				C12469AA0000000044 /* CloudTuiCreationFailure.swift in Sources */,
-				C12469AA0000000048 /* CloudTuiCreationRecovery.swift in Sources */,
-				C12469AA0000000000000040 /* CloudTuiCreationRecoveryPolicy.swift in Sources */,
-				C12469AA0000000000000013 /* CloudTuiCreationResolution.swift in Sources */,
-				C12469AA0000000046 /* CloudTuiCreationResolutionState.swift in Sources */,
 				609019DB3EE8FFF70636C933 /* CloudTuiDaemonAnswer.swift in Sources */,
 				C11322C10000000000000001 /* CloudTuiLegacySnapshotParser.swift in Sources */,
 				C11324110000000000000001 /* CloudTuiManualIOCommand.swift in Sources */,
@@ -12517,7 +12493,6 @@
 				153A3BF6310918434F479EC4 /* CloudTuiManualMirrorDeadlines.swift in Sources */,
 				C11324610000000000000001 /* CloudTuiManualMirrorPhase.swift in Sources */,
 				C11324510000000000000001 /* CloudTuiManualMirrorRequestKind.swift in Sources */,
-				C12469AA0000000000000034 /* CloudTuiManualMirrorSession+StartupPresentation.swift in Sources */,
 				C11322F10000000000000001 /* CloudTuiManualMirrorSession.swift in Sources */,
 				7DF05591D7CA19FB26633003 /* CloudTuiManualMirrorWatchdog.swift in Sources */,
 				C11324430000000000000001 /* CloudTuiRemoteColors.swift in Sources */,
@@ -12557,6 +12532,7 @@
 				2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */,
 				E34036E08961479A9D9BF649 /* CloudVMTabState.swift in Sources */,
 				C12489020000000000000001 /* CloudVPNSetupButton.swift in Sources */,
+				C12539030000000000000001 /* CloudVPNSetupButtonRepresentable.swift in Sources */,
 				FA180397F33FBA8B9015B562 /* CloudVPNSetupModel.swift in Sources */,
 				3B2D0608A8C4D5074BEA96BF /* CloudVPNSetupNavigation.swift in Sources */,
 				142C1512A9FF7D8D6D605D13 /* CloudVPNSetupPanel.swift in Sources */,
@@ -12656,7 +12632,6 @@
 				3312CA2585324CF9B4CA9D9A /* CmuxTuiSurfaceProvider+AgentNaming.swift in Sources */,
 				81A1621623F83B61D4C5FFA9 /* CmuxTuiSurfaceProvider+AttachmentRecovery.swift in Sources */,
 				5633045E23E44075B22C08CA /* CmuxTuiSurfaceProvider+CloseTerminal.swift in Sources */,
-				C12469AA0000000000000015 /* CmuxTuiSurfaceProvider+CreationRecovery.swift in Sources */,
 				AA92C99C529DB9A24064AF48 /* CmuxTuiSurfaceProvider+Environment.swift in Sources */,
 				A12093000000000000000002 /* CmuxTuiSurfaceProvider+Error.swift in Sources */,
 				7F81637D3CD3867FAA502D1E /* CmuxTuiSurfaceProvider+FileDelivery.swift in Sources */,
@@ -12979,6 +12954,7 @@
 				B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
 				A5F100000000000000000009 /* GhosttySurfaceScrollView+NotificationScroll.swift in Sources */,
+				D12374000000000000000007 /* GhosttySurfaceScrollView+RenderHealth.swift in Sources */,
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
 				C0DEF828300000000000001 /* GhosttyTerminalImmediateHostedStateAction.swift in Sources */,
 				A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */,
@@ -13743,6 +13719,7 @@
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */,
+				F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */,
 				F11347000000000000000001 /* SurfaceCatalog+CloudPorts.swift in Sources */,
 				E71A3B8404534D5699AA2E9B /* SurfaceCatalog+CloudRenameSubmission.swift in Sources */,
 				7E02669974964356A46288EB /* SurfaceCatalog+CloudWorkspaceProjection.swift in Sources */,
@@ -14027,6 +14004,8 @@
 				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */,
 				9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */,
+				D12374000000000000000003 /* TerminalRenderHealthOverlay.swift in Sources */,
+				D12374000000000000000005 /* TerminalRenderHealthOverlayController.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,
 				862C77A9D235803A22B715B5 /* TerminalSearchNavigation.swift in Sources */,
 				C0DE53350000000000000001 /* TerminalSearchOverlayHostingView.swift in Sources */,
@@ -14187,7 +14166,6 @@
 				74ED9CE6230A97ED8BBCAB0C /* Workspace+CloudPlacementFailure.swift in Sources */,
 				05944A51F29C4C628EA7107B /* Workspace+CloudRenameFailure.swift in Sources */,
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
-				C12469AA0000000000000027 /* Workspace+CloudTerminalLoading.swift in Sources */,
 				7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
@@ -14490,6 +14468,7 @@
 				C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */,
 				8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
+				CC0033E15A1B2C3D4E5F0032 /* CMUXCLI+VMTuiWorkspaceNaming.swift in Sources */,
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
@@ -14849,6 +14828,7 @@
 				C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */,
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,
 				57BC801370636A4E2C1B31B7 /* CloudFileDeliveryTests.swift in Sources */,
+				C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */,
 				7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */,
 				62D6740CB59ACBE3EED47A27 /* CloudMachineNotificationDeliveryTests.swift in Sources */,
 				E35A8A2444244DF837446844 /* CloudMachineNotificationEventTests.swift in Sources */,
@@ -14865,6 +14845,7 @@
 				287771C476C483CE2E40E0F6 /* CloudOperationRecorderTests.swift in Sources */,
 				CB32AB7B7AB792F21B5C5B36 /* CloudPlacementCoordinatorTests.swift in Sources */,
 				C5FB49903F3E8EA7192AB445 /* CloudPlacementTestProvider.swift in Sources */,
+				602239E07C1B45F48EA589ED /* CloudPortAccessLateCoordinatorTests.swift in Sources */,
 				602239E07C1B45F48EA589EC /* CloudPortForwardAddressReuseTests.swift in Sources */,
 				F11347000000000000000003 /* CloudPortOpenRegressionTests.swift in Sources */,
 				7A0CE100000000000000072C /* CloudPortRoutePlanTests.swift in Sources */,
@@ -14881,7 +14862,6 @@
 				A12481000000000000000001 /* CloudSidebarScaleTests.swift in Sources */,
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */,
-				C12469AA0000000000000001 /* CloudTerminalCreationContractRegressionTests.swift in Sources */,
 				8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */,
 				FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */,
 				8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */,

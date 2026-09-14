@@ -65,7 +65,7 @@ CMUX_CRASH_REPORTING_ENABLED = YES
 // Keep the app and all iOS Swift packages on the same iOS 18 floor.
 // Embedded framework minimum versions are reconciled during the TestFlight
 // export in ios/scripts/upload-testflight.sh.
-IPHONEOS_DEPLOYMENT_TARGET = 18.0
+IPHONEOS_DEPLOYMENT_TARGET = 17.0
 
 // (1 == iPhone, 2 == iPad)
 TARGETED_DEVICE_FAMILY = 1,2

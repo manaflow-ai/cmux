@@ -22,7 +22,7 @@ final class CloudPortAccessModel: Identifiable {
     private(set) var tunnelState: CloudTunnelState = .off
     private(set) var prefersForwarding = false
     let vpn: CloudVPNSetupModel
-    private let coordinator: CloudTunnelCoordinator?
+    private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
@@ -61,16 +61,27 @@ final class CloudPortAccessModel: Identifiable {
         return "127.0.0.1:\(port)"
     }
 
+    /// No coordinator means nothing to observe yet. Leave `observation` unset so
+    /// a later ``attach(coordinator:)`` still starts the stream.
     func observe() {
-        guard observation == nil, phase != .closed else { return }
-        let coordinator = coordinator
+        guard observation == nil, phase != .closed, let coordinator else { return }
         observation = Task { [weak self] in
-            guard let coordinator else { return }
             for await state in await coordinator.stateUpdates() {
                 guard !Task.isCancelled else { return }
                 self?.acceptTunnelState(state)
             }
         }
+    }
+
+    /// Providers can materialize before the registry installs its shared
+    /// tunnel coordinator. Attach late so those panes can observe VPN state.
+    func attach(coordinator: CloudTunnelCoordinator) {
+        guard self.coordinator == nil, phase != .closed else { return }
+        self.coordinator = coordinator
+        // The setup card this pane shows reads the same coordinator; without
+        // this it keeps reporting that the build has no VPN extension.
+        vpn.attach(coordinator: coordinator)
+        observe()
     }
 
     func acceptTunnelState(_ state: CloudTunnelState) {
