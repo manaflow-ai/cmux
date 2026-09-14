@@ -59,10 +59,11 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 /// A native pane that already occupies the user's requested split or tab while
 /// the machine creates the terminal behind it.
 ///
-/// One reservation is one UI intent. The creation coordinator adopts the pane
-/// when the remote terminal resolves (`CmuxTuiSurfaceProvider.materialize(…,
-/// adopting:)`), shows its failure inside the pane when creation cannot
-/// complete, and is cancelled when the user closes the pane first.
+/// One reservation is one UI intent. The attachment adopts the pane when the
+/// remote terminal resolves (`CmuxTuiSurfaceProvider.materialize(…, adopting:)`),
+/// a failure is shown inside the pane, and the request is cancelled when the
+/// user closes the pane first. While it waits the pane shows nothing but its
+/// tab-strip spinner: no progress card, no placeholder text.
 @MainActor
 final class CloudTerminalPaneReservation {
     let workspaceID: UUID
@@ -76,10 +77,6 @@ final class CloudTerminalPaneReservation {
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?
-    /// True once the pane has waited longer than the presentation grace without
-    /// being adopted; the workspace then shows the connecting card in the pane.
-    private(set) var showsProgress = false
-    private var progressTask: Task<Void, Never>?
 
     init(
         workspaceID: UUID,
@@ -96,24 +93,4 @@ final class CloudTerminalPaneReservation {
     }
 
     var elapsed: Duration { ContinuousClock.now - startedAt }
-
-    /// Arms the progress card after `grace`; `onElapsed` re-synchronizes the pane.
-    func armProgress(after grace: Duration, onElapsed: @escaping @MainActor () -> Void) {
-        progressTask?.cancel()
-        showsProgress = false
-        progressTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: grace) } catch { return }
-            guard let self, !Task.isCancelled else { return }
-            self.showsProgress = true
-            self.progressTask = nil
-            onElapsed()
-        }
-    }
-
-    /// Stops the progress timer and hides the connecting card (adopted, failed, or cancelled).
-    func disarmProgress() {
-        progressTask?.cancel()
-        progressTask = nil
-        showsProgress = false
-    }
 }

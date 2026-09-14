@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import CmuxTerminal
 import Foundation
 
@@ -36,30 +37,7 @@ extension Workspace {
         }
         let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
         cloudPendingCreations[panelID] = reservation
-        armReservedCloudTerminalProgress(reservation)
         return reservation
-    }
-
-    /// Shows the connecting card inside a reserved pane only after the same grace
-    /// the attachment session uses, so a fast create never flashes it.
-    private func armReservedCloudTerminalProgress(_ reservation: CloudTerminalPaneReservation) {
-        reservation.armProgress(after: CloudTerminalConnectionPresentationPolicy.standard.progressGrace) { [weak self, weak reservation] in
-            guard let self, let reservation, self.cloudPendingCreations[reservation.panelID] === reservation else { return }
-            self.synchronizeReservedCloudTerminalPresentation(panelID: reservation.panelID)
-        }
-    }
-
-    private func synchronizeReservedCloudTerminalPresentation(panelID: UUID) {
-        (panels[panelID] as? TerminalPanel)?.surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
-        postRemoteConnectionPresentationDidChange()
-    }
-
-    /// The card a reserved pane shows while it waits: nothing inside the grace,
-    /// then the connecting card. A creation failure is recorded separately as a
-    /// materialization failure and takes precedence in the presentation lookup.
-    func reservedCloudTerminalPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        guard let reservation = cloudPendingCreations[surfaceId], reservation.showsProgress else { return nil }
-        return CloudTerminalReconnectOverlayPolicy.progress(reconnecting: false)
     }
 
     /// Binds a resolved attachment to the reserved pane. Returns nil when the
@@ -82,7 +60,6 @@ extension Workspace {
             onFocus: onFocus,
             attachment: attachment
         )
-        reservation.disarmProgress()
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
         // The tab-strip spinner clears on real attachment, not on adoption.
         let panelID = reservation.panelID
@@ -101,7 +78,6 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
-        reservation.disarmProgress()
         reservation.retry = nil
         reservation.cancel = nil
         if adoptedPanelID != reservation.panelID {
@@ -116,7 +92,6 @@ extension Workspace {
     /// explain inside it, with Reconnect wired to the same request's retry.
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
-        reservation.disarmProgress()
         setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error)
         setCloudMaterializationFailure(
@@ -131,7 +106,6 @@ extension Workspace {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
         setCloudManualMirrorTabLoading(panelID: reservation.panelID, true)
-        armReservedCloudTerminalProgress(reservation)
     }
 
     /// Reconnect pressed on a reserved pane's failure card replays the request.
@@ -145,7 +119,6 @@ extension Workspace {
     /// the machine already created stays alive, like closing any other pane.
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
-        reservation.disarmProgress()
         reservation.inputRelay.discard()
         let cancel = reservation.cancel
         reservation.cancel = nil

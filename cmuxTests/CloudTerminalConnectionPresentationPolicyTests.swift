@@ -10,77 +10,59 @@ import Testing
 
 /// The connection card must never flash during a healthy handoff and must never
 /// call a connected pane unavailable (https://github.com/manaflow-ai/cmux/issues/12537).
+/// The pane shows no progress card at all; only Reconnect, once recovery has
+/// kept failing.
 @Suite("Cloud terminal connection presentation")
 struct CloudTerminalConnectionPresentationPolicyTests {
     private typealias Policy = CloudTerminalConnectionPresentationPolicy
 
     @Test
-    func silentStageShowsNothingWhileConnectingOrAutomaticallyRecovering() {
-        for phase in [CloudTuiManualMirrorPhase.connecting, .disconnected] {
-            let input = Policy.Input(phase: phase, replayReceived: false, hasEverReplayed: true, automaticRecovery: true, stage: .silent)
-            #expect(Policy.outcome(for: input) == .none)
+    func workingAttachmentsShowNothingWhateverTheStage() {
+        for phase in [CloudTuiManualMirrorPhase.connecting, .attached] {
+            for stage in [Policy.Stage.silent, .failure] {
+                let input = Policy.Input(phase: phase, replayReceived: false, automaticRecovery: true, stage: stage)
+                #expect(Policy.outcome(for: input) == .none, "\(phase) at \(stage)")
+            }
         }
-        let attachedWithoutReplay = Policy.Input(phase: .attached, replayReceived: false, hasEverReplayed: false, automaticRecovery: true, stage: .silent)
-        #expect(Policy.outcome(for: attachedWithoutReplay) == .none)
+        let usable = Policy.Input(phase: .attached, replayReceived: true, automaticRecovery: true, stage: .failure)
+        #expect(Policy.outcome(for: usable) == .none)
     }
 
     @Test
-    func usableAttachmentNeverShowsACardWhateverTheStage() {
-        for stage in [Policy.Stage.silent, .progress, .failure] {
-            let input = Policy.Input(phase: .attached, replayReceived: true, hasEverReplayed: true, automaticRecovery: true, stage: stage)
-            #expect(Policy.outcome(for: input) == .none)
-        }
-    }
-
-    @Test
-    func progressStageDistinguishesFirstConnectFromReconnect() {
-        let first = Policy.Input(phase: .connecting, replayReceived: false, hasEverReplayed: false, automaticRecovery: true, stage: .progress)
-        #expect(Policy.outcome(for: first) == .progress(reconnecting: false))
-        let again = Policy.Input(phase: .connecting, replayReceived: false, hasEverReplayed: true, automaticRecovery: true, stage: .progress)
-        #expect(Policy.outcome(for: again) == .progress(reconnecting: true))
-    }
-
-    @Test
-    func disconnectedOffersReconnectOnlyAfterTheFailureGraceOrWhenRecoveryStopped() {
-        let recovering = Policy.Input(phase: .disconnected, replayReceived: false, hasEverReplayed: true, automaticRecovery: true, stage: .progress)
-        #expect(Policy.outcome(for: recovering) == .progress(reconnecting: true))
-        let exhausted = Policy.Input(phase: .disconnected, replayReceived: false, hasEverReplayed: true, automaticRecovery: true, stage: .failure)
+    func disconnectedOffersReconnectOnlyAfterTheGraceOrWhenRecoveryStopped() {
+        let recovering = Policy.Input(phase: .disconnected, replayReceived: false, automaticRecovery: true, stage: .silent)
+        #expect(Policy.outcome(for: recovering) == .none)
+        let exhausted = Policy.Input(phase: .disconnected, replayReceived: false, automaticRecovery: true, stage: .failure)
         #expect(Policy.outcome(for: exhausted) == .failure)
-        let givenUp = Policy.Input(phase: .disconnected, replayReceived: false, hasEverReplayed: true, automaticRecovery: false, stage: .silent)
+        let givenUp = Policy.Input(phase: .disconnected, replayReceived: false, automaticRecovery: false, stage: .silent)
         #expect(Policy.outcome(for: givenUp) == .failure)
-        // A reconnect attempt that is still running after the failure grace is
-        // progress, not a failure: something is happening.
-        let retrying = Policy.Input(phase: .connecting, replayReceived: false, hasEverReplayed: true, automaticRecovery: true, stage: .failure)
-        #expect(Policy.outcome(for: retrying) == .progress(reconnecting: true))
     }
 
     @Test
     func idleAndStoppedShowNothing() {
         for phase in [CloudTuiManualMirrorPhase.idle, .stopped] {
-            let input = Policy.Input(phase: phase, replayReceived: false, hasEverReplayed: true, automaticRecovery: false, stage: .failure)
+            let input = Policy.Input(phase: phase, replayReceived: false, automaticRecovery: false, stage: .failure)
             #expect(Policy.outcome(for: input) == .none)
         }
     }
 
     @Test
-    func progressBuilderTitlesFirstConnectAndReconnectDifferently() {
-        let first = CloudTerminalReconnectOverlayPolicy.progress(reconnecting: false)
-        let again = CloudTerminalReconnectOverlayPolicy.progress(reconnecting: true)
-        #expect(first.showsProgress && !first.showsReconnectButton)
-        #expect(again.showsProgress && !again.showsReconnectButton)
-        #expect(first.title != again.title)
-        #expect(first.detail == again.detail)
+    func episodeBoundariesFollowUsability() {
+        #expect(Policy.isUsable(Policy.Input(phase: .attached, replayReceived: true, automaticRecovery: true, stage: .silent)))
+        #expect(!Policy.isUsable(Policy.Input(phase: .attached, replayReceived: false, automaticRecovery: true, stage: .silent)))
+        #expect(Policy.isUnusableEpisode(Policy.Input(phase: .connecting, replayReceived: false, automaticRecovery: true, stage: .silent)))
+        #expect(!Policy.isUnusableEpisode(Policy.Input(phase: .idle, replayReceived: false, automaticRecovery: true, stage: .silent)))
     }
 
-    /// The regression the report describes: a fresh attach that completes inside
-    /// the grace must never put a card on the pane, not even for one frame.
+    /// The regression the report describes: a fresh attach must never put a card
+    /// on the pane, not even for one frame, at any point of the handshake.
     @Test @MainActor
-    func firstAttachInsideTheGraceNeverShowsACard() async throws {
+    func firstAttachNeverShowsACard() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_fresh", remoteSurfaceID: 17,
-            presentationPolicy: Policy(progressGrace: .seconds(2), failureGrace: .seconds(4)),
+            presentationPolicy: Policy(failureGrace: .seconds(4)),
             onNeedsReconnect: {}
         )
         defer { session.stop() }
@@ -115,13 +97,13 @@ struct CloudTerminalConnectionPresentationPolicyTests {
     }
 
     /// A disconnect that automatic recovery repairs inside the grace shows
-    /// neither the reconnecting card nor "unavailable"; the pane stays as it was.
+    /// nothing at any point; the pane keeps its last frame.
     @Test @MainActor
     func transientDisconnectRepairedInsideTheGraceShowsNothing() async throws {
         var recoveries = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_bounce", remoteSurfaceID: 17,
-            presentationPolicy: Policy(progressGrace: .seconds(2), failureGrace: .seconds(4)),
+            presentationPolicy: Policy(failureGrace: .seconds(4)),
             onNeedsReconnect: { recoveries += 1 }
         )
         defer { session.stop() }
@@ -151,27 +133,26 @@ struct CloudTerminalConnectionPresentationPolicyTests {
         #expect(recoveries == 3)
     }
 
-    /// Recovery that keeps failing is reported: progress after the first grace,
-    /// Reconnect after the second, and a usable attachment clears both at once.
+    /// Recovery that keeps failing is reported with Reconnect after the grace,
+    /// and a usable attachment clears it at once.
     @Test @MainActor
-    func persistentFailureEscalatesToReconnectAndAUsableAttachmentClearsIt() async throws {
+    func persistentFailureOffersReconnectAndAUsableAttachmentClearsIt() async throws {
         let session = CloudTuiManualMirrorSession(
             machineID: "machine", terminalID: "term_stuck", remoteSurfaceID: 17,
-            presentationPolicy: Policy(progressGrace: .milliseconds(40), failureGrace: .milliseconds(120)),
+            presentationPolicy: Policy(failureGrace: .milliseconds(80)),
             onNeedsReconnect: {}
         )
         defer { session.stop() }
         session.markSurfaceResolutionUnavailable()
         #expect(session.connectionPresentation == nil)
-        try await Self.waitUntil { session.connectionPresentation?.showsProgress == true }
-        #expect(session.connectionPresentation?.showsReconnectButton == false)
         try await Self.waitUntil { session.connectionPresentation?.showsReconnectButton == true }
+        #expect(session.connectionPresentation?.showsProgress == false)
 
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         session.reconnect(socketPath: fixture.socketPath)
-        // The attempt that follows an exhausted grace is progress, not failure.
-        #expect(session.connectionPresentation?.showsProgress == true)
+        // The attempt that follows an exhausted grace shows nothing while it runs.
+        #expect(session.connectionPresentation == nil)
         try await Self.completeHandshake(fixture, surface: 17)
         fixture.send([
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,

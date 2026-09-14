@@ -262,9 +262,7 @@ struct CloudManualMirrorPresentationTests {
             machineID: "machine",
             terminalID: "term_0123456789abcdef0123456789abcdef",
             remoteSurfaceID: 17,
-            presentationPolicy: CloudTerminalConnectionPresentationPolicy(
-                progressGrace: .milliseconds(40), failureGrace: .milliseconds(120)
-            ),
+            presentationPolicy: CloudTerminalConnectionPresentationPolicy(failureGrace: .milliseconds(80)),
             onNeedsReconnect: { reconnectRequests += 1 }
         )
         defer { session.stop() }
@@ -272,12 +270,10 @@ struct CloudManualMirrorPresentationTests {
         session.markSurfaceResolutionUnavailable()
         // The provider schedules resolution retries with backoff. A failed
         // resolution must not immediately request the same refresh again, and
-        // while that automatic recovery runs the pane stays quiet, then shows
-        // progress, and offers Reconnect only once recovery keeps failing.
+        // while that automatic recovery runs the pane stays quiet; Reconnect is
+        // offered only once recovery keeps failing.
         #expect(reconnectRequests == 0)
         #expect(session.connectionPresentation == nil)
-        try await waitForSession { session.connectionPresentation?.showsProgress == true }
-        #expect(session.connectionPresentation?.showsReconnectButton == false)
         try await waitForSession { session.connectionPresentation?.showsReconnectButton == true }
         #expect(session.retryConnection())
         #expect(reconnectRequests == 1)
@@ -314,11 +310,9 @@ struct CloudManualMirrorPresentationTests {
         #expect(session.phase == .disconnected)
         #expect(refreshes == 1)
         #expect(session.remoteSurfaceID == 17)
-        // An explicit Reconnect is feedback the user asked for: progress shows
-        // immediately, and the attempt is not reported as a failure.
-        let presentation = try #require(session.connectionPresentation)
-        #expect(presentation.showsProgress)
-        #expect(!presentation.showsReconnectButton)
+        // An explicit Reconnect clears the card while the attempt runs; it is
+        // not reported as a failure.
+        #expect(session.connectionPresentation == nil)
     }
 
     @Test @MainActor

@@ -52,25 +52,6 @@ struct CloudTerminalPaneReservationTests {
     }
 
     @Test @MainActor
-    func reservationShowsProgressOnlyAfterItsGraceAndDisarmsOnAdoption() async throws {
-        let reservation = CloudTerminalPaneReservation(workspaceID: UUID(), panelID: UUID(), machine: .cloud("machine"))
-        var elapsed = 0
-        reservation.armProgress(after: .milliseconds(40)) { elapsed += 1 }
-        #expect(!reservation.showsProgress)
-        try await Self.waitUntil { reservation.showsProgress }
-        #expect(elapsed == 1)
-        reservation.disarmProgress()
-        #expect(!reservation.showsProgress)
-
-        // A retry re-arms; adoption before the grace never fires the callback.
-        reservation.armProgress(after: .seconds(2)) { elapsed += 1 }
-        reservation.disarmProgress()
-        try await Task.sleep(for: .milliseconds(30))
-        #expect(elapsed == 1)
-        #expect(reservation.elapsed >= .zero)
-    }
-
-    @Test @MainActor
     func storeRoutesFailureToTheReservedPaneAndReplaysTheSameRequestOnRetry() async throws {
         let store = CloudPaneCreationFailureStore()
         let requestID = store.beginRequest()

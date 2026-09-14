@@ -91,21 +91,16 @@ final class CloudTuiManualMirrorSession {
         CloudTerminalConnectionPresentationPolicy.Input(
             phase: phase,
             replayReceived: diagnosticReplayReceived,
-            hasEverReplayed: hasReceivedRemoteReplay,
             automaticRecovery: allowsAutomaticReconnect,
             stage: presentationStage
         )
     }
-    /// The card the pane shows for this attachment, or nil while it is usable
-    /// or still inside the presentation grace.
+    /// The card the pane shows for this attachment: nil while it is usable, being
+    /// worked on, or still inside the failure grace; the Reconnect card otherwise.
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         switch CloudTerminalConnectionPresentationPolicy.outcome(for: presentationInput) {
         case .none:
             return nil
-        case .progress(let reconnecting):
-            var presentation = CloudTerminalReconnectOverlayPolicy.progress(reconnecting: reconnecting)
-            presentation.diagnosticReference = diagnosticReference
-            return presentation
         case .failure:
             var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
                 isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
@@ -132,9 +127,9 @@ final class CloudTuiManualMirrorSession {
         if cancelOnly {
             transition(to: .idle)
         } else {
-            // The user asked for this attempt: show progress now and measure the
-            // failure grace from here, instead of hiding the retry inside the grace.
-            startPresentationEpisode(elapsed: presentationPolicy.progressGrace)
+            // The user asked for this attempt: the card clears and the failure
+            // grace is measured from here.
+            startPresentationEpisode(elapsed: .zero)
             synchronizePresentation()
             onNeedsReconnect()
         }
@@ -494,7 +489,7 @@ final class CloudTuiManualMirrorSession {
         startPresentationEpisode(elapsed: .zero)
     }
 
-    /// Starts the stage timers as if the episode began `elapsed` ago. An
+    /// Starts the stage timer as if the episode began `elapsed` ago. An
     /// optimistic pane reserved before its terminal existed hands over the time it
     /// already spent waiting, so adoption does not restart the grace.
     func startPresentationEpisode(elapsed: Duration) {
@@ -505,17 +500,9 @@ final class CloudTuiManualMirrorSession {
             presentationStage = .failure
             return
         }
-        presentationStage = elapsed >= policy.progressGrace ? .progress : .silent
-        let progressDelay = max(Duration.zero, policy.progressGrace - elapsed)
-        let failureDelay = max(Duration.zero, policy.failureGrace - max(elapsed, policy.progressGrace))
-        let needsProgress = presentationStage == .silent
+        presentationStage = .silent
+        let failureDelay = policy.failureGrace - elapsed
         presentationEpisodeTask = Task { @MainActor [weak self, clock] in
-            if needsProgress {
-                do { try await clock.sleep(for: progressDelay) } catch { return }
-                guard let self, !Task.isCancelled else { return }
-                self.presentationStage = .progress
-                self.synchronizePresentation()
-            }
             do { try await clock.sleep(for: failureDelay) } catch { return }
             guard let self, !Task.isCancelled else { return }
             self.presentationStage = .failure

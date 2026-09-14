@@ -244,7 +244,8 @@ struct CloudTreeNodeActions {
                         _ = try await catalog.projectGroup(
                             routedGroup,
                             into: try destination(placement),
-                            focus: true
+                            focus: true,
+                            optimistic: .app
                         )
                     }
                 }
@@ -266,7 +267,7 @@ struct CloudTreeNodeActions {
                             ),
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app
+                            host: .appOptimistic
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
@@ -286,7 +287,7 @@ struct CloudTreeNodeActions {
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app,
+                            host: .appOptimistic,
                             layout: layout
                         )
                         catalog.bindCloudWorkspace(
@@ -455,7 +456,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .app
+            host: .appOptimistic
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,

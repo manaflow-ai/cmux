@@ -58,26 +58,6 @@ enum CloudTerminalReconnectOverlayPolicy {
         }
     }
 
-    /// The progress card for an attachment that is still becoming usable. The
-    /// first connection of a fresh terminal says "connecting"; a pane that has
-    /// already shown remote content says "reconnecting".
-    static func progress(reconnecting: Bool, detail: String? = nil) -> Presentation {
-        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayDetail = trimmedDetail?.isEmpty == false ? trimmedDetail : nil
-        return Presentation(
-            title: reconnecting
-                ? String(localized: "cloud.overlay.reconnecting.title", defaultValue: "Reconnecting Cloud session")
-                : String(localized: "cloud.overlay.connecting.title", defaultValue: "Connecting Cloud terminal"),
-            detail: displayDetail
-                ?? String(
-                    localized: "cloud.overlay.reconnecting.detail",
-                    defaultValue: "Waiting for a secure terminal endpoint."
-                ),
-            showsProgress: true,
-            showsReconnectButton: false
-        )
-    }
-
     static func presentation(
         isManagedCloudWorkspace: Bool,
         isRemoteTerminalSurface: Bool,
