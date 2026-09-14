@@ -506,6 +506,30 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        // The digit defaults are positional over the visible tabs, so turn the
+        // Feed and Dock tabs on and clear tab customization for this check.
+        let defaults = UserDefaults.standard
+        let touchedKeys = [
+            RightSidebarBetaFeatureSettings.feedEnabledKey,
+            RightSidebarBetaFeatureSettings.dockEnabledKey,
+            RightSidebarTabPreferences.orderKey,
+            RightSidebarTabPreferences.hiddenKey,
+        ]
+        let savedValues = touchedKeys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in savedValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        defaults.removeObject(forKey: RightSidebarTabPreferences.orderKey)
+        defaults.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
+
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
