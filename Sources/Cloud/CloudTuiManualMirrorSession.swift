@@ -604,6 +604,10 @@ final class CloudTuiManualMirrorSession {
             attachmentState,
             presentation: connectionPresentation
         )
+        // The status snapshot is the presentation source for both the portal
+        // card and the workspace bridge. Reconcile after publishing so a
+        // phase didSet callback cannot leave the card on the previous phase.
+        surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
     }
 
     private var attachmentState: CloudTerminalAttachmentState {
