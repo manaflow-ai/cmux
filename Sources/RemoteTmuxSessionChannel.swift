@@ -73,6 +73,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
 
     /// This channel's own observers — a filtered fan-out of the shared stream's events.
     private var observers: [UUID: RemoteTmuxSessionObservers] = [:]
+
+    /// Identity pairs for THIS session. The shared stream's own post-attach push
+    /// targets the hidden view session, so the channel publishes to its real session.
+    private var mirrorEnvironment: [String: String] = [:]
     private var underlyingToken: UUID?
 
     init(
@@ -309,6 +313,27 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         underlying.removeWindowSizeClaim(windowId: windowId)
     }
     func setSessionName(_ name: String) { scopedSessionName = name }
+
+    func setMirrorEnvironment(_ pairs: [String: String]) {
+        mirrorEnvironment = pairs
+        guard underlying.connectionState == .connected else { return }
+        publishMirrorEnvironment()
+    }
+
+    /// Pushes this session's identity with `set-environment -t`, targeting the stable
+    /// session id when known so a concurrent rename can't misdirect it.
+    private func publishMirrorEnvironment() {
+        guard !mirrorEnvironment.isEmpty,
+              let target = scopedSessionId.map({ "$\($0)" })
+                ?? RemoteTmuxHost.controlModeLineSafeName(scopedSessionName)
+                    .map(RemoteTmuxHost.shellSingleQuoted)
+        else { return }
+        var pairs = mirrorEnvironment
+        pairs[RemoteTmuxControlConnection.mirrorMarkerEnvironmentKey] = "1"
+        for command in RemoteTmuxControlConnection.mirrorEnvironmentCommands(target: target, pairs: pairs) {
+            guard underlying.send(command) else { return }
+        }
+    }
     /// Applies a reorder of *this session's* windows to the stored home-session order.
     /// The shared stream's own ledger is deliberately untouched: it tracks the hidden
     /// view session's link order, not this session's real tmux window indexes.
@@ -415,6 +440,9 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             // Host-global by nature, so it fans to every channel.
             onReconnectReady: { [weak self] in
                 guard let self else { return }
+                // The reconnected client is a new tmux client; republish before
+                // mirrors schedule post-reconnect work against the fresh stream.
+                self.publishMirrorEnvironment()
                 for o in self.observers.values { o.onReconnectReady?() }
             },
             onExit: {
