@@ -364,8 +364,16 @@ extension RemoteSessionCoordinator {
             relayToken: relayToken,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+        // Relay credentials are deliberately stored on the remote host, so
+        // never place the token-bearing script in SSH argv (argv is visible to
+        // other users and is retained in debug command logs). Feed it to
+        // `sh -s` over stdin instead.
+        let arguments = sshCommonArguments(batchMode: true) + [configuration.destination, "sh -s"]
+        let result = try sshExec(
+            arguments: arguments,
+            stdin: Data(script.utf8),
+            timeout: 8
+        )
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.relay", code: 70, userInfo: [

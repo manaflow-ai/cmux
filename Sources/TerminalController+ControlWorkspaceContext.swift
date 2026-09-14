@@ -93,7 +93,10 @@ extension TerminalController: ControlWorkspaceContext {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
-        guard let workspaceId = tabManager.selectedTabId else {
+        // A relay request carries the authenticated workspace explicitly.  Do
+        // not answer with whichever workspace happens to be focused in that
+        // window, because it can be a local workspace in the same manager.
+        guard let workspaceId = routing.workspaceID ?? tabManager.selectedTabId else {
             return .noWorkspaceSelected
         }
         // Legacy: a selectedTabId pointing at a workspace missing from `tabs`
