@@ -75,30 +75,28 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         )
     }
 
+    @discardableResult
     func async(
         _ work: @escaping @Sendable () -> Void,
         priority: Bool = false
-    ) {
+    ) -> Bool {
         enqueue(work, priority: priority)
     }
 
     /// Enqueue latency-sensitive interaction work ahead of queued repaint work.
     /// The same serial worker still executes every Ghostty call, so priority
     /// changes scheduling only and never permits concurrent surface mutation.
-    func asyncPriority(_ work: @escaping @Sendable () -> Void) {
+    @discardableResult
+    func asyncPriority(_ work: @escaping @Sendable () -> Void) -> Bool {
         enqueue(work, priority: true)
     }
 
-    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) {
+    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) -> Bool {
         pendingLock.lock()
         let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
         if pendingCount >= Self.maximumPendingOperations {
-            // Preserve correctness when a producer outruns the scheduler. The
-            // underlying queue remains the same serial Ghostty boundary; this
-            // fallback avoids retaining an ever-growing Swift-side backlog.
             pendingLock.unlock()
-            queue.async(execute: work)
-            return
+            return false
         }
         if priority {
             pendingPriority.append(work)
@@ -108,8 +106,9 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         let shouldStart = !isRunning
         if shouldStart { isRunning = true }
         pendingLock.unlock()
-        guard shouldStart else { return }
+        guard shouldStart else { return true }
         scheduleNext()
+        return true
     }
 
     private func scheduleNext() {
