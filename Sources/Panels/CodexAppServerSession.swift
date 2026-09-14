@@ -67,7 +67,7 @@ final class CodexAppServerSession {
         )
     }
 
-    func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard) async throws {
+    func submit(_ text: String, permissionMode: AgentSessionPermissionMode = .standard, modelID: String? = nil, reasoningEffort: String? = nil) async throws {
         guard !text.isEmpty else { return }
         guard !didFailStartup else {
             throw AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)
@@ -83,6 +83,7 @@ final class CodexAppServerSession {
                 queuedInputs.append(CodexAppServerQueuedInput(
                     text: text,
                     permissionMode: permissionMode,
+                    modelID: modelID, reasoningEffort: reasoningEffort,
                     continuation: continuation
                 ))
                 if didInitialize {
@@ -97,7 +98,7 @@ final class CodexAppServerSession {
             }
             return
         }
-        try await sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
+        try await sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode, modelID: modelID, reasoningEffort: reasoningEffort)
     }
 
     private func canQueueInput(_ text: String) -> Bool {
@@ -522,11 +523,7 @@ final class CodexAppServerSession {
         for input in inputs {
             Task { @MainActor in
                 do {
-                    try await sendTurnStart(
-                        threadID: threadID,
-                        text: input.text,
-                        permissionMode: input.permissionMode
-                    )
+                    try await sendTurnStart(threadID: threadID, text: input.text, permissionMode: input.permissionMode, modelID: input.modelID, reasoningEffort: input.reasoningEffort)
                     input.resume()
                 } catch {
                     input.resume(throwing: error)
@@ -574,11 +571,7 @@ final class CodexAppServerSession {
         }
     }
 
-    private func sendTurnStart(
-        threadID: String,
-        text: String,
-        permissionMode: AgentSessionPermissionMode
-    ) async throws {
+    private func sendTurnStart(threadID: String, text: String, permissionMode: AgentSessionPermissionMode, modelID: String? = nil, reasoningEffort: String? = nil) async throws {
         var params: [String: Any] = [
             "threadId": threadID,
             "input": [
@@ -592,6 +585,8 @@ final class CodexAppServerSession {
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }
+        if let modelID, !modelID.isEmpty { params["model"] = modelID }
+        if let reasoningEffort, !reasoningEffort.isEmpty { params["effort"] = reasoningEffort }
         activePermissionMode = permissionMode
         isTurnInFlight = true
         do {

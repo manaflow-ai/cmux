@@ -93,12 +93,18 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
 export function reduceSession(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "context":
-      return appendContextReadyLog({
+      {
+        const nextState = appendContextReadyLog({
         ...state,
         context: action.context,
         selectedProviderId: action.context.initialProviderId,
         status: "idle",
-      });
+        });
+        const prompt = action.context.guiMode?.prompt?.trim();
+        return prompt
+          ? { ...nextState, transcript: appendUserTranscript(nextState, prompt) }
+          : nextState;
+      }
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
@@ -271,7 +277,9 @@ export async function sendInput(
     attachments?: AgentSessionAttachment[];
     clearInput?: string;
     displayText?: string;
+    modelId?: string;
     permissionMode?: ComposerPermissionMode;
+    reasoningEffort?: string;
     text?: string;
   } = {},
 ): Promise<boolean> {
@@ -284,6 +292,8 @@ export async function sendInput(
   try {
     await callNative("provider.writeLine", {
       permissionMode: options.permissionMode ?? "default",
+      modelId: options.modelId,
+      reasoningEffort: options.reasoningEffort,
       sessionId,
       text: submittedInput,
     });

@@ -122,7 +122,7 @@ final class AgentSessionProcessStore {
     func writeLine(
         sessionId: String,
         permissionMode: AgentSessionPermissionMode = .standard,
-        text: String
+        text: String, modelID: String? = nil, reasoningEffort: String? = nil
     ) async throws {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
@@ -133,7 +133,7 @@ final class AgentSessionProcessStore {
             guard let codexAppServerSession = session.codexAppServerSession else {
                 throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
             }
-            try await codexAppServerSession.submit(text, permissionMode: permissionMode)
+            try await codexAppServerSession.submit(text, permissionMode: permissionMode, modelID: modelID, reasoningEffort: reasoningEffort)
         case .claude:
             try await writeClaudeStreamJSON(text, to: session.inputWriter)
         case .opencode:

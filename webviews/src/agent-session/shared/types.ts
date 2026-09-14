@@ -1,6 +1,6 @@
 export type ProviderId = "codex" | "claude" | "opencode";
 
-export type RendererKind = "react" | "solid";
+export type RendererKind = "react" | "solid" | "guiMode";
 
 export type ComposerPermissionMode = "default" | "auto-review" | "full-access" | "custom";
 
@@ -39,6 +39,37 @@ export type AppContext = {
   rateLimitRows?: AgentSessionRateLimitRow[];
   copy: AgentSessionCopy;
   theme: AgentSessionTheme;
+  guiMode?: GuiModeSessionContext;
+};
+
+export type GuiModeSessionContext = {
+  copy?: {
+    chatMode?: string;
+    emptySubtitle?: string;
+    emptyTitle?: string;
+    folderFallback?: string;
+    localLabel?: string;
+    modelLabel?: string;
+    modeLabel?: string;
+    reasoningLabel?: string;
+    terminalMode?: string;
+    terminalPlaceholder?: string;
+    voiceAction?: string;
+    voiceDescription?: string;
+    voiceTitle?: string;
+  };
+  gitBranch?: string;
+  models?: Array<{
+    displayName: string;
+    id: string;
+    providerId: string;
+    reasoningEfforts: string[];
+  }>;
+  page?: "home" | "task-worktree-pr";
+  prompt?: string;
+  selectedModelId?: string;
+  selectedReasoningEffort?: string;
+  workingDirectory?: string;
 };
 
 export type AgentSessionRateLimitRow = {

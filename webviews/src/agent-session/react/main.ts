@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { activityGlyph } from "../shared/activityGlyph";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
+import { makeClientId } from "../shared/ids";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -66,6 +67,12 @@ import {
   type PromptEditorHandle,
   type PromptMention,
 } from "./proseMirrorPromptEditor";
+import {
+  GuiModeContextStrip,
+  GuiModeModelPicker,
+  GuiModeModeToggle,
+  GuiModeWelcome,
+} from "../../gui-mode/GuiModeSessionChrome";
 
 const h = React.createElement;
 
@@ -283,11 +290,38 @@ function SessionSurface({
   "use no memo";
 
   const provider = state.providers.find((item) => item.id === state.selectedProviderId);
+  const isGuiMode = state.context?.renderer === "guiMode";
+  const guiModeContext = state.context?.guiMode ?? {};
+  const [composerMode, setComposerMode] = useState<"chat" | "terminal">("chat");
+  const [terminalCommandStatus, setTerminalCommandStatus] = useState("");
+  const [terminalCommandPending, setTerminalCommandPending] = useState(false);
+  const terminalPanelId = useRef<string | undefined>(undefined);
+  const [guiModelId, setGuiModelId] = useState(guiModeContext.selectedModelId ?? "gpt-6-astra");
+  const [guiReasoningEffort, setGuiReasoningEffort] = useState(
+    guiModeContext.selectedReasoningEffort ?? "extra-high",
+  );
+  useEffect(() => {
+    if (!isGuiMode) return;
+    if (guiModeContext.selectedModelId) setGuiModelId(guiModeContext.selectedModelId);
+    if (guiModeContext.selectedReasoningEffort) setGuiReasoningEffort(guiModeContext.selectedReasoningEffort);
+  }, [guiModeContext.selectedModelId, guiModeContext.selectedReasoningEffort, isGuiMode]);
+  useEffect(() => {
+    if (!isGuiMode) return;
+    const availableModels = (guiModeContext.models ?? []).filter(
+      (model) => model.providerId === state.selectedProviderId,
+    );
+    const nextModel = availableModels[0];
+    if (!nextModel || availableModels.some((model) => model.id === guiModelId)) return;
+    setGuiModelId(nextModel.id);
+    setGuiReasoningEffort(nextModel.reasoningEfforts[0] ?? "default");
+  }, [guiModeContext.models, guiModelId, isGuiMode, state.selectedProviderId]);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
+  const canSend = isGuiMode && composerMode === "terminal"
+    ? state.input.trim().length > 0 && !terminalCommandPending
+    : state.status === "running" && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
@@ -333,6 +367,23 @@ function SessionSurface({
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
     const currentInput = editorRef.current?.getText() ?? state.input;
+    if (isGuiMode && composerMode === "terminal") {
+      const command = currentInput.trim();
+      if (command.length === 0 || terminalCommandPending) return;
+      setTerminalCommandPending(true);
+      setTerminalCommandStatus(command);
+      void callNative<{ panelId: string }>("guiMode.executeTerminal", {
+        command,
+        requestId: makeClientId(),
+        terminalPanelId: terminalPanelId.current,
+      }).then((result) => {
+        terminalPanelId.current = result.panelId;
+        dispatch({ type: "setInput", input: "" });
+      }).catch((error) => {
+        dispatch({ type: "failed", message: messageForError(error, state) });
+      }).finally(() => setTerminalCommandPending(false));
+      return;
+    }
     const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
     if (!canSubmit) {
       return;
@@ -357,6 +408,8 @@ function SessionSurface({
       clearInput: currentInput,
       displayText: currentInput,
       permissionMode: canConfigurePermissions ? permissionMode : "default",
+      modelId: isGuiMode ? guiModelId : undefined,
+      reasoningEffort: isGuiMode ? guiReasoningEffort : undefined,
       text,
     }).then((didSend) => {
       if (didSend) {
@@ -602,8 +655,12 @@ function SessionSurface({
     minHeight: isSingleLineComposer ? "1.25rem" : "2.75rem",
     singleLine: isSingleLineComposer,
     value: state.input,
-    ariaLabel: state.context?.copy.promptPlaceholder ?? "",
-    placeholder: state.context?.copy.promptPlaceholder ?? "",
+    ariaLabel: isGuiMode && composerMode === "terminal"
+      ? guiModeContext.copy?.terminalPlaceholder ?? "Run a terminal command"
+      : state.context?.copy.promptPlaceholder ?? "",
+    placeholder: isGuiMode && composerMode === "terminal"
+      ? guiModeContext.copy?.terminalPlaceholder ?? "Run a terminal command"
+      : state.context?.copy.promptPlaceholder ?? "",
     onAutocompleteChange: updateComposerAutocomplete,
     onAutocompleteKeyDown: handleComposerAutocompleteKey,
     onPlanModeShortcut: togglePlanMode,
@@ -668,7 +725,18 @@ function SessionSurface({
   const secondaryControls = h(
     "div",
     { className: "codex-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
-    modelPicker,
+    isGuiMode
+      ? h(GuiModeModelPicker, {
+          context: guiModeContext,
+          providerId: state.selectedProviderId,
+          modelId: guiModelId,
+          reasoningEffort: guiReasoningEffort,
+          onChange: (modelId: string, reasoningEffort: string) => {
+            setGuiModelId(modelId);
+            setGuiReasoningEffort(reasoningEffort);
+          },
+        })
+      : modelPicker,
     shouldShowIdeContextIndicator && !ideContextCollapse.hideControl
       ? h(
           "span",
@@ -807,15 +875,31 @@ function SessionSurface({
   const composerControls = h(
     "div",
     { className: CODEX_COMPOSER_INNER },
+    isGuiMode
+      ? h(GuiModeModeToggle, {
+          context: guiModeContext,
+          mode: composerMode,
+          onChange: (nextMode: "chat" | "terminal") => {
+            setComposerMode(nextMode);
+            setTerminalCommandStatus("");
+            editorRef.current?.focus();
+          },
+        })
+      : null,
     composerControlsContent,
+    isGuiMode && terminalCommandStatus
+      ? h("div", { className: "gui-mode-agent-terminal-status", role: "status" }, terminalCommandStatus)
+      : null,
   );
   const showPlanSuggestion =
     !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
 
   return h(
     "section",
-    { className: "agent-shell", "data-codex-window-type": "electron" },
-    h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
+    { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron" },
+    isGuiMode && state.transcript.length === 0
+      ? h(GuiModeWelcome, { context: guiModeContext })
+      : h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
     h(
       "div",
       { className: CODEX_COMPOSER_STACK },
@@ -867,6 +951,7 @@ function SessionSurface({
             ),
           ),
         ),
+        isGuiMode ? h(GuiModeContextStrip, { context: guiModeContext }) : null,
       ),
       h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
     ),

@@ -442,7 +442,9 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             try await processStore.writeLine(
                 sessionId: request.requiredString("sessionId"),
                 permissionMode: request.permissionMode(),
-                text: request.requiredRawString("text")
+                text: request.requiredRawString("text"),
+                modelID: request.string("modelId"),
+                reasoningEffort: request.string("reasoningEffort")
             )
             return ["sent": true]
         case "provider.stop":
