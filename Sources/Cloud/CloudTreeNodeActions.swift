@@ -97,7 +97,7 @@ struct CloudTreeNodeActions {
         func createTerminal(_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) {
             let catalog = catalog()
             guard let workspaceID = selectedWorkspaceID(),
-                  let workspace = catalog.cloudWorkspaceRenameService.environment.workspace(workspaceID) else { return }
+                  let workspace = SurfacePaneFactory.workspace(id: workspaceID) else { return }
             onWillMutate(startingLabel(machine))
             _ = workspace.createCloudTerminal(on: machine, remoteWorkspaceID: remoteWorkspaceID, catalog: catalog)
             onDidMutate()
