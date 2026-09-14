@@ -487,6 +487,7 @@ jobs:
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=100 -Xllvm -time-passes' \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Bound Xcode compilation cache size
