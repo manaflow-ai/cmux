@@ -10,7 +10,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
             if let failure = failureStore.failure {
                 CloudPaneCreationFailureView(
                     failure: failure,
-                    onRetry: failureStore.canRetry ? { failureStore.retry() } : nil,
+                    onRetry: failureStore.canRetry ? { failureStore.retry(id: failure.id) } : nil,
                     onDismiss: { failureStore.dismiss(id: failure.id) }
                 )
                 .padding(.top, 12)

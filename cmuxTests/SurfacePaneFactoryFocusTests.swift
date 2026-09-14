@@ -134,7 +134,7 @@ import Testing
         #expect(workspace.cloudPaneCreationFailureStore.canRetry)
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        workspace.cloudPaneCreationFailureStore.retry()
+        workspace.cloudPaneCreationFailureStore.retry(id: failure.id)
         let retryRequest = await requestIterator.next()
         await waitForFailure(workspace.cloudPaneCreationFailureStore)
         #expect(firstRequest != nil)
@@ -157,6 +157,23 @@ import Testing
         #expect(store.failure == nil)
         store.present(machine: .cloud("new"), error: error, requestID: second)
         #expect(store.failure?.machine == .cloud("new"))
+    }
+
+    @Test("Cloud placement failures remain inline and dismissible")
+    func cloudPlacementFailureDoesNotOpenAModal() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machine = SurfaceMachineID.cloud("placement-fixture")
+
+        workspace.presentCloudPlacementFailure(CloudDiagnosticFailure.network, machine: machine)
+
+        #expect(NSApp.modalWindow == nil)
+        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
+        #expect(failure.machine == machine)
+        #expect(failure.title == String(localized: "cloudPane.layoutSyncFailed.title", defaultValue: "Couldn’t update the machine workspace"))
+        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")

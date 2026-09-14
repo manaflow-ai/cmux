@@ -31,13 +31,13 @@ final class CloudPaneCreationFailureStore {
     }
 
     /// Publishes a newly formatted failure, replacing any older card for this workspace.
-    func present(machine: SurfaceMachineID, error: Error, requestID: UUID) {
+    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, title: String? = nil, recoveryText: String? = nil) {
         guard activeRequestID == requestID else {
             requests.removeValue(forKey: requestID)
             return
         }
         failedRequestID = requestID
-        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error))
+        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText))
     }
 
     /// Retains each independent shortcut intent until it completes or is dismissed.
@@ -85,8 +85,8 @@ final class CloudPaneCreationFailureStore {
     }
 
     /// Repeats the current request without minting a second remote creation intent.
-    func retry() {
-        guard let failedRequestID, let coordinator = requests[failedRequestID] else { return }
+    func retry(id: UUID) {
+        guard failure?.id == id, let failedRequestID, let coordinator = requests[failedRequestID] else { return }
         coordinator.retry()
     }
 

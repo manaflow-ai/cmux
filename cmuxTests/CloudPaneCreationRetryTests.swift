@@ -11,7 +11,38 @@ import Testing
 @MainActor
 struct CloudPaneCreationRetryTests {
     @Test
-    func aNewIntentDoesNotOrphanAnActiveRetry() async {
+    func staleFailureActionCannotRetryTheNewestRequest() async throws {
+        let store = CloudPaneCreationFailureStore()
+        let completions = AsyncStream<Void>.makeStream()
+        var completion = completions.stream.makeAsyncIterator()
+        let resource = Self.resource()
+        var projects = 0
+        func startRequest() {
+            store.run(
+                machine: resource.machine, requestID: store.beginRequest(),
+                create: { resource },
+                project: { _ in projects += 1; throw CloudDiagnosticFailure.network },
+                onStart: {}, onFinish: { completions.continuation.yield(()) },
+                discardProjection: { _ in }
+            )
+        }
+        startRequest()
+        _ = await completion.next()
+        let previousFailureID = try #require(store.failure?.id)
+        startRequest()
+        _ = await completion.next()
+        let currentFailureID = try #require(store.failure?.id)
+
+        store.retry(id: previousFailureID)
+
+        #expect(store.failure?.id == currentFailureID)
+        #expect(!store.isPending)
+        #expect(projects == 2)
+        store.cancelAll()
+    }
+
+    @Test
+    func aNewIntentDoesNotOrphanAnActiveRetry() async throws {
         let store = CloudPaneCreationFailureStore()
         let failed = CloudLinkFirstValue<Bool>()
         let retryStarted = CloudLinkFirstValue<Bool>()
@@ -37,7 +68,7 @@ struct CloudPaneCreationRetryTests {
             discardProjection: { _ in discarded = true }
         )
         _ = await failed.result
-        store.retry()
+        store.retry(id: try #require(store.failure?.id))
         _ = await retryStarted.result
         _ = store.beginRequest()
         store.cancelAll()
@@ -71,7 +102,7 @@ struct CloudPaneCreationRetryTests {
         _ = await completion.next()
         #expect(store.failure != nil)
         #expect(store.canRetry)
-        store.retry()
+        store.retry(id: try #require(store.failure?.id))
         _ = await completion.next()
         #expect(creates == 1)
         #expect(projections == 2)
