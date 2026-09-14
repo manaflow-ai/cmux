@@ -17,7 +17,7 @@ extension CloudMachineResourcePresentation {
             case .unknown:
                 availability = .unavailable
             case .awake:
-                guard let sampledAt = stats!.resourceSampledAt else {
+                guard let sampledAt = stats!.resourceSampledAt, sampledAt <= now else {
                     availability = .unavailable
                     break
                 }

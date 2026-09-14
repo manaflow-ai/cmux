@@ -91,6 +91,12 @@ struct CloudTreeMachineResourcesTests {
         )
         #expect(stale.availability == .stale)
         #expect(stale.cpu.percent == nil)
+
+        let future = CloudMachineResourcePresentation(
+            machine: machine(resourceSampledAt: Date(timeIntervalSince1970: 1_780_000_001)),
+            now: Date(timeIntervalSince1970: 1_780_000_000)
+        )
+        #expect(future.availability == .unavailable)
     }
 
     @Test @MainActor func refreshedSnapshotsUpdateReadingsWithoutReplacingRows() throws {
