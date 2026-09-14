@@ -5,6 +5,7 @@ import io
 import re
 import sys
 from pathlib import Path
+from typing import Dict, Optional
 
 
 SUMMARY_RE = re.compile(
@@ -44,7 +45,7 @@ def _clean_line(line: str) -> str:
     return " ".join(_ANSI_RE.sub("", line).split())[:500]
 
 
-def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
+def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
     """Return a non-gating diagnosis for hosted test output."""
     xctest_executed = 0
     swift_executed = 0
@@ -52,10 +53,10 @@ def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
     swift_summary_count = 0
     xctest_unexpected = 0
     swift_failed = False
-    compile_line: str | None = None
-    app_host_line: str | None = None
-    assertion_line: str | None = None
-    last_line: str | None = None
+    compile_line: Optional[str] = None
+    app_host_line: Optional[str] = None
+    assertion_line: Optional[str] = None
+    last_line: Optional[str] = None
     for raw_line in io.StringIO(output):
         last_line = raw_line.rstrip("\r\n")
         xctest_match = SUMMARY_RE.search(raw_line)
