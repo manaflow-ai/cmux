@@ -4471,16 +4471,16 @@ impl Surface {
             payload.extend_from_slice(b"\x1b[201~");
         }
         #[cfg(unix)]
-        if let Some(timeout) = timeout {
-            if let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd()) {
-                return crate::pty_write::write_bounded(
-                    fd,
-                    &payload,
-                    timeout,
-                    "PTY paste write timed out",
-                )
-                .map_err(|failure| failure.error);
-            }
+        if let Some(timeout) = timeout
+            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+        {
+            return crate::pty_write::write_bounded(
+                fd,
+                &payload,
+                timeout,
+                "PTY paste write timed out",
+            )
+            .map_err(|failure| failure.error);
         }
         writer.write_all(&payload)?;
         writer.flush()

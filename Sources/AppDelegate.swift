@@ -19954,7 +19954,7 @@ private extension NSWindow {
         return nil
     }
 
-    fileprivate static func cmuxOwningWebView(
+    static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?
