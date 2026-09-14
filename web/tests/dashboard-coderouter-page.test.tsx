@@ -268,6 +268,8 @@ mock.module("../services/coderouter/claudeUpstream", () => ({
 }));
 
 mock.module("../services/coderouter/repository", () => ({
+  authenticateApiKey: async () => null,
+  authenticateRouteToken: async () => null,
   listAccounts: async () => [],
 }));
 
