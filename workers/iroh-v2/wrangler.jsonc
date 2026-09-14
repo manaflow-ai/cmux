@@ -37,9 +37,7 @@
       "RELAY_SIGNING_KEY",
       "RELAY_KEY_ID",
       "RELAY_URLS",
-      "DATABASE_URL",
-      "AXIOM_TOKEN",
-      "SENTRY_DSN"
+      "DATABASE_URL"
     ]
   },
   "migrations": [
@@ -93,9 +91,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "DATABASE_URL"
         ]
       },
       "hyperdrive": [
@@ -136,9 +132,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "DATABASE_URL"
         ]
       },
       "hyperdrive": [
@@ -179,9 +173,7 @@
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
           "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "DATABASE_URL"
         ]
       },
       "hyperdrive": [
