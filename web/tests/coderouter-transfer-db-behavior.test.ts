@@ -71,16 +71,22 @@ dbTest("a conflicting destination rolls back both account and credential writes"
   await assertOwner(id, source, 1);
 });
 
-dbTest("a late refresh cannot restore the old team after transfer", async () => {
+dbTest("an active refresh finishes before a transfer can move its credential", async () => {
   const id = await create();
   const leaseId = await claimRefreshLease(id);
   expect(leaseId).not.toBeNull();
-  await move(id);
-  const [row] = await sql`select state, refresh_lease_id from coderouter_accounts where id = ${id}`;
-  expect(row).toMatchObject({ state: "active", refresh_lease_id: null });
-  const encrypted = await encryptCredential({ accountId: id, teamId: source, provider: "codex", credentialRevision: 2, credential, keys });
-  await expect(completeRefreshLease({ accountId: id, leaseId: leaseId!, expectedRevision: 1, credential, encrypted })).rejects.toBeInstanceOf(CodeRouterCredentialRace);
-  await assertOwner(id, destination, 2);
+  await expect(move(id)).rejects.toBeInstanceOf(CodeRouterCredentialRace);
+  await assertOwner(id, source, 1);
+  const refreshed = { ...credential, refreshToken: "rotated-refresh" };
+  const encrypted = await encryptCredential({ accountId: id, teamId: source, provider: "codex", credentialRevision: 2, credential: refreshed, keys });
+  await completeRefreshLease({ accountId: id, leaseId: leaseId!, expectedRevision: 1, credential: refreshed, encrypted });
+  const moved = await encryptCredential({ accountId: id, teamId: destination, provider: "codex", credentialRevision: 3, credential: refreshed, keys });
+  expect(await transferEncryptedAccount({ accountId: id, sourceTeamId: source, destinationTeamId: destination, stackUserId: "test-user", credential: moved })).toBe(true);
+  const envelope = await encryptedCredentialForAccount(destination, id);
+  expect(envelope?.credentialRevision).toBe(3);
+  expect(await decryptCredential(envelope!, keys)).toEqual(refreshed);
+  const [row] = await sql`select state, vault_revision, refresh_lease_id from coderouter_accounts where id = ${id}`;
+  expect(row).toMatchObject({ state: "active", vault_revision: 3, refresh_lease_id: null });
 });
 
 dbTest("only one concurrent destination can acquire the account", async () => {
