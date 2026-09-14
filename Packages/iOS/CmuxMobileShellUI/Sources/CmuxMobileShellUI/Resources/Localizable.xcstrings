@@ -12653,13 +12653,13 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在「新增任務」中使用 Liquid Glass 控制項和透明工具列。"
+            "value": "在「新增任務」中使用 Liquid Glass 控制項和透明橫條。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在“新建任务”中使用 Liquid Glass 控件和透明工具栏。"
+            "value": "在“新建任务”中使用 Liquid Glass 控件和透明横条。"
           }
         },
         "ko": {
