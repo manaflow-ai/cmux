@@ -5192,8 +5192,7 @@ struct CMUXCLI {
         // value is always the requested path, so SocketClient reports its
         // normal connection error and errno below.
         var resolvedSocketPath = socketResolution.selectedPath ?? socketPath
-        if socketPathSource == .implicitDefault,
-           let rerouteNotice = socketResolution.rerouteNotice {
+        if socketPathSource == .implicitDefault, !(command == "hooks" && hooksInvocationCanProceedWithoutLiveSocket(commandArgs: commandArgs, environment: processEnv)), let rerouteNotice = socketResolution.rerouteNotice {
             cliWriteStderr(rerouteNotice + "\n")
         }
 
@@ -21853,6 +21852,7 @@ struct CMUXCLI {
             }
             return urlByHandle
         }
+
         // Fallback for older servers that may not support browser.tab.list.
         var fallbackURLs: [String: String] = [:]
         for surface in surfaces {
@@ -21876,6 +21876,7 @@ struct CMUXCLI {
         }
         return fallbackURLs
     }
+
     private func treeBrowserURL(surface: [String: Any], urlsByHandle: [String: String]) -> String? {
         if let id = surface["id"] as? String, let url = urlsByHandle[id] {
             return url
@@ -21888,23 +21889,28 @@ struct CMUXCLI {
         }
         return nil
     }
+
     private func treeItemMatchesHandle(_ item: [String: Any], handle: String?) -> Bool {
         guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
             return false
         }
         return (item["id"] as? String) == handle || (item["ref"] as? String) == handle
     }
+
     private func renderTreeText(windows: [[String: Any]], idFormat: CLIIDFormat) -> String {
         guard !windows.isEmpty else { return "No windows" }
+
         var lines: [String] = []
         for window in windows {
             lines.append(treeWindowLabel(window, idFormat: idFormat))
+
             let workspaces = window["workspaces"] as? [[String: Any]] ?? []
             for (workspaceIndex, workspace) in workspaces.enumerated() {
                 let workspaceIsLast = workspaceIndex == workspaces.count - 1
                 let workspaceBranch = workspaceIsLast ? "└── " : "├── "
                 let workspaceIndent = workspaceIsLast ? "    " : "│   "
                 lines.append("\(workspaceBranch)\(treeWorkspaceLabel(workspace, idFormat: idFormat))")
+
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
                 for (paneIndex, pane) in panes.enumerated() {
                     let paneIsLast = paneIndex == panes.count - 1
@@ -21989,7 +21995,7 @@ struct CMUXCLI {
             parts.append("tty=\(tty)")
         }
         if let health = surface["render_health"] as? String,
-           health == "not_rendering" || health == "shell_exited" { parts.append("[\(health)]") }
+           health == "awaiting_frame" || health == "not_rendering" || health == "shell_exited" { parts.append("[\(health)]") }
         if surfaceType.lowercased() == "browser",
            let url = surface["url"] as? String,
            !url.isEmpty {

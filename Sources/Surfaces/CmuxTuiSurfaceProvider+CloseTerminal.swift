@@ -7,14 +7,14 @@ extension CmuxTuiSurfaceProvider {
 
     /// Closes a Cloud terminal, falling back to its daemon tab when the process already exited.
     func closeTerminal(_ id: SurfaceResourceID, fallbackTabID: String?) async throws {
-        let resolvedFallbackTabID = fallbackTabID ?? fallbackTabIDForClose(id)
+        let pendingTabID = pendingRemoteCreations[id]?.tabID
         do {
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTerminalArguments(socketPath: $0, terminalID: id.key) }
         } catch {
-            guard let tabID = resolvedFallbackTabID, Self.isSelectorNotFound(error) else { throw error }
+            guard let tabID = fallbackTabID ?? pendingTabID ?? tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await runCloseCommand { CloudTuiCommandLine.closeTabArguments(socketPath: $0, tabID: tabID) }
         }
-        retirePendingCreation(id)
+        pendingRemoteCreations.removeValue(forKey: id)
         closeLocalPanes(showing: [id]); catalog.remove(id, from: self); scheduleRefresh()
     }
 

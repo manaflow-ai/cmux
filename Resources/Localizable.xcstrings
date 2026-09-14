@@ -148974,6 +148974,17 @@
             "value": "Open Cloud as Pane"
           }
         },
+        "bs": { "stringUnit": { "state": "translated", "value": "Otvori Cloud kao okno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Åbn Cloud som rude" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apri Cloud come pannello" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើក Cloud ជាផ្ទាំង" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Åpne Cloud som rute" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Otwórz Cloud jako panel" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir o Cloud como painel" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыть Cloud как панель" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิด Cloud เป็นบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cloud'u bölme olarak aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відкрити Cloud як панель" } },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -524419,6 +524430,20 @@
             "value": "Налаштувати cmux VPN"
           }
         }
+      }
+    },
+    "cloud.ports.vpnOff.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set Up VPN…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "VPN einrichten…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Configurer le VPN…" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إعداد VPN…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Configurar VPN…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "設定 VPN…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置 VPN…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "VPN 설정…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "VPN を設定…" } }
       }
     },
     "cloud.ports.vpnOff.explanation": {

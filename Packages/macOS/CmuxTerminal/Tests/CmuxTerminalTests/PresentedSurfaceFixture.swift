@@ -1,7 +1,6 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
-import GhosttyRuntimeTestStubs
 @testable import CmuxTerminal
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
@@ -76,8 +75,8 @@ struct PresentedSurfaceFixture {
         }
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
-        if surface.rendererPresentationState.inFlightToken != nil {
-            _ = cmux_test_ghostty_renderer_present(runtimeSurface)
+        if let token = surface.rendererPresentationState.inFlightToken {
+            surface.rendererFrameDidPresent(token: token)
         }
     }
 
@@ -90,7 +89,8 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        guard surface.rendererPresentationState.inFlightToken != nil else { return }
-        _ = cmux_test_ghostty_renderer_present(runtimeSurface)
+        if let token = surface.rendererPresentationState.inFlightToken {
+            surface.rendererFrameDidPresent(token: token)
+        }
     }
 }

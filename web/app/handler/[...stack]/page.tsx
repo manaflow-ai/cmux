@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
+import { CliAuthConfirmation } from "../cli-auth-confirmation";
 
 // Stack Auth owns this catch-all route and reads its URL before it can render.
 // Keep authentication reliable instead of withholding it behind an empty
@@ -27,7 +28,9 @@ export default async function StackHandlerPage(
     stack.length === 1 &&
     stack[0] === "sign-in";
 
-  const handlerContent = isCoderouterSignIn ? (
+  const handlerContent = stack.length === 1 && stack[0] === "cli-auth-confirm" ? (
+    <CliAuthConfirmation fullPage />
+  ) : isCoderouterSignIn ? (
     // The shared cmux Google connector requests Drive, Gmail, and Calendar
     // scopes for optional integrations. Those scopes are inappropriate for
     // coderouter authentication, so coderouter deliberately offers

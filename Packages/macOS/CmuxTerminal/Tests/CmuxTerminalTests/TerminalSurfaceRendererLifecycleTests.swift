@@ -1,11 +1,9 @@
 import AppKit
 import GhosttyKit
-import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
 /// Visibility transitions begin a fresh bounded recovery episode.
-extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererLifecycleTests {
     @Test func windowShowCanRecoverAfterAnEarlierEpisodeWasExhausted() {
@@ -28,19 +26,13 @@ extension TerminalRendererTests {
     }
 
     private func failProbe(on surface: TerminalSurface) {
-        guard surface.rendererPresentationState.inFlightToken != nil else {
+        guard let token = surface.rendererPresentationState.inFlightToken else {
             Issue.record("expected an in-flight presentation probe")
             return
         }
-        guard let runtimeSurface = surface.surface else {
-            Issue.record("expected a live runtime surface")
-            return
-        }
-        #expect(cmux_test_ghostty_renderer_fail(
-            runtimeSurface,
-            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
+        surface.rendererFrameDidFail(
+            token: token,
+            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
+        )
     }
-}
-
 }

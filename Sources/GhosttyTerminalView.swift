@@ -21,7 +21,6 @@ import CMUXAgentLaunch
 import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
-
 enum GhosttyStartupAppearancePreviewState {
     #if DEBUG
     // The selected debug preview profile. Backed by the CmuxTerminalCore seam
@@ -9544,6 +9543,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
     var effectiveSize: CGSize? {
         didSet { needsDisplay = true }
     }
+
     var drawsVisibleAreaBorder = false {
         didSet { needsDisplay = true }
     }
@@ -9598,12 +9598,15 @@ private final class TerminalViewportBorderOverlayView: NSView {
         path.stroke()
     }
 }
+
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
         case navigation
         case notification
     }
+
     private static let flashAnimationKey = "cmux.flash"
+
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
         switch reason {
         case .navigation, .userInitiated:
@@ -9612,6 +9615,7 @@ final class GhosttySurfaceScrollView: NSView {
             return .notification
         }
     }
+
     private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
         switch style {
         case .navigation:
@@ -9620,6 +9624,7 @@ final class GhosttySurfaceScrollView: NSView {
             return WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
         }
     }
+
     private enum NotificationRingMetrics {
         static let inset = PanelOverlayRingMetrics.inset
         static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
@@ -9652,6 +9657,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return window
     }
+
     func forwardKeyDownToSurface(_ event: NSEvent) {
         surfaceView.keyDown(with: event)
     }
@@ -9668,7 +9674,6 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorView: NSVisualEffectView
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
-    private let renderHealthOverlayController: TerminalRenderHealthOverlayController
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
     private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
@@ -9914,7 +9919,6 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorView = NSVisualEffectView(frame: .zero)
         imageTransferIndicatorSpinner = NSProgressIndicator(frame: .zero)
         imageTransferCancelButton = NSButton(frame: .zero)
-        renderHealthOverlayController = TerminalRenderHealthOverlayController()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -10441,11 +10445,8 @@ final class GhosttySurfaceScrollView: NSView {
         }
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
-        _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame)
-        renderHealthOverlayController.updateFrame(contentFrame)
-        if let cloudTerminalReconnectOverlayView {
-            _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame)
-        }
+        _ = setFrameIfNeeded(linkHoverIndicatorView, to: contentFrame); updateRenderHealthOverlayFrame(contentFrame)
+        if let cloudTerminalReconnectOverlayView { _ = setFrameIfNeeded(cloudTerminalReconnectOverlayView, to: contentFrame) }
         synchronizeCloudTerminalReconnectOverlay()
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
@@ -10716,8 +10717,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
-        surfaceView.attachSurface(terminalSurface)
-        renderHealthOverlayController.attach(host: self, surface: terminalSurface)
+        surfaceView.attachSurface(terminalSurface); attachRenderHealthOverlay(to: terminalSurface)
         // Preserve the bootstrap 800x600 surface until portal reattach churn
         // has produced a real host size instead of a transient 1x1 placeholder.
         guard bounds.width > 1, bounds.height > 1 else { return }

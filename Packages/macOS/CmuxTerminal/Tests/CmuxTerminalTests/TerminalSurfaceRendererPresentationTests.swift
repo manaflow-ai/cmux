@@ -1,7 +1,6 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
-import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -26,12 +25,11 @@ private func setRendererRealizedResult(_ result: Bool)
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
-extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererPresentationTests {
     @Test func visibleRuntimeWaitsForUsableDrawableGeometry() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.borderless],
@@ -74,7 +72,7 @@ extension TerminalRendererTests {
 
     @Test func firstPresentationWaitsUntilTheSurfaceIsAttachedToARealWindow() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
@@ -107,7 +105,7 @@ extension TerminalRendererTests {
 
     @Test func hiddenRuntimeIsReleasedThenRebuiltOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
@@ -139,7 +137,7 @@ extension TerminalRendererTests {
 
     @Test func hiddenRuntimeIsOccludedBeforeRendererRelease() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
@@ -158,7 +156,7 @@ extension TerminalRendererTests {
 
     @Test func visibleRuntimeIsPresentedWithoutRedundantNativeTransition() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
@@ -184,7 +182,7 @@ extension TerminalRendererTests {
 
     @Test func visibleRuntimeDoesNotClaimPresentationBeforeAFrameIsPresented() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.borderless],
@@ -219,31 +217,22 @@ extension TerminalRendererTests {
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        guard let runtimeSurface = surface.surface else {
-            Issue.record("runtime surface missing")
-            return
-        }
-        #expect(cmux_test_ghostty_renderer_fail(
-            runtimeSurface,
-            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
-        #expect(cmux_test_ghostty_renderer_fail(
-            runtimeSurface,
-            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
+        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
+        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        let recoveryToken = surface.rendererPresentationState.inFlightToken!
+        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
         #expect(surface.renderHealth == .notRendering)
     }
 
     @Test func reclaimedRuntimeIsRebuiltOnceWhenShownAgain() {
         let registry = TerminalSurfaceRegistry()
-        let surface = makeRendererTestSurface(registry: registry)
+        let surface = makeSurface(registry: registry)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
-        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -268,7 +257,7 @@ extension TerminalRendererTests {
     @Test func rejectedFirstPresentationWaitsForRendererActivityBeforeSchedulingRepair() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
-        let surface = makeRendererTestSurface(registry: registry, rendererRealization: scheduler)
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -321,7 +310,7 @@ extension TerminalRendererTests {
     @Test func laterRendererActivityRepairsAfterRepeatedRebuildRejections() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
-        let surface = makeRendererTestSurface(registry: registry, rendererRealization: scheduler)
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -368,7 +357,7 @@ extension TerminalRendererTests {
     @Test func rendererActivityDoesNotRetryAfterSurfaceBecomesHidden() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
-        let surface = makeRendererTestSurface(registry: registry, rendererRealization: scheduler)
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -398,7 +387,7 @@ extension TerminalRendererTests {
     @Test func queuedRendererRepairDoesNotTouchReleasedSurface() {
         let registry = TerminalSurfaceRegistry()
         let scheduler = FakeRendererRealizationScheduler()
-        let surface = makeRendererTestSurface(registry: registry, rendererRealization: scheduler)
+        let surface = makeSurface(registry: registry, rendererRealization: scheduler)
         let callbackContext = installRendererCallbackContext(on: surface, scheduler: scheduler)
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -444,15 +433,14 @@ extension TerminalRendererTests {
     }
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
-        guard let runtimeSurface = surface.surface else { return }
-        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
+        guard let token = surface.rendererPresentationState.inFlightToken else { return }
+        surface.rendererFrameDidPresent(token: token)
     }
 
     private func installRendererCallbackContext(
         on surface: TerminalSurface,
         scheduler: FakeRendererRealizationScheduler
     ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        let target = TerminalSurfaceCallbackTarget(surface: surface)
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: surface.surfaceView,
             surfaceController: surface,
@@ -461,20 +449,50 @@ extension TerminalRendererTests {
                 MainActor.assumeIsolated {
                     scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
-            },
-            rendererFramePresented: { _, token in
-                MainActor.assumeIsolated { target.surface?.rendererFrameDidPresent(token: token) }
-            },
-            rendererFrameFailed: { _, token, status in
-                MainActor.assumeIsolated { target.surface?.rendererFrameDidFail(token: token, status: status) }
             }
         ))
         surface.surfaceCallbackContext = callbackContext
         return callbackContext
     }
 
-
-
-}
+    private func makeSurface(
+        registry: TerminalSurfaceRegistry,
+        rendererRealization: any TerminalRendererRealizationScheduling = FakeRendererRealizationScheduler()
+    ) -> TerminalSurface {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        return TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            dependencies: TerminalSurfaceRuntimeDependencies(
+                registry: registry,
+                engine: FakeTerminalEngine(),
+                viewProvider: FakeTerminalSurfaceViewProvider(
+                    surfaceView: nativeView,
+                    paneHost: paneHost
+                ),
+                spawnPolicy: FakeSpawnPolicyProvider(),
+                byteTee: FakeTerminalByteTee(),
+                rendererRealization: rendererRealization,
+                hibernationRecorder: FakeHibernationRecorder(),
+                runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
+                restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
+                runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
+                    agentCommandShimTemporaryDirectory: URL(
+                        fileURLWithPath: "/tmp/cmux-terminal-tests",
+                        isDirectory: true
+                    ),
+                    installAgentCommandShims: { _, _, _ in nil },
+                    isExecutableFile: { _ in false }
+                ),
+                sessionPortBase: 40_000,
+                sessionPortRangeSize: 100,
+                scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
+            )
+        )
+    }
 
 }
