@@ -50,7 +50,14 @@ extension Workspace {
 #endif
         Task { @MainActor in
             do {
-                _ = try await catalog.projectGroup(group, into: target, focus: true)
+                let projections = try await catalog.projectGroup(group, into: target, focus: true)
+                // A Cloud drag starts in the right sidebar, so the sidebar remains
+                // the window's recorded keyboard owner after AppKit completes the
+                // drop. Re-run the shared focus transaction once the first pane is
+                // materialized so its Bonsplit focus and bright active state agree.
+                if let first = projections.first {
+                    SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                }
             } catch {
 #if DEBUG
                 cmuxDebugLog("surfaces.drop.failed group=\(group.title) error=\(error)")
