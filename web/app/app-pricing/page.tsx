@@ -124,7 +124,7 @@ export default async function AppPricingPage({
   const signInCheckoutHref = (checkoutHref: string, plan: "go" | "pro" | "max" | "team") =>
     snapshot.authenticated ? undefined : appPricingSignInHref(cmuxScheme, params, plan);
   const pendingPlan = firstParam(params.cmux_billing_plan);
-  if (snapshot.authenticated && pendingPlan) {
+  if (snapshot.authenticated && !appStorePaymentGated && pendingPlan) {
     const pendingCheckout = {
       go: appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution),
       pro: proCheckoutHref,
