@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Fixed attention slot before the row icon; pins sit with trailing accessories.
+/// Fixed attention slot and optional pin before the row's icon and title.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
@@ -21,13 +21,14 @@ struct CloudSidebarRowDecoration: ViewModifier {
                     .help(hasUnreadNotification
                         ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
             }
-            content
             if isPinned {
                 Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
+                    .cmuxFont(size: 9, weight: .semibold)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                     .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
+            content
         }
     }
 }
