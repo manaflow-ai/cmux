@@ -205,7 +205,10 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_ci = root / "scripts/ci"
             fake_ci.mkdir(parents=True)
             shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
-            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            console = fake_ci / "run-in-console-session.sh"
+            console.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+            console.chmod(0o755)
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
             fake_runner.write_text(
                 "#!/usr/bin/env python3\n"
                 "print('Executed 2 tests, with 0 failures (0 unexpected)')\n"
@@ -216,6 +219,7 @@ class AppHostTestOutputTests(unittest.TestCase):
             environment = {
                 **os.environ,
                 "UNIT_TEST_SUITES": "",
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "TEST_RESULTS_ROOT": str(root / "results"),
             }
             completed = subprocess.run(
@@ -235,7 +239,10 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_ci = root / "scripts/ci"
             fake_ci.mkdir(parents=True)
             shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
-            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            console = fake_ci / "run-in-console-session.sh"
+            console.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+            console.chmod(0o755)
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
             fake_runner.write_text(
                 "#!/usr/bin/env python3\n"
                 "import os\n"
@@ -252,6 +259,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 environment = {
                     **os.environ,
                     "UNIT_TEST_SUITES": "Foo",
+                    "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                     "TEST_RESULTS_ROOT": str(results),
                     "FAKE_TEST_MODE": mode,
                 }

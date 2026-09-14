@@ -16,6 +16,11 @@ on:
       - Packages/macOS/CMUXAgentLaunch/**
       - .github/workflows/test-depot.yml
       - scripts/ci/classify-app-host-test-output.py
+      - scripts/ci/*app-host*
+      - scripts/ci/app_host_test_lock.py
+      - scripts/ci/run-in-console-session.sh
+      - scripts/ci/xcodebuild_noninteractive.py
+      - tests/test_ci_depot_app_host.py
       - Sources/AgentJournalLifecycleCenter*.swift
       - .github/workflows/agent-notification-tests.yml
 permissions:
