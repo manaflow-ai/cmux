@@ -65,7 +65,7 @@ struct CloudTreeRowContentView: View {
         return cloudVPNSetup
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
         case .machine(let machine, _):

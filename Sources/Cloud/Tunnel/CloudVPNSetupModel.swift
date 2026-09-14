@@ -7,11 +7,19 @@ import Observation
 @Observable
 final class CloudVPNSetupModel {
     let tunnelStatus = CloudTunnelStatusModel()
-    private let coordinator: CloudTunnelCoordinator?
+    private var coordinator: CloudTunnelCoordinator?
     private(set) var isSubmitting = false
     private(set) var errorMessage: String?
 
     init(coordinator: CloudTunnelCoordinator?) {
+        self.coordinator = coordinator
+    }
+
+    /// Owners can be built before the app installs its shared coordinator.
+    /// Attaching late is what turns this model from a dead card into one that
+    /// reports status and can connect.
+    func attach(coordinator: CloudTunnelCoordinator) {
+        guard self.coordinator == nil else { return }
         self.coordinator = coordinator
     }
 

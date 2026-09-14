@@ -18977,6 +18977,14 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
+private final class CmuxFieldEditorOwningWebViewBox: NSObject {
+    weak var webView: CmuxWebView?
+
+    init(webView: CmuxWebView?) {
+        self.webView = webView
+    }
+}
+
 private extension NSApplication {
     @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if Thread.isMainThread, let cache = AppDelegate.shared?.accessibilityWindowCache {
@@ -19945,6 +19953,40 @@ private extension NSWindow {
 
         return nil
     }
+
+    static func cmuxOwningWebView(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        if browserOmnibarPanelId(for: responder) != nil {
+            return nil
+        }
+
+        // Browser find runs in the portal slot alongside the hosted WKWebView.
+        // Treat its native field editor chain as browser chrome, not as web content,
+        // so Cmd+F can move first responder into the find field while web focus is suppressed.
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
+            return nil
+        }
+
+        if let webView = cmuxOwningWebView(for: responder) {
+            return webView
+        }
+
+        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
+            return nil
+        }
+
+        if let event,
+           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
+            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
+            return hitWebView
+        }
+
+        return cmuxTrackedOwningWebView(for: textView)
+    }
+
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
         if let webView = view as? CmuxWebView {
             return webView
@@ -20168,42 +20210,6 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-extension NSWindow {
-    /// Resolves browser ownership for both window and app key-event routing.
-    static func cmuxOwningWebView(
-        for responder: NSResponder,
-        in window: NSWindow,
-        event: NSEvent?
-    ) -> CmuxWebView? {
-        if browserOmnibarPanelId(for: responder) != nil {
-            return nil
-        }
-
-        // Browser find runs in the portal slot alongside the hosted WKWebView.
-        // Treat its native field editor chain as browser chrome, not as web content,
-        // so Cmd+F can move first responder into the find field while web focus is suppressed.
-        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
-            return nil
-        }
-
-        if let webView = cmuxOwningWebView(for: responder) {
-            return webView
-        }
-
-        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
-            return nil
-        }
-
-        if let event,
-           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
-            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
-            return hitWebView
-        }
-
-        return cmuxTrackedOwningWebView(for: textView)
-    }
-}
-
 /// Conforms the composition root to updater host actions, retry, and relaunch seams.
 /// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
@@ -20326,3 +20332,16 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+/// Internal bridge for key-event routing. The browser ownership implementation
+/// stays private to AppDelegate.swift while the replay guard remains in its
+/// focused source file.
+extension NSWindow {
+    static func cmuxOwningWebViewForKeyRouting(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        cmuxOwningWebView(for: responder, in: window, event: event)
+    }
+}
