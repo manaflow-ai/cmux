@@ -450,7 +450,7 @@ extension AgentNotificationRegressionTests {
             Issue.record("Expected relay TTY resolution to fail, got \(result)")
             return
         }
-        #expect(code == "not_found" || code == "remote_relay_authentication_failed")
+        #expect(code == "not_found")
     }
 
     private func assertTTYReportRejected(_ result: ControlCallResult?) {
@@ -458,7 +458,7 @@ extension AgentNotificationRegressionTests {
             Issue.record("Expected relay TTY report rejection, got \(String(describing: result))")
             return
         }
-        #expect(code == "not_found")
+        #expect(code == "not_found" || code == "remote_relay_authentication_failed")
     }
 
 }
