@@ -94,7 +94,7 @@ final class CloudTuiManualMirrorSession {
     func retryConnection(cancelOnly: Bool = false) -> Bool {
         guard phase != .stopped else { return false }
         if cancelOnly {
-            guard phase == .connecting || phase == .attached else { return false }
+            guard phase == .connecting || phase == .attached || (phase == .idle && remoteSurfaceID == 0) else { return false }
             automaticReconnectSuppressed = true
         } else {
             automaticReconnectSuppressed = false
