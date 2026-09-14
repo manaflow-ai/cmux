@@ -8,6 +8,21 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test func pendingConnectionCannotReopenAnInvalidatedRouter() async throws {
+        try await Self.withConnection { connection, _ in
+            let queue = DispatchQueue(label: "test.cloud-terminal-invalidation")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            router.invalidate()
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            #expect(!router.send(.bytes(Data("after-teardown".utf8))))
+            router.invalidate()
+            try await Self.blocking { queue.sync {} }
+        }
+    }
+
     @Test func callbackAdmissionRejectsBeforeRouterQueueRuns() async throws {
         let queue = DispatchQueue(label: "test.cloud-callback-admission")
         let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
