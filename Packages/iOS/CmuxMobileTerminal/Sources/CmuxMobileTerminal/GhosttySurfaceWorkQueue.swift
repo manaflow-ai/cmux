@@ -9,6 +9,8 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     private var pendingNormal: [@Sendable () -> Void] = []
     private var priorityHead = 0
     private var normalHead = 0
+    private var priorityBurst = 0
+    private static let maximumPriorityBurst = 4
     private var isRunning = false
     #if DEBUG
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
@@ -105,12 +107,16 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
             guard let self else { return }
             self.pendingLock.lock()
             let work: (@Sendable () -> Void)?
-            if self.priorityHead < self.pendingPriority.count {
+            let shouldRunPriority = self.priorityHead < self.pendingPriority.count
+                && (self.priorityBurst < Self.maximumPriorityBurst || self.normalHead >= self.pendingNormal.count)
+            if shouldRunPriority {
                 work = self.pendingPriority[self.priorityHead]
                 self.priorityHead += 1
+                self.priorityBurst += 1
             } else if self.normalHead < self.pendingNormal.count {
                 work = self.pendingNormal[self.normalHead]
                 self.normalHead += 1
+                self.priorityBurst = 0
             } else {
                 work = nil
                 self.isRunning = false

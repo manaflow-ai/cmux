@@ -42,3 +42,32 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     lock.unlock()
     #expect(observedOrder == ["first", "scroll", "repaint"])
 }
+
+@Test("normal work is serviced during sustained scroll priority")
+func normalWorkIsServicedDuringSustainedScrollPriority() {
+    let workQueue = GhosttySurfaceWorkQueue(generation: 2)
+    let completed = DispatchSemaphore(value: 0)
+    let lock = NSLock()
+    var order: [String] = []
+    for index in 0..<5 {
+        workQueue.asyncPriority {
+            lock.lock()
+            order.append("scroll-\(index)")
+            lock.unlock()
+            completed.signal()
+        }
+    }
+    workQueue.async {
+        lock.lock()
+        order.append("repaint")
+        lock.unlock()
+        completed.signal()
+    }
+    for _ in 0..<6 {
+        #expect(completed.wait(timeout: .now() + 1) == .success)
+    }
+    lock.lock()
+    let observedOrder = order
+    lock.unlock()
+    #expect(observedOrder[4] == "repaint")
+}
