@@ -16,7 +16,7 @@ struct NewMachineSheet: View {
                 sizeSection
             }
             if model.hasNoAllowedMemoryOptions {
-                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Refresh your plan, or upgrade before creating a machine."))
+                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -42,9 +42,6 @@ struct NewMachineSheet: View {
         } message: {
             Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
             + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            model.refreshPlanNow()
         }
 
     }

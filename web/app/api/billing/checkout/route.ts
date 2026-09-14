@@ -48,12 +48,15 @@ import {
 import { parseNativeStackTokens, verifyRequest } from "../../../../services/vms/auth";
 import { personalPortalSession } from "../../../../services/billing/personalPortal";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { vaultSignInHref } from "../../../lib/vault-auth";
+import { captureServerEvent } from "../../../../services/analytics/serverEvents";
+import { checkoutAttributionProperties } from "../../../../services/analytics/checkoutAttribution";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
 
-// One-click upgrade entrypoint. Signed-out visitors become anonymous Stack
-// users first, then go straight to Stripe Checkout.
+// Every purchase entrypoint authenticates before looking up billing or
+// creating a Stripe object. The selected plan survives the sign-in return.
 //
 // Default: a browser navigation that 302s to Stripe (works with no JS).
 // With `?format=json`: run the same logic, then hand the client the resolved
@@ -221,18 +224,17 @@ async function stripePersonalCheckout(
 ) {
   try {
     const user = authenticatedUserId ? await stackServerApp.getUser(authenticatedUserId) :
-      (await stackServerApp.getUser({ or: "return-null" })) ??
-      (await stackServerApp.getUser({ or: "anonymous" }));
-    if (!user) throw new Error("Checkout account is unavailable");
+      await stackServerApp.getUser({ or: "return-null" });
+    if (!user || user.isAnonymous) return checkoutSignInRedirect(request);
     if (plan === GO_PLAN_ID && !(await isGoPlanEnabled(user.id))) {
       return NextResponse.redirect(new URL("/pricing?billing=plan_unavailable", requestOrigin(request)));
     }
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
-    // `or: "anonymous"` creates/returns the real Stack anonymous principal.
-    // Keep that id as the source of truth for Stripe and checkout analytics.
+    // Billing and analytics share the verified account identifier.
     const stackUserId = checkoutPrincipalId(user.id, "user");
+    captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
     const stripeBillingStatus = await stripeBillingStatusForUser(stackUserId);
     // Keep stale Upgrade links from opening a second subscription. Any
@@ -250,10 +252,13 @@ async function stripePersonalCheckout(
         portalURL.searchParams.set("plan", plan);
       }
       forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
+      captureCheckoutDecision(user.id, plan, stripeBillingStatus.activePlanId,
+        portalURL.searchParams.has("flow") ? "switch_plan" : "manage_billing", attribution);
       return NextResponse.redirect(portalURL);
     }
     const status = await resolveProPlanStatus(user, { stripeBillingStatus });
     if (status.isPro && (plan !== MAX_PLAN_ID || status.planId === MAX_PLAN_ID)) {
+      captureCheckoutDecision(user.id, plan, status.planId, "already_active", attribution);
       return NextResponse.redirect(new URL("/pricing?welcome=active", requestOrigin(request)));
     }
 
@@ -328,13 +333,13 @@ async function stripeTeamCheckout(
 ) {
   let teamId: string | undefined;
   try {
-    const user =
-      (await stackServerApp.getUser({ or: "return-null" })) ??
-      (await stackServerApp.getUser({ or: "anonymous" }));
+    const user = await stackServerApp.getUser({ or: "return-null" });
+    if (!user || user.isAnonymous) return checkoutSignInRedirect(request);
     if (isAccountDeletionInProgress(user)) {
       return accountDeletionCheckoutRedirect(request);
     }
     const stackUserId = checkoutPrincipalId(user.id, "user");
+    captureCheckoutAuthenticated(request, user.id, "team", attribution);
     const team = await checkoutTeamCustomer(user);
     const resolvedTeamId = checkoutPrincipalId(team.id, "team");
     teamId = resolvedTeamId;
@@ -342,9 +347,11 @@ async function stripeTeamCheckout(
     const stripeBillingStatus = await stripeBillingStatusForTeam(resolvedTeamId);
     // Same rule as personal checkout: an already-paying team manages billing
     // in the portal; checkout would create a duplicate subscription.
-    if (stripeBillingStatus.hasActiveSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
+    if (stripeBillingStatus.hasRecurringSubscription || isStripePortalRecoverable(stripeBillingStatus)) {
       const portalURL = new URL("/api/billing/portal", requestOrigin(request));
       portalURL.searchParams.set("scope", "team");
+      forwardCheckoutAttribution(request.nextUrl.searchParams, portalURL);
+      captureCheckoutDecision(user.id, "team", "team", "manage_billing", attribution);
       return NextResponse.redirect(portalURL);
     }
 
@@ -406,6 +413,41 @@ async function stripeTeamCheckout(
     });
     return NextResponse.redirect(new URL("/pricing?billing=error", requestOrigin(request)));
   }
+}
+
+/** Preserve only a first-party checkout return; JSON fetches resume as navigation. */
+function checkoutSignInRedirect(request: NextRequest): NextResponse {
+  const returnURL = new URL(request.url);
+  returnURL.searchParams.delete("format");
+  returnURL.searchParams.set("cmux_after_sign_in", "1");
+  return NextResponse.redirect(new URL(
+    vaultSignInHref(`${returnURL.pathname}${returnURL.search}`),
+    requestOrigin(request),
+  ));
+}
+
+function captureCheckoutAuthenticated(request: NextRequest, userId: string, plan: string, attribution: CheckoutAttribution): void {
+  void captureServerEvent({
+    event: "cmux_billing_checkout_authenticated",
+    distinctId: userId,
+    properties: { plan, resumed_after_sign_in: request.nextUrl.searchParams.get("cmux_after_sign_in") === "1",
+      ...checkoutAttributionProperties(attribution) },
+  });
+}
+
+function captureCheckoutDecision(
+  userId: string,
+  plan: string,
+  currentPlan: string | null,
+  decision: "switch_plan" | "manage_billing" | "already_active",
+  attribution: CheckoutAttribution,
+): void {
+  void captureServerEvent({
+    event: "cmux_billing_checkout_routed",
+    distinctId: userId,
+    properties: { requested_plan: plan, current_plan: currentPlan, decision,
+      billing_interval: "month", ...checkoutAttributionProperties(attribution) },
+  });
 }
 
 function accountDeletionCheckoutRedirect(request: NextRequest) {

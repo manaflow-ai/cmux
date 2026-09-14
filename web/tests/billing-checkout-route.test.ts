@@ -377,7 +377,7 @@ describe("billing checkout route", () => {
 
       delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
       stripeConfigured = true;
-      userResponses = [null, anonymousUser];
+      userResponses = [signedInUser];
       const originalNow = Date.now;
       let checkoutResponse: Awaited<ReturnType<typeof GET>>;
       try {
@@ -402,7 +402,7 @@ describe("billing checkout route", () => {
       });
 
       createdStripeSessions.length = 0;
-      userResponses = [null, anonymousUser];
+      userResponses = [signedInUser];
       const signature = relayURL.searchParams.get("cmux_relay_signature")!;
       relayURL.searchParams.set(
         "cmux_relay_signature",
@@ -499,9 +499,9 @@ describe("billing checkout route", () => {
     }
   });
 
-  test("creates Stripe checkout for anonymous Pro visitors when configured", async () => {
+  test("creates Stripe checkout for a signed-in Pro buyer", async () => {
     stripeConfigured = true;
-    userResponses = [null, anonymousUser];
+    userResponses = [signedInUser];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout"),
@@ -510,29 +510,29 @@ describe("billing checkout route", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/session");
     expect(getUser).toHaveBeenNthCalledWith(1, { or: "return-null" });
-    expect(getUser).toHaveBeenNthCalledWith(2, { or: "anonymous" });
+    expect(getUser).not.toHaveBeenCalledWith({ or: "anonymous" });
     expect(resolveProPrice).toHaveBeenCalledWith("month");
     expect(createdStripeSessions).toHaveLength(1);
     expect(createdStripeSessions[0]).toMatchObject({
       mode: "subscription",
       line_items: [{ price: "price_month", quantity: 1 }],
-      client_reference_id: ANONYMOUS_USER_ID,
+      client_reference_id: SIGNED_IN_USER_ID,
       metadata: {
-        stackUserId: ANONYMOUS_USER_ID,
+        stackUserId: SIGNED_IN_USER_ID,
         plan: "pro",
         app: "cmux",
         billingInterval: "month",
       },
       subscription_data: {
         metadata: {
-          stackUserId: ANONYMOUS_USER_ID,
+          stackUserId: SIGNED_IN_USER_ID,
           plan: "pro",
           app: "cmux",
           billingInterval: "month",
         },
       },
       allow_promotion_codes: true,
-      customer_email: undefined,
+      customer_email: "signed@example.com",
       success_url:
         "https://cmux.test/api/billing/complete?session_id={CHECKOUT_SESSION_ID}&cmux_scheme=cmux",
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",
@@ -540,11 +540,11 @@ describe("billing checkout route", () => {
     expect(captureBillingCheckoutStarted).toHaveBeenCalledTimes(1);
     expect(captureBillingCheckoutStarted).toHaveBeenCalledWith({
       sessionId: CHECKOUT_SESSION_ID,
-      subject: { scope: "user", stackUserId: ANONYMOUS_USER_ID },
+      subject: { scope: "user", stackUserId: SIGNED_IN_USER_ID },
       plan: "pro",
       billingInterval: "month",
       attribution: expect.objectContaining({ source: "unknown", client: "web" }),
-      signedIn: false,
+      signedIn: true,
       existingStripeCustomer: false,
     });
   });
@@ -554,7 +554,7 @@ describe("billing checkout route", () => {
     stripeSessionResponse = {
       url: "https://checkout.stripe.com/c/session",
     };
-    userResponses = [null, anonymousUser];
+    userResponses = [signedInUser];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout"),
@@ -583,7 +583,7 @@ describe("billing checkout route", () => {
 
   test("format=json returns the Stripe URL as JSON instead of a 302", async () => {
     stripeConfigured = true;
-    userResponses = [null, anonymousUser];
+    userResponses = [signedInUser];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/checkout?format=json"),
@@ -809,7 +809,7 @@ describe("billing checkout route", () => {
   test("rejects dev callback schemes on non-local Stripe checkout hosts", async () => {
     process.env.CMUX_DEV_NATIVE_CALLBACK_SCHEMES = "cmux-dev-test";
     stripeConfigured = true;
-    userResponses = [null, anonymousUser];
+    userResponses = [signedInUser];
 
     await GET(
       new NextRequest("https://cmux.test/api/billing/checkout?cmux_scheme=cmux-dev-test"),

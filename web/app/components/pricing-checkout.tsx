@@ -5,6 +5,8 @@ import { posthog } from "../lib/posthog-client";
 import { GO_PRICING_USD, MAX_PRICING_USD, PRO_PRICING_USD, TEAM_PRICING_USD } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
 import { CHECKOUT_PLACEMENT_PARAM, withCheckoutAttribution } from "../../services/analytics/checkoutAttribution";
+import { withExternalBrowserIntent } from "../lib/billing";
+import { vaultSignInHref } from "../lib/vault-auth";
 import type { PricingActionSize } from "./pricing-shared";
 
 type PricingSurface = "public_pricing" | "app_pricing" | "dashboard_billing";
@@ -47,7 +49,7 @@ const PLAN_CTA_EVENTS = {
 
 export function PricingCheckoutButton({
   href,
-  signInHref,
+  requiresSignIn = false,
   children,
   location,
   plan = "pro",
@@ -55,20 +57,26 @@ export function PricingCheckoutButton({
 }: {
   href: string;
   /** Signed-out visitors authenticate before the server checks subscription state. */
-  signInHref?: string;
+  requiresSignIn?: boolean;
   children: ReactNode;
   location: string;
   plan?: PricingPlan;
   size?: PricingActionSize;
 }) {
   const pricing = PLAN_PRICES[plan];
-  const destination = signInHref ?? href;
+  const checkoutHref = withCheckoutAttribution(href, { [CHECKOUT_PLACEMENT_PARAM]: location });
+  const checkoutURL = new URL(checkoutHref, "https://cmux.com");
+  checkoutURL.searchParams.set("cmux_after_sign_in", "1");
+  const signInHref = vaultSignInHref(`${checkoutURL.pathname}${checkoutURL.search}`);
+  const destination = requiresSignIn
+    ? (checkoutURL.searchParams.get("cmux_external_browser") === "1" ? withExternalBrowserIntent(signInHref) : signInHref)
+    : checkoutHref;
   return (
     <CheckoutButton
-      href={withCheckoutAttribution(destination, { [CHECKOUT_PLACEMENT_PARAM]: location })}
+      href={destination}
       size={size}
       onClick={() => {
-        if (signInHref) {
+        if (requiresSignIn) {
           posthog.capture("cmuxterm_pricing_sign_in_required", {
             plan,
             location,
@@ -82,8 +90,9 @@ export function PricingCheckoutButton({
         event: PLAN_CTA_EVENTS[plan],
         properties: {
           location,
-          checkout: !signInHref,
-          auth_required: !!signInHref,
+          plan,
+          checkout: !requiresSignIn,
+          auth_required: requiresSignIn,
           interval: "month",
           currency: "usd",
           billed_amount_usd: pricing.billedAmount,

@@ -38,14 +38,14 @@
     }
   ,
     "goLimit": {
-      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
-      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "activeMessage": "Go includes one running VM at a time.",
-      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
-      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
-      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+      "savedMessage": "Go включает две сохранённые ВМ, в том числе работающую.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go позволяет запускать одну ВМ одновременно.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "40 часов ВМ в Go на этот месяц израсходованы. Сохранённые ВМ будут доступны в следующем расчётном периоде.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go поддерживает 2 vCPU, 4 GiB ОЗУ и 16 GiB диска.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     }},
   "billingRecovery": {
     "message": "Если мы нашли аккаунт, проверьте электронную почту, чтобы узнать дальнейшие действия"

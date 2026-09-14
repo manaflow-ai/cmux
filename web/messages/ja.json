@@ -183,14 +183,14 @@
     }
   ,
     "goLimit": {
-      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
-      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "activeMessage": "Go includes one running VM at a time.",
-      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
-      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
-      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+      "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go では同時に 1 台の VM を実行できます。",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go の今月の 40 VM 時間を使い切りました。保存済み VM は次の請求期間から再び利用できます。",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     }},
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",

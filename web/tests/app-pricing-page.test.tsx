@@ -94,9 +94,9 @@ describe("app pricing page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("/handler/native-sign-in?after_auth_return_to=");
-    expect(html).toContain("cmux_billing_plan%253Dpro");
-    expect(html).toContain("cmux_billing_plan%253Dteam");
-    expect(html).toContain("cmux_billing_plan%253Dmax");
+    expect(html).toContain("plan%253Dpro");
+    expect(html).toContain("plan%253Dteam");
+    expect(html).toContain("plan%253Dmax");
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
@@ -121,9 +121,9 @@ describe("app pricing page", () => {
     expect(html).toContain("Get Go");
     expect(html).toContain("For individuals");
     expect(html).toContain("For teams and businesses");
-    expect(html).toContain("cmux_billing_plan%253Dpro");
-    expect(html).toContain("cmux_billing_plan%253Dmax");
-    expect(html).toContain("cmux_billing_plan%253Dteam");
+    expect(html).toContain("plan%253Dpro");
+    expect(html).toContain("plan%253Dmax");
+    expect(html).toContain("plan%253Dteam");
     expect(html).toContain("Compare plans");
     expect(html).not.toContain("/api/billing/portal");
   });
@@ -142,8 +142,8 @@ describe("app pricing page", () => {
     });
     const html = renderToStaticMarkup(element);
 
-    expect(html).toContain("cmux_billing_plan%253Dpro");
-    expect(html).toContain("cmux_billing_plan%253Dteam");
+    expect(html).toContain("plan%253Dpro");
+    expect(html).toContain("plan%253Dteam");
     expect(html).toContain("cmux_source%253Dmac_help_menu");
     expect(html).toContain("cmux_app_build%253D2026090101");
   });
@@ -209,8 +209,8 @@ describe("app pricing page", () => {
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
     expect(html).not.toMatch(/plan=max[^"]*interval=/);
-    expect(html).toContain("cmux_billing_plan%253Dpro");
-    expect(html).toContain("cmux_billing_plan%253Dteam");
+    expect(html).toContain("plan%253Dpro");
+    expect(html).toContain("plan%253Dteam");
     expect(html).not.toContain('role="radiogroup"');
     expect(html).not.toContain('<button type="button" role="radio" aria-checked="true"');
     expect(html).not.toContain("appearance=dark&amp;interval=month");

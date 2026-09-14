@@ -204,8 +204,8 @@ func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any
         let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
         if plan == .pro {
             return String(format: String(
-                localized: "cloudVM.error.requiresPro.action",
-                defaultValue: "Upgrade to cmux Pro at %@ to create Cloud VMs."
+                localized: "cloudVM.error.memoryRequiresPlan.proAction",
+                defaultValue: "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
             ), checkout.absoluteString)
         }
         return String(format: String(

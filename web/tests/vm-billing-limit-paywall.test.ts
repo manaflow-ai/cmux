@@ -151,7 +151,7 @@ describe("Cloud VM memory allowance", () => {
 
 describe("active-limit response as the paywall moment", () => {
   test("a zero-allowance free plan is told Cloud VMs require a cmux Pro subscription", async () => {
-    const response = vmActiveLimitExceededResponse({
+    const response = await vmActiveLimitExceededResponse({
       limit: 0,
       planId: "free",
       retryAction: "delete one first",
@@ -168,7 +168,7 @@ describe("active-limit response as the paywall moment", () => {
   });
 
   test("a free plan over the limit is prompted to upgrade to Pro", async () => {
-    const response = vmActiveLimitExceededResponse({
+    const response = await vmActiveLimitExceededResponse({
       limit: 3,
       planId: "free",
       retryAction: "delete one first",
@@ -184,7 +184,7 @@ describe("active-limit response as the paywall moment", () => {
   });
 
   test("a paid plan over the limit gets operational guidance, not a paywall", async () => {
-    const response = vmActiveLimitExceededResponse({
+    const response = await vmActiveLimitExceededResponse({
       limit: 10,
       planId: "pro",
       retryAction: "Run `cmux vm ls`, then stop or delete an active VM.",
@@ -198,7 +198,7 @@ describe("active-limit response as the paywall moment", () => {
   });
 
   test("the singular limit reads naturally", async () => {
-    const response = vmActiveLimitExceededResponse({
+    const response = await vmActiveLimitExceededResponse({
       limit: 1,
       planId: "free",
       retryAction: "unused",

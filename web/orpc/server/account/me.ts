@@ -12,7 +12,9 @@ export const accountMeOutputSchema = z.object({
   // OpenAPI type is a closed enum) keep decoding; a Max subscriber reports
   // "pro" here and the exact personal plan in `subscriptionPlanId`.
   planId: z.enum(["free", "pro"]),
-  subscriptionPlanId: z.enum(["free", "go", "pro", "max"]),
+  // Current servers always return the exact plan. Keep the wire field optional
+  // so generated clients can decode older deployments during a rolling update.
+  subscriptionPlanId: z.enum(["free", "go", "pro", "max"]).optional(),
   isPro: z.boolean(),
   billingManagement: z.enum(["stripe", "external", "none"]),
 });

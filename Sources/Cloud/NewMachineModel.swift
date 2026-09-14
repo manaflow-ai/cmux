@@ -156,9 +156,6 @@ final class NewMachineModel {
     private(set) var hasNoAllowedMemoryOptions = false
     var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
-    var refreshPlan: (@MainActor () async -> VMListPage?)?
-    private var refreshTask: Task<Void, Never>?
-    private var refreshGeneration = 0
     private var storedMemoryMb: Int
     /// The selected size. A locked size never sticks: setting one snaps to
     /// the largest allowed size below it (or the smallest allowed size), so
@@ -177,21 +174,6 @@ final class NewMachineModel {
     var onFinished: (@MainActor (Outcome) -> Void)?
 
     private let submit: Submit
-
-    deinit { refreshTask?.cancel() }
-
-    /// Refresh plan limits once, cancelling an older activation refresh and
-    /// ignoring any response that is no longer the newest generation.
-    func refreshPlanNow() {
-        refreshGeneration += 1
-        let generation = refreshGeneration
-        refreshTask?.cancel()
-        refreshTask = Task { [weak self] in
-            guard let self, let page = await self.refreshPlan?(), !Task.isCancelled else { return }
-            guard generation == self.refreshGeneration else { return }
-            self.applyPage(page)
-        }
-    }
 
     func upgradePlan(for memoryMb: Int) -> String? {
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
@@ -430,7 +412,7 @@ final class NewMachineModel {
     /// Launches the create and finishes the sheet. Nothing here waits on the
     /// machine: control returns to the person as soon as the CLI is running.
     func create() {
-        guard outcome == nil else { return }
+        guard outcome == nil, !hasNoAllowedMemoryOptions else { return }
         errorText = nil
         guard submit(createRequest) else {
             errorText = String(

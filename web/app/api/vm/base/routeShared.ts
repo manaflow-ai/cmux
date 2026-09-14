@@ -163,8 +163,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         phase: "create",
         retryable: true,
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId,
         retryAction: operation === "reset"

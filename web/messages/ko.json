@@ -38,14 +38,14 @@
     }
   ,
     "goLimit": {
-      "savedMessage": "Go includes two saved VMs in total, including the running VM.",
-      "savedAction": "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "activeMessage": "Go includes one running VM at a time.",
-      "activeAction": "Run `cmux vm pause <id>` to pause the running VM, or run `cmux billing checkout --plan pro` to upgrade.",
-      "hoursMessage": "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved.",
-      "hoursAction": "Wait for your next billing month, or run `cmux billing checkout --plan pro` to upgrade.",
-      "shapeMessage": "Go supports VMs with 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-      "shapeAction": "Create a small VM with `cmux vm new --size 4g`, or run `cmux billing checkout --plan pro` to upgrade."
+      "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go는 한 번에 VM 한 대를 실행할 수 있습니다.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "이번 달 Go의 VM 사용 시간 40시간을 모두 사용했습니다. 저장된 VM은 다음 결제 기간에 다시 사용할 수 있습니다.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     }},
   "billingRecovery": {
     "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"

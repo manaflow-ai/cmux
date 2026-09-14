@@ -40,7 +40,6 @@
                       "type": "string"
                     },
                     "subscriptionPlanId": {
-                      "nullable": true,
                       "enum": [
                         "free",
                         "go",

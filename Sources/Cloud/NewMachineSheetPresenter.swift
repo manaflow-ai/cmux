@@ -7,7 +7,7 @@ import SwiftUI
 /// the request to ``MachineCreateCoordinator`` and the sheet ends at once, so
 /// the window is modal for exactly as long as the person is choosing.
 @MainActor
-final class NewMachineSheetPresenter: NewMachineSheetPresenting {
+final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     static let shared = NewMachineSheetPresenter()
 
     private var sheetWindow: NSWindow?
@@ -16,7 +16,10 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
     private var pendingSelectionID: UUID?
     private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
-    private init() {}
+    private var planRefreshTask: Task<Void, Never>?
+    private var planRefreshID: UUID?
+
+    private override init() { super.init() }
 
     var isPresenting: Bool { sheetWindow != nil }
 
@@ -42,6 +45,12 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         }
         self.model = model
         sheetWindow = window
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshPresentedPlan),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         if NSApp.activationPolicy() == .regular {
             NSApp.activate(ignoringOtherApps: true)
@@ -104,10 +113,6 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                 })
             }
         )
-        model.refreshPlan = {
-            guard let client = VMClient.shared else { return nil }
-            return try? await client.listPage()
-        }
         present(model: model, preferredWindow: preferredWindow)
     }
 
@@ -154,10 +159,6 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                         return true
                     }
                 )
-                model.refreshPlan = {
-                    guard let client = VMClient.shared else { return nil }
-                    return try? await client.listPage()
-                }
                 model.onFinished = { [weak self] outcome in
                     if case .cancelled = outcome {
                         self?.finishSelection(selectionID, request: nil)
@@ -194,7 +195,27 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
         continuation?.resume(returning: request)
     }
 
+    /// Only the presenter can apply a refresh to its current sheet. Cancelled
+    /// or replaced requests cannot overwrite a newer plan snapshot.
+    @objc private func refreshPresentedPlan() {
+        guard let model, let client = VMClient.shared else { return }
+        planRefreshTask?.cancel()
+        let refreshID = UUID()
+        planRefreshID = refreshID
+        planRefreshTask = Task { [weak self, weak model] in
+            guard let page = try? await client.listPage(), !Task.isCancelled,
+                  let self, let model, self.model === model,
+                  self.planRefreshID == refreshID else { return }
+            model.applyPage(page)
+            self.planRefreshTask = nil
+        }
+    }
+
     private func dismiss() {
+        NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
+        planRefreshID = nil
+        planRefreshTask?.cancel()
+        planRefreshTask = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

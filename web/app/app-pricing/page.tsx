@@ -75,12 +75,13 @@ export default async function AppPricingPage({
 
   const headersList = await headers();
   const snapshot = await currentPlanSnapshot();
-  const goPlanEnabled = await isGoPlanEnabled();
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
+  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   const requestOrigin = appPricingRequestOrigin(headersList);
   const cmuxScheme = validatedNativeCallbackScheme(
@@ -121,18 +122,6 @@ export default async function AppPricingPage({
   );
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
-  const signInCheckoutHref = (checkoutHref: string, plan: "go" | "pro" | "max" | "team") =>
-    snapshot.authenticated ? undefined : appPricingSignInHref(cmuxScheme, params, plan);
-  const pendingPlan = firstParam(params.cmux_billing_plan);
-  if (snapshot.authenticated && !appStorePaymentGated && pendingPlan) {
-    const pendingCheckout = {
-      go: appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution),
-      pro: proCheckoutHref,
-      max: maxCheckoutHref,
-      team: teamCheckoutHref,
-    }[pendingPlan as "go" | "pro" | "max" | "team"];
-    if (pendingCheckout) redirect(pendingCheckout);
-  }
   const banner = appPricingBanner(params, snapshot, signInHref);
   const theme = appPricingTheme(params);
   const featureVisibility = {
@@ -190,7 +179,7 @@ export default async function AppPricingPage({
             id="individual-pricing-category"
               title={pricing.categories.individual.title}
               description={pricing.categories.individual.description}
-              columns={goPlanEnabled ? "four" : "three"}
+              columns={showGo ? "four" : "three"}
             >
               <PlanCard
                 name={pricing.free.name}
@@ -219,7 +208,7 @@ export default async function AppPricingPage({
                 <FeatureList items={pricing.free.features} />
               </PlanCard>
 
-              {(isGo || (goPlanEnabled && !snapshot.isPro)) ? <PlanCard
+              {showGo ? <PlanCard
                 name={pricing.go.name}
                 price={`$${GO_PRICING_USD.month.billedAmount}`}
                 period={pricing.perMonth}
@@ -235,7 +224,7 @@ export default async function AppPricingPage({
                 ) : (
                   <PricingCheckoutButton
                     href={appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution)}
-                    signInHref={signInCheckoutHref(appPricingCheckoutURL("go", requestOrigin, cmuxScheme, "month", attribution), "go")}
+                    requiresSignIn={!snapshot.authenticated}
                     location="app_pricing"
                     plan="go"
                   >
@@ -262,7 +251,7 @@ export default async function AppPricingPage({
                   checkout={
                     <PricingCheckoutButton
                       href={proCheckoutHref}
-                      signInHref={signInCheckoutHref(proCheckoutHref, "pro")}
+                      requiresSignIn={!snapshot.authenticated}
                       location="app_pricing"
                     >
                       {pricing.pro.cta}
@@ -292,7 +281,7 @@ export default async function AppPricingPage({
                   checkout={
                     <PricingCheckoutButton
                       href={maxCheckoutHref}
-                      signInHref={signInCheckoutHref(maxCheckoutHref, "max")}
+                      requiresSignIn={!snapshot.authenticated}
                       location="app_pricing"
                       plan="max"
                     >
@@ -326,7 +315,7 @@ export default async function AppPricingPage({
                 ) : (
                   <PricingCheckoutButton
                     href={teamCheckoutHref}
-                    signInHref={signInCheckoutHref(teamCheckoutHref, "team")}
+                    requiresSignIn={!snapshot.authenticated}
                     location="app_pricing"
                     plan="team"
                   >
@@ -365,7 +354,7 @@ export default async function AppPricingPage({
             </h2>
             <PricingCompareTable
               rows={compareRows}
-              showGo={goPlanEnabled}
+              showGo={showGo}
               stickyTopClassName="top-0"
               names={{
                 free: pricing.free.name,
@@ -407,6 +396,7 @@ export default async function AppPricingPage({
 }
 
 type AppPlanSnapshot = {
+  userId?: string;
   authenticated: boolean;
   developmentPro: boolean;
   planId: string;
@@ -456,6 +446,7 @@ async function currentPlanSnapshot(): Promise<AppPlanSnapshot> {
 
   const status = await resolveProPlanStatus(user);
   return {
+    userId: user.id,
     authenticated: !user.isAnonymous,
     developmentPro: false,
     planId: status.planId,
@@ -532,7 +523,6 @@ type BillingBannerModel = {
 function appPricingSignInHref(
   cmuxScheme: string,
   params: Record<string, string | string[] | undefined>,
-  pendingPlan?: "go" | "pro" | "max" | "team",
 ): string {
   const search = new URLSearchParams();
   for (const [name, value] of Object.entries(params)) {
@@ -540,10 +530,7 @@ function appPricingSignInHref(
     if (first !== null) search.set(name, first);
   }
   const query = search.toString();
-  const pending = pendingPlan ? `cmux_billing_plan=${pendingPlan}` : "";
-  const webReturnTo = query || pending
-    ? `/app-pricing?${[query, pending].filter(Boolean).join("&")}`
-    : "/app-pricing";
+  const webReturnTo = query ? `/app-pricing?${query}` : "/app-pricing";
   const afterSignIn =
     `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(
       `${cmuxScheme}://auth-callback`,

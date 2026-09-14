@@ -63,7 +63,6 @@ import {
 } from "../../../services/billing/plans";
 import { isVaultEnabled } from "../../../services/vault/config";
 import { isGoPlanEnabled } from "../../../services/billing/goPlanFlag";
-import { vaultSignInHref } from "../../lib/vault-auth";
 
 const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -116,12 +115,13 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
-  const goPlanEnabled = await isGoPlanEnabled();
+  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
   const isMax = snapshot.planId === MAX_PLAN_ID;
   const isGo = snapshot.planId === GO_PLAN_ID;
+  const showGo = isGo || (goPlanEnabled && !snapshot.isPro);
   const isProCurrent = snapshot.isPro && !isMax && !isGo;
   // A link into /pricing may name its own origin (the CLI trial notice, a
   // campaign with utm_* tags); that beats the page default so the checkout
@@ -136,7 +136,6 @@ export default async function PricingPage({
   const maxCheckoutHref = withCheckoutAttribution(MAX_CHECKOUT_URL, attribution);
   const proCheckoutHref = withCheckoutInterval(proCheckoutURL, "month");
   const teamCheckoutHref = withCheckoutInterval(teamCheckoutURL, "month");
-  const signInCheckoutHref = (checkoutHref: string) => snapshot.authenticated ? undefined : vaultSignInHref(checkoutHref);
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
   const teamMonthlyComparePrice = t("teamMonthlyComparePrice", {
     monthly: TEAM_PRICING_USD.month.monthlyEquivalent,
@@ -194,7 +193,7 @@ export default async function PricingPage({
             id="individual-pricing-category"
             title={t("categories.individual.title")}
             description={t("categories.individual.description")}
-            columns={goPlanEnabled ? "four" : "three"}
+            columns={showGo ? "four" : "three"}
           >
             {/* Free */}
             <PlanCard
@@ -209,7 +208,7 @@ export default async function PricingPage({
               <FeatureList items={freeFeatures} />
             </PlanCard>
 
-            {(isGo || (goPlanEnabled && !snapshot.isPro)) ? <>
+            {showGo ? <>
             {/* Go: one small, capped Cloud VM for focused work. */}
             <PlanCard
               name={t("go.name")}
@@ -225,7 +224,7 @@ export default async function PricingPage({
               ) : (
                 <PricingCheckoutButton
                   href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
-                  signInHref={signInCheckoutHref(withCheckoutAttribution(GO_CHECKOUT_URL, attribution))}
+                  requiresSignIn={!snapshot.authenticated}
                   location="pricing_page"
                   plan="go"
                 >
@@ -260,7 +259,7 @@ export default async function PricingPage({
                   {t("manageBilling")}
                 </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHref={proCheckoutHref} signInHref={signInCheckoutHref(proCheckoutHref)}>
+                <ProCtaLink checkoutHref={proCheckoutHref} requiresSignIn={!snapshot.authenticated}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -295,7 +294,7 @@ export default async function PricingPage({
               ) : (
                 <PricingCheckoutButton
                   href={maxCheckoutHref}
-                  signInHref={signInCheckoutHref(maxCheckoutHref)}
+                  requiresSignIn={!snapshot.authenticated}
                   location="pricing_page"
                   plan="max"
                 >
@@ -324,7 +323,7 @@ export default async function PricingPage({
             >
               <PricingCheckoutButton
                 href={teamCheckoutHref}
-                signInHref={signInCheckoutHref(teamCheckoutHref)}
+                requiresSignIn={!snapshot.authenticated}
                 location="pricing_page"
                 plan="team"
               >
@@ -366,7 +365,7 @@ export default async function PricingPage({
           <section className="mt-16">
             <PricingCompareTable
               rows={compareRows}
-              showGo={goPlanEnabled}
+              showGo={showGo}
               names={{
                 free: t("free.name"),
                 go: t("go.name"),
@@ -399,7 +398,7 @@ export default async function PricingPage({
                   ) : (
                     <ProCtaLink
                       checkoutHref={proCheckoutHref}
-                      signInHref={signInCheckoutHref(proCheckoutHref)}
+                      requiresSignIn={!snapshot.authenticated}
                       size="compact"
                       location="pricing_compare_header"
                     >
@@ -417,7 +416,7 @@ export default async function PricingPage({
                   ) : (
                     <PricingCheckoutButton
                       href={maxCheckoutHref}
-                      signInHref={signInCheckoutHref(maxCheckoutHref)}
+                      requiresSignIn={!snapshot.authenticated}
                       location="pricing_compare_header"
                       plan="max"
                       size="compact"
@@ -429,7 +428,7 @@ export default async function PricingPage({
                 team: (
                   <PricingCheckoutButton
                     href={teamCheckoutHref}
-                    signInHref={signInCheckoutHref(teamCheckoutHref)}
+                    requiresSignIn={!snapshot.authenticated}
                     location="pricing_compare_header"
                     plan="team"
                     size="compact"
@@ -499,6 +498,7 @@ export default async function PricingPage({
 }
 
 type PlanSnapshot = {
+  userId?: string;
   authenticated: boolean;
   planId: "free" | "go" | "pro" | "max";
   isPro: boolean;
@@ -518,6 +518,7 @@ async function currentPlanSnapshot(): Promise<PlanSnapshot> {
 
   const status = await resolveProPlanStatus(user);
   return {
+    userId: user.id,
     authenticated: !user.isAnonymous,
     planId: status.planId,
     isPro: status.isPro,

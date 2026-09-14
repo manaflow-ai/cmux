@@ -523,14 +523,15 @@ export async function vmMemoryRequiresPlanResponse(input: {
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
  * an error. Paid plans keep operational guidance — their cap is a safety rail, not a paywall.
  */
-export function vmActiveLimitExceededResponse(input: {
+export async function vmActiveLimitExceededResponse(input: {
   readonly limit: number;
   readonly planId: string;
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
-}): Response {
+  readonly locale?: Locale;
+}): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
-  if (input.planId === "go") return goLimitResponse("active");
+  if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
     return vmErrorResponse({
@@ -631,8 +632,9 @@ export function vmCreateLikeErrorResponders(input: {
         action: `Retry with a fresh ${input.operation}. If it fails again, copy the details and contact support.`,
         details: { idempotencyKeySet: !!error.idempotencyKey },
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId: input.planId,
         retryAction: input.retryAction,
@@ -695,24 +697,7 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
-export function goLimitResponse(kind: "saved" | "active" | "hours"): Response {
-  const message = kind === "hours"
-    ? "Go has used its 40 included VM-hours for this billing month. Your saved VMs are preserved."
-    : kind === "saved" ? "Go includes two saved VMs in total, including the running VM."
-      : "Go includes one running VM at a time.";
-  const next = kind === "hours" ? "Wait for your next billing month"
-    : kind === "saved" ? "Run `cmux vm ls`, then `cmux vm rm <id>` to delete a saved VM"
-      : "Run `cmux vm pause <id>` to pause the running VM";
-  return vmErrorResponse({
-    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
-    status: 402, message,
-    action: `${next}, or run \`cmux billing checkout --plan pro\` to upgrade. Review the price before you pay.`,
-    phase: "billing", retryable: false,
-    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
-  });
-}
-
-async function localizedGoLimitResponse(
+export async function goLimitResponse(
   kind: "saved" | "active" | "hours",
   locale: Locale,
 ): Promise<Response> {
@@ -892,7 +877,7 @@ export const vmWorkflowErrorResponders = {
     }),
   VmDatabaseError: (error, context) => {
     const limit = goCapacityConstraint(error.cause);
-    if (limit && limit !== "period") return localizedGoLimitResponse(limit, context.locale);
+    if (limit && limit !== "period") return goLimitResponse(limit, context.locale);
     return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
@@ -929,8 +914,8 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
-  VmUsageLimitExceededError: (_error, context) => localizedGoLimitResponse("hours", context.locale),
-  VmSavedLimitExceededError: (_error, context) => localizedGoLimitResponse("saved", context.locale),
+  VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
+  VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
   VmGoShapeError: async (_error, context) => {
     const copy = await vmGoLimitCopy("shape", context.locale);
     return vmErrorResponse({
