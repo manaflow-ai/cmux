@@ -7526,11 +7526,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 reference: failure.reference
             )
         }
-        if let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
-            return session.connectionPresentation
-        }
+        if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
@@ -7547,7 +7543,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             title: String(localized: "cloud.overlay.materializationFailed.title", defaultValue: "Cloud terminal could not start"),
             detail: detail,
             showsProgress: false,
-            showsReconnectButton: false
+            showsReconnectButton: true
         )
         presentation.diagnosticReference = reference
         return presentation

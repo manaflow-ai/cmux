@@ -16,14 +16,15 @@ extension CmuxTuiSurfaceProvider {
         lifecycle: UInt64,
         refresh generation: UInt64
     ) async -> Bool {
-        let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
+        let activeSessions = manualMirrorSessions.values.filter(\.allowsAutomaticReconnect)
+        let needsSurfaceIDRefresh = !activeSessions.isEmpty
             && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
-                || manualMirrorSessions.values.contains { $0.phase == .disconnected })
+                || activeSessions.contains { $0.phase == .disconnected })
         var reconnectableSessionIDs = Set<ObjectIdentifier>(
             manualMirrorSessions.values.map { ObjectIdentifier($0) }
         )
         if needsSurfaceIDRefresh {
-            let sessions = Array(manualMirrorSessions.values)
+            let sessions = Array(activeSessions)
             let resolutions = await resolveManualMirrorSessions(
                 sessions,
                 socketPath: connected.socketPath,
@@ -72,7 +73,7 @@ extension CmuxTuiSurfaceProvider {
             closePanes(forExitedTerminals: exitedTerminalIDs)
         }
         for session in manualMirrorSessions.values
-        where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
+        where reconnectableSessionIDs.contains(ObjectIdentifier(session)) && session.allowsAutomaticReconnect {
             session.reconnect(socketPath: connected.socketPath)
         }
         return true
