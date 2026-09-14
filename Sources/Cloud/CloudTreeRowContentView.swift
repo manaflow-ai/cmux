@@ -28,8 +28,6 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
-    var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -56,7 +54,7 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    @ViewBuilder
+    @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
         case .machine(let machine, _):
@@ -119,7 +117,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), helpAction: portsHelpAction)
+            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -135,23 +133,10 @@ struct CloudTreeRowContentView: View {
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
-    /// The Ports header's VPN affordance, only while the warning is showing.
-    /// Spelled as a guard rather than `showsCloudVPNWarning ? cloudVPNSetup : nil`:
-    /// Xcode 26.6's type checker fails on that ternary over an optional
-    /// `@MainActor` closure ("failed to produce diagnostic for expression").
-    private var portsHelpAction: (@MainActor (NSWindow?) -> Void)? {
-        guard showsCloudVPNWarning else { return nil }
-        return cloudVPNSetup
-    }
-
     /// One section label ("Workspaces", "My Devices") in the shared group row,
     /// so the row switch stays a list of one-line cases.
-    private func groupRow(
-        title: String,
-        count: Int? = nil,
-        helpAction: (@MainActor (NSWindow?) -> Void)? = nil
-    ) -> some View {
-        CloudTreeGroupRowContent(title: title, count: count, style: style, helpAction: helpAction)
+    private func groupRow(title: String, count: Int? = nil) -> some View {
+        CloudTreeGroupRowContent(title: title, count: count, style: style)
     }
 
     /// Formats terminal totals for group and machine summaries.

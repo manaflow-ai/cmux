@@ -28,7 +28,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-    var showsCloudVPNWarning = false
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
     var reveal: CloudTreeRevealRequest? = nil
@@ -63,7 +62,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
-        context.coordinator.showsCloudVPNWarning = showsCloudVPNWarning
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -87,7 +85,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         weak var outlineView: CloudTreeNSOutlineView?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
-        private(set) var vpnEmptyPortsNodes: [CloudTreeNode] = []
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
         private var selectedNodeID: String?
@@ -111,13 +108,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-        var showsCloudVPNWarning = false {
-            didSet {
-                guard oldValue != showsCloudVPNWarning else { return }
-                if isDragging { deferredReload = true }
-                else if let outlineView { reloadDataAndRestoreState(in: outlineView) }
-            }
-        }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
@@ -266,7 +256,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 for (existing, replacement) in zip(self.nodes, nodes) {
                     existing.adopt(from: replacement)
                 }
-                vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
                 guard let outlineView else { return }
                 let changedRows = update.rowIndexes(in: outlineView)
                 guard !changedRows.isEmpty else { return }
@@ -277,7 +266,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             self.nodes = nodes
-            vpnEmptyPortsNodes = CloudTreeNodeBuilder.flattened(self.nodes).filter(\.isPortsEmptyPlaceholder)
             structureSignature = nextStructure
             guard let outlineView else { return }
             withProgrammaticUpdate {
@@ -384,7 +372,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
             return cell
         }
 
@@ -393,7 +381,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            CloudTreeRowHeight(style: style, showsVPNWarning: showsCloudVPNWarning).height(of: item, in: outlineView)
+            CloudTreeRowHeight(style: style).height(of: item, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
@@ -453,10 +441,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// and the asleep placeholder still wakes, because those rows advertise
         /// exactly that).
         func open(_ node: CloudTreeNode) {
-            if showsCloudVPNWarning && node.isPortsEmptyPlaceholder {
-                machineActions.setupVPN(outlineView?.window)
-                return
-            }
             switch node.kind {
             case .machine(let machine, _):
                 if machine.freeAccess == .expired {
@@ -742,7 +726,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 )
             case .browsersGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .portsGroup: return portsGroupMenuItems()
+            case .portsGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)

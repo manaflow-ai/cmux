@@ -687,7 +687,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-
     private func recordPendingRemoteRename(
         workspaceID: String,
         name: String,
