@@ -1449,7 +1449,6 @@ final class WindowTerminalPortal: NSObject {
             frameInHost.size.width.isFinite &&
             frameInHost.size.height.isFinite
         guard hasFiniteFrame else { return nil }
-
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -1462,10 +1461,8 @@ final class WindowTerminalPortal: NSObject {
                 return clampedFrame
             }
         }
-
         return frameInHost
     }
-
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else {
             lastDeferredSurfaceRefreshFrames.removeValue(forKey: hostedId)
@@ -1499,8 +1496,9 @@ final class WindowTerminalPortal: NSObject {
             preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
         }
     }
-
-    /// Hide a portal entry for permanent workspace unmounts without detaching it.
+    /// Retires a workspace's native presentation while retaining its binding.
+    /// Hidden terminals keep their PTY; their view trees must leave the window
+    /// so inactive workspaces do not accumulate compositor-owned layers.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else {
             clearPresentationNotificationState(for: hostedId)
@@ -1512,12 +1510,14 @@ final class WindowTerminalPortal: NSObject {
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
-        entry.hostedView?.isHidden = true
+        entry.hostedView?.setVisibleInUI(false)
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
     }
-
     func hideEntries(forWorkspaceID workspaceID: UUID) {
         for hostedId in entriesByHostedId.compactMap({ hostedId, entry in
             entry.workspaceID == workspaceID ? hostedId : nil
@@ -1525,7 +1525,6 @@ final class WindowTerminalPortal: NSObject {
             hideEntry(forHostedId: hostedId)
         }
     }
-
     @discardableResult
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) -> Bool {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
@@ -1553,17 +1552,14 @@ final class WindowTerminalPortal: NSObject {
         }
         return needsReattach
     }
-
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
         guard let entry = entriesByHostedId[hostedId], let boundAnchor = entry.anchorView else { return false }
         return boundAnchor === anchorView
     }
-
     func hostedViewNeedsPortalReattachForVisiblePresentation(withId hostedId: ObjectIdentifier) -> Bool {
         guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView, let anchor = entry.anchorView else { return true }
         return !entry.visibleInUI || anchor.window !== window || anchor.superview == nil || (installedReferenceView.map { !anchor.isDescendant(of: $0) } ?? false) || hostedView.superview !== hostView || hostedView.window !== window
     }
-
     func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1578,7 +1574,6 @@ final class WindowTerminalPortal: NSObject {
             syncLayout: true
         )
     }
-
     fileprivate func bindUsingCommittedGeometry(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1593,7 +1588,6 @@ final class WindowTerminalPortal: NSObject {
             syncLayout: false
         )
     }
-
     private func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1602,11 +1596,9 @@ final class WindowTerminalPortal: NSObject {
         syncLayout: Bool
     ) {
         guard ensureInstalled(syncLayout: syncLayout) else { return }
-
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
         let previousEntry = entriesByHostedId[hostedId]
-
         // The portal is the sole writer of a hosted view's geometry, and the
         // autoresizing mask the view arrives with breaks that: the layout
         // engine translates a flexible mask into EDGE pins — a minX constant
@@ -1622,7 +1614,6 @@ final class WindowTerminalPortal: NSObject {
             preAdoptionAutoresizingMaskByHostedId[hostedId] = hostedView.autoresizingMask
         }
         hostedView.autoresizingMask = []
-
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
 #if DEBUG
             let previousToken = entriesByHostedId[previousHostedId]
@@ -1635,13 +1626,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
             detachHostedView(withId: previousHostedId)
         }
-
         if let oldEntry = entriesByHostedId[hostedId],
            let oldAnchor = oldEntry.anchorView,
            oldAnchor !== anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(oldAnchor))
         }
-
         hostedByAnchorId[anchorId] = hostedId
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
@@ -1652,7 +1641,6 @@ final class WindowTerminalPortal: NSObject {
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
-
         let didChangeAnchor: Bool = {
             guard let previousAnchor = previousEntry?.anchorView else { return true }
             return previousAnchor !== anchorView
@@ -1677,9 +1665,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
         _ = synchronizeHostFrameToReference()
-
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
         if let seededFrame = seededFrameInHost(for: anchorView),
@@ -1707,7 +1693,6 @@ final class WindowTerminalPortal: NSObject {
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
         hostedView.reconcileGeometryNow()
-
         if hostedView.superview !== hostView {
 #if DEBUG
             cmuxDebugLog(
@@ -1729,14 +1714,11 @@ final class WindowTerminalPortal: NSObject {
 #endif
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
-
         ensureDividerOverlayOnTop()
-
         synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
         scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
-
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
         // Anchor geometry callbacks fire for every layout pass — including
         // the passes our own syncs run — and treating each one as a
@@ -1780,7 +1762,6 @@ final class WindowTerminalPortal: NSObject {
         if let primaryHostedId {
             synchronizeHostedView(withId: primaryHostedId, syncLayout: syncLayout)
         }
-
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
@@ -1804,7 +1785,6 @@ final class WindowTerminalPortal: NSObject {
             scheduleDeferredFullSynchronizeAll()
         }
     }
-
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
         // During a live window resize this pass would re-reconcile every
         // visible surface once per resize tick, right after
@@ -2909,6 +2889,7 @@ enum TerminalWindowPortalRegistry {
             portal.hideEntries(forWorkspaceID: workspaceID)
         }
     }
+
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
