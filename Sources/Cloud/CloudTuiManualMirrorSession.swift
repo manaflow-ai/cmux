@@ -27,8 +27,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     var startupReadiness = CloudTerminalStartupReadiness()
     var startupDeadlineTask: Task<Void, Never>?
-    // Observer and release token are installed and released on MainActor;
-    // unsafe is needed only because ARC deinit is nonisolated.
+    // MainActor owns observer/token mutation; unsafe only covers nonisolated ARC deinit.
     nonisolated(unsafe) var startupFrameObserver: NSObjectProtocol?
     nonisolated(unsafe) var releaseStartupFrameDemand: (() -> Void)?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
@@ -89,11 +88,8 @@ final class CloudTuiManualMirrorSession {
     private var automaticReconnectSuppressed = false
 
     deinit {
-        if let startupFrameObserver {
-            NotificationCenter.default.removeObserver(startupFrameObserver)
-        }
-        startupDeadlineTask?.cancel()
-        releaseStartupFrameDemand?()
+        if let startupFrameObserver { NotificationCenter.default.removeObserver(startupFrameObserver) }
+        startupDeadlineTask?.cancel(); releaseStartupFrameDemand?()
     }
 
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
