@@ -1281,7 +1281,8 @@ actor VMClient {
         let result = try decodeJSONObject(data)
         guard let rawURL = result["url"] as? String,
               let url = URL(string: rawURL),
-              url.scheme == "https" || url.scheme == "http" else {
+              url.scheme == "https",
+              url.host?.isEmpty == false else {
             throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
         }
         return result
