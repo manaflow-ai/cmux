@@ -384,91 +384,36 @@ import Testing
         }
     }
 
-    private static func outputLine(_ bytes: Data) -> Data {
-        Data("{\"event\":\"output\",\"surface\":1,\"data\":\"\(bytes.base64EncodedString())\"}\n".utf8)
-    }
-
-    private static func withConnection(
-        queue: DispatchQueue = DispatchQueue(label: "test.cloud-io"),
-        _ body: (CloudTuiManualIOConnection, Int32) async throws -> Void
-    ) async throws {
-        let path = "/tmp/cmux-io-\(UUID().uuidString.prefix(12)).sock"
-        let listener = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard listener >= 0 else { throw socketError() }
-        defer { Darwin.close(listener); unlink(path) }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(path.utf8CString)
-        withUnsafeMutableBytes(of: &address.sun_path) { target in
-            pathBytes.withUnsafeBytes { target.copyBytes(from: $0) }
-        }
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+    @Test func acceptedPasteSurvivesFramingAndReceiptBackpressure() async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-admission-lifetime")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            defer { router.invalidate() }
+            let block = Data(repeating: 0xFF, count: 128 * 1024)
+            queue.suspend()
+            #expect(router.send(.bytes(block)))
+            #expect(router.send(.bytes(block)))
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            // Running the callbacks must not free their still-pending payloads.
+            #expect(!router.send(.bytes(Data([0x61]))))
+            router.setConnection(connection)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            let actual = try await Self.blocking {
+                var bytes = Data()
+                while bytes.count < block.count * 2 {
+                    let line = try Self.readLine(peer)
+                    try #require(!line.isEmpty)
+                    let command = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+                    let encoded = try #require(command["bytes"] as? String)
+                    bytes.append(try #require(Data(base64Encoded: encoded)))
+                    try Self.write(peer, Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8))
+                }
+                return bytes
             }
-        }
-        guard bound == 0, listen(listener, 1) == 0 else { throw socketError() }
-        let connection = CloudTuiManualIOConnection(socketPath: path, queue: queue)
-        defer { connection.close() }
-        try await connection.start()
-        let peer = accept(listener, nil, nil)
-        guard peer >= 0 else { throw socketError() }
-        defer { Darwin.close(peer) }
-        var noSignal: Int32 = 1
-        setsockopt(peer, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
-        // Deadlines fail broken fixtures instead of leaving a CI worker hung.
-        var timeout = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(peer, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(peer, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-        try await body(connection, peer)
-    }
-
-    private static func write(_ descriptor: Int32, _ data: Data) throws {
-        try data.withUnsafeBytes { raw in
-            var offset = 0
-            while offset < raw.count {
-                let count = Darwin.write(descriptor, raw.baseAddress!.advanced(by: offset), raw.count - offset)
-                if count < 0, errno == EINTR { continue }
-                guard count > 0 else { throw socketError() }
-                offset += count
-            }
+            #expect(actual == block + block)
         }
     }
 
-    private static func readLine(_ descriptor: Int32) throws -> Data {
-        var result = Data()
-        var byte: UInt8 = 0
-        while true {
-            let count = Darwin.read(descriptor, &byte, 1)
-            if count < 0, errno == EINTR { continue }
-            guard count >= 0 else { throw socketError() }
-            if count == 0 { return result }
-            result.append(byte)
-            if byte == 0x0A { return result }
-        }
-    }
-
-    /// Called only after the writer queue has processed the submitted burst.
-    /// A nonblocking drain observes the causal boundary without a timing wait.
-    private static func readAvailable(_ descriptor: Int32) throws -> Data {
-        var result = Data()
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        while true {
-            let count = recv(descriptor, &buffer, buffer.count, MSG_DONTWAIT)
-            if count < 0, errno == EINTR { continue }
-            if count < 0, errno == EAGAIN || errno == EWOULDBLOCK { return result }
-            guard count > 0 else { throw socketError() }
-            result.append(buffer, count: count)
-        }
-    }
-
-    /// Blocking peer I/O stays off Swift's cooperative executor and the client's
-    /// dispatch queue. Each test owns its descriptors until these jobs finish.
-    private static func blocking<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async { continuation.resume(with: Result { try operation() }) }
-        }
-    }
-
-    private static func socketError() -> NSError { NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
 }
