@@ -74,7 +74,7 @@ import Testing
             return
         }
         #expect(features.isEmpty)
-        #expect(MobileWhatsNewCatalog.connectionsUpdate.title == "Pairing begins on your Mac")
+        #expect(MobileWhatsNewCatalog.connectionsUpdate.title == "Action Required: Enable iOS pairing on your Mac")
         #expect(MobileWhatsNewCatalog.entry(withID: "pairing-opt-in.v1") == nil)
     }
 
