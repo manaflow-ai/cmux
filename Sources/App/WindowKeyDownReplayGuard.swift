@@ -63,7 +63,7 @@ extension NSWindow {
 
         let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
         let webView = firstResponder.flatMap {
-            NSWindow.cmuxOwningWebView(for: $0, in: self, event: event)
+            NSWindow.cmuxOwningWebViewForKeyRouting(for: $0, in: self, event: event)
         } ?? firstResponder.flatMap { cmuxOwningUndoableWebView(for: $0) }
         return cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
             event,

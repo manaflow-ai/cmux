@@ -5437,5 +5437,11 @@
       "message": "公開ポートのメールアクセス許可",
       "action": "emailと、必要に応じてexpiresAtを送信してください。"
     }
+  },
+  "cliAuthIdentity": {
+    "email": "メールアドレス",
+    "emailUnavailable": "メールアドレスを取得できません",
+    "organization": "組織",
+    "personalAccount": "個人アカウント"
   }
 }
