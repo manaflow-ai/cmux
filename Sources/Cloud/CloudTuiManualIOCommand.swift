@@ -107,13 +107,26 @@ struct CloudTuiManualIOCommand: Sendable {
     }
 
     /// Writes raw input bytes to the remote PTY.
-    func input(surfaceID: UInt64, bytes: Data, requestID: UInt64 = 1) -> [String: Any] {
-        [
+    ///
+    /// One-way input sets `no_reply` so a remote mux can use its compact input
+    /// lane and suppress the per-keystroke command response. Requests that need
+    /// an acknowledgement keep the legacy response behavior by leaving it off.
+    func input(
+        surfaceID: UInt64,
+        bytes: Data,
+        requestID: UInt64 = 1,
+        noReply: Bool = false
+    ) -> [String: Any] {
+        var command: [String: Any] = [
             "id": requestID,
             "cmd": "send",
             "surface": surfaceID,
             "bytes": bytes.base64EncodedString(),
         ]
+        if noReply {
+            command["no_reply"] = true
+        }
+        return command
     }
 
     /// Sends one semantic key chord through the remote terminal's key encoder.
