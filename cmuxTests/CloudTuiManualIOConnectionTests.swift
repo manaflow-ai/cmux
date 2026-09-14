@@ -32,6 +32,42 @@ import Testing
         }
     }
 
+    @Test func keystrokeBurstSurvivesBriefPeerBackpressure() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-burst-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            let inputQueue = DispatchQueue(label: "test.cloud-burst-input")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: inputQueue)
+            let expected = Data((0..<8192).map { UInt8(truncatingIfNeeded: $0) })
+            // Hold both lanes until the burst is submitted. This reproduces a
+            // brief scheduling/peer pause without relying on sleeps or rates.
+            writerQueue.suspend()
+            inputQueue.suspend()
+            router.setConnection(connection)
+            for byte in expected { router.send(.bytes(Data([byte]))) }
+            router.setConnection(nil)
+            inputQueue.resume()
+            try await Self.blocking { inputQueue.sync {} }
+            writerQueue.resume()
+            try await Self.blocking { writerQueue.sync {} }
+
+            let actual = try await Self.blocking {
+                var bytes = Data()
+                while bytes.count < expected.count {
+                    let line = try Self.readLine(peer)
+                    if line.isEmpty { break }
+                    let command = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+                    #expect(command["surface"] as? Int == 7)
+                    let encoded = try #require(command["bytes"] as? String)
+                    bytes.append(try #require(Data(base64Encoded: encoded)))
+                }
+                return bytes
+            }
+            #expect(actual == expected)
+            connection.send(line: Data("still-connected\n".utf8))
+            #expect(try await Self.blocking { try Self.readLine(peer) } == Data("still-connected\n".utf8))
+        }
+    }
+
     @Test func preservesLargeFramesAcrossSocketReads() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<8).map { Data(repeating: UInt8($0), count: 64 * 1024) }
@@ -283,6 +319,7 @@ import Testing
     }
 
     private static func withConnection(
+        queue: DispatchQueue = DispatchQueue(label: "test.cloud-io"),
         _ body: (CloudTuiManualIOConnection, Int32) async throws -> Void
     ) async throws {
         let path = "/tmp/cmux-io-\(UUID().uuidString.prefix(12)).sock"
@@ -301,7 +338,7 @@ import Testing
             }
         }
         guard bound == 0, listen(listener, 1) == 0 else { throw socketError() }
-        let connection = CloudTuiManualIOConnection(socketPath: path)
+        let connection = CloudTuiManualIOConnection(socketPath: path, queue: queue)
         defer { connection.close() }
         try await connection.start()
         let peer = accept(listener, nil, nil)
