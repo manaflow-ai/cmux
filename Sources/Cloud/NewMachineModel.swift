@@ -323,6 +323,13 @@ final class NewMachineModel {
         return ListFormatter.localizedString(byJoining: planIDs.map(Self.planDisplayName))
     }
 
+    /// The highest plan represented by the locked rows, used by the summary
+    /// action so a mixed Go ladder always offers the complete upgrade.
+    var highestLockedMemoryUpgradePlanId: String? {
+        lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
+            .max { lhs, rhs in (lhs == "max" ? 2 : 1) < (rhs == "max" ? 2 : 1) }
+    }
+
     /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
     func lockedSizeMenuTitle(_ size: MachineSizeOption) -> String {
         guard let target = upgradePlan(for: size.memoryMb) else { return size.menuTitle }

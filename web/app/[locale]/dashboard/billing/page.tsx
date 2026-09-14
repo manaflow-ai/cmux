@@ -166,7 +166,7 @@ export default async function DashboardBillingPage({
         <FreePlan t={t} showBillingPortal={canManagePersonalBilling} />
       )}
 
-      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} t={t} pricingT={pricingT} />
+      <MaxUpsell isFreePlan={isFreePlan} planId={status.planId} canManageBilling={canManagePersonalBilling} t={t} pricingT={pricingT} />
 
       {billingTeam && teamSubscription ? (
         <TeamPlan
@@ -181,12 +181,13 @@ export default async function DashboardBillingPage({
   );
 }
 
-function MaxUpsell({ isFreePlan, planId, t, pricingT }: {
+function MaxUpsell({ isFreePlan, planId, canManageBilling, t, pricingT }: {
   isFreePlan: boolean; planId: string;
+  canManageBilling: boolean;
   t: Awaited<ReturnType<typeof getTranslations>>;
   pricingT: Awaited<ReturnType<typeof getTranslations>>;
 }) {
-  if (isFreePlan || planId === "max") return null;
+  if (isFreePlan || !canManageBilling || !["go", "pro"].includes(planId)) return null;
   return (
         <section className="mt-3 border border-border p-3">
           <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
