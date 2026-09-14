@@ -388,6 +388,13 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
+    #if os(iOS)
+    private var cloudAccountScope: String? {
+        guard let userID = auth.coordinator.currentUser?.id else { return nil }
+        return [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
+    }
+    #endif
+
     public var body: some View {
         applyingRootEnvironment(to: content)
     }
@@ -417,6 +424,14 @@ public struct CMUXMobileRootScene: View {
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
             .environment(\.cloudSessionController, cloudSessionController)
+            .onChange(of: cloudAccountScope) { _, scope in
+                guard !auth.coordinator.isRestoringSession else { return }
+                cloudSessionController?.systemVPN?.setScope(scope)
+            }
+            .onChange(of: auth.coordinator.isRestoringSession, initial: true) { _, restoring in
+                guard !restoring else { return }
+                cloudSessionController?.systemVPN?.setScope(cloudAccountScope)
+            }
             #endif
     }
 
@@ -462,7 +477,10 @@ public struct CMUXMobileRootScene: View {
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: MobileSignOutHook {
+                cloudSessionController?.systemVPN?.setScope(nil)
+                return signOutHook.begin()
+            }
         )
         #else
         return CMUXMobileAppView(

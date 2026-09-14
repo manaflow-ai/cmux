@@ -12,24 +12,46 @@ goes through it. Safari previews and `ssh` still need the system tunnel.
 
 ## Optional system VPN access
 
-The app-managed tunnel is enough for Cloud terminals. A separate iOS
-Network Extension packet-tunnel provider is required if Safari, SSH, or
-another app must reach VM ports. That provider would install a split-tunnel
-configuration through `NETunnelProviderManager`, routing only the VM CIDRs.
-The first enable action must show Apple's VPN approval sheet. If the user
-denies it, cmux should show an **Open Settings** action using
-`UIApplication.openSettingsURLString`; iOS does not expose a supported deep
-link directly to the VPN settings pane, so the UI tells the user to continue
-at Settings → General → VPN & Device Management.
+The app-managed tunnel is enough for Cloud terminals. iOS now includes an
+optional `cmuxTunnelExtension` packet provider for Safari and other apps.
+Cloud > System VPN > Enable enrolls a separate device key, stores the completed
+configuration in Keychain, then saves `NETunnelProviderManager` preferences.
+The first save triggers Apple's permission sheet. Only private Cloud routes
+are installed; public/default routes are rejected and normal DNS is retained.
+
+If permission is declined, Try again repeats the save. Open Settings uses
+`UIApplication.openSettingsURLString`, which opens the app's Settings page.
+iOS has no supported direct link to VPN settings. The UI explains the path:
+General > VPN & Device Management > VPN. A declined first save leaves no
+profile to enable there, so the user must return to cmux and retry.
 
 The provider needs its own WireGuard key and enrollment record. It cannot reuse
 the in-process key because WireGuard associates one key with one active peer
-endpoint. The Cloud service must also install firewall rules for the specific
-ports a user enables. A port rule maps a VM port (for example TCP 3000) to the
-private tunnel address and is enforced by the VM security group; no public
-internet listener is opened. Until the packet-tunnel target and entitlement
-are shipped, Cloud remains terminal-only and does not claim to expose ports to
-other iOS apps.
+endpoint. Both identities are persisted separately. Signing out or changing
+the account/team removes the saved system VPN. Leaving Cloud disconnects only
+the in-process connection; iOS owns the optional system VPN's lifetime.
+
+The existing Freestyle VPC firewall allows its members (machines and enrolled
+tunnels) to reach each other. It does not currently restrict this to selected
+ports. No new backend endpoint or public inbound rule was added. To preview a
+site, bind the server to `0.0.0.0` or `::` on the VM, then open its private
+address and port in Safari with the VPN connected. A listener bound only to
+`localhost` is unreachable. Guest firewall rules, if added, must allow that
+port. Services needing narrower access should add authentication or guest
+firewall restrictions.
+
+Both app and extension require the Network Extensions capability with
+`packet-tunnel-provider` in their signed entitlements and fresh provisioning
+profiles. The extension can read only the shared `.cloud-vpn` Keychain group;
+it cannot read the app's sign-in tokens. `ios/scripts/cloud-vpn-signing.py`
+checks the final signed bundle. Unsigned archive exports restore those exact
+entitlements locally and fail if the profiles do not authorize them.
+
+Device acceptance: deny the first prompt and retry; allow and confirm a private
+HTTP response in Safari; confirm the terminal works simultaneously; disconnect
+the system VPN and confirm terminals still work; sign out and confirm the
+saved VPN is removed. Test lock/wake and Wi-Fi/cellular transitions on hardware.
+Simulator and domain tests cannot prove VPN consent or packet delivery.
 
 ## Shape
 
@@ -83,6 +105,7 @@ in-process tunnel never shares a key with the system tunnel:
 | Mac system tunnel (`cmux vpn up`) | `mac-<uuid>` | `~/.cmuxterm/wireguard/private.key` | 1 |
 | Mac hub (`cmux-tui wg hub`, shared by all sidecars) | `mac-<uuid>-app` | `~/.cmuxterm/wireguard/app.key` | 1 |
 | iPhone in-process | `ios-<uuid>` | Keychain | 1 |
+| iPhone system VPN | separate `ios-<uuid>` | separate Keychain identity + shared VPN config group | 1 |
 
 Cost: a Mac that uses both paths holds two Freestyle tunnels. Enrollment is
 the existing `POST /api/vm/tunnel` (idempotent per fingerprint, not Pro-gated).

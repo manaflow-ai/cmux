@@ -54,13 +54,28 @@ struct MobileCloudComposition {
             accessGroup: auth.keychainAccessGroup
         )
         #endif
+        let systemVPN: CloudSystemVPNController?
+        if let bundleID = Bundle.main.bundleIdentifier, let group = auth.keychainAccessGroup {
+            systemVPN = CloudSystemVPNController(
+                service: service,
+                identityStore: KeychainCloudDeviceIdentityStore(
+                    service: appNamespace.keychainService(base: "com.cmux.cloud.system-wireguard.v1"),
+                    accessGroup: group
+                ),
+                manager: CloudSystemVPNPreferences(appBundleIdentifier: bundleID, keychainAccessGroup: group),
+                deviceName: UIDevice.current.name
+            )
+        } else {
+            systemVPN = nil
+        }
         return CloudSessionController(
             service: service,
             identityStore: identityStore,
             tunnelStarter: CmuxTerminalClientCloudTunnelStarter(),
             connector: CmuxTerminalClientCloudConnector(),
             stateDirectory: stateDirectory(),
-            deviceName: UIDevice.current.name
+            deviceName: UIDevice.current.name,
+            systemVPN: systemVPN
         )
     }
 

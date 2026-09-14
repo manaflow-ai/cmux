@@ -24,6 +24,8 @@ public final class CloudSessionController {
     public private(set) var lastCreateFailure: CloudSessionFailure?
     /// How many Cloud screens are on screen; the tunnel is wanted while > 0.
     public private(set) var visibleScreenCount = 0
+    /// Optional system VPN, with its own enrollment and OS-managed lifetime.
+    public let systemVPN: CloudSystemVPNController?
     /// Whether any Cloud screen is on screen.
     public var sectionIsVisible: Bool { visibleScreenCount > 0 }
     /// Whether the scene is in the foreground.
@@ -66,7 +68,8 @@ public final class CloudSessionController {
         connector: any CloudTerminalConnecting,
         stateDirectory: URL,
         deviceName: String,
-        approvalClock: any Clock<Duration> = ContinuousClock()
+        approvalClock: any Clock<Duration> = ContinuousClock(),
+        systemVPN: CloudSystemVPNController? = nil
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
@@ -75,6 +78,7 @@ public final class CloudSessionController {
         self.stateDirectory = stateDirectory
         self.deviceName = deviceName
         self.approvalClock = approvalClock
+        self.systemVPN = systemVPN
     }
 
     // MARK: - Lifecycle

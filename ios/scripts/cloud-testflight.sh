@@ -263,7 +263,7 @@ build_archive_local() {
       -destination 'generic/platform=iOS' \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$out/DerivedData" \
-      PRODUCT_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
+      CMUX_IOS_APP_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
       ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \

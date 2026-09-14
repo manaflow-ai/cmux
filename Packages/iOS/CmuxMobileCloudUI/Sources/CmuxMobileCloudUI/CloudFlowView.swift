@@ -26,7 +26,7 @@ public struct CloudTerminalRoute: Hashable, Sendable {
 public struct CloudFlowView: View {
     private let controller: CloudSessionController
     @State private var path = NavigationPath()
-    @AppStorage("mobile.cloud.onboarding.completed.v1") private var cloudOnboardingCompleted = false
+    @AppStorage("mobile.cloud.onboarding.completed.v2") private var cloudOnboardingCompleted = false
     @State private var showsCloudOnboarding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -44,6 +44,12 @@ public struct CloudFlowView: View {
                         Button(L10n.string("mobile.cloud.done", defaultValue: "Done")) { dismiss() }
                             .accessibilityIdentifier("CloudDoneButton")
                     }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
+                            showsCloudOnboarding = true
+                        }
+                        .accessibilityIdentifier("CloudBasicsButton")
+                    }
                 }
                 .navigationDestination(for: CloudMachine.self) { machine in
                     CloudTerminalCatalogView(machine: machine, controller: controller)
@@ -53,6 +59,7 @@ public struct CloudFlowView: View {
                 }
         }
         .onAppear { controller.sectionDidAppear() }
+        .task { await controller.systemVPN?.refresh() }
         .onAppear {
             if !cloudOnboardingCompleted {
                 showsCloudOnboarding = true
@@ -61,7 +68,9 @@ public struct CloudFlowView: View {
         .onDisappear { controller.sectionDidDisappear() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
-            case .active: controller.sceneWillEnterForeground()
+            case .active:
+                controller.sceneWillEnterForeground()
+                Task { await controller.systemVPN?.refresh() }
             case .background: controller.sceneDidEnterBackground()
             default: break
             }
@@ -69,7 +78,7 @@ public struct CloudFlowView: View {
         .sheet(isPresented: $showsCloudOnboarding, onDismiss: {
             cloudOnboardingCompleted = true
         }) {
-            CloudOnboardingView()
+            CloudOnboardingView(controller: controller)
         }
     }
 }

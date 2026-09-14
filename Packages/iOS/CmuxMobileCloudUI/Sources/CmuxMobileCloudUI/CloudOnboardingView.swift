@@ -1,7 +1,7 @@
 #if os(iOS)
+import CmuxMobileCloud
 import CmuxMobileSupport
 import SwiftUI
-import UIKit
 
 /// Explains the Cloud connection before the first machine is opened.
 ///
@@ -9,11 +9,13 @@ import UIKit
 /// not require a VPN permission prompt; the system VPN is only needed when
 /// other iOS apps should reach allow-listed VM ports.
 public struct CloudOnboardingView: View {
+    private let controller: CloudSessionController?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @State private var page = 0
 
-    public init() {}
+    public init(controller: CloudSessionController? = nil) {
+        self.controller = controller
+    }
 
     public var body: some View {
         NavigationStack {
@@ -27,16 +29,17 @@ public struct CloudOnboardingView: View {
                     )
                     CloudOnboardingPage(
                         title: L10n.string("mobile.cloud.onboarding.key.title", defaultValue: "A private key keeps it private"),
-                        message: L10n.string("mobile.cloud.onboarding.key.message", defaultValue: "cmux stores a WireGuard key in this phone's Keychain. Enrollment gives that key permission to join your team's private Cloud network. The key never leaves the phone."),
+                        message: L10n.string("mobile.cloud.onboarding.key.message", defaultValue: "cmux stores a WireGuard key in this phone's Keychain. Enrollment gives that key permission to join your team's private Cloud network. The private key never leaves the phone."),
                         systemImage: "key.fill",
                         tag: 1
                     )
-                    CloudOnboardingPage(
-                        title: L10n.string("mobile.cloud.onboarding.vpn.title", defaultValue: "Choose how much of the network to expose"),
-                        message: L10n.string("mobile.cloud.onboarding.vpn.message", defaultValue: "cmux can connect its own terminal directly. To let Safari, SSH, or another app reach selected VM ports, enable the optional system VPN in Settings."),
-                        systemImage: "lock.shield.fill",
-                        tag: 2
-                    )
+                    ScrollView {
+                        if let vpn = controller?.systemVPN {
+                            CloudVPNControls(phase: vpn.phase, enable: { vpn.enable() }, disable: { vpn.disable() })
+                                .padding(24)
+                        }
+                    }
+                    .tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
 
@@ -54,10 +57,6 @@ public struct CloudOnboardingView: View {
                         }
                         .buttonStyle(.borderedProminent)
                     } else {
-                        Button(L10n.string("mobile.cloud.onboarding.settings", defaultValue: "Open Settings")) {
-                            openSystemSettings()
-                        }
-                        .buttonStyle(.bordered)
                         Button(L10n.string("mobile.cloud.onboarding.done", defaultValue: "Get started")) {
                             dismiss()
                         }
@@ -77,10 +76,6 @@ public struct CloudOnboardingView: View {
         }
     }
 
-    private func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        openURL(url)
-    }
 }
 
 private struct CloudOnboardingPage: View {
@@ -90,24 +85,24 @@ private struct CloudOnboardingPage: View {
     let tag: Int
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: systemImage)
-                .font(.system(size: 56, weight: .semibold))
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.title2.weight(.semibold))
-                .multilineTextAlignment(.center)
-            Text(message)
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Spacer()
+        ScrollView {
+            VStack(spacing: 20) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 56, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                Text(message)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+            .accessibilityElement(children: .combine)
         }
         .tag(tag)
-        .accessibilityElement(children: .combine)
     }
 }
 #endif

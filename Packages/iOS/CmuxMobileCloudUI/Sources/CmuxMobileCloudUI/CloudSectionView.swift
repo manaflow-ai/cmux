@@ -25,6 +25,11 @@ public struct CloudSectionView: View {
         List {
             tunnelSection
             machinesSection
+            if let vpn = controller.systemVPN {
+                Section(L10n.string("mobile.cloud.vpn.title", defaultValue: "System VPN")) {
+                    CloudVPNControls(phase: vpn.phase, enable: { vpn.enable() }, disable: { vpn.disable() })
+                }
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
