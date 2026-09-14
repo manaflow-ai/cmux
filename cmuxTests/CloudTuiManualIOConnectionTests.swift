@@ -68,6 +68,43 @@ import Testing
         }
     }
 
+    @Test func inputWaitsForReceiptsBeforeExhaustingThePeerReplyQueue() async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-input-credit")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<512 { router.send(.namedKey("Enter")) }
+            router.setConnection(nil)
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            connection.send(line: Data("peer-barrier\n".utf8))
+            try await Self.blocking {
+                var submitted = 0
+                while true {
+                    let line = try Self.readLine(peer)
+                    if line == Data("peer-barrier\n".utf8) { break }
+                    try #require(!line.isEmpty)
+                    submitted += 1
+                }
+                // cmux-tui reserves 256 control replies. A paused reader must
+                // leave room for control traffic instead of closing the peer.
+                #expect(submitted < 256)
+                let receipt = Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8)
+                for _ in 0..<submitted { try Self.write(peer, receipt) }
+                while submitted < 512 {
+                    let line = try Self.readLine(peer)
+                    try #require(!line.isEmpty)
+                    submitted += 1
+                    try Self.write(peer, receipt)
+                }
+                #expect(submitted == 512)
+            }
+        }
+    }
+
     @Test func byteBatchPreservesNamedKeyAndConnectionBoundaries() async throws {
         try await Self.withConnection { connection, peer in
             let queue = DispatchQueue(label: "test.cloud-input-order")
