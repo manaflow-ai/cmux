@@ -19982,7 +19982,7 @@ private extension NSWindow {
         return nil
     }
 
-    static func cmuxOwningWebView(
+    internal static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?
