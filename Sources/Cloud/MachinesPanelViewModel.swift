@@ -173,191 +173,6 @@ struct MachinePlanSnapshot: Equatable {
     }
 }
 
-enum MachineSnapshotBuilder {
-    static func snapshot(
-        from summary: VMSummary,
-        freeAccessWindowDays: Int = 0,
-        now: Date = Date(),
-        previousStats: VMStats? = nil
-    ) -> MachineSnapshot {
-        let createdAt = summary.createdAt > 0
-            ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)
-            : nil
-        // The backend's expiry wins when it sends one; the local window math is
-        // the fallback for older control planes.
-        let freeAccess = summary.freeAccessExpiresAt.map { expiresAt in
-            freeAccessState(expiresAt: Date(timeIntervalSince1970: TimeInterval(expiresAt) / 1000), now: now)
-        } ?? freeAccessState(createdAt: createdAt, windowDays: freeAccessWindowDays, now: now)
-        return MachineSnapshot(
-            id: summary.id,
-            provider: summary.provider,
-            image: summary.image,
-            isDesktop: summary.resolvedKind.hasDesktop,
-            capabilities: summary.capabilities,
-            activity: activity(fromStatus: summary.status),
-            createdAt: createdAt,
-            label: summary.displayName,
-            slug: summary.slug,
-            freeAccess: freeAccess,
-            stats: summary.capabilities.stats ? previousStats : nil,
-            privateAddress: summary.preferredPrivateAddress
-        )
-    }
-
-    /// Row state from a known expiry instant.
-    static func freeAccessState(expiresAt: Date, now: Date = Date()) -> MachineSnapshot.FreeAccessState {
-        let remaining = expiresAt.timeIntervalSince(now)
-        if remaining <= 0 { return .expired }
-        return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
-    }
-
-    /// "6d 23h" while more than a day remains, "5h 12m" under a day, "1m" at
-    /// the floor. Whole units, truncated: a countdown must never overstate.
-    static func freeAccessCountdown(remaining: TimeInterval) -> String {
-        let total = max(Int(remaining), 60)
-        let days = total / 86_400
-        let hours = (total % 86_400) / 3_600
-        let minutes = (total % 3_600) / 60
-        if days > 0 {
-            return String(
-                format: String(localized: "machines.freeAccess.countdown.daysHours", defaultValue: "%1$dd %2$dh"),
-                days, hours
-            )
-        }
-        if hours > 0 {
-            return String(
-                format: String(localized: "machines.freeAccess.countdown.hoursMinutes", defaultValue: "%1$dh %2$dm"),
-                hours, minutes
-            )
-        }
-        return String(
-            format: String(localized: "machines.freeAccess.countdown.minutes", defaultValue: "%dm"),
-            max(minutes, 1)
-        )
-    }
-
-    /// Header banner for the fleet's earliest expiry. Paid plans never see one.
-    static func freeAccessBanner(
-        expiresAt: Date?,
-        isPaidPlan: Bool,
-        now: Date = Date()
-    ) -> MachinePlanSnapshot.FreeAccessBanner {
-        guard !isPaidPlan, let expiresAt else { return .none }
-        let remaining = expiresAt.timeIntervalSince(now)
-        if remaining <= 0 { return .expired }
-        let countdown = freeAccessCountdown(remaining: remaining)
-        return remaining < 86_400 ? .expiresToday(countdown: countdown) : .expiresIn(countdown: countdown)
-    }
-
-    /// The fleet's earliest free-access expiry: the server's figure when it
-    /// sends one, else the earliest `createdAt + window` across the machines.
-    static func earliestFreeAccessExpiry(
-        limits: VMPlanLimits,
-        machines: [MachineSnapshot]
-    ) -> Date? {
-        if let serverMs = limits.freeAccessExpiresAt {
-            return Date(timeIntervalSince1970: TimeInterval(serverMs) / 1000)
-        }
-        guard limits.freeAccessWindowDays > 0 else { return nil }
-        return machines
-            .compactMap { $0.createdAt?.addingTimeInterval(TimeInterval(limits.freeAccessWindowDays) * 86_400) }
-            .min()
-    }
-
-    /// Mirrors the backend's window math (created + windowDays vs now); the
-    /// backend stays the enforcement point, this only drives the row UI.
-    static func freeAccessState(
-        createdAt: Date?,
-        windowDays: Int,
-        now: Date = Date()
-    ) -> MachineSnapshot.FreeAccessState {
-        guard windowDays > 0, let createdAt else { return .unrestricted }
-        let remaining = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400).timeIntervalSince(now)
-        if remaining <= 0 { return .expired }
-        return .active(daysLeft: Int((remaining / 86_400).rounded(.up)))
-    }
-
-    /// The next instant at which a machine's free-access presentation changes:
-    /// each day-boundary where the "N days left" label decrements, and finally
-    /// the expiry itself. Nil once expired (or when no window applies) — there
-    /// is nothing left to wait for. Expiry is a *known future timestamp*, so
-    /// the panel arms a one-shot timer at exactly this instant instead of
-    /// discovering the transition on a poll sweep.
-    static func nextFreeAccessTransition(
-        createdAt: Date?,
-        windowDays: Int,
-        now: Date = Date()
-    ) -> Date? {
-        guard windowDays > 0, let createdAt else { return nil }
-        let expiry = createdAt.addingTimeInterval(TimeInterval(windowDays) * 86_400)
-        let remaining = expiry.timeIntervalSince(now)
-        guard remaining > 0 else { return nil }
-        let daysLeft = Int((remaining / 86_400).rounded(.up))
-        // The label decrements when remaining crosses (daysLeft - 1) whole days;
-        // for the final day that crossing IS the expiry.
-        return expiry.addingTimeInterval(-TimeInterval(daysLeft - 1) * 86_400)
-    }
-
-    /// Stamps each snapshot with its usage readout, keyed by the machine id
-    /// (`GET /api/vm` `id`, which the usage payload echoes as `vmId`). Machines
-    /// the payload does not name lose any earlier readout so a machine that
-    /// dropped out of the window never keeps a stale number.
-    static func applyingUsage(
-        to snapshots: [MachineSnapshot],
-        usage: [String: MachineUsageSnapshot]
-    ) -> [MachineSnapshot] {
-        snapshots.map { snapshot in
-            var next = snapshot
-            next.usage = usage[snapshot.id]
-            return next
-        }
-    }
-
-    /// Recomputes only the free-access facet of existing snapshots against a
-    /// fresh clock — no network, stats and identity preserved.
-    static func applyingFreeAccess(
-        to snapshots: [MachineSnapshot],
-        windowDays: Int,
-        now: Date = Date()
-    ) -> [MachineSnapshot] {
-        snapshots.map { snapshot in
-            var next = snapshot
-            next.freeAccess = freeAccessState(createdAt: snapshot.createdAt, windowDays: windowDays, now: now)
-            return next
-        }
-    }
-
-    static func activity(fromStatus status: String) -> MachineSnapshot.Activity {
-        switch status.lowercased() {
-        case "running", "ready", "standby", "paused":
-            return .ready
-        case "creating", "starting", "pending", "resuming":
-            return .pending
-        default:
-            return .attention(status)
-        }
-    }
-
-    static func planSnapshot(
-        activeCount: Int,
-        limits: VMPlanLimits?,
-        machines: [MachineSnapshot] = [],
-        now: Date = Date()
-    ) -> MachinePlanSnapshot? {
-        guard let limits else { return nil }
-        let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
-        let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
-        return MachinePlanSnapshot(
-            activeCount: activeCount,
-            maxActiveVms: limits.maxActiveVms,
-            planId: limits.planId,
-            freeAccessWindowDays: limits.freeAccessWindowDays,
-            freeAccessExpiresAt: expiresAt,
-            freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now)
-        )
-    }
-}
-
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
@@ -447,7 +262,7 @@ final class MachinesPanelViewModel: ObservableObject {
 
     func endOperation() {
         activeOperation = nil
-        refresh()
+        if isVisible { refresh() }
     }
 
     func noteTreeFailure(_ description: String) {
@@ -455,6 +270,9 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private var refreshTask: Task<Void, Never>?
+    private var refreshID: UUID?
+    private var statsID: UUID?
+    private let client: VMClient?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
     private var usageTask: Task<Void, Never>?
@@ -469,15 +287,17 @@ final class MachinesPanelViewModel: ObservableObject {
     private var lastLimits: VMPlanLimits?
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
+    private var networkObserver: NSObjectProtocol?
+    private var isVisible = false
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
-    private static let statsInterval: Duration = .seconds(20)
 
     let defaultMachineStore: DefaultCloudMachineStore?
 
-    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil) {
+    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil, client: VMClient? = nil) {
+        self.client = client
         self.defaultMachineStore = defaultMachineStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
@@ -521,6 +341,9 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
+        networkObserver = NotificationCenter.default.addObserver(forName: .cmuxCloudReadNetworkRecovered, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.isVisible == true { self?.refresh() } }
+        }
     }
 
     /// Catalog changes arrive in bursts (a link snapshot upserts dozens of resources, a
@@ -555,9 +378,16 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     deinit {
+        refreshTask?.cancel()
+        pollTask?.cancel()
+        statsTask?.cancel()
+        usageTask?.cancel()
+        treeTask?.cancel()
+        freeAccessTransitionTask?.cancel()
         if let authSignOutObserver {
             NotificationCenter.default.removeObserver(authSignOutObserver)
         }
+        if let networkObserver { NotificationCenter.default.removeObserver(networkObserver) }
         if let treeChangeObserver {
             NotificationCenter.default.removeObserver(treeChangeObserver)
         }
@@ -585,7 +415,7 @@ final class MachinesPanelViewModel: ObservableObject {
             )
             treeErrorDescription = String(format: format, machineID, MachineCreateOperation.headline(ofOutput: output) ?? output)
         }
-        refresh()
+        if isVisible { refresh() }
     }
 
     /// Publishes the catalog's current value and the local workspace list. Cheap
@@ -632,34 +462,37 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Older servers omitting the flag retain the desktop-only polling policy
     /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
-        statsTask?.cancel()
+        guard statsTask == nil, let client = client ?? VMClient.shared else { return }
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
+        let requestID = UUID()
+        statsID = requestID
         statsTask = Task { [weak self] in
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
-                    group.addTask {
-                        (id, try? await VMClient.shared.stats(id: id))
-                    }
+                    group.addTask { (id, try? await client.stats(id: id)) }
                 }
                 for await (id, stats) in group {
-                    guard !Task.isCancelled, let stats else { continue }
-                    await MainActor.run { [weak self] in
-                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }),
-                              self.machines[index].capabilities.stats else { return }
-                        self.machines[index].stats = stats
-                    }
+                    guard !Task.isCancelled, let self, self.statsID == requestID,
+                          let index = self.machines.firstIndex(where: { $0.id == id }),
+                          self.machines[index].capabilities.stats else { continue }
+                    // A failed sample is unavailable, never the last live value.
+                    self.machines[index].stats = stats
                 }
             }
+            guard !Task.isCancelled, let self, self.statsID == requestID else { return }
+            self.statsTask = nil
+            self.statsID = nil
+            // A machine added during the pass still needs its first sample.
+            if self.machines.filter({ $0.capabilities.stats }).map(\.id) != ids { self.refreshStats() }
         }
     }
     /// Fetches the team's per-machine coderouter spend and stamps it onto the
     /// rows. Rides the machine-list refresh, so it shares that cadence. Any
-    /// failure (404 on a backend without the route, network) is "no data":
-    /// nothing is surfaced, and the previous readout stays until a fetch
-    /// succeeds. An `unavailable` payload clears it.
+    /// failure (404 on a backend without the route, network) clears the readout.
+    /// Concurrent callers share the usage client's owned request.
     func refreshUsage() {
-        usageTask?.cancel()
+        guard usageTask == nil else { return }
         guard let client = MachineUsageClient.shared else { return }
         usageTask = Task { [weak self] in
             // A failed refresh clears the readout: a stale spend figure is
@@ -667,6 +500,7 @@ final class MachinesPanelViewModel: ObservableObject {
             let usage = (try? await client.teamUsage())?.byMachineID ?? [:]
             guard !Task.isCancelled, let self else { return }
             self.applyUsage(usage)
+            self.usageTask = nil
         }
     }
 
@@ -688,11 +522,17 @@ final class MachinesPanelViewModel: ObservableObject {
             refreshRequestedWhileLoading = true
             return
         }
+        guard let client = client ?? VMClient.shared else { return }
+        let requestID = UUID()
+        refreshID = requestID
         isLoading = true
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
-            guard let self else { return }
+            let result: Result<VMListPage, Error>
+            do { result = .success(try await client.listPage()) } catch { result = .failure(error) }
+            guard !Task.isCancelled, let self, self.refreshID == requestID else { return }
+            self.applyRefresh(result)
             self.refreshTask = nil
+            self.refreshID = nil
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
                 self.refresh()
@@ -701,8 +541,9 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func startPolling() {
-        refresh()
+        isVisible = true
         guard pollTask == nil else { return }
+        refresh()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: Self.pollInterval)
@@ -714,6 +555,13 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func stopPolling() {
+        isVisible = false
+        refreshID = nil
+        statsID = nil
+        refreshRequestedWhileLoading = false
+        refreshTask?.cancel()
+        refreshTask = nil
+        isLoading = false
         pollTask?.cancel()
         pollTask = nil
         statsTask?.cancel()
@@ -757,18 +605,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
-        refreshTask?.cancel()
-        refreshTask = nil
-        refreshRequestedWhileLoading = false
-        statsTask?.cancel()
-        statsTask = nil
-        usageTask?.cancel()
-        usageTask = nil
-        freeAccessTransitionTask?.cancel()
-        freeAccessTransitionTask = nil
-        treeTask?.cancel()
-        treeTask = nil
-        machineRefreshes.cancelAll()
+        stopPolling()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
@@ -785,14 +622,19 @@ final class MachinesPanelViewModel: ObservableObject {
         isLoading = false
     }
 
-    private func performRefresh() async {
-        guard let client = VMClient.shared else {
-            isLoading = false
-            return
-        }
+    private func clearUnavailableMetrics() {
+        statsID = nil
+        statsTask?.cancel()
+        statsTask = nil
+        usageTask?.cancel()
+        usageTask = nil
+        machines = machines.map { var next = $0; next.stats = nil; return next }
+        applyUsage([:])
+    }
+
+    private func applyRefresh(_ result: Result<VMListPage, Error>) {
         do {
-            let page = try await client.listPage()
-            try Task.checkCancellation()
+            let page = try result.get()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -837,9 +679,11 @@ final class MachinesPanelViewModel: ObservableObject {
                 isLoading = false
                 return
             }
+            clearUnavailableMetrics()
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            clearUnavailableMetrics()
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }

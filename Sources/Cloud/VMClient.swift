@@ -414,80 +414,6 @@ struct VMExecResult: Sendable {
     let stderr: String
 }
 
-/// What a machine's provider can do; the app offers only verbs that can succeed
-/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
-/// "not implemented" is not a verb).
-struct VMCapabilities: Equatable, Sendable {
-    var snapshot: Bool
-    var restore: Bool
-    var fork: Bool
-    var exec: Bool
-    var stats: Bool
-    /// The provider can mint a browser preview URL for a machine port.
-    var ports: Bool
-    var desktop: Bool
-    var sizing: Bool
-    var persistentHome: Bool
-    var attachTransports: [String]?
-
-    var ssh: Bool { attachTransports?.contains("ssh") ?? true }
-    var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
-
-    static let all = VMCapabilities(
-        snapshot: true, restore: true, fork: true,
-        exec: true, stats: true, ports: true, desktop: true,
-        sizing: true, persistentHome: true, attachTransports: nil)
-
-    init(
-        snapshot: Bool, restore: Bool, fork: Bool,
-        exec: Bool = true, stats: Bool = true, ports: Bool = true,
-        desktop: Bool = true, sizing: Bool = true, persistentHome: Bool = true,
-        attachTransports: [String]? = nil
-    ) {
-        self.snapshot = snapshot
-        self.restore = restore
-        self.fork = fork
-        self.exec = exec
-        self.stats = stats
-        self.ports = ports
-        self.desktop = desktop
-        self.sizing = sizing
-        self.persistentHome = persistentHome
-        self.attachTransports = attachTransports
-    }
-
-    /// Missing flags preserve legacy support; stats can use the historical kind fallback.
-    init(json: Any?, legacyStatsSupported: Bool = true) {
-        let dict = json as? [String: Any]
-        func flag(_ key: String, fallback: Bool = true) -> Bool {
-            if let value = dict?[key] as? Bool { return value }
-            if let number = dict?[key] as? NSNumber { return number.boolValue }
-            return fallback
-        }
-        let transports = (dict?["attachTransports"] as? [Any] ?? dict?["attach_transports"] as? [Any])?
-            .compactMap { $0 as? String }
-        self.init(
-            snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
-            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), ports: flag("ports"),
-            desktop: flag("desktop"), sizing: flag("sizing"),
-            persistentHome: flag("persistentHome"), attachTransports: transports)
-    }
-
-    var jsonObject: [String: Any] {
-        var object: [String: Any] = [
-            "snapshot": snapshot, "restore": restore, "fork": fork,
-            "exec": exec, "stats": stats, "ports": ports, "desktop": desktop,
-            "sizing": sizing, "persistentHome": persistentHome,
-        ]
-        if let attachTransports { object["attach_transports"] = attachTransports }
-        return object
-    }
-
-    init(vmResponse: [String: Any]) {
-        let kind = VMMachineKind.resolved(kind: vmResponse["kind"], image: vmResponse["image"])
-        self.init(json: vmResponse["capabilities"], legacyStatsSupported: kind.hasDesktop)
-    }
-}
 
 struct VMOpenPortEndpoint {
     let url: String
@@ -771,7 +697,9 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations)
+        let reads = CloudReadRequestCoordinator()
+        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, readRequests: reads)
+        Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -814,6 +742,7 @@ actor VMClient {
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
     private let machineCache: CloudMachineCache
+    private let readRequests: CloudReadRequestCoordinator
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
@@ -823,7 +752,8 @@ actor VMClient {
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
         machineCache: CloudMachineCache = CloudMachineCache(),
-        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator()
     ) {
         self.session = session
         self.auth = auth
@@ -831,6 +761,7 @@ actor VMClient {
         self.telemetry = telemetry
         self.operations = operations
         self.machineCache = machineCache
+        self.readRequests = readRequests
         self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
@@ -2138,9 +2069,30 @@ actor VMClient {
         allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
-            try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
-                timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            let isSharedRead = method == "GET" && (path == "/api/vm" || path.hasSuffix("/stats"))
+            if !isSharedRead {
+                return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
+                    timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                    allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            }
+            try Task.checkCancellation()
+            if !allowedUnderManagedPolicy, self.isDisabledByManagedPolicy?() == true {
+                throw VMClientError.disabledByManagedPolicy
+            }
+            let identity = await self.auth.authenticatedSessionIdentity
+            let teamID = await self.auth.resolvedTeamID
+            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity?.accountID,
+                generation: identity?.generation, teamID: teamID)
+            let value = try await self.readRequests.read(key) {
+                let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
+                return CloudReadRequestCoordinator.Response(data: data, http: http)
+            }
+            try Task.checkCancellation()
+            if let identity {
+                guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
+                      await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
+            }
+            return (value.data, value.http)
         }
         if CloudOperationContext.current != nil || operations == nil { return try await work() }
         let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
@@ -2201,6 +2153,7 @@ actor VMClient {
                 errorCode: http.statusCode >= 400 ? Self.cloudVMErrorCode(http: http, data: data) : nil,
                 serverTraceId: Self.cloudVMServerTraceId(http: http, data: data)
             ))
+            if method != "GET", (200...299).contains(http.statusCode) { await readRequests.invalidate() }
             return (data, http)
         } catch let error as VMClientError {
             record(.transportFailure(kind: Self.transportFailureKind(error), detail: Self.transportFailureDetail(error)))
@@ -2286,6 +2239,7 @@ actor VMClient {
         } catch {
             throw VMClientError.notSignedIn
         }
+        try Task.checkCancellation()
         let teamID = await auth.resolvedTeamID
 
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
@@ -2320,6 +2274,7 @@ actor VMClient {
         // instead of a dead-end error dialog.
         var retriesLeft = 2
         while true {
+            try Task.checkCancellation()
             let data: Data
             let response: URLResponse
             let attempt = 3 - retriesLeft
@@ -2350,6 +2305,12 @@ actor VMClient {
             }
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let seconds = Self.retryDelaySeconds(statusCode: 429, retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")) ?? 60
+                let canRetry = await owner.noteRetryAfter(read.key, seconds: seconds,
+                    response: .init(data: data, http: http))
+                if !canRetry { return (data, http) }
             }
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
@@ -2686,6 +2647,7 @@ actor MachineUsageClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let readRequests = CloudReadRequestCoordinator(budget: .seconds(15))
     nonisolated let operations: CloudOperationRecorder?
 
     init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil) {
@@ -2701,7 +2663,24 @@ actor MachineUsageClient {
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
+            let identity = await auth.authenticatedSessionIdentity
+            let selectedTeam = await auth.resolvedTeamID
+            let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity?.accountID,
+                generation: identity?.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
+            let response = try await readRequests.read(key) {
+                let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
+                if http.statusCode == 429 {
+                    let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
+                    _ = await self.readRequests.noteRetryAfter(key, seconds: seconds, response: .init(data: data, http: http))
+                }
+                return CloudReadRequestCoordinator.Response(data: data, http: http)
+            }
+            if let identity {
+                guard await auth.isAuthenticatedSessionIdentityCurrent(identity),
+                      await auth.resolvedTeamID == selectedTeam else { throw CancellationError() }
+            }
+            let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
@@ -2795,6 +2774,7 @@ actor MachineUsageClient {
         } catch {
             throw MachineUsageClientError.notSignedIn
         }
+        try Task.checkCancellation()
         let resolvedTeamID = await auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
