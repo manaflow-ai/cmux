@@ -53,6 +53,16 @@ extension CloudVMState {
             guard var lhs = try? JSONSerialization.jsonObject(with: a) as? [String: Any],
                   var rhs = try? JSONSerialization.jsonObject(with: b) as? [String: Any] else { return false }
             for key in ["title", "cols", "rows"] { lhs[key] = nil; rhs[key] = nil }
+            // Older daemon deltas omit lifecycle while preserving the durable
+            // `running` bit. Full snapshots include the derived lifecycle name.
+            // Compare the protocol meaning, not whether that optional spelling
+            // was present in one representation.
+            if lhs["lifecycle"] == nil, lhs["running"] != nil {
+                lhs["lifecycle"] = (lhs["running"] as? Bool) == true ? "running" : "exited"
+            }
+            if rhs["lifecycle"] == nil, rhs["running"] != nil {
+                rhs["lifecycle"] = (rhs["running"] as? Bool) == true ? "running" : "exited"
+            }
             guard let lhsData = try? JSONSerialization.data(withJSONObject: lhs, options: [.sortedKeys]),
                   let rhsData = try? JSONSerialization.data(withJSONObject: rhs, options: [.sortedKeys]),
                   lhsData == rhsData else { return false }
