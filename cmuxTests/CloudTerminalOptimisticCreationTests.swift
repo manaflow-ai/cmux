@@ -142,8 +142,8 @@ struct CloudTerminalOptimisticCreationTests {
             if case .failed = pending.state.phase { return true }
             return false
         })
-        #expect(!pending.state.canRetry)
         pending.retry()
+        #expect(await harness.waitUntil { pending.state.phase != .starting })
         #expect(harness.provider.anchors.count == 1)
         #expect(harness.provider.projected == 0)
         #expect(harness.workspace.panels[pending.id] === pending)

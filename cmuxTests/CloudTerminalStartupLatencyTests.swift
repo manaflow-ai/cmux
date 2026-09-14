@@ -17,12 +17,14 @@ struct CloudTerminalStartupLatencyTests {
         var readiness = CloudTerminalStartupReadiness()
         readiness.begin(baselineFrame: 40)
         readiness.markReplayApplied()
-        #expect(!readiness.markFramePresented(
+        let readyBeforeAttach = readiness.markFramePresented(
             sequence: 41,
             rendererPresented: true,
             effectivelyVisible: true
-        ))
-        #expect(readiness.markAttached())
+        )
+        #expect(!readyBeforeAttach)
+        let readyAfterAttach = readiness.markAttached()
+        #expect(readyAfterAttach)
         #expect(readiness.isReady)
     }
 
@@ -32,17 +34,19 @@ struct CloudTerminalStartupLatencyTests {
         readiness.begin(baselineFrame: 7)
         readiness.markAttached()
         readiness.markReplayApplied()
-        #expect(!readiness.markFramePresented(
+        let readyWhileHidden = readiness.markFramePresented(
             sequence: 8,
             rendererPresented: true,
             effectivelyVisible: false
-        ))
+        )
+        #expect(!readyWhileHidden)
         #expect(!readiness.isReady)
-        #expect(readiness.markFramePresented(
+        let readyWhileVisible = readiness.markFramePresented(
             sequence: 9,
             rendererPresented: true,
             effectivelyVisible: true
-        ))
+        )
+        #expect(readyWhileVisible)
     }
 
     @Test
@@ -71,16 +75,18 @@ struct CloudTerminalStartupLatencyTests {
         readiness.markAttached()
         readiness.markReplayApplied()
         readiness.beginVisiblePresentation(baselineFrame: 8)
-        #expect(!readiness.markFramePresented(
+        let readyWithOldFrame = readiness.markFramePresented(
             sequence: 8,
             rendererPresented: true,
             effectivelyVisible: true
-        ))
-        #expect(readiness.markFramePresented(
+        )
+        #expect(!readyWithOldFrame)
+        let readyWithNewFrame = readiness.markFramePresented(
             sequence: 9,
             rendererPresented: true,
             effectivelyVisible: true
-        ))
+        )
+        #expect(readyWithNewFrame)
     }
 
     @Test
@@ -89,9 +95,11 @@ struct CloudTerminalStartupLatencyTests {
         readiness.begin(baselineFrame: 10)
         readiness.markAttached()
         readiness.markFramePresented(sequence: 11, rendererPresented: true, effectivelyVisible: true)
-        #expect(!readiness.markReplayApplied())
+        let readyAfterReplay = readiness.markReplayApplied()
+        #expect(!readyAfterReplay)
         #expect(!readiness.isReady)
-        #expect(readiness.markFramePresented(sequence: 12, rendererPresented: true, effectivelyVisible: true))
+        let readyAfterFrame = readiness.markFramePresented(sequence: 12, rendererPresented: true, effectivelyVisible: true)
+        #expect(readyAfterFrame)
     }
 
     @Test @MainActor
