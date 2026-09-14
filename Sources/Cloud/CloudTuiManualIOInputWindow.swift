@@ -6,18 +6,14 @@ import Foundation
 struct CloudTuiManualIOInputWindow {
     private let maximumInFlight = 32
     private let maximumBytes = 256 * 1024
-    private struct Command {
-        let line: Data
-        let needsReceipt: Bool
-    }
-    private var pending: [Command?] = []
+    private var pending: [(line: Data, needsReceipt: Bool)?] = []
     private var pendingIndex = 0
     private var inFlightSizes: [Int] = []
     private var retainedBytes = 0
 
     mutating func append(_ line: Data, needsReceipt: Bool) -> Bool {
         guard !line.isEmpty, line.count <= maximumBytes - retainedBytes else { return false }
-        pending.append(Command(line: line, needsReceipt: needsReceipt))
+        pending.append((line: line, needsReceipt: needsReceipt))
         retainedBytes += line.count
         return true
     }
