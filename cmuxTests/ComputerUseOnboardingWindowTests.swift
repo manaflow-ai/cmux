@@ -152,11 +152,17 @@ struct ComputerUseOnboardingWindowTests {
                 window.setFrame(placementFrame, display: true, animate: false)
                 #expect(window.frame == placementFrame)
             }
-            for _ in 0..<12 {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while window.frame.size != expectedSize || contentView.frame.size != expectedSize {
                 contentView.invalidateIntrinsicContentSize()
                 contentView.needsLayout = true
                 contentView.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
+                if window.frame.size == expectedSize && contentView.frame.size == expectedSize {
+                    break
+                }
+                guard clock.now < deadline else { break }
                 await Task.yield()
             }
 
@@ -381,8 +387,10 @@ struct ComputerUseOnboardingWindowTests {
 
     @Test @MainActor func externalWindowCompanionUsesFloatingNonactivatingPresentation() {
         var orderedWindow: NSWindow?
+        var behaviorDuringOrder: NSWindow.CollectionBehavior?
         let presenter = ExternalWindowCompanionPresenter { window in
             orderedWindow = window
+            behaviorDuringOrder = window.collectionBehavior
         }
         let companionWindow = NSPanel(
             contentRect: .zero,
@@ -398,6 +406,7 @@ struct ComputerUseOnboardingWindowTests {
         presenter.present(companionWindow)
 
         #expect(orderedWindow === companionWindow)
+        #expect(behaviorDuringOrder?.contains(.moveToActiveSpace) == true)
         #expect(companionWindow.level == .floating)
         #expect(companionWindow.hidesOnDeactivate == false)
         #expect(!companionWindow.collectionBehavior.contains(.moveToActiveSpace))
