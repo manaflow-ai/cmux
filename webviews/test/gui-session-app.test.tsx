@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import React from "react";
-import { flushSync } from "react-dom";
+import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { context, providers } from "./fixtures/agentSessionContext";
 import { installDomGlobals, pasteIntoPromptEditor, waitFor } from "./fixtures/agentSessionDom";
@@ -18,6 +17,8 @@ restoreGlobals();
 
 async function mount(autoStart: boolean, write: (request: Request) => Promise<unknown> = async () => ({})) {
   const restore = installDomGlobals(dom);
+  const previousActEnvironment = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
+  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   const requests: Request[] = [];
   (dom.window as any).webkit = { messageHandlers: { agentSession: {
     postMessage: async (request: Request) => {
@@ -37,19 +38,23 @@ async function mount(autoStart: boolean, write: (request: Request) => Promise<un
     },
   } } };
   const root = createRoot(dom.window.document.getElementById("root")!);
-  flushSync(() => root.render(<AgentSessionApp />));
+  await act(async () => root.render(<AgentSessionApp />));
   await waitFor(() => requests.some((request) => request.method === "provider.list"));
   await waitFor(() => dom.window.document.querySelector(".ProseMirror") !== null);
-  const event = (event: AgentEvent) => flushSync(() => bridge.receive(event));
+  const event = (event: AgentEvent) => act(() => bridge.receive(event));
   return {
     requests, event,
     start: () => event({ type: "provider.started", providerId: "codex", sessionId: "session-1", executablePath: "codex", arguments: [] }),
-    enter: () => flushSync(() => dom.window.document.querySelector(".ProseMirror")!.dispatchEvent(
+    enter: () => act(() => dom.window.document.querySelector(".ProseMirror")!.dispatchEvent(
       new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
     )),
-    type: (text: string) => flushSync(() => pasteIntoPromptEditor(dom, text)),
+    type: (text: string) => act(() => pasteIntoPromptEditor(dom, text)),
     sends: () => requests.filter((request) => request.method === "provider.writeLine"),
-    cleanup: async () => { flushSync(() => root.unmount()); await new Promise((resolve) => setTimeout(resolve, 0)); restore(); },
+    cleanup: async () => {
+      await act(async () => root.unmount());
+      (globalThis as any).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      restore();
+    },
   };
 }
 
@@ -59,7 +64,7 @@ test("fresh GUI send button starts the provider and submits once it is ready", a
     app.type("1+1");
     const button = dom.window.document.querySelector<HTMLButtonElement>(".send-button")!;
     expect(button.disabled).toBe(false);
-    flushSync(() => button.click());
+    act(() => button.click());
     await waitFor(() => app.requests.some((request) => request.method === "provider.start"));
     expect(app.sends()).toHaveLength(0);
     app.start();
@@ -90,5 +95,5 @@ test("repeated Enter while the native send is pending does not submit twice", as
     await waitFor(() => app.requests.some((request) => request.method === "provider.start"));
     app.start(); app.type("1+1"); app.enter(); app.enter();
     expect(app.sends()).toHaveLength(1);
-  } finally { accept(); await pending; await new Promise((resolve) => setTimeout(resolve, 0)); await app.cleanup(); }
+  } finally { await act(async () => { accept(); await pending; }); await app.cleanup(); }
 });
