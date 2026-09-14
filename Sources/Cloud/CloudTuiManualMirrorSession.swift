@@ -80,6 +80,8 @@ final class CloudTuiManualMirrorSession {
     private let log = CloudTerminalAttachmentLog()
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
+    private var automaticReconnectSuppressed = false
+    var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         guard let state = CloudManualMirrorPresentation(
             phase: phase, replayReceived: diagnosticReplayReceived
@@ -91,18 +93,28 @@ final class CloudTuiManualMirrorSession {
         presentation?.diagnosticReference = diagnosticReference
         return presentation
     }
-
     @discardableResult
-    func retryConnection() -> Bool {
+    func retryConnection(cancelOnly: Bool = false) -> Bool {
         guard phase != .stopped else { return false }
+        if cancelOnly {
+            guard phase == .connecting || phase == .attached || (phase == .idle && remoteSurfaceID == 0) else { return false }
+            automaticReconnectSuppressed = true
+        } else {
+            automaticReconnectSuppressed = false
+        }
         // Explicit recovery must pass through the provider's fresh resolution,
         // including when the current socket is still attached or connecting.
         fenceAttachment(error: CancellationError())
-        onNeedsReconnect()
+        if cancelOnly {
+            transition(to: .idle)
+        } else {
+            onNeedsReconnect()
+        }
         return true
     }
+    @discardableResult
+    func cancelConnectionAttempt() -> Bool { retryConnection(cancelOnly: true) }
     private nonisolated static let leaseCapability = "view-attachment-lease-v1"
-
     init(
         machineID: String,
         terminalID: String,
@@ -130,14 +142,12 @@ final class CloudTuiManualMirrorSession {
             commandBuilder: commandBuilder
         )
     }
-
     /// Reports whether a server that advertised leased attachments omitted
     /// the lease on its attach response. Falling back to an unleased resize in
     /// that state could let a stale connection change a reused surface id.
     nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
         capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
-
     /// Binds the local Ghostty surface. The pane installs the same callbacks
     /// before inserting the panel, so a runtime-ready signal cannot be missed;
     /// assigning them here also makes rebinding after restore safe.
@@ -176,7 +186,6 @@ final class CloudTuiManualMirrorSession {
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
-
     /// Re-samples on reveal even without a frame-size delta. A valid grid in
     /// the visible, real pane makes sizing eligible; initial focus is irrelevant.
     func visibilityChanged(_ visible: Bool) {
@@ -212,7 +221,6 @@ final class CloudTuiManualMirrorSession {
         if phase == .disconnected || phase == .idle { onNeedsReconnect() }
         runtimeReady()
     }
-
     /// Rebinds the public terminal to the numeric surface ID from a fresh
     /// compatibility-tree snapshot. Numeric IDs are process-local and can be
     /// reused after a remote daemon restart; input and event filtering must
@@ -229,7 +237,6 @@ final class CloudTuiManualMirrorSession {
             fenceAttachment(error: CancellationError())
         }
     }
-
     /// Drops an attachment whose numeric surface could not be resolved for
     /// the current daemon generation. Keeping the old stream alive would let
     /// a reused numeric id route output or input to another terminal; the
@@ -240,7 +247,6 @@ final class CloudTuiManualMirrorSession {
         guard phase != .stopped else { return }
         fenceAttachment(error: CloudDiagnosticFailure.notFound, reason: reason)
     }
-
     /// Drops the current transport and every per-connection fact. Leases,
     /// capabilities, pending requests and acknowledged grids belong to one
     /// connection generation and never survive it; a later replay starts from
@@ -268,7 +274,6 @@ final class CloudTuiManualMirrorSession {
         lastRemoteGrid = nil
         diagnosticReplayReceived = false
     }
-
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
     /// creation can happen on a hidden bootstrap window; those dimensions are
     /// intentionally ignored until the real pane window is attached.
@@ -283,7 +288,6 @@ final class CloudTuiManualMirrorSession {
             self?.sampleRuntimeSize()
         }
     }
-
     private func sampleRuntimeSize() {
         guard phase != .stopped,
               let surface,
@@ -293,7 +297,6 @@ final class CloudTuiManualMirrorSession {
         }
         apply(size: sample, validatePanePixels: true)
     }
-
     /// Starts or rebinds the byte attachment to the current link socket.
     func reconnect(socketPath: String) {
         guard phase != .stopped else { return }
@@ -307,7 +310,6 @@ final class CloudTuiManualMirrorSession {
                 return
             }
         }
-
         finishDiagnostics(error: CancellationError())
         diagnosticFailure = nil
         diagnosticReplayReceived = false
@@ -333,7 +335,6 @@ final class CloudTuiManualMirrorSession {
         watchdog.armHandshake { [weak self] in
             self?.deadlineExpired(.handshakeTimedOut, while: .connecting)
         }
-
         let path = socketPath
         connectTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -364,7 +365,6 @@ final class CloudTuiManualMirrorSession {
             self.sendIdentify(on: connection)
         }
     }
-
     /// Records an applied local size and eventually reports it to the remote
     /// PTY. Samples from a bootstrap/placeholder window are rejected so the
     /// remote grid cannot be pinned to the default 99×35 surface.
