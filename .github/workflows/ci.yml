@@ -1470,18 +1470,27 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            # Reuse the final classifier for per-batch continuation. It only
-            # tolerates ordinary XCTest statuses (65/125); reserved wrapper
-            # statuses and unknown failures cannot be hidden by a stale
-            # "(0 unexpected)" summary. The output classifier additionally
-            # requires every XCTest summary in the batch to be clean, so an
-            # earlier unexpected failure is not masked by a later summary.
-            if [ "$batch_status" -ne 0 ] \
-              && scripts/ci/classify-app-host-test-result.sh \
-                "$batch_status" "$batch_output" >/dev/null 2>&1 \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-              echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+            # classify-app-host-test-result.sh grades every batch, including one
+            # that exited 0. A batch passes only when it executed tests, no app
+            # host died during it, and its status is 0 or an ordinary XCTest
+            # failure status (65/125) whose failures were all expected. Reserved
+            # wrapper statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary. For a nonzero status the output
+            # classifier additionally requires every XCTest summary in the batch
+            # to be clean, so an earlier unexpected failure is not masked by a
+            # later summary.
+            if scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null \
+              && { [ "$batch_status" -eq 0 ] \
+                || python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; }; then
+              if [ "$batch_status" -ne 0 ]; then
+                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+              fi
               return 0
+            fi
+            if [ "$batch_status" -eq 0 ]; then
+              echo "App-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} exited 0 without passing its grading"
+              return 1
             fi
             return "$batch_status"
           }
