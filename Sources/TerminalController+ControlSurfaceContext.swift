@@ -164,6 +164,7 @@ extension TerminalController: ControlSurfaceContext {
                 tmuxStartCommand: summary.tmuxStartCommand,
                 isTerminal: summary.isTerminal,
                 resumeBinding: summary.resumeBinding,
+                renderHealthRawValue: summary.renderHealthRawValue,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

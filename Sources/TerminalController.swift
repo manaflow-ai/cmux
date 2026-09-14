@@ -5886,7 +5886,6 @@ class TerminalController {
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
-
                 var item: [String: Any] = [
                     "index": index,
                     "mapped": mapped != nil,
@@ -5901,6 +5900,7 @@ class TerminalController {
                     "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
                     "renderer_realized": terminalSurface.isRendererRealized,
                     "renderer_presented": terminalSurface.isRendererPresented,
+                    "render_health": terminalSurface.renderHealth.rawValue,
                     "renderer_portal_visible": terminalSurface.isRendererPortalVisible,
                     "renderer_window_visible": terminalSurface.rendererWindowVisible,
                     "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
