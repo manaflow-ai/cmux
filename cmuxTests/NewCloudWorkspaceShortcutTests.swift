@@ -93,7 +93,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     // MARK: Shortcut catalog
 
-    func testDefaultShortcutIsCommandYAndDoesNotCollide() {
+    func testDefaultShortcutIsShiftCommandYAndDoesNotCollide() {
         let action = KeyboardShortcutSettings.Action.newCloudWorkspace
         XCTAssertEqual(action.label, "New Cloud Workspace")
         XCTAssertEqual(action.defaultsKey, "shortcut.newCloudWorkspace")
@@ -106,7 +106,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertFalse(shortcut.control)
-        XCTAssertEqual(shortcut.displayString, "⌘Y")
+        XCTAssertEqual(shortcut.displayString, "⇧⌘Y")
 
         for other in KeyboardShortcutSettings.Action.allCases where other != action {
             let otherDefault = other.defaultShortcut
@@ -115,9 +115,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
-    func testNewCloudMachineUsesCommandShiftY() {
+    func testNewCloudMachineUsesCommandY() {
         let action = KeyboardShortcutSettings.Action.newCloudMachine
-        XCTAssertEqual(action.defaultShortcut, StoredShortcut(key: "y", command: true, shift: true, option: false, control: false))
+        XCTAssertEqual(action.defaultShortcut, StoredShortcut(key: "y", command: true, shift: false, option: false, control: false))
         XCTAssertEqual(action.label, "New Cloud Machine")
     }
 
@@ -321,7 +321,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         XCTAssertEqual(presenter.presentCount, 0)
     }
 
-    func testCommandYRoutesThroughSharedAction() async throws {
+    func testCommandYRoutesThroughSharedMachineAction() async throws {
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
