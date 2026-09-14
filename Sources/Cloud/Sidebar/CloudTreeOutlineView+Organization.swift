@@ -37,13 +37,18 @@ extension CloudTreeOutlineView.Coordinator {
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-        guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return [] }
+        guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
+            (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            return []
+        }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
+        (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
+        defer { (outlineView as? CloudTreeNSOutlineView)?.reorderPresentation.clear(sequence: info.draggingSequenceNumber) }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         return organize(drop.action, nodeID: drop.sourceID)
     }
