@@ -28,8 +28,6 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
-    var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -66,11 +64,11 @@ struct CloudTreeRowContentView: View {
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style)
         case .displaysPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style)
         case .workspacesGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style)
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
@@ -101,7 +99,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -111,12 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
-            )
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,

@@ -1,5 +1,6 @@
 import CmuxTerminal
 import CmuxCore
+import CmuxCloudImagePaste
 import Foundation
 import os
 private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
@@ -18,6 +19,7 @@ final class CloudTuiManualMirrorSession {
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
+    let imagePaste = CloudImagePasteCoordinator()
 
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
@@ -113,7 +115,6 @@ final class CloudTuiManualMirrorSession {
     }
     @discardableResult
     func cancelConnectionAttempt() -> Bool { retryConnection(cancelOnly: true) }
-    private nonisolated static let leaseCapability = "view-attachment-lease-v1"
     init(
         machineID: String,
         terminalID: String,
@@ -142,12 +143,6 @@ final class CloudTuiManualMirrorSession {
             surfaceID: remoteSurfaceID,
             commandBuilder: commandBuilder
         )
-    }
-    /// Reports whether a server that advertised leased attachments omitted
-    /// the lease on its attach response. Falling back to an unleased resize in
-    /// that state could let a stale connection change a reused surface id.
-    nonisolated static func requiresLeaseToken(capabilities: [String], lease: String?) -> Bool {
-        capabilities.contains(leaseCapability) && lease?.isEmpty != false
     }
     /// Binds the local Ghostty surface. The pane installs the same callbacks
     /// before inserting the panel, so a runtime-ready signal cannot be missed;
@@ -266,6 +261,7 @@ final class CloudTuiManualMirrorSession {
         connection?.close()
         connection = nil
         inputRouter.setConnection(nil)
+        imagePaste.disconnect()
         pendingRequests.removeAll(keepingCapacity: true)
         attachResponseReceived = false
         claimInFlight = false
@@ -418,6 +414,7 @@ final class CloudTuiManualMirrorSession {
         runtimeSampleTask?.cancel()
         runtimeSampleTask = nil
         inputRouter.invalidate()
+        imagePaste.disconnect()
         if let connection,
            wasAttached,
            let remoteLease {
@@ -619,7 +616,7 @@ final class CloudTuiManualMirrorSession {
         accepted: Bool?,
         error: String?
     ) {
-        guard let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
         manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:
@@ -667,7 +664,16 @@ final class CloudTuiManualMirrorSession {
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
             )
-            if let connection { inputRouter.setConnection(connection) }
+            if let connection {
+                inputRouter.setConnection(connection)
+                imagePaste.bind(terminalID: terminalID, surfaceID: remoteSurfaceID,
+                                lease: remoteLease, capabilities: serverCapabilities) { [weak self, weak connection] fields in
+                    guard let self, let connection, self.connection === connection else {
+                        throw CloudImagePasteError.unavailable
+                    }
+                    return try self.inputRouter.sendControl(fields, on: connection, requestID: self.takeRequestID())
+                }
+            }
             resumeSizingIfNeeded()
         case .ping:
             watchdog.noteProbeAnswered()
@@ -876,11 +882,5 @@ final class CloudTuiManualMirrorSession {
                 return true
             }
         }
-    }
-    private static func isUnsupportedClaimError(_ error: String?) -> Bool {
-        guard let error = error?.lowercased() else { return false }
-        return error.contains("unknown command")
-            || error.contains("unsupported")
-            || error.contains("unrecognized command")
     }
 }

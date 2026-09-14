@@ -1,52 +1,78 @@
 "use client";
 
-import { MessageCard, useCliAuthConfirmation, useUser } from "@stackframe/stack";
+import { MessageCard, useCliAuthConfirmation, useUser, type CliAuthConfirmationState } from "@stackframe/stack";
 
-export function CliAuthConfirmation({ fullPage = true }: { fullPage?: boolean }) {
+export type CliAuthIdentityMessages = {
+  email: string;
+  emailUnavailable: string;
+  organization: string;
+  personalAccount: string;
+};
+
+export function CliAuthConfirmation({ fullPage = true, identityMessages }: {
+  fullPage?: boolean;
+  identityMessages: CliAuthIdentityMessages;
+}) {
   const cliAuth = useCliAuthConfirmation();
   const user = useUser({ includeRestricted: true });
+  const email = user?.primaryEmail ?? identityMessages.emailUnavailable;
+  const organization = user?.selectedTeam?.displayName ?? identityMessages.personalAccount;
+  const { children, ...cardProps } = cliAuthMessage(cliAuth);
 
+  return (
+    <MessageCard {...cardProps} fullPage={fullPage}>
+      <dl className="space-y-2 text-sm">
+        <div>
+          <dt className="font-medium">{identityMessages.email}</dt>
+          <dd className="break-words"><bdi>{email}</bdi></dd>
+        </div>
+        <div>
+          <dt className="font-medium">{identityMessages.organization}</dt>
+          <dd className="break-words"><bdi>{organization}</bdi></dd>
+        </div>
+      </dl>
+      {children}
+    </MessageCard>
+  );
+}
+
+function cliAuthMessage(cliAuth: CliAuthConfirmationState) {
   if (cliAuth.status === "success") {
-    const email = user?.primaryEmail ?? "email unavailable";
-    const organization = user?.selectedTeam?.displayName ?? "personal account";
-
-    return (
-      <MessageCard title={"Signed in to coderouter"} fullPage={fullPage}>
-        <p>{"This terminal is now authorized. You can close this window and return to the command line."}</p>
-        <dl className="mt-4 space-y-2 text-sm">
-          <div>
-            <dt className="font-medium">{"Email"}</dt>
-            <dd>{email}</dd>
-          </div>
-          <div>
-            <dt className="font-medium">{"Organization"}</dt>
-            <dd>{organization}</dd>
-          </div>
-        </dl>
-      </MessageCard>
-    );
+    return {
+      title: "Signed in to coderouter",
+      children: <p>{"This terminal is now authorized. You can close this window and return to the command line."}</p>,
+    };
   }
-
   if (cliAuth.status === "error") {
-    return <MessageCard title={"Authorization Failed"} fullPage={fullPage} primaryButtonText={"Try Again"} primaryAction={cliAuth.retry}>
-      <p className="text-red-600">{"Failed to authorize the CLI application. Please try again."}</p>
-    </MessageCard>;
+    return {
+      title: "Authorization Failed",
+      primaryButtonText: "Try Again",
+      primaryAction: cliAuth.retry,
+      children: <p className="text-red-600">{"Failed to authorize the CLI application. Please try again."}</p>,
+    };
   }
 
   if (cliAuth.status === "invalid") {
-    return <MessageCard title={"Invalid CLI Authorization Link"} fullPage={fullPage}>
-      <p className="text-red-600">{"This CLI authorization link is missing a login code. Please return to the command line and start the login process again."}</p>
-    </MessageCard>;
+    return {
+      title: "Invalid CLI Authorization Link",
+      children: <p className="text-red-600">{"This CLI authorization link is missing a login code. Please return to the command line and start the login process again."}</p>,
+    };
   }
 
   if (cliAuth.status === "authorizing" || cliAuth.status === "redirecting") {
-    return <MessageCard title={"Completing Authorization..."} fullPage={fullPage}>
-      <p>{"Finishing up the CLI authorization..."}</p>
-    </MessageCard>;
+    return {
+      title: "Completing Authorization...",
+      children: <p>{"Finishing up the CLI authorization..."}</p>,
+    };
   }
 
-  return <MessageCard title={"Authorize CLI Application"} fullPage={fullPage} primaryButtonText={cliAuth.isLoading ? "Authorizing..." : "Authorize"} primaryAction={cliAuth.authorize}>
-    <p>{"A command line application is requesting access to your account. Click the button below to authorize it."}</p>
-    <p className="text-red-600">{"WARNING: Make sure you trust the command line application, as it will gain access to your account. If you did not initiate this request, you can close this page and ignore it. We will never send you this link via email or any other means."}</p>
-  </MessageCard>;
+  return {
+    title: "Authorize CLI Application",
+    primaryButtonText: cliAuth.isLoading ? "Authorizing..." : "Authorize",
+    primaryAction: cliAuth.authorize,
+    children: <>
+      <p>{"A command line application is requesting access to your account. Click the button below to authorize it."}</p>
+      <p className="text-red-600">{"WARNING: Make sure you trust the command line application, as it will gain access to your account. If you did not initiate this request, you can close this page and ignore it. We will never send you this link via email or any other means."}</p>
+    </>,
+  };
 }

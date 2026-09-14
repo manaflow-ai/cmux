@@ -3868,5 +3868,11 @@
         "action": "管理方案"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "电子邮件",
+    "emailUnavailable": "电子邮件地址不可用",
+    "organization": "组织",
+    "personalAccount": "个人账户"
   }
 }
