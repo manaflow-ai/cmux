@@ -1,5 +1,4 @@
 import AppKit
-import SwiftUI
 
 /// One native activation path for the Ports callout and compact help affordance.
 @MainActor
@@ -124,20 +123,4 @@ final class CloudVPNSetupButton: NSButton {
             : NSColor.clear.cgColor
     }
 
-    /// Embeds the native button in a SwiftUI row while preserving AppKit
-    /// accessibility, keyboard activation, and the row's selection ownership.
-    @MainActor
-    struct Representable: NSViewRepresentable {
-        let setup: @MainActor (NSWindow?) -> Void
-
-        func makeNSView(context: Context) -> CloudVPNSetupButton {
-            let button = CloudVPNSetupButton(frame: .zero, presentation: .helpIcon)
-            button.setup = setup
-            return button
-        }
-
-        func updateNSView(_ nsView: CloudVPNSetupButton, context: Context) {
-            nsView.setup = setup
-        }
-    }
 }

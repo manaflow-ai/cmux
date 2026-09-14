@@ -23,7 +23,7 @@ struct CloudTreeGroupRowContent: View {
                 }
             }
             if let helpAction {
-                CloudVPNSetupButton.Representable(setup: helpAction)
+                CloudVPNSetupButtonRepresentable(setup: helpAction)
                     .frame(width: 28, height: 24)
                     .accessibilitySortPriority(1)
             }
