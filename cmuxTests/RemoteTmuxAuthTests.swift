@@ -944,9 +944,14 @@ import Testing
         try "#!/bin/sh\ntouch \(tailRan.path)\n".write(to: fakeShell, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o755], ofItemAtPath: fakeShell.path)
+        let inheritedShell = getenv("SHELL").map { String(cString: $0) }
         setenv("SHELL", fakeShell.path, 1)
         defer {
-            unsetenv("SHELL")
+            if let inheritedShell {
+                setenv("SHELL", inheritedShell, 1)
+            } else {
+                unsetenv("SHELL")
+            }
             for url in [injected, tailRan, fakeShell] { try? FileManager.default.removeItem(at: url) }
         }
 
