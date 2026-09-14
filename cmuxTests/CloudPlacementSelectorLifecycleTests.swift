@@ -13,6 +13,87 @@ import Testing
 struct CloudPlacementSelectorLifecycleTests {
     private let machine = SurfaceMachineID.cloud("selector-lifecycle")
 
+    enum MaterializationCase: CaseIterable, Sendable {
+        case restored, selected, replacementDisappears
+    }
+
+    @Test(.serialized, arguments: MaterializationCase.allCases)
+    func deletedPersistedTabMaterializationUsesOnlyItsRepairedPlacement(_ scenario: MaterializationCase) async throws {
+        let restoredWorkspace = UUID(), siblingWorkspace = UUID()
+        let restoredPanel = UUID(), siblingPanel = UUID()
+        let bindings = [
+            restoredWorkspace: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_old"),
+            siblingWorkspace: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "ws_target")
+        ]
+        let workspaceCoordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { bindings }))
+        let coordinator = CloudPlacementCoordinator(binding: { bindings[$0] })
+        let catalog = SurfaceCatalog(cloudPlacementCoordinator: coordinator, cloudWorkspaceProjectionCoordinator: workspaceCoordinator)
+        let provider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: machine.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            attachmentClock: MaterializationClock()
+        )
+        catalog.register(provider)
+        // Hold native layout reconciliation while this restored placeholder owns
+        // materialization, just as the surrounding projection mutation does.
+        _ = workspaceCoordinator.beginLocalMutation(on: machine)
+        let initial = try graph(tabID: "tab_sibling")
+        catalog.replaceCloudState(initial, resources: CmuxTuiSnapshotParser.resources(from: initial), info: provider.info)
+        let terminal = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_live")
+        let restored = SurfaceProjection(resource: terminal, workspaceID: restoredWorkspace, panelID: restoredPanel,
+                                         remoteWorkspaceID: "ws_old", remoteTabID: "tab_deleted")
+        let sibling = SurfaceProjection(resource: terminal, workspaceID: siblingWorkspace, panelID: siblingPanel,
+                                        remoteWorkspaceID: "ws_old", remoteTabID: "tab_sibling")
+        catalog.record(restored)
+        catalog.record(sibling)
+        #expect(!workspaceCoordinator.retainsProjection(restored, in: initial))
+        var replacementSnapshot = try #require(initial.snapshotObject())
+        var tabs = try #require(replacementSnapshot["tabs"] as? [[String: Any]])
+        tabs.append(["id": "tab_repaired", "pane_id": "pane_old", "content_kind": "terminal", "content_id": "term_live"])
+        replacementSnapshot["tabs"] = tabs
+        replacementSnapshot["cursor"] = ["generation": "g", "revision": "2"]
+        let replacementData = try JSONSerialization.data(withJSONObject: replacementSnapshot)
+        let runner = MaterializationRunner(
+            snapshot: try JSONSerialization.data(withJSONObject: try #require(initial.snapshotObject())),
+            tree: try JSONSerialization.data(withJSONObject: ["workspaces": [["screens": [["panes": [["tabs": [
+                ["tab_resource_id": "tab_sibling", "terminal_resource_id": "term_live", "surface": 23],
+                ["tab_resource_id": "tab_repaired", "terminal_resource_id": "term_live", "surface": 41]
+            ]]]]]]]])
+        )
+        let replacement = SurfaceRemotePlacement(workspaceID: "ws_old", tabID: "tab_repaired",
+                                                  cursor: CloudVMCursor(generation: "g", revision: 2))
+        var repairs = 0
+        do {
+            let resolved = try await provider.resolveSurfaceIDForMaterialization(
+                terminalID: terminal.key, socketPath: "/fixture", commandRunner: runner,
+                remoteTabID: "tab_deleted", correlationID: UUID().uuidString,
+                restoringPanelID: scenario == .selected ? nil : restoredPanel
+            ) { workspace in
+                repairs += 1
+                #expect(workspace == "ws_old", "a sibling's different binding must not block or redirect restore")
+                if scenario == .restored { await runner.replace(snapshot: replacementData) }
+                return replacement
+            }
+            #expect(scenario == .restored)
+            #expect(resolved.surfaceID == 41, "materialization must resolve the receipt's tab, not its sibling")
+            #expect(resolved.placement == replacement)
+        } catch let CmuxTuiSurfaceProvider.ProviderError.terminalAttachTimedOut(_, failure) {
+            #expect(scenario != .restored)
+            #expect(failure == .notReady)
+        } catch {
+            Issue.record("unexpected materialization error: \(error)")
+        }
+        #expect(repairs == (scenario == .selected ? 0 : 1), "a replacement that disappears must not cause unbounded repair")
+        #expect(catalog.projection(forPanel: restoredPanel)?.remoteTabID == (scenario == .selected ? "tab_deleted" : "tab_repaired"))
+        #expect(catalog.projection(forPanel: siblingPanel) == sibling, "repair must not retarget another local projection")
+        #expect(await runner.treeReads == (scenario == .restored ? 1 : 0))
+        let expectedSnapshots = scenario == .restored ? 2 : (scenario == .replacementDisappears ? 4 : 3)
+        #expect(await runner.snapshotReads == expectedSnapshots)
+        workspaceCoordinator.cancel(machine: machine)
+        await provider.stop()
+    }
+
     @Test
     func anUnchangedViewCanCommitAndAReplacementViewIsNotGuessed() async throws {
         let catalog = SurfaceCatalog()
@@ -168,5 +249,33 @@ struct CloudPlacementSelectorLifecycleTests {
             "terminals": [["id": "term_live", "lifecycle": "running"], ["id": "term_blocker", "lifecycle": "running"]],
             "browsers": [], "agents": []
         ], machine: machine))
+    }
+
+    /// Advances retry deadlines immediately while retaining cancellation behavior.
+    private struct MaterializationClock: Clock {
+        var now: ContinuousClock.Instant { .now }
+        var minimumResolution: Duration { .zero }
+        func sleep(until _: ContinuousClock.Instant, tolerance _: Duration?) async throws {
+            try Task.checkCancellation()
+        }
+    }
+
+    private actor MaterializationRunner: CloudTuiCommandRunning {
+        var snapshot: Data
+        let tree: Data
+        private(set) var snapshotReads = 0
+        private(set) var treeReads = 0
+
+        init(snapshot: Data, tree: Data) { self.snapshot = snapshot; self.tree = tree }
+        func replace(snapshot: Data) { self.snapshot = snapshot }
+        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+            if arguments.suffix(3) == ["session", "current", "snapshot"] {
+                snapshotReads += 1
+                return snapshot
+            }
+            #expect(arguments.last == "list-workspaces")
+            treeReads += 1
+            return tree
+        }
     }
 }
