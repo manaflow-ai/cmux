@@ -92,13 +92,26 @@ import Testing
             machineID: "fixture", clientURL: URL(fileURLWithPath: "/bin/sh"), paths: CloudTuiClientPaths()
         )
         _ = try await link.run(arguments: ["-c", "printf warmup"])
-        let before = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
+        let before = try openDescriptors()
         for _ in 0..<24 {
             _ = try await link.run(arguments: ["-c", "printf normal; printf diagnostic >&2"])
         }
-        let after = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
-        print("COMMAND_FD_PROOF beforeBytes=\(before) afterBytes=\(after) iterations=24")
-        #expect(after <= before, "capture descriptors must be closed before each command returns")
+        let after = try openDescriptors()
+        print("COMMAND_FD_PROOF beforeCount=\(before.count) afterCount=\(after.count) iterations=24")
+        #expect(after.isSubset(of: before), "capture descriptors must be closed before each command returns: \(after.subtracting(before))")
+    }
+
+    private func openDescriptors() throws -> Set<Int32> {
+        let entrySize = MemoryLayout<proc_fdinfo>.size
+        // The null-buffer query is capacity, not a count of open descriptors.
+        let capacity = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nil, 0)
+        try #require(capacity > 0)
+        var entries = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(capacity) / entrySize + 32)
+        let bytes = entries.withUnsafeMutableBytes {
+            proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, $0.baseAddress, Int32($0.count))
+        }
+        try #require(bytes > 0 && Int(bytes) % entrySize == 0)
+        return Set(entries.prefix(Int(bytes) / entrySize).map(\.proc_fd))
     }
 
     @Test func appSuspensionDoesNotAcceptExpiredSuccessOnResume() async throws {
