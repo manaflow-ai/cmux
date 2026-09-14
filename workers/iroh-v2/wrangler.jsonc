@@ -36,8 +36,7 @@
       "API_TICKET_CURRENT_KEY_ID",
       "RELAY_SIGNING_KEY",
       "RELAY_KEY_ID",
-      "RELAY_URLS",
-      "DATABASE_URL"
+      "RELAY_URLS"
     ]
   },
   "migrations": [
@@ -90,8 +89,7 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL"
+          "RELAY_URLS"
         ]
       },
       "hyperdrive": [
@@ -131,8 +129,7 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL"
+          "RELAY_URLS"
         ]
       },
       "hyperdrive": [
@@ -172,8 +169,7 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL"
+          "RELAY_URLS"
         ]
       },
       "hyperdrive": [

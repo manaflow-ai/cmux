@@ -5,9 +5,9 @@ import { OperationError } from "./errors";
 import { PlanetScaleOwnership } from "./ownership/planetscale";
 import { RELAY_TOKEN_AUDIENCE, RELAY_TOKEN_ISSUER, RelayIssuer } from "./relay";
 export type Environment = Cloudflare.Env & {
-  /** Product workspace data uses cmux-prod through this binding. */
+  /** Ownership and workspace data share the matching cmux-prod branch. */
   HYPERDRIVE_CONNECTED_WORKSPACES?: { readonly connectionString: string };
-  /** Direct URLs are used for IROH ownership and local fixtures. */
+  /** Direct URLs support local fixtures and legacy environments without a binding. */
   DATABASE_URL?: string;
   PLANETSCALE_DATABASE_URL?: string;
   DASHBOARD_ALLOWED_ORIGINS?: string;
@@ -43,9 +43,10 @@ function createRuntime(env: Environment) {
       ...scope, keys, currentKeyId, currentKey, allowedOrigins,
       stack: new StackAuthority({ ...scope, apiURL: env.STACK_API_URL, publishableKey: env.STACK_PUBLISHABLE_KEY, serverKey: env.STACK_SERVER_KEY }),
       ownership: new PlanetScaleOwnership(
-        env.DATABASE_URL ?? env.PLANETSCALE_DATABASE_URL ?? "",
+        env.HYPERDRIVE_CONNECTED_WORKSPACES?.connectionString ?? env.DATABASE_URL ?? env.PLANETSCALE_DATABASE_URL ?? "",
         scope.environment,
         scope.projectId,
+        Boolean(env.HYPERDRIVE_CONNECTED_WORKSPACES),
       ),
       relays: new RelayIssuer({
         ...scope, relayURLs, issuer: RELAY_TOKEN_ISSUER, audience: RELAY_TOKEN_AUDIENCE,
