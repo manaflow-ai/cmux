@@ -7533,11 +7533,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 reference: failure.reference
             )
         }
-        if let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
-            return session.connectionPresentation
-        }
         let surfaceConnectionState: WorkspaceRemoteConnectionState
         switch remoteTerminalSessionStatesBySurfaceId[surfaceId]?.phase {
         case .some(.connected):
