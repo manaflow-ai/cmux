@@ -272,8 +272,20 @@ public enum AgentLaunchSanitizer {
             }
             if valueOptions.contains(arg),
                index + 1 < args.count,
+               args[index + 1] != "--",
                shouldRemoveValue(args[index + 1]) {
                 index += 2
+                continue
+            }
+            // A cwd option sitting immediately before the end-of-options delimiter, or at the
+            // very end, has no value of its own to take. Removing all cwd options would
+            // otherwise swallow "--" as if it were the value, and everything the caller put
+            // after the delimiter would then be sanitized as options -- the opposite of what
+            // this function promises. Drop the bare option and leave the delimiter alone.
+            if valueOptions.contains(arg),
+               removeAllWorkingDirectoryOptions,
+               index + 1 >= args.count || args[index + 1] == "--" {
+                index += 1
                 continue
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
