@@ -7526,6 +7526,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 reference: failure.reference
             )
         }
+        // A native Cloud pane owns its presentation through the attachment
+        // session. Do not let a stale workspace controller state cover a
+        // usable terminal when the catalog projection is being refreshed.
+        if let panel = panels[surfaceId] as? TerminalPanel,
+           let attachment = panel.cloudAttachment {
+            return attachment.presentation
+        }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {

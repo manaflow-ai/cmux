@@ -171,9 +171,11 @@ final class CloudTuiManualMirrorSession {
             return self.phase == .attached && self.diagnosticReplayReceived
         }, onReady: { [weak self] in
             self?.startupTrace?.mark("first-visible-frame", surfaceID: self?.remoteSurfaceID, outcome: "ready")
+            self?.publishAttachmentPresentation()
             self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }, onEnded: { [weak self] in
             self?.clearStartupLoading()
+            self?.publishAttachmentPresentation()
             self?.surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         }, onTimedOut: { [weak self] in
             self?.transitionToDisconnected(reason: .livenessTimedOut)
@@ -181,6 +183,7 @@ final class CloudTuiManualMirrorSession {
         startupTrace?.mark("surface-bound", surfaceID: remoteSurfaceID)
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
+        publishAttachmentPresentation()
     }
 
     func visibilityChanged(_ visible: Bool) {
@@ -436,6 +439,7 @@ final class CloudTuiManualMirrorSession {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
         if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
+        publishAttachmentPresentation()
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
         guard let context else { return }
@@ -590,7 +594,16 @@ final class CloudTuiManualMirrorSession {
             attachAttempts = 0
         }
         log.phase(machineID: machineID, terminalID: terminalID, surfaceID: remoteSurfaceID, phase: next, reason: reason)
-        attachmentStatus.update(attachmentState)
+        publishAttachmentPresentation()
+    }
+
+    /// Publishes the one presentation snapshot for this pane's attachment.
+    /// Workspace-wide remote controller state is intentionally excluded.
+    private func publishAttachmentPresentation() {
+        attachmentStatus.update(
+            attachmentState,
+            presentation: connectionPresentation
+        )
     }
 
     private var attachmentState: CloudTerminalAttachmentState {

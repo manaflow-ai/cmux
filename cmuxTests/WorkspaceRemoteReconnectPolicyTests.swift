@@ -120,6 +120,23 @@ struct CloudTerminalReconnectOverlayPolicyTests {
         workspace.remoteConnectionState = .reconnecting
         workspace.remoteConnectionDetail = nil
         #expect(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID) == nil)
+
+        let nativePresentation = try #require(
+            CloudTerminalReconnectOverlayPolicy.presentation(
+                isManagedCloudWorkspace: true,
+                isRemoteTerminalSurface: true,
+                connectionState: .disconnected,
+                detail: "the terminal attachment ended"
+            )
+        )
+        status.update(
+            .reconnecting(attempt: 2, reason: .transportClosed),
+            presentation: nativePresentation
+        )
+
+        #expect(
+            workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID) == nativePresentation
+        )
     }
 
     @Test("Cloud terminal surfaces show reconnect UI when disconnected")
