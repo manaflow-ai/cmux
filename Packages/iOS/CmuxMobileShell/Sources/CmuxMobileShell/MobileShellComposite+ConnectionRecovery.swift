@@ -355,19 +355,7 @@ extension MobileShellComposite {
                       self.connectionRecoveryOwner.transitionToRedialing(attempt) else { return }
                 if let expectedClient {
                     guard self.remoteClient === expectedClient else { return }
-                    // Retire the stale client before the replacement dial, but
-                    // keep the foreground identity and last-known workspace
-                    // presentation while the replacement is being validated.
-                    // A path handoff is an implementation detail until the new
-                    // session fails; clearing connectionState here creates a
-                    // false disconnected flash and deactivates every terminal
-                    // lane even when replacement succeeds immediately.
-                    self.connectionGeneration = UUID()
-                    self.cancelRemoteOperationTasks()
-                    self.rawTerminalInputBuffer.clear()
-                    self.terminalInputRPCPipeline.clear()
-                    self.resumeRawTerminalInputDrainWaiters()
-                    await self.releaseRemoteClientForReplacement()
+                    self.retireRemoteClientForConnectionRecovery()
                     self.applyConnectionRecoveryOwnerState()
                     MobileDebugLog.anchormux(
                         "connection.recovery waiting for physical transport drain "
@@ -414,8 +402,7 @@ extension MobileShellComposite {
                     outcome: reconnectOutcome,
                     connectionGeneration: self.connectionGeneration
                 ) else { return }
-                if !reconnectOutcome.didConnect,
-                   self.connectionState == .connected {
+                if !reconnectOutcome.didConnect {
                     self.connectionState = .disconnected
                     self.macConnectionStatus = .unavailable
                     self.clearRemoteConnectionContext()
@@ -604,10 +591,11 @@ extension MobileShellComposite {
         case .redialing, .validatingReplacement:
             isRecoveringConnection = true
             connectionRecoveryFailed = false
-            if connectionState == .connected { markMacConnectionReconnecting() }
+            markMacConnectionReconnecting()
         case .failed:
             isRecoveringConnection = false
             connectionRecoveryFailed = true
+            if connectionState != .connected { macConnectionStatus = .unavailable }
         }
     }
 

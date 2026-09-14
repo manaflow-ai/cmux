@@ -11075,6 +11075,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
     }
 
+    /// Retire the dead transport synchronously while retaining the Mac identity
+    /// and workspace rows. Recovery owns the visible status; connectionState
+    /// still records real transport availability so streams restart on adoption.
+    func retireRemoteClientForConnectionRecovery() {
+        connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
+        cancelRemoteOperationTasks()
+        macConnectionStatus = .reconnecting
+        connectionState = .disconnected
+        rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
+        resumeRawTerminalInputDrainWaiters()
+        if let focused = focusedForegroundConnection,
+           focused.client === remoteClient {
+            removeControlCapability(ifMatching: focused)
+            removeFocusedConnection(ifMatching: focused)
+        }
+        replaceRemoteClient(with: nil)
+    }
+
     /// Retire the current pre-authentication candidate before a newer connect
     /// competes for the same physical route. The registry lease transfers to
     /// teardown before the replacement reaches transport admission.
@@ -11969,10 +11989,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionReconnecting() {
-        // Recovery retires the old RPC client before dialing its replacement,
-        // while the logical session remains presented as connected. Keep the
-        // reconnecting status visible during that ownership gap.
-        guard connectionState == .connected else {
+        // An active replacement owns the presentation while its transport is
+        // absent. Probes on a usable connection never enter this phase.
+        guard connectionState == .connected
+                || connectionRecoveryOwner.isRedialingOrValidating else {
             macConnectionStatus = .unavailable
             return
         }
