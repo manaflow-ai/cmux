@@ -119,6 +119,20 @@ if (cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_ATTEMPTS=1 CMUX_TUI_CLIENT_FET
   echo "FAIL: with a single fetch attempt the flaky remote must make the resolver fail (test setup)"
   exit 1
 fi
+# An all-zero attempt count is rejected like a bare 0, not normalized into "zero attempts".
+for bad in 0 00 x ''; do
+  if (cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_ATTEMPTS="$bad" "$RESOLVER" >/dev/null 2>&1); then
+    echo "FAIL: CMUX_TUI_CLIENT_FETCH_ATTEMPTS='$bad' must be rejected"
+    exit 1
+  fi
+  (cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_ATTEMPTS="$bad" "$RESOLVER" >/dev/null 2>&1) || rc=$?
+  if [[ "${rc:-0}" != 64 ]]; then
+    echo "FAIL: CMUX_TUI_CLIENT_FETCH_ATTEMPTS='$bad' must exit 64 (usage error), got ${rc:-0}"
+    exit 1
+  fi
+  unset rc
+done
+
 echo 2 >"$TMP/failures-left"
 got="$(cd "$TMP/flaky-work" && CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS=0 "$RESOLVER" 2>"$TMP/flaky.err" || true)"
 if [[ "$got" != "$C3" ]]; then

@@ -52,13 +52,18 @@ MAX_FALLBACK=$((10#$MAX_FALLBACK))
 FETCH_ATTEMPTS="${CMUX_TUI_CLIENT_FETCH_ATTEMPTS:-5}"
 FETCH_RETRY_SECONDS="${CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS:-2}"
 case "$FETCH_ATTEMPTS" in
-  ''|*[!0-9]*|0) echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2; exit 64 ;;
+  ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2; exit 64 ;;
 esac
 case "$FETCH_RETRY_SECONDS" in
   ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS must be a non-negative integer" >&2; exit 64 ;;
 esac
+# Normalize before the positive check so an all-zero spelling (00) is rejected too.
 FETCH_ATTEMPTS=$((10#$FETCH_ATTEMPTS))
 FETCH_RETRY_SECONDS=$((10#$FETCH_RETRY_SECONDS))
+if [[ $FETCH_ATTEMPTS -lt 1 ]]; then
+  echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2
+  exit 64
+fi
 
 head_sha="$(git rev-parse --verify "${HEAD_REV}^{commit}")"
 shallow_file="$(git rev-parse --git-path shallow)"
