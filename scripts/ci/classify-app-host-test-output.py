@@ -28,7 +28,7 @@ _APP_HOST_FAILURE_RE = re.compile(
     r"(?:test runner .*?(?:timed out|hung|failed)|"
     r"unexpected exit|communication with the test runner|"
     r"testmanagerd.*invalidated|Couldn't communicate with a helper|"
-    r"Fatal error:|Program crashed|Signal \d+|SIG[A-Z]+|"
+    r"Fatal error:|Program crashed|\bSignal\s+\d+\b|"
     r"Idle timed out|Post-test timed out)",
     re.IGNORECASE,
 )
