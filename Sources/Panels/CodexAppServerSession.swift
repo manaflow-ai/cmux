@@ -12,12 +12,14 @@ final class CodexAppServerSession {
     private static let maxQueuedInputBytes = 64 * 1024
 
     private let workingDirectory: String?
-    private let writeData: DataWriter
+    let writeData: DataWriter
     private let outputSink: OutputSink
     private let activitySink: ActivitySink
     private let turnCompleteSink: TurnCompleteSink
+    let modelsSink: (([[String: Any]]) -> Void)?
+    var modelCatalog = CodexAppServerModelCatalog()
     private let failureSink: FailureSink
-    private var nextRequestID = 1
+    var nextRequestID = 1
     private var initializeRequestID: Int?
     private var didInitialize = false
     private var threadStartRequestID: Int?
@@ -40,7 +42,8 @@ final class CodexAppServerSession {
         outputSink: @escaping OutputSink,
         activitySink: @escaping ActivitySink = { _ in },
         turnCompleteSink: @escaping TurnCompleteSink = {},
-        failureSink: @escaping FailureSink = { _ in }
+        failureSink: @escaping FailureSink = { _ in },
+        modelsSink: (([[String: Any]]) -> Void)? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.writeData = writeData
@@ -48,10 +51,11 @@ final class CodexAppServerSession {
         self.activitySink = activitySink
         self.turnCompleteSink = turnCompleteSink
         self.failureSink = failureSink
+        self.modelsSink = modelsSink
     }
 
     func start() async throws {
-        initializeRequestID = try await sendRequest(
+        try await sendRequest(
             method: "initialize",
             params: [
                 "clientInfo": [
@@ -63,7 +67,8 @@ final class CodexAppServerSession {
                     "experimentalApi": true,
                     "requestAttestation": false
                 ]
-            ]
+            ],
+            register: { self.initializeRequestID = $0 }
         )
     }
 
@@ -141,6 +146,7 @@ final class CodexAppServerSession {
         }
 
         guard let id = requestID(from: object["id"]) else { return }
+        if handleModelResponse(id: id, object: object) { return }
         if let error = object["error"] as? [String: Any] {
             handleRPCError(id: id, error: error)
             return
@@ -156,6 +162,7 @@ final class CodexAppServerSession {
                 do {
                     try await sendNotification(method: "initialized")
                     try await startThreadIfNeeded()
+                    if modelsSink != nil { try? await requestModelPage() }
                 } catch {
                     failStartup(details: error.localizedDescription)
                 }
@@ -545,7 +552,7 @@ final class CodexAppServerSession {
         if let workingDirectory {
             params["cwd"] = workingDirectory
         }
-        threadStartRequestID = try await sendRequest(method: "thread/start", params: params)
+        try await sendRequest(method: "thread/start", params: params, register: { self.threadStartRequestID = $0 })
     }
 
     private func failStartup(details: String?) {
@@ -585,60 +592,21 @@ final class CodexAppServerSession {
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }
-        if let modelID, !modelID.isEmpty { params["model"] = modelID }
-        if let reasoningEffort, !reasoningEffort.isEmpty { params["effort"] = reasoningEffort }
+        if let modelID, !modelID.isEmpty, modelID != "default" { params["model"] = modelID }
+        if let reasoningEffort, !reasoningEffort.isEmpty, reasoningEffort != "default" { params["effort"] = reasoningEffort }
         activePermissionMode = permissionMode
         isTurnInFlight = true
         do {
-            let requestID = try await sendRequest(
+            try await sendRequest(
                 method: "turn/start",
-                params: params
+                params: params,
+                register: { self.turnStartRequestIDs.insert($0) }
             )
-            turnStartRequestIDs.insert(requestID)
         } catch {
             activePermissionMode = .standard
             isTurnInFlight = false
             throw error
         }
-    }
-
-    @discardableResult
-    private func sendRequest(method: String, params: Any) async throws -> Int {
-        let id = nextRequestID
-        nextRequestID += 1
-        try await sendJSONObject([
-            "id": id,
-            "method": method,
-            "params": params
-        ])
-        return id
-    }
-
-    private func sendNotification(method: String) async throws {
-        try await sendJSONObject(["method": method])
-    }
-
-    private func sendErrorResponse(id: Any, code: Int, message: String) async throws {
-        try await sendJSONObject([
-            "id": id,
-            "error": [
-                "code": code,
-                "message": message
-            ]
-        ])
-    }
-
-    private func sendJSONObject(_ object: [String: Any]) async throws {
-        var data = try JSONSerialization.data(withJSONObject: object, options: [])
-        data.append(0x0A)
-        try await writeData(data)
-    }
-
-    private func requestID(from value: Any?) -> Int? {
-        if let value = value as? Int { return value }
-        if let value = value as? String { return Int(value) }
-        if let value = value as? NSNumber { return value.intValue }
-        return nil
     }
 
     private func codexMessage(from params: [String: Any]?) -> String? {

@@ -115,7 +115,9 @@ export function GuiModeModelPicker({
             "aria-checked": model.id === selectedModel?.id,
             className: `gui-mode-agent-model-option${model.id === selectedModel?.id ? " is-selected" : ""}`,
             onClick: () => {
-              const nextEffort = efforts.includes(reasoningEffort) ? reasoningEffort : model.reasoningEfforts[0] ?? "default";
+              const nextEffort = model.reasoningEfforts.includes(reasoningEffort)
+                ? reasoningEffort
+                : model.defaultReasoningEffort ?? model.reasoningEfforts[0] ?? "default";
               onChange(model.id, nextEffort);
               setIsOpen(false);
             },

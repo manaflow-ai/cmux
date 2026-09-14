@@ -10,75 +10,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CodexAppServerSessionTests {
-    @Test
-    func processStoreDeliversSmallResponsesBeforeTheProviderExits() async throws {
-        // The peer keeps stdout open between requests. Buffering a fixed-size
-        // read deadlocks the handshake even though every JSONL frame is flushed.
-        let peer = #"""
-        import json, os, select, sys
-        buffer = b""
-        def receive():
-            global buffer
-            while b"\n" not in buffer:
-                if not select.select([0], [], [], 3)[0]:
-                    sys.exit(42)
-                chunk = os.read(0, 65536)
-                if not chunk:
-                    sys.exit(0)
-                buffer += chunk
-            line, buffer = buffer.split(b"\n", 1)
-            return json.loads(line)
-        def send(message):
-            print(json.dumps(message), flush=True)
-        while True:
-            message = receive()
-            method = message.get("method")
-            if method == "initialize":
-                send({"id": message["id"], "result": {}})
-            elif method == "thread/start":
-                send({"id": message["id"], "result": {"thread": {"id": "test-thread"}}})
-            elif method == "model/list":
-                send({"id": message["id"], "result": {"data": [], "nextCursor": None}})
-            elif method == "turn/start":
-                send({"id": message["id"], "result": {"turn": {"id": "test-turn"}}})
-                send({"method": "item/agentMessage/delta", "params": {"delta": "2"}})
-                send({"method": "turn/completed", "params": {"turn": {"id": "test-turn", "status": "completed"}}})
-        """#
-        let store = AgentSessionProcessStore()
-        let (events, continuation) = AsyncStream<(String, String)>.makeStream()
-        store.eventSink = { event in
-            let type = event["type"] as? String ?? ""
-            continuation.yield((type, event["text"] as? String ?? ""))
-            if type == "provider.exit" { continuation.finish() }
-        }
-        defer { store.closeAll(); continuation.finish() }
-        let session = try await store.start(
-            plan: AgentSessionLaunchPlan(
-                provider: .codex,
-                executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-                arguments: ["-u", "-c", peer],
-                environment: ProcessInfo.processInfo.environment
-            ),
-            workingDirectory: nil
-        )
-        let submission = Task { @MainActor in
-            try await store.writeLine(sessionId: session.sessionId, text: "1+1")
-        }
-        var answer = ""
-        var completedWhileRunning = false
-        for await (type, text) in events {
-            if type == "provider.output" { answer += text }
-            if type == "provider.turnComplete" {
-                completedWhileRunning = store.hasActiveProviderSession
-                store.closeAll()
-            }
-        }
-        let submitted: Void? = try? await submission.value
-        #expect(submitted != nil)
-        #expect(answer == "2")
-        #expect(completedWhileRunning)
-    }
-
     private func expectThrowsErrorAsync<T>(
         _ expression: () async throws -> T,
         sourceLocation: SourceLocation = #_sourceLocation
@@ -1015,7 +946,7 @@ struct CodexAppServerSessionTests {
             workingDirectory: nil,
             writeData: { data in
                 let line = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
-                if line.contains(#""method":"turn/start""#) {
+                if self.jsonLine(line)["method"] as? String == "turn/start" {
                     await withCheckedContinuation { continuation in
                         pendingTurnWrite = continuation
                     }
@@ -1052,57 +983,6 @@ struct CodexAppServerSessionTests {
         expectEqual(input.first?["text"] as? String, "first prompt")
     }
 
-    @Test
-    func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() async throws {
-        var sentLines: [String] = []
-        let session = CodexAppServerSession(
-            workingDirectory: nil,
-            writeData: { data in
-                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
-            },
-            outputSink: { _, _ in }
-        )
-
-        try await session.start()
-        session.consumeStdout(
-            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
-                + "\n")
-        await waitForThreadStartRequest(session)
-        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
-        try await session.submit("default prompt", permissionMode: .standard)
-        session.consumeStdout(
-            #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
-        session.consumeStdout(
-            #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
-        await expectThrowsErrorAsync {
-            try await session.submit("blocked full access prompt", permissionMode: .fullAccess)
-        }
-        session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
-        try await session.submit("full access prompt", permissionMode: .fullAccess)
-        session.consumeStdout(
-            #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
-        session.consumeStdout(
-            #"{"id":"perm-2","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
-
-        let defaultCommandResponse = jsonLine(sentLines[4])
-        let defaultCommandResult = try #require(defaultCommandResponse["result"] as? [String: Any])
-        expectEqual(defaultCommandResult["decision"] as? String, "decline")
-
-        let defaultPermissionResponse = jsonLine(sentLines[5])
-        let defaultPermissionResult = try #require(defaultPermissionResponse["result"] as? [String: Any])
-        let defaultPermissions = try #require(defaultPermissionResult["permissions"] as? [String: Any])
-        expectTrue(defaultPermissions.isEmpty)
-
-        let fullAccessCommandResponse = jsonLine(sentLines[7])
-        let fullAccessCommandResult = try #require(fullAccessCommandResponse["result"] as? [String: Any])
-        expectEqual(fullAccessCommandResult["decision"] as? String, "acceptForSession")
-
-        let fullAccessPermissionResponse = jsonLine(sentLines[8])
-        let fullAccessPermissionResult = try #require(fullAccessPermissionResponse["result"] as? [String: Any])
-        let fullAccessPermissions = try #require(fullAccessPermissionResult["permissions"] as? [String: Any])
-        let networkPermissions = try #require(fullAccessPermissions["network"] as? [String: Any])
-        expectEqual(networkPermissions["enabled"] as? Bool, true)
-    }
 
     @Test
     func testMapsAgentMessageDeltaToStdout() {

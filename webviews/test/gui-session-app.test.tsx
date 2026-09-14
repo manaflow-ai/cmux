@@ -97,3 +97,22 @@ test("repeated Enter while the native send is pending does not submit twice", as
     expect(app.sends()).toHaveLength(1);
   } finally { await act(async () => { accept(); await pending; }); await app.cleanup(); }
 });
+
+test("GUI discovers model choices and sends the new model's supported reasoning effort", async () => {
+  const app = await mount(true);
+  try {
+    app.start();
+    app.event({ type: "provider.models", providerId: "codex", sessionId: "session-1", models: [
+      { id: "custom-model", providerId: "codex", displayName: "Custom model", reasoningEfforts: ["high"] },
+      { id: "new-model", providerId: "codex", displayName: "New model", reasoningEfforts: ["low", "medium"], defaultReasoningEffort: "medium" },
+    ] });
+    act(() => dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-agent-model-trigger")!.click());
+    const choice = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-agent-model-option")]
+      .find((button) => button.textContent === "New model")!;
+    expect(choice).toBeTruthy();
+    act(() => choice.click());
+    app.type("1+1"); app.enter();
+    expect(app.sends()[0].params).toMatchObject({ modelId: "new-model", reasoningEffort: "medium" });
+    await act(async () => {});
+  } finally { await app.cleanup(); }
+});

@@ -64,6 +64,8 @@ export type GuiModeSessionContext = {
     id: string;
     providerId: string;
     reasoningEfforts: string[];
+    defaultReasoningEffort?: string;
+    isDefault?: boolean;
   }>;
   page?: "home" | "task-worktree-pr";
   prompt?: string;
@@ -161,6 +163,12 @@ export type AgentSessionAttachment = {
 };
 
 export type AgentEvent =
+  | {
+      type: "provider.models";
+      sessionId: string;
+      providerId: ProviderId;
+      models: NonNullable<GuiModeSessionContext["models"]>;
+    }
   | {
       type: "app.theme";
       theme: AgentSessionTheme;

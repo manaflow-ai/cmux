@@ -314,11 +314,15 @@ function SessionSurface({
     const availableModels = (guiModeContext.models ?? []).filter(
       (model) => model.providerId === state.selectedProviderId,
     );
-    const nextModel = availableModels[0];
-    if (!nextModel || availableModels.some((model) => model.id === guiModelId)) return;
-    setGuiModelId(nextModel.id);
-    setGuiReasoningEffort(nextModel.reasoningEfforts[0] ?? "default");
-  }, [guiModeContext.models, guiModelId, isGuiMode, state.selectedProviderId]);
+    const nextModel = availableModels.find((model) => model.id === guiModelId)
+      ?? availableModels.find((model) => model.isDefault)
+      ?? availableModels[0];
+    if (!nextModel) return;
+    if (nextModel.id !== guiModelId) setGuiModelId(nextModel.id);
+    if (!nextModel.reasoningEfforts.includes(guiReasoningEffort)) {
+      setGuiReasoningEffort(nextModel.defaultReasoningEffort ?? nextModel.reasoningEfforts[0] ?? "default");
+    }
+  }, [guiModeContext.models, guiModelId, guiReasoningEffort, isGuiMode, state.selectedProviderId]);
   const canSelect = canSelectProvider(state);
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);

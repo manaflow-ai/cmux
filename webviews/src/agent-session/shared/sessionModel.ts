@@ -374,6 +374,21 @@ export function guiModePromptForAutoSubmission(state: SessionState): string | nu
 
 function applyEvent(state: SessionState, event: AgentEvent): SessionState {
   switch (event.type) {
+    case "provider.models":
+      if (event.sessionId !== state.runningSessionId || !state.context?.guiMode || event.models.length === 0) return state;
+      return {
+        ...state,
+        context: {
+          ...state.context,
+          guiMode: {
+            ...state.context.guiMode,
+            models: [
+              ...(state.context.guiMode.models ?? []).filter((model) => model.providerId !== event.providerId),
+              ...event.models.filter((model) => model.providerId === event.providerId),
+            ],
+          },
+        },
+      };
     case "app.theme":
       if (!state.context) {
         return state;

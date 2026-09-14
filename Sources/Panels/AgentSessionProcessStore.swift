@@ -81,13 +81,23 @@ final class AgentSessionProcessStore {
                 },
                 failureSink: { [weak self] _ in
                     self?.failSession(sessionId: sessionId, status: 1)
+                },
+                modelsSink: { [weak self] models in
+                    self?.eventSink?([
+                        "type": "provider.models", "sessionId": sessionId,
+                        "providerId": plan.provider.rawValue, "models": models
+                    ])
                 }
             )
         }
         sessions[sessionId] = running
 
-        running.stdoutReadTask = makeReadTask(stdout.fileHandleForReading, sessionId: sessionId, stream: "stdout")
-        running.stderrReadTask = makeReadTask(stderr.fileHandleForReading, sessionId: sessionId, stream: "stderr")
+        running.stdoutReadTask = AgentSessionProcessOutputReader(fileHandle: stdout.fileHandleForReading).start { [weak self] data in
+            await self?.consumeOutputData(data, sessionId: sessionId, stream: "stdout")
+        }
+        running.stderrReadTask = AgentSessionProcessOutputReader(fileHandle: stderr.fileHandleForReading).start { [weak self] data in
+            await self?.consumeOutputData(data, sessionId: sessionId, stream: "stderr")
+        }
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
                 guard let self,
@@ -151,28 +161,6 @@ final class AgentSessionProcessStore {
     func closeAll() {
         for session in sessions.values {
             requestTermination(for: session)
-        }
-    }
-
-    private func makeReadTask(_ fileHandle: FileHandle, sessionId: String, stream: String) -> Task<Void, Never> {
-        let descriptor = fileHandle.fileDescriptor
-        return Task.detached(priority: .utility) { [weak self, fileHandle] in
-            // Keep this handle alive until its reader finishes; the descriptor
-            // must not be closed and reused while a read is in progress.
-            defer { withExtendedLifetime(fileHandle) {} }
-            var buffer = [UInt8](repeating: 0, count: 64 * 1024)
-            while !Task.isCancelled {
-                // FileHandle.read(upToCount:) fills the requested buffer before
-                // returning on macOS. A JSONL peer waits for our next request,
-                // so read the available bytes with one syscall instead.
-                let count = buffer.withUnsafeMutableBytes {
-                    Darwin.read(descriptor, $0.baseAddress, $0.count)
-                }
-                if count < 0 && errno == EINTR { continue }
-                let data = count > 0 ? Data(buffer.prefix(count)) : Data()
-                await self?.consumeOutputData(data, sessionId: sessionId, stream: stream)
-                if data.isEmpty { return }
-            }
         }
     }
 
