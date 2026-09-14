@@ -19953,8 +19953,11 @@ private extension NSWindow {
 
         return nil
     }
+}
 
-    fileprivate static func cmuxOwningWebView(
+extension NSWindow {
+    /// Internal, not private: the undo routing in WindowKeyDownReplayGuard.swift calls this.
+    static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?
@@ -19986,7 +19989,9 @@ private extension NSWindow {
 
         return cmuxTrackedOwningWebView(for: textView)
     }
+}
 
+private extension NSWindow {
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
         if let webView = view as? CmuxWebView {
             return webView
