@@ -125,7 +125,7 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         ?? defaultCloudVMMessage(status: status)
     let displayMessage = cloudVMString(ui?["message"]) ?? message
     let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -184,7 +184,7 @@ private func defaultCloudVMMessage(status: Int) -> String {
     }
 }
 
-func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any] = [:]) -> String {
     switch errorCode {
     case "vm_active_limit_exceeded":
         return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
@@ -198,7 +198,16 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
     case "vm_memory_requires_plan":
-        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: .max)
+        let details = response["details"] as? [String: Any]
+        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
+        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
+        if plan == .pro {
+            return String(format: String(
+                localized: "cloudVM.error.requiresPro.action",
+                defaultValue: "Upgrade to cmux Pro at %@ to create Cloud VMs."
+            ), checkout.absoluteString)
+        }
         return String(format: String(
             localized: "cloudVM.error.memoryRequiresPlan.action",
             defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
