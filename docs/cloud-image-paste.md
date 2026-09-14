@@ -99,7 +99,9 @@ Run cmux-tui checks on hosted machines, never by compiling on the local Mac:
 ./scripts/verify-cmux-tui-hosted.sh --filter cloud_image_paste
 ```
 
-Mac coverage: `CloudImagePasteRoutingTests`, `CloudImagePasteCoordinatorTests`, the
+Mac coverage: `CloudImagePasteMirrorIntegrationTests` exercises begin/chunk/commit
+acknowledgements and rejection through the real mirror socket and frame decoder.
+Additional coverage: `CloudImagePasteRoutingTests`, `CloudImagePasteCoordinatorTests`, the
 existing `TerminalAndGhosttyTests`, and the existing image preparation/concurrency
 tests. Use hosted CI and an approved tagged cloud build for live verification.
 Live acceptance requires copying an image on the Mac and pressing Cmd+V in both

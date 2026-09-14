@@ -84,6 +84,9 @@ cmux-tui はホストされた環境で検証してください。
 ./scripts/verify-cmux-tui-hosted.sh --filter cloud_image_paste
 ```
 
+`CloudImagePasteMirrorIntegrationTests` は実際のミラー接続とフレームデコーダーを
+通して、開始・チャンク・確定の応答とアップロード拒否を検証します。
+
 実機検証には承認されたタグ付き Cloud ビルドを使い、Mac でコピーした画像を
 管理対象の Cloud ターミナル上の Codex と Claude の両方へ Cmd+V で貼り付けます。
 単独のローカルデーモンのテストだけでは、実際の認証済み Cloud 経路の検証には
