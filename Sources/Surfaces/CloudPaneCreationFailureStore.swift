@@ -55,7 +55,10 @@ final class CloudPaneCreationFailureStore {
             create: create,
             project: project,
             onStart: { [weak self] in
-                if self?.activeRequestID == requestID { self?.phase = .starting }
+                if self?.activeRequestID == requestID {
+                    self?.failedRequestID = nil
+                    self?.phase = .starting
+                }
                 onStart()
             },
             onFailure: { [weak self] error in
