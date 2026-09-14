@@ -17,6 +17,16 @@ struct VMStats: Equatable {
 }
 
 extension VMStats {
+    /// A failed poll has completed without a sample; it is no longer loading.
+    static func unavailable(at date: Date = .now) -> Self {
+        Self(
+            state: .unknown, sampledAt: date,
+            cpus: nil, cpuPercent: nil, loadAverage1m: nil,
+            memoryTotalMb: nil, memoryUsedMb: nil,
+            diskTotalMb: nil, diskUsedMb: nil
+        )
+    }
+
     /// Decodes both stats and resize replies, including the pre-timestamp telemetry contract.
     init(json: [String: Any], now: Date = .now) {
         func number(_ key: String) -> Double? {

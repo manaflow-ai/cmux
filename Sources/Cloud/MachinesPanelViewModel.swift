@@ -639,7 +639,7 @@ final class MachinesPanelViewModel: ObservableObject {
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
                     group.addTask {
-                        (id, try? await VMClient.shared.stats(id: id))
+                        (id, (try? await VMClient.shared.stats(id: id)) ?? .unavailable())
                     }
                 }
                 for await (id, stats) in group {
