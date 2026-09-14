@@ -107,6 +107,14 @@ class AppHostTestOutputTests(unittest.TestCase):
 
         self.assertEqual(diagnosis["category"], "pre-test app-host failure")
 
+    def test_diagnoses_numeric_signal_without_banner_in_crash_context(self) -> None:
+        diagnosis = MODULE.diagnose(
+            "terminated by signal 9\n",
+            exit_code=65,
+        )
+
+        self.assertEqual(diagnosis["category"], "pre-test app-host failure")
+
     def test_diagnoses_assertion_failure_after_tests(self) -> None:
         diagnosis = MODULE.diagnose(
             "✘ Test notification() recorded an issue\n"
