@@ -1390,8 +1390,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // `cmux notify --clear` on the machine, or ledger eviction:
                 // the local banners for those rows go with them.
                 guard let store = AppDelegate.shared?.notificationStore else { return }
-                let keys = Set(ids.map { CloudNotificationCorrelation.key(machineID: machineID, notificationID: $0) })
-                for notification in store.notifications where notification.correlationKey.map(keys.contains) == true {
+                let removedIDs = Set(ids)
+                for notification in store.notifications where notification.correlationKey.map { CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) } == true {
                     store.remove(id: notification.id)
                 }
             }
