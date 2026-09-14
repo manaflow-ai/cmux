@@ -201,6 +201,14 @@ extension CmuxTuiSurfaceProvider {
         )
         for terminalID in terminalsWithoutPlacement {
             guard !Task.isCancelled else { break }
+            if pendingRemoteCreations[SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)] != nil {
+                // The create receipt is ahead of the graph. Projecting now
+                // could create a second backing view for the same terminal;
+                // leave the session pending until the accepted snapshot retires
+                // the receipt and the normal retry resolves its tab.
+                resolutions[terminalID] = .retryable("awaiting the creation snapshot")
+                continue
+            }
             if let state = cloudState {
                 let resourceID = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
                 guard catalog.projections(of: resourceID).contains(where: {

@@ -14,7 +14,8 @@ struct CloudManualMirrorPresentationTests {
     func attachmentAloneDoesNotHideTheConnectionState() {
         #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connected)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, rendererReady: false).connectionState == .connecting)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, rendererReady: true).connectionState == .connected)
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
     }
 
@@ -86,7 +87,7 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
-    func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
+    func usableAttachmentWaitsForTheFirstRendererFrame() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
@@ -124,13 +125,13 @@ struct CloudManualMirrorPresentationTests {
 
         fixture.send([
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
-            "data": Data("cmux@cloud> ".utf8).base64EncodedString()
+            "data": Data().base64EncodedString()
         ])
         deadline = ContinuousClock.now + .seconds(5)
-        while session.connectionPresentation != nil, ContinuousClock.now < deadline {
+        while session.connectionPresentation == nil, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        try #require(session.connectionPresentation == nil)
+        #expect(session.connectionPresentation?.showsProgress == true)
         session.inputRouter.send(.bytes(Data("pwd\n".utf8)))
         let input = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(input.cmd == "send")
@@ -139,12 +140,13 @@ struct CloudManualMirrorPresentationTests {
         // healthy byte attachment must not become a connection failure.
         #expect(hosted.surfaceView.renderedFrameSequence == 0)
         synchronize()
+        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+        owner.updateAnchor(anchor, visible: false, ownershipGeneration: 1)
+        synchronize()
         #expect(owner.overlay == nil)
-        for visible in [false, true] {
-            owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
-            synchronize()
-            #expect(owner.overlay == nil)
-        }
+        owner.updateAnchor(anchor, visible: true, ownershipGeneration: 1)
+        synchronize()
+        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
 
         // A real transport failure must still be shown after successful use.
         fixture.send(["event": "detached", "surface": 17])
