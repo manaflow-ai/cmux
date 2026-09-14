@@ -103,6 +103,7 @@ actor APIClient {
     let secretServerKey: String?
     private let tokenStore: any TokenStoreProtocol
     private let session: URLSession
+    private let refreshCoordinator: TokenRefreshCoordinator
     let refreshClock: TokenRefreshClock
     let refreshTimeoutNanoseconds: UInt64
     
@@ -115,6 +116,7 @@ actor APIClient {
         secretServerKey: String? = nil,
         tokenStore: any TokenStoreProtocol,
         session: URLSession = .shared,
+        refreshCoordinator: TokenRefreshCoordinator = TokenStoreRegistry.shared.refreshCoordinator,
         refreshClock: TokenRefreshClock = .system,
         refreshTimeoutNanoseconds: UInt64 = 30_000_000_000
     ) {
@@ -124,6 +126,7 @@ actor APIClient {
         self.secretServerKey = secretServerKey
         self.tokenStore = tokenStore
         self.session = session
+        self.refreshCoordinator = refreshCoordinator
         self.refreshClock = refreshClock
         self.refreshTimeoutNanoseconds = refreshTimeoutNanoseconds
     }
@@ -363,22 +366,22 @@ actor APIClient {
     
     func setTokens(accessToken: String?, refreshToken: String?) async {
         await tokenStore.setTokens(accessToken: accessToken, refreshToken: refreshToken)
-        await TokenRefreshCoordinator.shared.tokensDidChange(store: tokenStore, refreshToken: refreshToken)
+        await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: refreshToken)
     }
     
     func setTokens(accessToken: String?, refreshToken: String?, tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.setTokens(accessToken: accessToken, refreshToken: refreshToken)
-        await TokenRefreshCoordinator.shared.tokensDidChange(store: tokenStoreOverride, refreshToken: refreshToken)
+        await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: refreshToken)
     }
     
     func clearTokens() async {
         await tokenStore.clearTokens()
-        await TokenRefreshCoordinator.shared.tokensDidChange(store: tokenStore, refreshToken: nil)
+        await refreshCoordinator.tokensDidChange(store: tokenStore, refreshToken: nil)
     }
 
     func clearTokens(tokenStoreOverride: any TokenStoreProtocol) async {
         await tokenStoreOverride.clearTokens()
-        await TokenRefreshCoordinator.shared.tokensDidChange(store: tokenStoreOverride, refreshToken: nil)
+        await refreshCoordinator.tokensDidChange(store: tokenStoreOverride, refreshToken: nil)
     }
 
     /// Compare-and-clear: clears the stored tokens only while the stored
@@ -390,7 +393,7 @@ actor APIClient {
             newRefreshToken: nil,
             newAccessToken: nil
         )
-        await TokenRefreshCoordinator.shared.tokensDidChange(
+        await refreshCoordinator.tokensDidChange(
             store: tokenStore, refreshToken: await tokenStore.getStoredRefreshToken()
         )
     }
@@ -448,7 +451,7 @@ actor APIClient {
     }
 
     private func resolveRefresh(store: any TokenStoreProtocol, refresh: String, observedAccess: String?, allowFallback: Bool) async -> TokenPair {
-        let result = await TokenRefreshCoordinator.shared.resolve(
+        let result = await refreshCoordinator.resolve(
             store: store, refreshToken: refresh, accessToken: observedAccess,
             clock: refreshClock, timeoutNanoseconds: refreshTimeoutNanoseconds
         ) { await self.refresh(refreshToken: refresh) }

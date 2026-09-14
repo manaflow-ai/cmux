@@ -4,7 +4,6 @@ import Foundation
 /// The SDK already shares stores across StackClientApp instances; this registry
 /// preserves that ownership boundary without serially retrying every waiter.
 actor TokenRefreshCoordinator {
-    static let shared = TokenRefreshCoordinator()
     private var attempts: [ObjectIdentifier: TokenRefreshAttempt] = [:]
 
     func resolve(
