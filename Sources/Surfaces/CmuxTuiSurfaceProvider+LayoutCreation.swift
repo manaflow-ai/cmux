@@ -7,11 +7,15 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         let key = "cmux-cloud-create-\(UUID().uuidString.lowercased())"
         var retried = false
         while true {
-            guard await refreshCurrentGraph(force: true), let state = cloudState,
-                  let tab = state.lookupIndex.tab(id: nearTabID),
-                  let pane = state.lookupIndex.pane(id: tab.paneID),
+            guard await refreshCurrentGraph(force: true), let state = cloudState else {
+                throw ProviderError.stateUnavailable(machineID)
+            }
+            guard let tab = state.lookupIndex.tab(id: nearTabID) else {
+                throw ProviderError.remoteTabNotFound(nearTabID)
+            }
+            guard let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID) else {
-                throw ProviderError.noWorkspaceOnMachine(machineID)
+                throw ProviderError.stateUnavailable(machineID)
             }
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
