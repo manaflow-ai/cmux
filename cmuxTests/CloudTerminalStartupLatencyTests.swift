@@ -10,6 +10,15 @@ import Testing
 /// Regression coverage for the post-#12505 Cloud startup path.
 @Suite("Cloud terminal startup latency")
 struct CloudTerminalStartupLatencyTests {
+    @Test
+    func terminalCreationFailuresKeepTheirKnownCause() {
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab_source")) == .notFound)
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.invalidSnapshot("machine")) == .response)
+        #expect(CloudDiagnosticFailure.classify(CmuxTuiSurfaceProvider.ProviderError.terminalAttachTimedOut(
+            terminalID: "term_created", failure: .transportUnavailable
+        )) == .timeout)
+    }
+
     @Test @MainActor
     func unresolvedSurfaceCannotStartAnAttachStream() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
