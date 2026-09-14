@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// What Cloud work this app may start on its own, decided from local state.
