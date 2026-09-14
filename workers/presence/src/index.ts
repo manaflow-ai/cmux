@@ -102,6 +102,20 @@ const worker = {
       return json({ ok: true, service: "cmux-presence" });
     }
 
+    // Iroh control requests terminate in the account Durable Object. They must
+    // never fall through to Vercel or another database-backed proxy.
+    if (url.pathname.startsWith("/api/devices/iroh") || url.pathname.startsWith("/api/relay") || url.pathname.startsWith("/api/connectivity/")) {
+      if (!["GET", "POST", "PUT", "DELETE"].includes(request.method)) return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const headers = new Headers(request.headers);
+      headers.set("x-control-account-id", user.id);
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: request.method, headers, body: request.method === "GET" ? undefined : request.body }));
+    }
+
     if (url.pathname === "/v1/connectivity/subscribe") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);

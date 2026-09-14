@@ -18,7 +18,9 @@ describe("captureSentryException", () => {
     expect(request?.url).toContain("https://example.test/api/42/envelope/");
     expect(request?.headers.get("content-type")).toBe("application/x-sentry-envelope");
     const lines = (await request?.text())?.split("\n") ?? [];
-    const event = JSON.parse(lines[2]) as Record<string, any>;
+    const eventLine = lines[2];
+    if (!eventLine) throw new Error("Sentry envelope omitted its event");
+    const event = JSON.parse(eventLine) as Record<string, any>;
     expect(event.platform).toBe("javascript");
     expect(event.user.id).toBe("user-1");
     expect(event.exception.values[0].value).toBe("upstream failed");

@@ -22,6 +22,7 @@
 name = "cmux-presence"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
 
 [observability]
 enabled = true
@@ -31,10 +32,8 @@ name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
 
 # Account control plane: one DO per verified Stack user id serving the
-# /v1/control/socket WebSocket (directory + hint + relay-pass facts, proxied
-# from the Vercel broker with the connecting client's own bearer token). The
-# Vercel base URL is the optional plain var CMUX_WEB_BASE_URL (defaults to
-# https://cmux.com in code, same pattern as STACK_API_URL).
+# /v1/control/socket WebSocket (directory + hint + relay-pass facts) backed by
+# the account Durable Object's typed SQLite broker.
 [[durable_objects.bindings]]
 name = "ACCOUNT_CONTROL_PLANE"
 class_name = "AccountControlPlane"
@@ -53,3 +52,9 @@ new_sqlite_classes = ["AccountControlPlane"]
 [[routes]]
 pattern = "presence.cmux.dev"
 custom_domain = true
+
+# Drizzle migrations are bundled as text strings for the Durable Object runtime.
+[[rules]]
+type = "Text"
+globs = ["**/*.sql"]
+fallthrough = true
