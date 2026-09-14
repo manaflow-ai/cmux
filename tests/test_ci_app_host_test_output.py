@@ -79,6 +79,16 @@ class AppHostTestOutputTests(unittest.TestCase):
         self.assertEqual(diagnosis["category"], "pre-test app-host failure")
         self.assertEqual(diagnosis["executed_tests"], 0)
 
+    def test_ignores_build_signature_when_finding_app_host_cause(self) -> None:
+        diagnosis = MODULE.diagnose(
+            "Build description signature: 0f827202eba1e9d1b8b2c28cebb594a2\n"
+            "The test runner timed out while preparing to run tests.\n",
+            exit_code=65,
+        )
+
+        self.assertEqual(diagnosis["category"], "pre-test app-host failure")
+        self.assertIn("test runner timed out", diagnosis["first_causal_line"])
+
     def test_diagnoses_crash_before_tests_as_app_host_failure(self) -> None:
         diagnosis = MODULE.diagnose(
             "Fatal error: Initial workspace creation failed\n"
