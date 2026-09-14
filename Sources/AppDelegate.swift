@@ -19954,7 +19954,7 @@ private extension NSWindow {
         return nil
     }
 
-    fileprivate static func cmuxOwningWebView(
+    static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?
@@ -20332,3 +20332,16 @@ extension AppDelegate {
 // MARK: - CmuxAppKitSupportUI seam conformance
 
 extension AppDelegate: WindowDecorating {}
+
+/// Internal bridge for key-event routing. The browser ownership implementation
+/// stays private to AppDelegate.swift while the replay guard remains in its
+/// focused source file.
+extension NSWindow {
+    static func cmuxOwningWebViewForKeyRouting(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        cmuxOwningWebView(for: responder, in: window, event: event)
+    }
+}
