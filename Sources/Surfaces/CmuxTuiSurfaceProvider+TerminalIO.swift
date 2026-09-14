@@ -10,6 +10,11 @@ extension CmuxTuiSurfaceProvider {
     }
 }
 
+/// Two more headless terminal primitives over the machine's link, beside `readScreen`
+/// and `waitForScreen`: the process's EXIT (a fact the daemon records) and its retained
+/// OUTPUT (the whole log, not the visible rows). Together they turn "run this to
+/// completion and give me the result" into `wait-exit` + `output` instead of a prompt
+/// regex and a screenful of text.
 extension CmuxTuiSurfaceProvider {
     /// Returns the cwd of the process group currently owning the remote PTY.
     /// This is deliberately a live process query: the snapshot's `cwd` is the
