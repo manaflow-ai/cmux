@@ -2890,14 +2890,6 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
-    static func parkHostedViews(forWorkspaceID workspaceID: UUID) {
-        parkHostedViews(forWorkspaceIDs: [workspaceID])
-    }
-
-    static func parkHostedViews(forWorkspaceIDs workspaceIDs: Set<UUID>) {
-        guard !workspaceIDs.isEmpty else { return }
-        portalsByWindowId.values.forEach { $0.parkEntries(forWorkspaceIDs: workspaceIDs) }
-    }
     /// Permanently detach a hosted terminal view from the window-level portal.
     static func detach(hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
