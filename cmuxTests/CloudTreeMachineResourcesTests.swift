@@ -1,5 +1,8 @@
+import AppKit
 import CmuxCloudMachines
+import CmuxFoundation
 import Foundation
+import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -120,16 +123,16 @@ struct CloudTreeMachineResourcesTests {
         #expect(CloudTreeMachineRowContent(machine: snapshot, now: Self.sampleTime).toolTip.contains("83"))
     }
 
-    /// All three labels and values stay on one secondary text line in every preset.
+    /// The hosted view fits its single-line height even for maximum readings.
     @Test @MainActor func resourceSummaryUsesOneCompactLine() {
-        let resources = CloudMachineResourcePresentation(machine: machine(), now: Self.sampleTime)
-        let percent = (0.094).formatted(.percent.precision(.fractionLength(0)))
+        let resources = CloudMachineResourcePresentation(
+            availability: .awake, cpuPercent: 100,
+            memoryUsedMb: 4096, memoryTotalMb: 4096, diskUsedMb: 4096, diskTotalMb: 4096
+        )
         for style in CloudTreeStyle.presets {
-            let line = CloudTreeMachineResourceView(metrics: resources, style: style).line
-            #expect(line.contains("\(resources.cpu.label) \(percent)"))
-            #expect(line.contains("\(resources.memory.label) \(resources.memory.value)"))
-            #expect(line.contains("\(resources.disk.label) \(resources.disk.value)"))
-            #expect(!line.contains("\n"))
+            let host = NSHostingView(rootView: CloudTreeMachineResourceView(metrics: resources, style: style)
+                .environment(\.cmuxGlobalFontMagnificationPercent, 100).frame(width: 160))
+            #expect(host.fittingSize.height <= style.machineResourceHeight)
             #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
             let lines = style.machineNameLineHeight + 1 + style.machineResourceHeight
                 + (style.machineRowLayout == .twoLine ? 1 + style.machineSubtitleLineHeight : 0)
