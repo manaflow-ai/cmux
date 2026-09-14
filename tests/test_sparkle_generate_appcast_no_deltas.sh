@@ -24,6 +24,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 cat > "$FAKE_BIN/git" <<'GIT'
 #!/usr/bin/env bash
 set -euo pipefail
+[ "${CMUX_TEST_FORBID_COMPILE:-0}" != 1 ] || { echo "unnecessary source build" >&2; exit 1; }
 [ "${1:-}" = "clone" ] || { echo "fake git: unexpected $*" >&2; exit 1; }
 mkdir -p "${@: -1}"
 GIT
@@ -85,6 +86,7 @@ run_script() {
   CMUX_TEST_FAKE_TOOLS="$FAKE_TOOLS" \
   CMUX_TEST_ARGV_LOG="$TMP_DIR/argv.log" \
   SPARKLE_PRIVATE_KEY="Zml4dHVyZS1rZXk" \
+  SPARKLE_VERSION="fixture" \
   "$@" \
   "$bash_bin" "$SCRIPT" "$TMP_DIR/cmux-macos.dmg" "v0.0.0-test" "$out"
 }
@@ -124,6 +126,13 @@ for bash_bin in "${candidates[@]}"; do
   [ -s "$out_dir/appcast-deltas.xml" ] || fail "bash $version: no appcast written on the delta path"
   paste -sd' ' "$TMP_DIR/argv.log" | grep -q -- "--maximum-deltas 1 " || fail "bash $version: --maximum-deltas 1 not passed with previous archives: $(paste -sd' ' "$TMP_DIR/argv.log")"
   echo "ok: bash $version generates a signed appcast with and without previous archives"
+
+  if ! run_script "$bash_bin" "$out_dir/prebuilt.xml" env \
+    SPARKLE_TOOLS_DIR="$FAKE_TOOLS" CMUX_TEST_FORBID_COMPILE=1 \
+    >"$out_dir/prebuilt.log" 2>&1; then
+    fail "bash $version: prebuilt tools still require a source build: $(tail -n 5 "$out_dir/prebuilt.log")"
+  fi
+  [ -s "$out_dir/prebuilt.xml" ] || fail "prebuilt tools did not produce a feed"
 done
 
 # release.yml must not trust the generator's exit status alone (bash 3.2 masks it).
