@@ -757,6 +757,9 @@ struct cmuxApp: App {
                     ) {
                         TitlebarLayoutDebugWindowController.shared.show()
                     }
+                    Button(String(localized: "debug.menu.cloudAnnouncement", defaultValue: "Cloud Announcement…")) {
+                        AppDelegate.shared?.debugWindowsCoordinator.showCloudAnnouncementPreviewWindow()
+                    }
                     Button("Sidebar Debug…") {
                         SidebarDebugWindowController.shared.show()
                     }
@@ -1604,6 +1607,7 @@ struct cmuxApp: App {
         AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
         TitlebarLayoutDebugWindowController.shared.show()
         SidebarDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.showCloudAnnouncementPreviewWindow()
         AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
@@ -1843,6 +1847,9 @@ private struct DebugWindowControlsView: View {
                         ) {
                             TitlebarLayoutDebugWindowController.shared.show()
                         }
+                        Button(String(localized: "debug.menu.cloudAnnouncement", defaultValue: "Cloud Announcement…")) {
+                            AppDelegate.shared?.debugWindowsCoordinator.showCloudAnnouncementPreviewWindow()
+                        }
                         Button("Sidebar Debug…") {
                             SidebarDebugWindowController.shared.show()
                         }
@@ -1907,6 +1914,7 @@ private struct DebugWindowControlsView: View {
                             AppDelegate.shared?.debugWindowsCoordinator.showAboutTitlebarDebugWindow()
                             TitlebarLayoutDebugWindowController.shared.show()
                             SidebarDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.showCloudAnnouncementPreviewWindow()
                             AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
                             BackgroundDebugWindowController.shared.show()
                             BonsplitTabBarDebugWindowController.shared.show()
@@ -2626,40 +2634,6 @@ private final class SidebarDebugWindowController: ReleasingWindowController {
 }
 
 #if DEBUG
-final class SidebarFooterIconBalanceDebugWindowController: ReleasingWindowController {
-    private weak var decorator: (any WindowDecorating)?
-
-    init(decorator: (any WindowDecorating)?) {
-        self.decorator = decorator
-        super.init()
-    }
-
-    override func makeWindow() -> NSWindow {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 980, height: 720),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(
-            localized: "debug.sidebarFooterIconBalance.title",
-            defaultValue: "Footer Icon Balance Lab"
-        )
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.sidebarFooterIconBalanceDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: SidebarFooterIconBalanceDebugView())
-        decorator?.applyWindowDecorations(to: window)
-        return window
-    }
-
-    func show() {
-        showManagedWindow(activateApplication: true)
-    }
-}
-
 private struct SidebarFooterHelpIconVariant: Identifiable {
     let id: String
     let pointSize: Double
@@ -2684,7 +2658,7 @@ private enum SidebarFooterOpticalBalanceDebugSettings {
     static let defaultShowsCellGuides = true
 }
 
-private struct SidebarFooterIconBalanceDebugView: View {
+struct SidebarFooterIconBalanceDebugView: View {
     private static let columns = Array(
         repeating: GridItem(.flexible(minimum: 150), spacing: 10),
         count: 5

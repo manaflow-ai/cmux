@@ -50,44 +50,6 @@ struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
-/// Owns debug-window coordinators at the application composition root.
-@MainActor
-final class CmuxDebugWindowsCoordinator {
-    private let aboutTitlebarCoordinator: DebugWindowsCoordinator
-#if DEBUG
-    private lazy var sidebarFooterIconBalanceController =
-        SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
-#endif
-    private weak var decorator: (any WindowDecorating)?
-
-    init(decorator: (any WindowDecorating)?) {
-        self.decorator = decorator
-        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(
-            decorator: decorator,
-            copyText: { text in
-                _ = GhosttyApp.terminalPasteboard.writeString(
-                    text,
-                    to: .general
-                )
-            }
-        )
-    }
-
-    var aboutTitlebarStore: AboutTitlebarDebugStore {
-        aboutTitlebarCoordinator.aboutTitlebarStore
-    }
-
-    func showAboutTitlebarDebugWindow() {
-        aboutTitlebarCoordinator.showAboutTitlebarDebugWindow()
-    }
-
-#if DEBUG
-    func showSidebarFooterIconBalanceWindow() {
-        sidebarFooterIconBalanceController.show()
-    }
-#endif
-}
-
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
