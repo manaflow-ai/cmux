@@ -317,7 +317,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("Current plan");
     // A Pro subscriber can still upgrade: the Max card keeps its checkout
     // link (the server routes an active Pro subscription to the portal).
-    expect(html).toContain("/api/billing/checkout?plan=max");
+    expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toMatch(/plan=max[^"]*"[^>]*><span>Get Max/);
   });
 

@@ -113,13 +113,11 @@ export default async function AppPricingPage({
   const proCheckoutHref = appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution);
   const teamCheckoutHref = appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution);
   // Max is monthly only: one checkout link, no interval parameter.
-  const maxCheckoutHref = appPricingCheckoutURL(
-    "max",
-    requestOrigin,
-    cmuxScheme,
-    undefined,
-    attribution,
-  );
+  const maxCheckoutHref = snapshot.isPro && !isMax
+    ? withExternalBrowserIntent(
+        `/api/billing/portal?flow=switch_plan&plan=max&cmux_source=${encodeURIComponent(CHECKOUT_SOURCE_APP_PRICING)}&cmux_client=${encodeURIComponent(appStorePaymentGated ? "ios" : "mac")}`,
+      )
+    : appPricingCheckoutURL("max", requestOrigin, cmuxScheme, undefined, attribution);
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);

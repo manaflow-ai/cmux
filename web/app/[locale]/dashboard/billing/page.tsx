@@ -191,7 +191,7 @@ function MaxUpsell({ isFreePlan, planId, t, pricingT }: {
         <section className="mt-3 border border-border p-3">
           <h2 className="text-sm font-medium">{pricingT("max.name")}</h2>
           <p className="mt-2 text-muted">{t("max.upsell")}</p>
-          <a className="mt-3 inline-block underline" href={withCheckoutSource(MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
+          <a className="mt-3 inline-block underline" href={withCheckoutSource(planId !== "free" ? "/api/billing/portal?flow=switch_plan&plan=max" : MAX_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING)}>{pricingT("max.cta")}</a>
         </section>
   );
 }

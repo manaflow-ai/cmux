@@ -310,7 +310,7 @@ describe("app pricing page", () => {
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
     // A Pro subscriber can still upgrade to Max from the app.
-    expect(html).toContain("api/billing/checkout?plan=max");
+    expect(html).toContain("api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toContain("Get Max");
   });
 
