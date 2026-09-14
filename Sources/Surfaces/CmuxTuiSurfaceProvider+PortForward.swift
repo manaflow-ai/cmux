@@ -53,7 +53,7 @@ extension CmuxTuiSurfaceProvider {
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
-        let model = accessModel(port: port, address: address)
+        let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.cloudAccess.configure(model: model, url: privateURL)
         browser.showCloudAddress(privateURL)
         if portForwards != nil, privateURL.scheme?.lowercased() == "http", model.phase == .needsVPN {
@@ -61,9 +61,9 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func accessModel(port: Int, address: String) -> CloudPortAccessModel {
+    func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
-        return portAccessStore.model(machineID: machineID, target: target) {
+        return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
             CloudPortAccessModel(
                 machineID: machineID,
                 target: target,

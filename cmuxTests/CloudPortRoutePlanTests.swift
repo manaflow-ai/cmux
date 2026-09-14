@@ -84,6 +84,20 @@ struct CloudPortRoutePlanTests {
         #expect(model.phase == .closed && store.models.isEmpty)
     }
 
+    @Test("HTTP and HTTPS panes do not share an HTTP-only access state")
+    func accessModelsSeparateSchemes() {
+        let store = CloudPortAccessStore()
+        let target = CloudPortForwardTarget(host: "10.0.0.7", port: 8443)
+        let http = store.model(machineID: "vm-1", target: target, scheme: "http") {
+            makeModel(port: 8443)
+        }
+        let https = store.model(machineID: "vm-1", target: target, scheme: "https") {
+            makeModel(port: 8443)
+        }
+        #expect(http !== https)
+        #expect(store.models.count == 2)
+    }
+
     @Test("Desktop can use the authenticated loopback forward while VPN is off")
     func desktopForwardWorksWithoutVPN() async throws {
         var wakes = 0
