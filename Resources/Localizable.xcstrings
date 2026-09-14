@@ -83948,8 +83948,8 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nاعكس جلسات tmux للمضيف البعيد داخل نافذة cmux الحالية عبر وضع تحكم tmux بواسطة SSH. تصبح كل جلسة مساحة عمل، وكل نافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك تفعيل الإصدار التجريبي \"Remote tmux\".\n\nعند الحاجة إلى مصادقة تفاعلية، يشغّل cmux أمر ssh في هذه الطرفية ثم يعيد المحاولة عبر الاتصال المشترك. تُحترم الأسماء المستعارة وإعدادات ~/.ssh/config.\n\nFlags:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nيعكس جلسات tmux لمضيف بعيد في الشريط الجانبي للنافذة الحالية عبر وضع\nالتحكم في tmux عبر SSH (tmux -CC). تصبح كل جلسة مساحة عمل، وكل نافذة\nعلامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب تفعيل\nإعداد الميزة التجريبية \"Remote tmux\".\n\nإذا احتاج المضيف إلى مصادقة تفاعلية (كلمة مرور، أو تأكيد مفتاح المضيف، أو MFA،\nأو لمس مفتاح أمان)، يشغّل cmux الأمر ssh مباشرة في هذه الطرفية لتتمكن من\nالمصادقة، ثم يعكس الجلسات عبر اتصال SSH المشترك. أما المضيفون الذين\nتتم مصادقتهم دون تفاعل (ssh-agent أو مفتاح في ~/.ssh/config) فيُعكَسون\nدون أي مطالبة. تُحترم الأسماء المستعارة في ~/.ssh/config وإعدادات IdentityFile/ProxyJump/Port الخاصة بها.\n\nFlags:\n  --port <n>            منفذ SSH\n  --identity <path>     مسار ملف هوية SSH\n  --transport <name>    ssh (الافتراضي) أو et. ينقل et تدفق التحكم عبر\n                        EternalTerminal الذي يعيد الاتصال تلقائيًا، لذا تبقى\n                        المرآة قائمة عند تغيّر الشبكة بدلًا من إعادة تشغيلها.\n  --transport-port <n>  المنفذ الذي يتصل به النقل: منفذ sshd لـ ssh، ومنفذ etserver\n                        لـ et (الافتراضي 22 لـ ssh و2022 لـ et)\n  --broker <name>       يصل إلى المضيف عبر وسيط مُعرّف ضمن remoteTmux.brokers\n                        في cmux.json بدلًا من الاتصال المباشر. يحدد اسم إدخال\n                        كتبته مسبقًا، ولا يقبل أمرًا. استخدمه عندما لا يمكن\n                        الوصول إلى المضيف إلا عبر مضيف وسيط أو وكيل\n                        أو برنامج تغليف.\n  --no-focus            عدم تحديد مساحة العمل المنعكسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "bs": {
@@ -83966,8 +83966,8 @@
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts per SSH-tmux-Steuermodus in das aktuelle cmux-Fenster. Jede Sitzung wird zu einem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die aktivierte Betaoption \"Remote tmux\".\n\nWenn eine interaktive Authentifizierung nötig ist, führt cmux ssh in diesem Terminal aus und versucht es anschließend über die gemeinsame Verbindung erneut. Aliase und Einstellungen aus ~/.ssh/config werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht aktivieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts über den SSH-tmux-Steuermodus\n(tmux -CC) in die Seitenleiste des aktuellen Fensters. Jede Sitzung wird zu\neinem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren\nBereichen zu einer nativen Teilung. Erfordert die Betaoption \"Remote tmux\".\n\nWenn der Host eine interaktive Authentifizierung braucht (Passwort, Bestätigung\ndes Hostschlüssels, MFA oder Berührung eines Sicherheitsschlüssels), führt cmux\nssh direkt in diesem Terminal aus, damit du dich anmelden kannst, und spiegelt die\nSitzungen dann über die gemeinsame SSH-Verbindung. Hosts ohne interaktive Anmeldung\n(ssh-agent oder Schlüssel in ~/.ssh/config) werden ohne Rückfrage gespiegelt. Aliase aus ~/.ssh/config und deren IdentityFile/ProxyJump/Port-Einstellungen werden berücksichtigt.\n\nFlags:\n  --port <n>            SSH-Port\n  --identity <path>     Pfad zur SSH-Identitätsdatei\n  --transport <name>    ssh (Standard) oder et. et überträgt den Steuerstrom über\n                        EternalTerminal, das sich selbst neu verbindet, sodass der\n                        Spiegel einen Netzwechsel übersteht, statt neu zu starten.\n  --transport-port <n>  Port, mit dem sich der Transport verbindet: der von sshd für ssh,\n                        der von etserver für et (Standard 22 für ssh, 2022 für et)\n  --broker <name>       Verbindet über einen Broker, der unter remoteTmux.brokers in\n                        cmux.json deklariert ist, statt direkt. Nennt einen Eintrag,\n                        den du bereits angelegt hast; ein Befehl wird nicht akzeptiert.\n                        Für Hosts, die nur über einen Jump-Host, Proxy oder\n                        Wrapper erreichbar sind.\n  --no-focus            Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht fokussieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "en": {
@@ -83978,14 +83978,14 @@
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la ventana actual de cmux mediante el modo de control tmux por SSH. Cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere activar la función beta \"Remote tmux\".\n\nSi se necesita autenticación interactiva, cmux ejecuta ssh en este terminal y luego reintenta mediante la conexión compartida. Se respetan los alias y ajustes de ~/.ssh/config.\n\nFlags:\n  --port <n>          puerto SSH\n  --identity <path>   ruta del archivo de identidad SSH\n  --no-focus          no seleccionar el espacio reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nRefleja las sesiones de tmux de un host remoto en la barra lateral de la ventana\nactual mediante el modo de control de tmux por SSH (tmux -CC). Cada sesión se\nconvierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con\nvarios paneles en una división nativa. Requiere el ajuste beta \"Remote tmux\".\n\nSi el host necesita autenticación interactiva (contraseña, confirmación de la clave\ndel host, MFA o tocar una llave de seguridad), cmux ejecuta ssh directamente en este\nterminal para que puedas autenticarte y luego refleja las sesiones por la conexión\nSSH compartida. Los hosts que se autentican sin interacción (ssh-agent / clave en\n~/.ssh/config) se reflejan sin preguntar. Se respetan los alias de ~/.ssh/config y sus ajustes IdentityFile/ProxyJump/Port.\n\nFlags:\n  --port <n>            Puerto SSH\n  --identity <path>     Ruta del archivo de identidad SSH\n  --transport <name>    ssh (predeterminado) o et. et lleva el flujo de control por\n                        EternalTerminal, que se reconecta por sí solo, así que el\n                        reflejo sobrevive a un cambio de red en lugar de reiniciarse.\n  --transport-port <n>  Puerto al que se conecta el transporte: el de sshd para ssh,\n                        el de etserver para et (predeterminado 22 para ssh, 2022 para et)\n  --broker <name>       Llega al host a través de un broker declarado en\n                        remoteTmux.brokers de cmux.json, en lugar de conectar\n                        directamente. Nombra una entrada que ya escribiste; no acepta\n                        un comando. Úsalo cuando el host solo es accesible mediante\n                        un host de salto, un proxy o un wrapper.\n  --no-focus            No seleccionar el espacio de trabajo reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la fenêtre cmux actuelle via le mode de contrôle tmux sur SSH. Chaque session devient un espace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite l’option bêta \"Remote tmux\".\n\nSi une authentification interactive est nécessaire, cmux exécute ssh dans ce terminal puis réessaie via la connexion partagée. Les alias et réglages de ~/.ssh/config sont respectés.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   chemin du fichier d’identité SSH\n  --no-focus          ne pas sélectionner l’espace miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nReflète les sessions tmux d’un hôte distant dans la barre latérale de la fenêtre\nactuelle via le mode de contrôle tmux de SSH (tmux -CC). Chaque session devient un\nespace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets\nune division native. Nécessite le réglage bêta « Remote tmux ».\n\nSi l’hôte exige une authentification interactive (mot de passe, confirmation de\nla clé d’hôte, MFA ou contact d’une clé de sécurité), cmux exécute ssh directement\ndans ce terminal pour que vous puissiez vous authentifier, puis reflète les sessions\nvia la connexion SSH partagée. Les hôtes qui s’authentifient sans interaction\n(ssh-agent / clé dans ~/.ssh/config) sont reflétés sans invite. Les alias de ~/.ssh/config et leurs réglages IdentityFile/ProxyJump/Port sont respectés.\n\nFlags:\n  --port <n>            Port SSH\n  --identity <path>     Chemin du fichier d’identité SSH\n  --transport <name>    ssh (par défaut) ou et. et transporte le flux de contrôle via\n                        EternalTerminal, qui se reconnecte tout seul : le miroir\n                        survit à un changement de réseau au lieu d’être relancé.\n  --transport-port <n>  Port auquel le transport se connecte : celui de sshd pour ssh,\n                        celui d’etserver pour et (22 par défaut pour ssh, 2022 pour et)\n  --broker <name>       Joint l’hôte via un broker déclaré sous remoteTmux.brokers\n                        dans cmux.json, au lieu d’une connexion directe. Désigne une\n                        entrée déjà écrite ; n’accepte pas de commande. À utiliser\n                        quand l’hôte n’est joignable que par un hôte de rebond,\n                        un proxy ou un wrapper.\n  --no-focus            Ne pas sélectionner l’espace de travail miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "it": {
@@ -83996,8 +83996,8 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH の tmux コントロールモードで、リモートホストの tmux セッションを現在の cmux ウィンドウにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。「Remote tmux」ベータ設定を有効にする必要があります。\n\n対話型認証が必要な場合、cmux はこのターミナルで ssh を実行し、共有接続を使って再試行します。~/.ssh/config のエイリアスと設定も使用されます。\n\nFlags:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSSH の tmux コントロールモード (tmux -CC) で、リモートホストの tmux セッションを\n現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、\n各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。\n「Remote tmux」ベータ設定を有効にする必要があります。\n\nホストが対話型認証 (パスワード、ホストキーの確認、MFA、セキュリティキーのタッチ) を\n必要とする場合、cmux はこのターミナルで ssh を直接実行して認証できるようにし、\nその後、共有 SSH 接続でセッションをミラーリングします。\n非対話で認証できるホスト (ssh-agent や ~/.ssh/config の鍵) は\n確認なしでミラーリングされます。~/.ssh/config のエイリアスと IdentityFile/ProxyJump/Port の設定も使用されます。\n\nFlags:\n  --port <n>            SSH ポート\n  --identity <path>     SSH 識別ファイルのパス\n  --transport <name>    ssh (既定) または et。et はコントロールストリームを\n                        EternalTerminal 経由で送ります。自動で再接続するため、\n                        ネットワークが変わってもミラーは再起動せずに維持されます。\n  --transport-port <n>  トランスポートの接続先ポート。ssh では sshd、et では etserver\n                        のポートです (既定は ssh が 22、et が 2022)\n  --broker <name>       直接接続せず、cmux.json の remoteTmux.brokers に定義した\n                        ブローカー経由でホストに接続します。すでに記述済みの\n                        エントリ名を指定し、コマンドは受け付けません。\n                        ジャンプホスト、プロキシ、ラッパー経由でしか到達できない\n                        ホストで使用します。\n  --no-focus            ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "km": {
@@ -84008,8 +84008,8 @@
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH tmux 제어 모드로 원격 호스트의 tmux 세션을 현재 cmux 창에 미러링합니다. 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정을 켜야 합니다.\n\n대화형 인증이 필요하면 cmux가 이 터미널에서 ssh를 실행한 뒤 공유 연결을 통해 다시 시도합니다. ~/.ssh/config의 별칭과 설정도 적용됩니다.\n\nFlags:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --no-focus          미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSSH tmux 제어 모드(tmux -CC)를 통해 원격 호스트의 tmux 세션을 현재 창의\n사이드바에 미러링합니다. 각 세션은 작업 공간, 각 윈도우는 탭, 여러 패널이 있는\n윈도우는 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정이\n필요합니다.\n\n호스트에 대화형 인증(비밀번호, 호스트 키 확인, MFA, 보안 키 터치)이 필요하면\ncmux가 이 터미널에서 ssh를 직접 실행해 인증할 수 있게 한 뒤,\n공유 SSH 연결로 세션을 미러링합니다. 대화 없이 인증되는 호스트\n(ssh-agent 또는 ~/.ssh/config의 키)는 확인 없이\n미러링됩니다. ~/.ssh/config 별칭과 IdentityFile/ProxyJump/Port 설정이 적용됩니다.\n\nFlags:\n  --port <n>            SSH 포트\n  --identity <path>     SSH ID 파일 경로\n  --transport <name>    ssh(기본값) 또는 et. et는 제어 스트림을\n                        스스로 다시 연결하는 EternalTerminal로 전달하므로\n                        네트워크가 바뀌어도 미러가 다시 시작되지 않고 유지됩니다.\n  --transport-port <n>  전송이 연결할 포트: ssh는 sshd, et는 etserver의 포트\n                        (기본값: ssh 22, et 2022)\n  --broker <name>       직접 연결하는 대신 cmux.json의 remoteTmux.brokers에\n                        선언한 브로커를 통해 호스트에 연결합니다. 이미 작성한\n                        항목의 이름을 지정하며 명령은 받지 않습니다.\n                        점프 호스트, 프록시, 래퍼를 통해서만 접근할 수 있는\n                        호스트에 사용하세요.\n  --no-focus            미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "nb": {
@@ -84056,14 +84056,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n通过 SSH tmux 控制模式，将远程主机的 tmux 会话镜像到当前 cmux 窗口中。每个会话成为一个工作区，每个窗口成为一个标签页，多窗格窗口则成为原生分栏。需要启用“Remote tmux”测试功能。\n\n如果需要交互式身份验证，cmux 会在此终端中运行 ssh，然后通过共享连接重试。系统会采用 ~/.ssh/config 中的别名和设置。\n\nFlags:\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --no-focus          不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\n通过 SSH tmux 控制模式（tmux -CC）将远程主机的 tmux 会话镜像到当前窗口的\n侧边栏。每个会话成为一个工作区，每个窗口成为一个标签页，\n每个多窗格窗口成为原生分屏。需要启用\n“Remote tmux”测试版设置。\n\n如果主机需要交互式认证（密码、主机密钥确认、MFA 或触碰安全密钥），\ncmux 会直接在此终端中运行 ssh 以便你完成认证，\n然后通过共享的 SSH 连接镜像会话。无需交互即可认证的主机\n（ssh-agent 或 ~/.ssh/config 中的密钥）\n会直接镜像，不会提示。会遵循 ~/.ssh/config 中的别名及其 IdentityFile/ProxyJump/Port 设置。\n\nFlags:\n  --port <n>            SSH 端口\n  --identity <path>     SSH 身份文件路径\n  --transport <name>    ssh（默认）或 et。et 通过会自动重连的\n                        EternalTerminal 传输控制流，\n                        因此网络变化时镜像会保持而不是重新启动。\n  --transport-port <n>  传输连接的端口：ssh 为 sshd 的端口，et 为 etserver 的端口\n                        （默认 ssh 为 22，et 为 2022）\n  --broker <name>       不直接连接，而是通过 cmux.json 中\n                        remoteTmux.brokers 下声明的 broker 访问主机。\n                        指定的是你已写好的条目名称，\n                        不接受命令。适用于只能通过跳板机、代理\n                        或包装器访问的主机。\n  --no-focus            不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為標籤頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "state": "translated",
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\n透過 SSH tmux 控制模式（tmux -CC）將遠端主機的 tmux 工作階段鏡像到目前視窗的\n側邊欄。每個工作階段會成為一個工作區，每個視窗成為一個分頁，\n每個多窗格視窗成為原生分割。需要啟用\n「Remote tmux」測試版設定。\n\n如果主機需要互動式驗證（密碼、主機金鑰確認、MFA 或觸碰安全金鑰），\ncmux 會直接在此終端機中執行 ssh 讓你完成驗證，\n然後透過共用的 SSH 連線鏡像工作階段。不需互動即可驗證的主機\n（ssh-agent 或 ~/.ssh/config 中的金鑰）\n會直接鏡像，不會提示。會遵循 ~/.ssh/config 中的別名及其 IdentityFile/ProxyJump/Port 設定。\n\nFlags:\n  --port <n>            SSH 連接埠\n  --identity <path>     SSH 身分檔案路徑\n  --transport <name>    ssh（預設）或 et。et 透過會自動重新連線的\n                        EternalTerminal 傳送控制串流，\n                        因此網路變更時鏡像會維持，而不是重新啟動。\n  --transport-port <n>  傳輸連線的連接埠：ssh 為 sshd 的連接埠，et 為 etserver 的連接埠\n                        （預設 ssh 為 22，et 為 2022）\n  --broker <name>       不直接連線，而是透過 cmux.json 中\n                        remoteTmux.brokers 下宣告的 broker 連到主機。\n                        指定的是你已寫好的項目名稱，\n                        不接受指令。適用於只能透過跳板主機、代理\n                        或包裝程式連到的主機。\n  --no-focus            不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         }
       }
@@ -528956,10 +528956,34 @@
     "socket.remoteTmux.brokerMalformed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ليس اسمًا صالحًا للاستخدام: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ist kein verwendbarer Name: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "transport_broker is not a usable name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker no es un nombre utilizable: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker n’est pas un nom utilisable : %@"
           }
         },
         "ja": {
@@ -528967,16 +528991,58 @@
             "state": "translated",
             "value": "transport_broker は使用できる名前ではありません: %@"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker는 사용할 수 있는 이름이 아닙니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名称：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名稱：%@"
+          }
         }
       }
     },
     "socket.remoteTmux.brokerNotUsedByTransport": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستخدم النقل '%@' وسيطًا؛ مرّر --transport et للاتصال عبر وسيط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Transport '%@' verwendet keinen Broker; übergib --transport et, um über einen zu verbinden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el transporte '%@' no usa un broker; pasa --transport et para conectarte a través de uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le transport '%@' n’utilise pas de broker ; passez --transport et pour vous connecter via un broker"
           }
         },
         "ja": {
@@ -528984,16 +529050,58 @@
             "state": "translated",
             "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 전송은 브로커를 사용하지 않습니다. 브로커를 통해 연결하려면 --transport et를 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 传输不使用 broker；传入 --transport et 以通过 broker 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 傳輸不使用 broker；傳入 --transport et 以透過 broker 連線"
+          }
         }
       }
     },
     "socket.remoteTmux.brokerUnknown": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد وسيط باسم '%@' مُعرّف ضمن remoteTmux.brokers في cmux.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in cmux.json ist unter remoteTmux.brokers kein Broker namens '%@' deklariert"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no hay ningún broker llamado '%@' declarado en remoteTmux.brokers de cmux.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun broker nommé '%@' n’est déclaré sous remoteTmux.brokers dans cmux.json"
           }
         },
         "ja": {
@@ -529001,22 +529109,82 @@
             "state": "translated",
             "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json의 remoteTmux.brokers에 '%@'라는 이름의 브로커가 선언되어 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下没有声明名为 '%@' 的 broker"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下沒有宣告名為 '%@' 的 broker"
+          }
         }
       }
     },
     "socket.remoteTmux.brokerUnusable": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسيط '%@' مُعرّف لكن لا يمكن استخدامه: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Broker '%@' ist deklariert, kann aber nicht verwendet werden: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "broker '%@' is declared but cannot be used: %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el broker '%@' está declarado, pero no se puede usar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le broker '%@' est déclaré mais ne peut pas être utilisé : %@"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브로커 '%@'가 선언되어 있지만 사용할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已声明，但无法使用：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已宣告，但無法使用：%@"
           }
         }
       }
