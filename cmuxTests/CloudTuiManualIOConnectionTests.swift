@@ -8,6 +8,33 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test(arguments: [false, true])
+    func rejectedHandoffRetainsKnownUnsentInput(queuedBeforeBind: Bool) async throws {
+        try await Self.withConnection { rejected, _ in
+            rejected.close()
+            try await Self.withConnection { replacement, peer in
+                let queue = DispatchQueue(label: "test.cloud-rejected-handoff")
+                let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+                queue.suspend()
+                if queuedBeforeBind { router.send(.bytes(Data("before".utf8))) }
+                router.setConnection(rejected)
+                if !queuedBeforeBind { router.send(.bytes(Data("before".utf8))) }
+                router.send(.namedKey("Enter"))
+                router.setConnection(replacement)
+                queue.resume()
+                let commands = try await Self.blocking {
+                    try (0..<2).map { _ in
+                        let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                        return (command["bytes"] as? String, command["keys"] as? [String])
+                    }
+                }
+                #expect(commands[0].0 == Data("before".utf8).base64EncodedString())
+                #expect(commands[1].1 == ["enter"])
+                router.invalidate()
+            }
+        }
+    }
+
     @Test func pendingConnectionCannotReopenAnInvalidatedRouter() async throws {
         try await Self.withConnection { connection, _ in
             let queue = DispatchQueue(label: "test.cloud-terminal-invalidation")
