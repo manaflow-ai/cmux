@@ -36,12 +36,17 @@ final class CloudTerminalCreationCoordinator {
 
     /// Begins creation or retries the last remote resource's local projection.
     func start() {
+        // A repeated retry is still the same intent. Cancelling a create can
+        // discard its receipt after the remote mutation has already committed.
+        guard task == nil else { return }
         generation &+= 1
         let operationGeneration = generation
-        task?.cancel()
         panel?.resetForRetry()
         task = Task { @MainActor [weak self] in
             guard let self, let panel = self.panel else { return }
+            defer {
+                if self.generation == operationGeneration { self.task = nil }
+            }
             do {
                 let resource: SurfaceResource
                 if let createdResource = self.createdResource {
