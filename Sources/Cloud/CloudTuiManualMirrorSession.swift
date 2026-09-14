@@ -2,9 +2,7 @@ import CmuxTerminal
 import CmuxCore
 import Foundation
 import os
-
 private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
-
 /// Owns one native cloud-terminal attachment.
 ///
 /// The session is the only bridge between a remote cmux-tui PTY and a local
@@ -221,7 +219,9 @@ final class CloudTuiManualMirrorSession {
             resizeScheduler.resetForReconnect()
             return
         }
-        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
+        if (phase == .disconnected || phase == .idle), allowsAutomaticReconnect {
+            onNeedsReconnect()
+        }
         runtimeReady()
     }
     /// Rebinds the public terminal to the numeric surface ID from a fresh
