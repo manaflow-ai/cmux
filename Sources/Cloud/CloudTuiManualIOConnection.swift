@@ -132,8 +132,9 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         }
     }
 
-    /// Input receipts are drained here rather than waiting for the renderer's
-    /// main-actor consumer. At most 32 replies can accumulate at the daemon.
+    /// Receipts retire on the socket queue without yielding to the renderer.
+    /// Shared-stream reads still follow frame demand: a paused consumer stops
+    /// input at 32 outstanding replies, and its next demand resumes the window.
     func sendInput(line: Data) {
         queue.async { [self, line] in
             enqueueCommandLocked(line, needsReceipt: true)

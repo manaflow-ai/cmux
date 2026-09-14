@@ -128,6 +128,46 @@ import Testing
         }
     }
 
+    @Test func pausedFrameConsumerResumesInputWithoutResetOrLoss() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-paused-consumer-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            try Self.write(peer, Self.outputLine(Data("initial".utf8)))
+            var frames = connection.events.makeAsyncIterator()
+            #expect(await frames.next() == .output(surfaceID: 1, bytes: Data("initial".utf8)))
+            let queue = DispatchQueue(label: "test.cloud-paused-consumer-input")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<512 { router.send(.namedKey("Enter")) }
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            try await Self.blocking { writerQueue.sync {} }
+            let receipt = Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8)
+            let initial = try await Self.blocking {
+                let count = try Self.readAvailable(peer).split(separator: 0x0A).count
+                for _ in 0..<count { try Self.write(peer, receipt) }
+                return count
+            }
+            #expect(initial > 0 && initial < 256)
+            // No next() call yet: replies are waiting on the shared socket.
+            // The remaining commands must stay bounded, not close the session.
+            #expect(try await Self.blocking { try Self.readAvailable(peer).isEmpty })
+            async let delivered: Int = Self.blocking {
+                defer { shutdown(peer, SHUT_WR) }
+                var total = initial
+                while total < 512 {
+                    try #require(!Self.readLine(peer).isEmpty)
+                    total += 1
+                    try Self.write(peer, receipt)
+                }
+                try Self.write(peer, Self.outputLine(Data("complete".utf8)))
+                return total
+            }
+            #expect(await frames.next() == .output(surfaceID: 1, bytes: Data("complete".utf8)))
+            #expect(try await delivered == 512)
+        }
+    }
+
     @Test func byteBatchPreservesNamedKeyAndConnectionBoundaries() async throws {
         try await Self.withConnection { connection, peer in
             let consumer = Task { for await _ in connection.events {} }
