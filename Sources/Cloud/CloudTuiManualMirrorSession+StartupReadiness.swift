@@ -24,6 +24,8 @@ extension CloudTuiManualMirrorSession {
         startupReadiness.begin(baselineFrame: surface?.hostedView.surfaceView.renderedFrameSequence ?? 0)
         if let surface, startupFrameObserver == nil {
             beginStartupReadiness(on: surface)
+        } else {
+            armStartupDeadline()
         }
     }
 
