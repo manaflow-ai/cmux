@@ -10482,6 +10482,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         teardownRemoteConnection()
         owningTabManager = nil
     }
+
     /// Tears down all panels while keeping the workspace-owned Dock reusable.
     ///
     /// A workspace can remain as a manager's final tab during account cleanup,
@@ -10493,6 +10494,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
+
     private func teardownPanelResources(retireDock: Bool) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
@@ -11548,6 +11550,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return shortcuts
     }
+
     private func copyIdentifiersToPasteboard(surfaceId: UUID) {
         let paneId = paneId(forPanelId: surfaceId)?.id
         WorkspaceSurfaceIdentifierClipboardText.copy(
@@ -11559,7 +11562,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         )
     }
+
     // MARK: - Portal Lifecycle
+
     /// Hide all terminal portal views for this workspace.
     /// Called before the workspace is unmounted to prevent portal-hosted terminal
     /// views from covering browser panes in the newly selected workspace.
@@ -11571,12 +11576,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
     }
+
     func hideAllBrowserPortalViews() {
         for panel in panels.values {
             guard let browser = panel as? BrowserPanel else { continue }
             browser.hideBrowserPortalView(source: "workspaceRetire")
         }
     }
+
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
