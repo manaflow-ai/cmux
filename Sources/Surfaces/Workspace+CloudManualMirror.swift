@@ -15,14 +15,19 @@ import GhosttyKit
 /// (`Workspace+CloudTerminalReservation`).
 @MainActor
 extension Workspace {
-    /// A saved device terminal stays process-free until its provider reconnects.
+    /// A saved device terminal stays process-free until its provider reconnects:
+    /// the pane is built on the same manual-mirror path as a live attachment,
+    /// with no transport bound yet, and is never marked loading.
     func restoreDeviceDisplayPanel(_ snapshot: SessionPanelSnapshot, in pane: PaneID) -> UUID? {
-        guard let created = try? insertCloudManualMirrorTab(
-            in: pane, focus: false, onInput: { _ in },
-            onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
-        ) else { return nil }
-        applySessionPanelMetadata(snapshot, toPanelId: created.panelID)
-        return created.panelID
+        guard let panel = makeRemoteTmuxPanePanel(onInput: { _ in }, keyNameResolver: nil) else { return nil }
+        Self.bindCloudManualMirrorCallbacks(
+            panel: panel, onResize: { _ in }, onRuntimeReady: {}, onFocus: {}, attachment: nil
+        )
+        guard let panelID = try? insertCloudManualMirrorTab(panel, in: pane, focus: false, isLoading: false) else {
+            return nil
+        }
+        applySessionPanelMetadata(snapshot, toPanelId: panelID)
+        return panelID
     }
 
     /// Inserts a manual-mirror terminal in `destination` and returns its native surface.
