@@ -100,6 +100,15 @@ final class CloudTerminalOverlayCoordinator {
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
             cloudTerminalPresentationLogger.notice("pane terminal=\(session.terminalID, privacy: .private(mask: .hash)) destination=\(next.rawValue, privacy: .public) bound=\(presented) phase=\(String(describing: session.phase), privacy: .public)")
+            CloudTerminalAttachmentLog(correlationID: session.attachmentCorrelationID).presentation(
+                machineID: session.machineID,
+                terminalID: session.terminalID,
+                destination: next.rawValue,
+                visible: visible,
+                presented: presented,
+                phase: session.phase,
+                hasPresentation: presentation != nil
+            )
         }
         lastDestination = next
     }

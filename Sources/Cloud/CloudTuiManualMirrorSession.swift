@@ -2,9 +2,7 @@ import CmuxTerminal
 import CmuxCore
 import Foundation
 import os
-
 private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
-
 /// Owns one native cloud-terminal attachment.
 ///
 /// The session is the only bridge between a remote cmux-tui PTY and a local
@@ -77,11 +75,12 @@ final class CloudTuiManualMirrorSession {
     /// What the pane shows about this attachment; written only by `transition`.
     let attachmentStatus: CloudTerminalAttachmentStatus
     private let watchdog: CloudTuiManualMirrorWatchdog
-    private let log = CloudTerminalAttachmentLog()
+    private let log: CloudTerminalAttachmentLog
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
     private var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
+    var attachmentCorrelationID: String { log.correlationID }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         guard let state = CloudManualMirrorPresentation(
             phase: phase, replayReceived: diagnosticReplayReceived
@@ -124,6 +123,7 @@ final class CloudTuiManualMirrorSession {
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand(),
         deadlines: CloudTuiManualMirrorDeadlines = .standard,
         clock: any Clock<Duration> = ContinuousClock(),
+        correlationID: String? = nil,
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
         self.operations = operations
@@ -135,6 +135,7 @@ final class CloudTuiManualMirrorSession {
         self.commandBuilder = commandBuilder
         self.deadlines = deadlines
         self.clock = clock
+        log = CloudTerminalAttachmentLog(correlationID: correlationID ?? UUID().uuidString.lowercased())
         attachmentStatus = CloudTerminalAttachmentStatus(machineID: machineID)
         watchdog = CloudTuiManualMirrorWatchdog(deadlines: deadlines, clock: clock)
         inputRouter = CloudTuiManualIOInputRouter(
@@ -218,7 +219,9 @@ final class CloudTuiManualMirrorSession {
             resizeScheduler.resetForReconnect()
             return
         }
-        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
+        if (phase == .disconnected || phase == .idle), allowsAutomaticReconnect {
+            onNeedsReconnect()
+        }
         runtimeReady()
     }
     /// Rebinds the public terminal to the numeric surface ID from a fresh
@@ -387,7 +390,6 @@ final class CloudTuiManualMirrorSession {
             sendClaimIfNeeded()
         }
     }
-
     /// Re-asserts this pane as the geometry owner after a focus/input handoff.
     /// The first report is normally followed by an automatic claim; this method
     /// is also used by the composed explicit-input callback.
@@ -401,7 +403,6 @@ final class CloudTuiManualMirrorSession {
         claimUnsupported = false
         sendClaimIfNeeded()
     }
-
     /// Permanently tears down this view's attachment without closing the remote
     /// terminal. Closing the control socket is the cleanup fence for old
     /// servers; newer servers additionally retire the lease with the same close.
@@ -443,7 +444,6 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = nil
     }
-
     private func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
