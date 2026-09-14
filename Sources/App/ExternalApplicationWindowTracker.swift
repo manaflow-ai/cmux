@@ -333,7 +333,9 @@ final class ExternalApplicationWindowTracker {
                 width: quartzFrame.width,
                 height: quartzFrame.height
             ),
-            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? true
+            // Missing visibility metadata is ambiguous. Suppress companion
+            // presentation until WindowServer confirms that the window is on screen.
+            isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
         )
     }
 }
