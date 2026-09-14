@@ -4660,7 +4660,9 @@ describe("VM Effect workflows", () => {
         userId: "user-workflow-restore",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-restore",
-        billingPlanId: "free",
+        // This test isolates ownership. Max also permits legacy snapshots
+        // without a recorded shape; size-limit rejection is covered separately.
+        billingPlanId: "max",
         maxActiveVms: 1,
         provider: "freestyle",
         snapshotId: "snapshot-owned",
