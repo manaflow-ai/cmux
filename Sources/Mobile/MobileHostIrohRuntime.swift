@@ -484,6 +484,10 @@ final class MobileHostIrohRuntime {
             return
         }
         guard let signalRuntime = runtime else {
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
             serverSignalAccountID = serverSignalAccountID
                 ?? activeAccountID
                 ?? observedAccountID

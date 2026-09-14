@@ -173,6 +173,54 @@ import Testing
         ))
     }
 
+    @Test
+    func serverSignalRevisionIsParkedWhileActivationHasNoRuntime() {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRuntime = runtime.runtime
+        let originalDesiredActive = runtime.desiredActive
+        let originalSignOutIntentActive = runtime.signOutIntentActive
+        let originalActiveAccountID = runtime.activeAccountID
+        let originalObservedAccountID = runtime.observedAccountID
+        let originalReachability = runtime.relayPolicyNetworkReachable
+        let originalPendingRevision = runtime.serverSignalPendingRevision
+        let originalSignalAccountID = runtime.serverSignalAccountID
+        let originalRefreshTask = runtime.serverSignalRefreshTask
+        let originalRefreshTaskID = runtime.serverSignalRefreshTaskID
+        let originalRefreshRevision = runtime.serverSignalRefreshRevision
+        let originalTransitionTask = runtime.transitionTask
+
+        runtime.runtime = nil
+        runtime.desiredActive = false
+        runtime.signOutIntentActive = false
+        runtime.activeAccountID = "pending-account"
+        runtime.observedAccountID = "pending-account"
+        runtime.relayPolicyNetworkReachable = true
+        runtime.serverSignalPendingRevision = nil
+        runtime.serverSignalAccountID = nil
+        runtime.serverSignalRefreshTask = nil
+        runtime.serverSignalRefreshTaskID = nil
+        runtime.serverSignalRefreshRevision = nil
+
+        runtime.reconcileConnectivityFromServerSignal(revision: 42)
+
+        #expect(runtime.serverSignalPendingRevision == 42)
+        #expect(runtime.serverSignalAccountID == "pending-account")
+
+        runtime.serverSignalRefreshTask?.cancel()
+        runtime.runtime = originalRuntime
+        runtime.desiredActive = originalDesiredActive
+        runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.activeAccountID = originalActiveAccountID
+        runtime.observedAccountID = originalObservedAccountID
+        runtime.relayPolicyNetworkReachable = originalReachability
+        runtime.serverSignalPendingRevision = originalPendingRevision
+        runtime.serverSignalAccountID = originalSignalAccountID
+        runtime.serverSignalRefreshTask = originalRefreshTask
+        runtime.serverSignalRefreshTaskID = originalRefreshTaskID
+        runtime.serverSignalRefreshRevision = originalRefreshRevision
+        runtime.transitionTask = originalTransitionTask
+    }
+
     @Test func hostRelayRefreshWithoutExpiryUsesIdleCadence() {
         let now = Date(timeIntervalSince1970: 10_000)
         let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(

@@ -877,6 +877,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: CmxIrohRelayPolicyTrustRoot
         )
     ) async {
+        defer { rearmRelayPolicyRefreshIfNeeded() }
         do {
             let effective = try await context.service.refresh(
                 endpointID: context.endpointID,

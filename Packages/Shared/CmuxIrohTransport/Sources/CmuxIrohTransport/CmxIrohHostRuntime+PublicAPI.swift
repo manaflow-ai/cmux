@@ -186,9 +186,11 @@ extension CmxIrohHostRuntime {
                 routes: discovery
             )
             try requireCurrent(revision)
-            guard !Task.isCancelled else {
-                return .failed(.superseded)
-            }
+            // Route installation is the point of no return for this revision.
+            // A cancellation can arrive while the engine is recording it; the
+            // sidecar publication and renewal must still be scheduled or a
+            // replay will see the revision as installed and skip both effects.
+            let wasCancelledAfterInstall = Task.isCancelled
             scheduleLANPublication(
                 binding: metadata,
                 rendezvous: discovery.lanRendezvous,
@@ -199,7 +201,7 @@ extension CmxIrohHostRuntime {
                 binding: discovered,
                 revision: revision
             )
-            return .refreshed
+            return wasCancelledAfterInstall ? .failed(.superseded) : .refreshed
         } catch {
             guard lifecyclePhase == .active,
                   lifecycleRevision == revision,
