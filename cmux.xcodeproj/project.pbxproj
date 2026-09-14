@@ -823,7 +823,6 @@
 		C12469AA0000000000000038 /* CloudTerminalReadinessGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */; };
 		C12469AA0000000042 /* CloudTerminalReadinessPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000043 /* CloudTerminalReadinessPhase.swift */; };
 		4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */; };
-		C12469AA0000000000000025 /* CloudTerminalStartupLoadingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */; };
 		C12469AA0000000000000036 /* CloudTerminalStartupTrace.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */; };
 		8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
@@ -4650,7 +4649,6 @@
 		C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReadinessGate.swift; sourceTree = "<group>"; };
 		C12469AA0000000043 /* CloudTerminalReadinessPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReadinessPhase.swift; sourceTree = "<group>"; };
 		030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReconnectOverlayView.swift; sourceTree = "<group>"; };
-		C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalStartupLoadingView.swift; sourceTree = "<group>"; };
 		C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalStartupTrace.swift; sourceTree = "<group>"; };
 		F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudToolPaneTests.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
@@ -8137,7 +8135,6 @@
 				C12469AA0000000000000014 /* CloudTuiCreationResolution.swift */,
 				C12469AA0000000000000018 /* CloudTreeNodeActions+Destination.swift */,
 				C12469AA0000000000000024 /* CloudTerminalReadiness.swift */,
-				C12469AA0000000000000026 /* CloudTerminalStartupLoadingView.swift */,
 				C12469AA0000000000000035 /* CloudTuiManualMirrorSession+StartupPresentation.swift */,
 				C12469AA0000000000000037 /* CloudTerminalStartupTrace.swift */,
 				C12469AA0000000000000039 /* CloudTerminalReadinessGate.swift */,
@@ -12458,7 +12455,6 @@
 				C12469AA0000000000000038 /* CloudTerminalReadinessGate.swift in Sources */,
 				C12469AA0000000042 /* CloudTerminalReadinessPhase.swift in Sources */,
 				4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */,
-				C12469AA0000000000000025 /* CloudTerminalStartupLoadingView.swift in Sources */,
 				C12469AA0000000000000036 /* CloudTerminalStartupTrace.swift in Sources */,
 				C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */,
 				3BCFA4F10BC6F6673CFA3BFC /* CloudTreeCellView.swift in Sources */,
