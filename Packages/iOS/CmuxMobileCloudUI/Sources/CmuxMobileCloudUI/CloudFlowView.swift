@@ -26,6 +26,8 @@ public struct CloudTerminalRoute: Hashable, Sendable {
 public struct CloudFlowView: View {
     private let controller: CloudSessionController
     @State private var path = NavigationPath()
+    @AppStorage("mobile.cloud.onboarding.completed.v1") private var cloudOnboardingCompleted = false
+    @State private var showsCloudOnboarding = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
@@ -51,6 +53,11 @@ public struct CloudFlowView: View {
                 }
         }
         .onAppear { controller.sectionDidAppear() }
+        .onAppear {
+            if !cloudOnboardingCompleted {
+                showsCloudOnboarding = true
+            }
+        }
         .onDisappear { controller.sectionDidDisappear() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -58,6 +65,11 @@ public struct CloudFlowView: View {
             case .background: controller.sceneDidEnterBackground()
             default: break
             }
+        }
+        .sheet(isPresented: $showsCloudOnboarding, onDismiss: {
+            cloudOnboardingCompleted = true
+        }) {
+            CloudOnboardingView()
         }
     }
 }

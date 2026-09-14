@@ -10,6 +10,27 @@ This design adds an in-process WireGuard transport so a cmux client reaches a
 VM with no system interface, no root, and no VPN prompt. Only cmux's own link
 goes through it. Safari previews and `ssh` still need the system tunnel.
 
+## Optional system VPN access
+
+The app-managed tunnel is enough for Cloud terminals. A separate iOS
+Network Extension packet-tunnel provider is required if Safari, SSH, or
+another app must reach VM ports. That provider would install a split-tunnel
+configuration through `NETunnelProviderManager`, routing only the VM CIDRs.
+The first enable action must show Apple's VPN approval sheet. If the user
+denies it, cmux should show an **Open Settings** action using
+`UIApplication.openSettingsURLString`; iOS does not expose a supported deep
+link directly to the VPN settings pane, so the UI tells the user to continue
+at Settings → General → VPN & Device Management.
+
+The provider needs its own WireGuard key and enrollment record. It cannot reuse
+the in-process key because WireGuard associates one key with one active peer
+endpoint. The Cloud service must also install firewall rules for the specific
+ports a user enables. A port rule maps a VM port (for example TCP 3000) to the
+private tunnel address and is enforced by the VM security group; no public
+internet listener is opened. Until the packet-tunnel target and entitlement
+are shipped, Cloud remains terminal-only and does not claim to expose ports to
+other iOS apps.
+
 ## Shape
 
 ```
