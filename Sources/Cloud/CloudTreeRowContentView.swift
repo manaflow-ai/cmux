@@ -57,6 +57,14 @@ struct CloudTreeRowContentView: View {
         }
     }
 
+    /// The Ports header's VPN help action. Written as statements, not a ternary: Swift 6.3
+    /// fails with "failed to produce diagnostic for expression" when a ternary joins an
+    /// optional `@MainActor` closure with `nil`.
+    private var portsHelpAction: (@MainActor (NSWindow?) -> Void)? {
+        guard showsCloudVPNWarning else { return nil }
+        return cloudVPNSetup
+    }
+
     @ViewBuilder
     private var row: some View {
         switch kind {
@@ -116,7 +124,7 @@ struct CloudTreeRowContentView: View {
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
                 count: nil,
                 style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
+                helpAction: portsHelpAction
             )
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
