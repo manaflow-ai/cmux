@@ -169,6 +169,31 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             Issue.record("A request admitted for the retired connection reached dispatch")
             return
         }
+        guard case .err? = coordinator.handleSocketWorkerV2(admitted.request, context: TerminalController.shared) else {
+            Issue.record("A retired connection reached the socket-worker dispatch path")
+            return
+        }
+    }
+
+    @Test
+    func relayListingDoesNotExposeLocalPanelsInsideItsWorkspace() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let admitted = try fixture.authorize(method: "surface.list", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        try #require(admitted.errorResponse == nil)
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        guard case .ok(.object(let result))? = coordinator.handle(admitted.request) else {
+            Issue.record("A live connection must still be able to list its remote panels")
+            return
+        }
+        #expect(result["surfaces"] == .array([]))
+        let globalTree = try fixture.authorize(method: "system.tree", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        #expect(globalTree.errorResponse?.contains("remote_relay_method_denied") == true)
     }
 
     @Test
