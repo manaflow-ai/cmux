@@ -84,19 +84,17 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
     var machineResourceHeight: CGFloat { detailSize + 3.5 }
 
-    /// Reserves independent resource and token-usage lines in every visual preset.
+    /// Compact rows remain one line; the card style reserves its additional details.
     func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
-        let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
-        if machineRowLayout == .twoLine {
+        switch machineRowLayout {
+        case .singleLine:
+            return rowHeight + (machineBand ? 7 : 2)
+        case .twoLine:
             let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
+            let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
                 + statsHeight + usageHeight + (machineBand ? 8 : 0)
         }
-        if hasStats && showsMachineStats {
-            return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineResourceHeight
-                + usageHeight + (machineBand ? 8 : 0)
-        }
-        return rowHeight + (machineBand ? 7 : 2) + usageHeight
     }
 
     // MARK: Presets

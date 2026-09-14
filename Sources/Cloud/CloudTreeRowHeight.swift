@@ -21,6 +21,7 @@ struct CloudTreeRowHeight {
         case .machine(let machine, _):
             let hasUsageRow = style.machineRowLayout == .twoLine
             let base = GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true, hasUsage: hasUsageRow))
+            guard hasUsageRow else { return base }
             let indentation = CGFloat(max(0, outline.level(forItem: node)) + 1) * outline.indentationPerLevel
             // Mirror the cell's stable hover slot, row decoration, band, and icon insets.
             let width = (outline.tableColumns.first?.width ?? outline.bounds.width) - indentation

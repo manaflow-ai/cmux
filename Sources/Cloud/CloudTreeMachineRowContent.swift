@@ -2,7 +2,7 @@ import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
-/// Machine identity and usage above one compact CPU/RAM/Disk line.
+/// Compact rows keep identity, resources and usage on one baseline; cards stack details.
 /// This view receives only an immutable snapshot; the panel owns stats refreshes.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
@@ -27,7 +27,7 @@ struct CloudTreeMachineRowContent: View {
                             .truncationMode(.tail)
                             .frame(height: scaled(style.machineSubtitleLineHeight))
                     }
-                    if style.showsMachineStats {
+                    if style.machineRowLayout == .twoLine && style.showsMachineStats {
                         CloudTreeMachineResourceView(
                             metrics: CloudMachineResourcePresentation(machine: machine, now: now),
                             style: style
@@ -54,29 +54,22 @@ struct CloudTreeMachineRowContent: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
                 if machine.isDefault {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
                 }
-                if let fact = inlineFact {
+                if style.machineRowLayout == .singleLine, let fact = inlineFact {
                     Text(fact)
                         .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
-            .layoutPriority(1)
             Spacer(minLength: 0)
-            if style.machineRowLayout == .singleLine || usageLine != nil {
-                Text(style.machineRowLayout == .singleLine ? usageSummary : usageLine!)
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
         }
         .frame(height: scaled(style.machineNameLineHeight))
     }
@@ -163,11 +156,25 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Locked explains access behavior; resource and billing details have their own homes.
+    /// The original compact summary follows the name; full details remain on hover.
     var inlineFact: String? {
-        machine.freeAccess == .expired
-            ? String(localized: "machines.row.locked", defaultValue: "Locked")
-            : nil
+        if machine.freeAccess == .expired {
+            return String(localized: "machines.row.locked", defaultValue: "Locked")
+        }
+        var parts: [String] = []
+        if style.showsMachineStats {
+            parts.append(resourceLine)
+        }
+        parts.append(usageSummary)
+        return parts.joined(separator: " · ")
+    }
+
+    /// Compact labels and percentages match the original machine header line.
+    private var resourceLine: String {
+        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
+        return [metrics.cpu, metrics.memory, metrics.disk]
+            .map { "\($0.label)\u{00A0}\($0.value)" }
+            .joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {

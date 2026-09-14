@@ -1401,5 +1401,4 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
-
 }
