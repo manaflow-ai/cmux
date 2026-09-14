@@ -20,6 +20,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
+    private var cloudBindingObservationTask: Task<Void, Never>?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -132,6 +133,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
         workspaceObservationCancellable = nil
+        cloudBindingObservationTask?.cancel()
+        cloudBindingObservationTask = nil
     }
 
     func focus() {
@@ -187,6 +190,14 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
                 guard let self, let workspace else { return }
+                self.syncWorkspaceRoot(from: workspace)
+            }
+        }
+        cloudBindingObservationTask?.cancel()
+        cloudBindingObservationTask = Task { @MainActor [weak self, weak workspace] in
+            guard let workspace else { return }
+            for await _ in workspace.cloudBindingState.changes() {
+                guard !Task.isCancelled, let self else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
         }
