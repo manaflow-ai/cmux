@@ -273,6 +273,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshID: UUID?
     private var statsID: UUID?
     private let client: VMClient?
+    private let pollingClock: any Clock<Duration>
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
     private var usageTask: Task<Void, Never>?
@@ -296,8 +297,10 @@ final class MachinesPanelViewModel: ObservableObject {
 
     let defaultMachineStore: DefaultCloudMachineStore?
 
-    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil, client: VMClient? = nil) {
+    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil,
+         client: VMClient? = nil, pollingClock: any Clock<Duration> = ContinuousClock()) {
         self.client = client
+        self.pollingClock = pollingClock
         self.defaultMachineStore = defaultMachineStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
@@ -544,9 +547,9 @@ final class MachinesPanelViewModel: ObservableObject {
         isVisible = true
         guard pollTask == nil else { return }
         refresh()
-        pollTask = Task { [weak self] in
+        pollTask = Task { [weak self, pollingClock] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: Self.pollInterval)
+                do { try await pollingClock.sleep(for: Self.pollInterval) } catch { return }
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 self.refresh()
