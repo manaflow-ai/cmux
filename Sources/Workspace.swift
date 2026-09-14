@@ -10497,7 +10497,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
-        TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
         hideAllBrowserPortalViews()
         if retireDock {
             // Retire the right-sidebar Dock before closing any main-area panel
@@ -11578,11 +11577,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             browser.hideBrowserPortalView(source: "workspaceRetire")
         }
     }
-    func setPortalRenderingEnabled(
-        _ enabled: Bool,
-        reason: String,
-        parkDetachedViews: Bool = true
-    ) {
+    func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
         let changed = portalRenderingEnabled != enabled
         portalRenderingEnabled = enabled
         if enabled {
@@ -11595,10 +11590,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
-            if parkDetachedViews {
-                TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
-            }
             hideAllBrowserPortalViews()
+            TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: id)
             BrowserWindowPortalRegistry.hideWebViews(forWorkspaceID: id)
         }
     }

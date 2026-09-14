@@ -3610,16 +3610,9 @@ struct ContentView: View {
             previousStatesByWorkspaceId: lastReconciledPortalRenderingStatesByWorkspaceId,
             mountedWorkspaceIds: Set(mountedWorkspaceIds), orderedWorkspaceIds: orderedTabIds
         ).applying(to: &lastReconciledPortalRenderingStatesByWorkspaceId)
-        TerminalWindowPortalRegistry.parkHostedViews(
-            forWorkspaceIDs: Set(portalRenderingChanges.lazy.filter { !$0.isEnabled }.map(\.workspaceId))
-        )
         let workspacesById = Dictionary(currentTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for change in portalRenderingChanges {
-            workspacesById[change.workspaceId]?.setPortalRenderingEnabled(
-                change.isEnabled,
-                reason: "workspaceMount",
-                parkDetachedViews: false
-            )
+            workspacesById[change.workspaceId]?.setPortalRenderingEnabled(change.isEnabled, reason: "workspaceMount")
         }
         tabManager.workspaceSwitchCoordinator.selectionDidReconcile(
             workspaceID: effectiveSelectedId.flatMap { mountedWorkspaceIds.contains($0) ? $0 : nil }

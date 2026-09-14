@@ -1496,7 +1496,9 @@ final class WindowTerminalPortal: NSObject {
             preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId)
         }
     }
-    /// Hide a portal entry for permanent workspace unmounts without detaching it.
+    /// Retires a workspace's native presentation while retaining its binding.
+    /// Hidden terminals keep their PTY; their view trees must leave the window
+    /// so inactive workspaces do not accumulate compositor-owned layers.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else {
             clearPresentationNotificationState(for: hostedId)
@@ -1508,7 +1510,10 @@ final class WindowTerminalPortal: NSObject {
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
-        entry.hostedView?.isHidden = true
+        entry.hostedView?.setVisibleInUI(false)
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
@@ -1518,22 +1523,6 @@ final class WindowTerminalPortal: NSObject {
             entry.workspaceID == workspaceID ? hostedId : nil
         }) {
             hideEntry(forHostedId: hostedId)
-        }
-    }
-    func parkEntries(forWorkspaceID workspaceID: UUID) {
-        parkEntries(forWorkspaceIDs: [workspaceID])
-    }
-    func parkEntries(forWorkspaceIDs workspaceIDs: Set<UUID>) {
-        let ids: [ObjectIdentifier] = entriesByHostedId.compactMap { id, entry in
-            guard let workspaceID = entry.workspaceID else { return nil }
-            return workspaceIDs.contains(workspaceID) ? id : nil
-        }
-        for id in ids {
-            guard var entry = entriesByHostedId[id] else { continue }
-            entry.visibleInUI = false; entry.awaitingGeometrySettlement = false; entry.transientRecoveryRetriesRemaining = 0
-            entry.hostedView?.finishPortalGeometrySettlement(); entry.hostedView?.isHidden = true
-            if entry.hostedView?.superview === hostView { entry.hostedView?.removeFromSuperview() }
-            entriesByHostedId[id] = entry; clearPresentationNotificationState(for: id)
         }
     }
     @discardableResult
