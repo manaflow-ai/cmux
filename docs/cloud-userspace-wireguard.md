@@ -18,8 +18,8 @@ The terminal role does not create a system interface or require macOS VPN
 approval. In-app HTTP browser and Desktop pages use an authenticated loopback
 forward over the same hub, so they work with the optional system VPN off. The
 system VPN remains the path for other Mac apps that need the VM private address.
-Browser and Desktop pages show setup controls only when the userspace route is
-unavailable.
+Browser and Desktop show inline connection errors with a Reload action.
+They never offer VPN setup.
 
 ## Terminal path
 
@@ -63,15 +63,12 @@ same connection flow. Local terminals and external sites keep their own URLs.
 
 ## System-wide route (`cmux vpn up`)
 
-The Machines panel has an optional **Set Up cmux VPN…** entry. The same action
-is available in the workspace plus-button menu, the command palette, and the
-context menus for Cloud machines and private port URLs. Each opens the same
-native setup pane, like iPhone pairing. Opening it only reads connection status;
-**Connect Cloud VPN** explicitly starts and pins the existing tunnel coordinator.
-The pane explains extension approval and VPN configuration permission, follows
-approval automatically, reports errors, and supports cancellation and disconnect.
-It reports builds without a signed extension as unavailable without prompting.
-Automation can open it through `workspace.action {action: "cloud_vpn_setup"}`.
+The system VPN is controlled explicitly through `cmux vpn up`, `cmux vpn down`,
+and `cmux vpn status`. These commands retain the existing authenticated tunnel
+coordinator, macOS extension approval, and cancellation behavior. There are no
+VPN setup rows, buttons, menu items, Settings entries, or setup panes in the app.
+HTTP Desktop uses the userspace hub regardless of system VPN state. HTTPS retains
+its original private host and requires a private network connection.
 
 
 `cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
@@ -204,11 +201,9 @@ so its TCP maximum segment size stays within the tunnel packet size.
 - `cargo test -p cmux-tui`: hub command and required capability.
 - Web tests: one physical Mac with two role peers, multiple Stack sessions,
   rename, sign-out revoke, remote revoke, and no iOS registry coupling.
-- Tagged Mac build: with system VPN off, two VM terminals work through one
-  hub. Opening a Ports row shows native connection controls and creates no
-  listener. Forward Port opens `http://127.0.0.1:<port>` through the same hub;
-  Stop Forwarding closes it. With VPN connected, opening the same row uses
-  the VM private address and original port.
+- Tagged Mac build: with system VPN off, HTTP Desktop and browser ports use
+  `http://127.0.0.1:<port>` through the shared hub. noVNC assets and websockify
+  share that listener; private URLs remain the copied link metadata.
 - `CloudLoopbackPortForwardTests`: a loopback client, the real forward, and a
   fake SOCKS5 hub; bytes relay both ways, a refused CONNECT closes the client,
   the hub lease follows each connection, and one machine port keeps one local

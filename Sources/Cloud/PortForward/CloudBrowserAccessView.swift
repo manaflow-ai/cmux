@@ -15,21 +15,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                     if state.showsPage { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            phase: model.phase,
-                            message: state.error ?? model.failureMessage ?? model.vpn.errorMessage
-                                ?? model.vpn.tunnelStatus.banner?.text
-                                ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
-                            setupTitle: model.vpn.state == .awaitingApproval
-                                ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
-                                : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
-                            setupEnabled: model.vpn.state == .awaitingApproval
-                                || (!model.prefersForwarding && model.vpn.canConnect),
-                            onSetup: {
-                                if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
-                                else if !model.prefersForwarding && model.vpn.canConnect {
-                                    Task { await model.vpn.connect() }
-                                }
-                            },
+                            message: state.error ?? model.failureMessage,
                             onRetry: {
                                 state.retry()
                                 navigateIfReady()
@@ -40,9 +26,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                 .task(id: model.phase) { navigateIfReady() }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, setupTitle: String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), setupEnabled: true, onSetup: {
-                    AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId))
-                }, onRetry: nil)
+                CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
             } else {
                 content()
             }

@@ -17,8 +17,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Create the browser with native connection state before attempting access.
-    /// HTTP services use the authenticated userspace forward when this build has
-    /// the bundled hub; HTTPS remains a private-address route for the system VPN.
+    /// HTTP uses the authenticated userspace hub; HTTPS keeps its private host.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
@@ -41,10 +40,8 @@ extension CmuxTuiSurfaceProvider {
         return pane
     }
 
-    /// Bind a browser to the authenticated private route. Machines with the
-    /// userspace hub use one shared loopback forward, so Desktop and Cloud
-    /// ports work even when the optional system VPN is unavailable or off.
-    /// Builds without that hub retain the direct route and the VPN setup card.
+    /// Bind HTTP pages to their shared hub forward and HTTPS to the private
+    /// network. Missing transport support fails inline instead of offering setup.
     func configureBrowser(_ browser: BrowserPanel, url: URL) {
         guard let address = info.privateAddress,
               let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
@@ -56,16 +53,13 @@ extension CmuxTuiSurfaceProvider {
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.cloudAccess.configure(model: model, url: privateURL)
         browser.showCloudAddress(privateURL)
-        if portForwards != nil, privateURL.scheme?.lowercased() == "http", model.phase == .needsVPN {
-            model.forward()
-        }
+        model.connect()
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
         return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
             CloudPortAccessModel(
-                machineID: machineID,
                 target: target,
                 coordinator: portAccessStore.coordinator,
                 wake: { [weak self] in
@@ -98,7 +92,7 @@ extension CmuxTuiSurfaceProvider {
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
                 },
-                canForward: portForwards != nil && scheme.lowercased() == "http"
+                route: scheme.lowercased() == "http" ? .loopback : .privateNetwork
             )
         }
     }
