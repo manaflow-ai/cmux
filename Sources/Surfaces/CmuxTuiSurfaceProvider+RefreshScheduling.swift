@@ -14,16 +14,17 @@ extension CmuxTuiSurfaceProvider {
         refreshRequestedWhileScheduled = false
         scheduledRefresh = Task { @MainActor [weak self] in
             defer {
-                guard let self else { return }
-                self.scheduledRefresh = nil
-                guard self.refreshRequestedWhileScheduled,
-                      self.lifecycleGeneration == lifecycle,
-                      self.isRegisteredInCatalog() else {
-                    self.refreshRequestedWhileScheduled = false
-                    return
+                if let self {
+                    self.scheduledRefresh = nil
+                    if self.refreshRequestedWhileScheduled,
+                       self.lifecycleGeneration == lifecycle,
+                       self.isRegisteredInCatalog() {
+                        self.refreshRequestedWhileScheduled = false
+                        self.scheduleRefresh()
+                    } else {
+                        self.refreshRequestedWhileScheduled = false
+                    }
                 }
-                self.refreshRequestedWhileScheduled = false
-                self.scheduleRefresh()
             }
             await Task.yield()
             guard !Task.isCancelled, let self else { return }

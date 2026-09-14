@@ -4,7 +4,7 @@ import CmuxCore
 struct CloudManualMirrorPresentation {
     let phase: CloudTuiManualMirrorPhase
     let replayReceived: Bool
-    var rendererReady: Bool = true
+    let rendererReady: Bool
 
     var connectionState: WorkspaceRemoteConnectionState? {
         switch phase {

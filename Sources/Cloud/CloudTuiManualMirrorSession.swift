@@ -188,6 +188,7 @@ final class CloudTuiManualMirrorSession {
         }
         surface.onManualWindowAttached = { [weak self] in
             self?.runtimeReady()
+            self?.updateStartupVisibility(true)
         }
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
