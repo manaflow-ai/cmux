@@ -453,6 +453,30 @@ async function countActiveSessionsByAccount(
   }
 }
 
+/** Atomically moves one account and its encrypted envelope to another team. */
+export async function transferEncryptedAccount(input: {
+  accountId: string;
+  sourceTeamId: string;
+  destinationTeamId: string;
+  stackUserId: string;
+  credential: EncryptedCredential;
+}): Promise<boolean> {
+  if (input.sourceTeamId === input.destinationTeamId) return false;
+  return await cloudDb().transaction(async (tx) => {
+    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
+    await lockHandoffTeam(tx, input.destinationTeamId);
+    const [updated] = await tx.update(coderouterAccounts)
+      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
+      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .returning({ id: coderouterAccounts.id });
+    if (!updated) return false;
+    await tx.update(coderouterCredentials)
+      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
+      .where(eq(coderouterCredentials.accountId, input.accountId));
+    return true;
+  });
+}
+
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
   return await cloudDb()
     .selectDistinct({ teamId: coderouterAccounts.teamId })

@@ -1,6 +1,9 @@
 import Foundation
 
-/// Keeps creation and rename receipts visible until the accepted graph catches up.
+/// Read-your-write overlays for Cloud terminal creation and rename receipts.
+///
+/// This extension owns the transient pending metadata used while the accepted
+/// daemon graph catches up with a mutation response.
 @MainActor
 extension CmuxTuiSurfaceProvider {
     /// Merges pending mutation receipts into derived rows until an accepted
