@@ -64,7 +64,6 @@
                     "userId",
                     "email",
                     "planId",
-                    "subscriptionPlanId",
                     "isPro",
                     "billingManagement"
                   ]
