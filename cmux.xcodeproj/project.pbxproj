@@ -2678,6 +2678,7 @@
 		D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCF001D9CCF001D9CCF001 /* SettingsLazyLoadHelpers.swift */; };
 		D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671402D5671402D5671402 /* SettingsNavigation+TerminalScrollSpeed.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
+				800100000000000000000109 /* SettingsNavigationTarget+SearchText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 800100000000000000000110 /* SettingsNavigationTarget+SearchText.swift */; };
 		D10000000000000000A00022 /* SettingsNetworkingBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00023 /* SettingsNetworkingBehaviorUITests.swift */; };
 		A50019B0 /* SettingsSearchAliases.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B1 /* SettingsSearchAliases.swift */; };
 		A50019B2 /* SettingsSearchIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019B3 /* SettingsSearchIndexTests.swift */; };
