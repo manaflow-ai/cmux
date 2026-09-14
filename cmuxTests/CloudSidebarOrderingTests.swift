@@ -220,7 +220,7 @@ final class CloudSidebarOrderingFixture {
     func folderID(_ id: String) -> String { CloudTreeNodeBuilder.nodeID(workspace: id, machine: machine) }
 
     func snapshot(titles: [String] = ["cmux1", "cmux2"]) -> SurfaceCatalogSnapshot {
-        let workspaces = (1...2).map {
+        let workspaces = (1...titles.count).map {
             SurfaceRemoteWorkspace(id: "ws_\($0)", name: titles[$0 - 1], index: $0 - 1, focused: $0 == 1)
         }
         let resources = workspaces.map { workspace in
