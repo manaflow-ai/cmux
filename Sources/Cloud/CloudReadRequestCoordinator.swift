@@ -44,7 +44,7 @@ actor CloudReadRequestCoordinator {
     }
 
     private struct Cooldown {
-        let until: Duration
+        let until: TimeInterval
         let response: Response
     }
 
@@ -55,7 +55,7 @@ actor CloudReadRequestCoordinator {
     private var networkTask: Task<Void, Never>?
     private var isOnline: Bool?
     private var cooldowns: [Key: Cooldown] = [:]
-    private var nextCooldownExpiry: Duration?
+    private var nextCooldownExpiry: TimeInterval?
 
     init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30),
          onNetworkChange: @escaping @Sendable (Bool) async -> Void = { _ in }) {
@@ -110,7 +110,7 @@ actor CloudReadRequestCoordinator {
             }
             return
         }
-        let now = clock.now()
+        let now = seconds(clock.now())
         if let nextCooldownExpiry, now >= nextCooldownExpiry {
             cooldowns = cooldowns.filter { $0.value.until > now }
             self.nextCooldownExpiry = cooldowns.values.map(\.until).min()
@@ -131,7 +131,7 @@ actor CloudReadRequestCoordinator {
             for waiter in waiters.values { waiter.resume(throwing: error) }
             return
         }
-        if let cooldown = cooldowns[key], cooldown.until > clock.now() {
+        if let cooldown = cooldowns[key], cooldown.until > seconds(clock.now()) {
             for waiter in waiters.values { waiter.resume(returning: cooldown.response) }
             return
         }
@@ -206,13 +206,20 @@ actor CloudReadRequestCoordinator {
     /// polls. When it exceeds this operation's remaining budget, return the
     /// original 429 now; future reads receive that response until retry is legal.
     func noteRetryAfter(_ key: Key, seconds: TimeInterval, response: Response) -> Bool {
-        let until = clock.now() + .seconds(seconds)
-        if until > (cooldowns[key]?.until ?? .zero) {
+        // Retry-After can contain Int.max seconds. Keep that distant deadline
+        // as a monotonic floating-point instant rather than overflowing Duration.
+        let until = self.seconds(clock.now()) + seconds
+        if until > (cooldowns[key]?.until ?? 0) {
             cooldowns[key] = Cooldown(until: until, response: response)
             nextCooldownExpiry = min(nextCooldownExpiry ?? until, until)
         }
         guard let entry = entries[key], entry.terminalError == nil else { return false }
-        return until < entry.deadline
+        return until < self.seconds(entry.deadline)
+    }
+
+    private func seconds(_ duration: Duration) -> TimeInterval {
+        let parts = duration.components
+        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
     }
 
     private func cancel(_ key: Key, waiter: UUID) {

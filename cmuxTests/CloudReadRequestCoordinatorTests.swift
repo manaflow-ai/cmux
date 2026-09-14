@@ -152,6 +152,17 @@ struct CloudReadRequestCoordinatorTests {
         #expect(recovered.http.statusCode == 200)
     }
 
+    @Test("An arbitrarily long Retry-After does not overflow or become an early retry")
+    func oversizedRetryAfter() async throws {
+        let owner = Owner()
+        let throttled = response(429)
+        _ = try await owner.read(key()) {
+            #expect(await owner.noteRetryAfter(key(), seconds: TimeInterval(Int.max), response: throttled) == false)
+            return throttled
+        }
+        #expect(try await owner.read(key()) { Issue.record("ignored long server cooldown"); return response() }.http.statusCode == 429)
+    }
+
     @Test("Offline cancels readers, refuses more work, and reconnect recovers")
     func offlineRecovery() async throws {
         let owner = Owner()
