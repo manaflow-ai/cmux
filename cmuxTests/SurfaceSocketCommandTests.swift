@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -330,6 +331,36 @@ struct SurfaceSocketCommandTests {
 
         let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
         #expect(malformed["code"] as? String == "invalid_params")
+    }
+
+    @Test func projectResolvesAnExplicitSurfaceInAnotherWindow() async throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let app = try #require(AppDelegate.shared)
+        let windowID = app.createMainWindow(shouldActivate: false)
+        defer {
+            app.mainWindow(for: windowID)?.performClose(nil)
+        }
+        let manager = try #require(app.tabManagerFor(windowId: windowID))
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
+        TerminalController.shared.setActiveTabManager(fixture.manager)
+
+        let result = try Self.ok(try await Self.call("surface.project", [
+            "resource": fixture.termA1.rawValue,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": surfaceID.uuidString,
+            "direction": "left",
+            "focus": false,
+        ]))
+
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(fixture.provider.materialized.count == 1)
+        #expect(fixture.provider.materialized[0].destination == .split(
+            workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .left
+        ))
+        #expect(fixture.provider.materialized[0].focus == false)
     }
 
     // MARK: - surface.new_terminal / vm.terminal_new
