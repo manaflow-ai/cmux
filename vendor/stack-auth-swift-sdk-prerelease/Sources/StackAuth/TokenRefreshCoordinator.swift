@@ -35,12 +35,13 @@ actor TokenRefreshCoordinator {
             )
             attempts[key] = attempt
             let id = attempt.id
+            let deadline = attempt.deadline
             attempt.operation = Task { [weak self] in
                 let outcome = await operation()
                 await self?.complete(key, id: id, outcome: outcome)
             }
             attempt.timer = Task { [weak self] in
-                do { try await clock.sleep(timeoutNanoseconds) }
+                do { try await clock.sleepUntil(deadline) }
                 catch { return }
                 guard !Task.isCancelled else { return }
                 await self?.end(key, id: id, result: TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .timedOut))

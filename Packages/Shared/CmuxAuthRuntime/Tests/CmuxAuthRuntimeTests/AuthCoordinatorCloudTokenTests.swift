@@ -64,6 +64,14 @@ import Testing
         try await replacement.value
     }
 
+    @Test func deadlineDoesNotRestartWhenItsWaitBeginsAfterSuspension() async throws {
+        let clock = ManualTestClock()
+        let deadline = clock.authTokenDeadline(after: .seconds(2))
+        clock.advance(by: .seconds(600))
+        try await deadline.wait()
+        #expect(deadline.hasExpired())
+    }
+
     private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock()) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(

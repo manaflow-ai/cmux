@@ -4,4 +4,5 @@ import Foundation
 /// wake cannot publish credentials after its budget elapsed.
 struct AuthTokenDeadline: Sendable {
     let hasExpired: @Sendable () -> Bool
+    let wait: @Sendable () async throws -> Void
 }

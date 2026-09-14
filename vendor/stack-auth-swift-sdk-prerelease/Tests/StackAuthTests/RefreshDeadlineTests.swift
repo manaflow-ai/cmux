@@ -94,10 +94,35 @@ import Testing
         await fixture.close()
     }
 
+    @Test func delayedTimerRegistrationDoesNotRestartTheBudget() async {
+        let clock = RefreshTestClock()
+        let underlying = adapted(clock)
+        let registration = RefreshTimerRegistrationGate()
+        let delayedClock = TokenRefreshClock(now: underlying.now, sleepUntil: { deadline in
+            await registration.park()
+            try await underlying.sleepUntil(deadline)
+        })
+        let owner = TokenRefreshCoordinator()
+        let store = MemoryTokenStore()
+        let exchange = RefreshExchangeGate()
+        await store.setTokens(accessToken: "expired", refreshToken: "session")
+        let request = Task {
+            await owner.resolve(store: store, refreshToken: "session", accessToken: "expired",
+                clock: delayedClock, timeoutNanoseconds: 2_000_000_000) { await exchange.exchange() }
+        }
+        await exchange.waitUntilStarted()
+        await registration.waitUntilParked()
+        clock.advance(by: .seconds(600))
+        await registration.release()
+        #expect(await request.value.refreshFailure == .timedOut)
+        await exchange.release(.success(accessToken: "late"))
+        #expect(await store.getStoredAccessToken() == "expired")
+    }
+
     private func adapted(_ clock: RefreshTestClock) -> TokenRefreshClock {
         TokenRefreshClock(now: {
             let parts = clock.now.offset.components
             return UInt64(parts.seconds) * 1_000_000_000 + UInt64(parts.attoseconds / 1_000_000_000)
-        }, sleep: { try await clock.sleep(for: .nanoseconds(Int64($0))) })
+        }, sleepUntil: { try await clock.sleep(until: .init(offset: .nanoseconds(Int64($0))), tolerance: nil) })
     }
 }
