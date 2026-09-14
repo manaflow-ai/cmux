@@ -64,8 +64,8 @@ struct CloudTreeMachineRowContent: View {
                         .lineLimit(1)
                 }
             }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
+            Spacer(minLength: 0)
             if let usageLine, let cost = usageCost {
                 ViewThatFits(in: .horizontal) {
                     Text(usageLine).fixedSize()
