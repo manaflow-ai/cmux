@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import Foundation
 
 /// Preserves asynchronous acceptance through the shared terminal split action.
