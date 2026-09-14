@@ -103,6 +103,7 @@ final class CloudTuiManualMirrorSession {
         // including when the current socket is still attached or connecting.
         fenceAttachment(error: CancellationError())
         if cancelOnly {
+            presentationReadiness.end()
             interruption = nil
             transition(to: .idle)
         } else {
@@ -527,7 +528,6 @@ final class CloudTuiManualMirrorSession {
         }
         surface?.processRemoteOutput(bytes)
     }
-
     /// The replay is theme-portable: it carries no palette or default-color
     /// OSC state, so the local Ghostty theme stands for every color the
     /// remote PTY did not author. The sidecar restores the authored ones and
