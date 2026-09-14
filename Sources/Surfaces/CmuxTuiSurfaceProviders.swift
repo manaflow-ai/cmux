@@ -1496,7 +1496,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard watchedLink === link else { return }
         switch change {
         case .connected:
-            if cloudState == nil { scheduleRefresh() }
+            // A link can recover after the shared WireGuard hub briefly fails
+            // to publish its listener. Always refresh on the successful
+            // connection edge so stale hub/link errors disappear from the
+            // machine, ports, and display rows immediately.
+            scheduleRefresh()
             notificationSync?.linkDidConnect()
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
