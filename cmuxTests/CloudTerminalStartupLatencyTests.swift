@@ -1,3 +1,5 @@
+import AppKit
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -85,6 +87,85 @@ struct CloudTerminalStartupLatencyTests {
         #expect(session.connectionPresentation == nil)
         #expect(session.retryConnection())
         #expect(session.connectionPresentation?.showsReconnectButton == true)
+    }
+
+    @Test @MainActor
+    func quietReplayReachesAVisibleNativeFrameAndAcceptsInput() async throws {
+        let app = try #require(AppDelegate.shared)
+        let windowID = app.createMainWindow()
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.main.\(windowID.uuidString)"
+        })
+        defer { window.performClose(nil) }
+        let workspace = try #require(app.tabManagerFor(windowId: windowID)?.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let session = CloudTuiManualMirrorSession(
+            machineID: "fixture", terminalID: "term_quiet", remoteSurfaceID: 17,
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+        let router = session.inputRouter
+        let created = try SurfacePaneFactory.makeCloudManualMirrorPane(
+            at: .tab(workspaceID: workspace.id, paneID: pane.id.uuidString, index: nil),
+            focus: true,
+            onInput: { router.send($0) },
+            onResize: { session.apply(size: $0) },
+            onRuntimeReady: { session.runtimeReady() },
+            onFocus: { session.claimGeometry() },
+            attachment: session.attachmentStatus
+        )
+        session.bind(surface: created.surface)
+        let frames = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidRenderFrame, object: created.surface.hostedView.surfaceView, queue: .main
+        ) { _ in frames.continuation.yield(()) }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            frames.continuation.finish()
+        }
+        session.reconnect(socketPath: fixture.socketPath)
+        for expected in ["identify", "set-client-info", "attach-surface"] {
+            let command = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+            #expect(command.cmd == expected)
+            fixture.send(["id": command.id, "ok": true, "data": ["protocol": 12, "capabilities": []]])
+        }
+        fixture.send([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("Cloud startup ready\r\n".utf8).base64EncodedString()
+        ])
+        let ready = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { @MainActor in
+                for await _ in frames.stream {
+                    if session.startupReadiness.isReady { return true }
+                }
+                return false
+            }
+            group.addTask {
+                do { try await Task.sleep(for: .seconds(10)) } catch { return false }
+                return false
+            }
+            let result = await group.next() ?? false
+            frames.continuation.finish()
+            group.cancelAll()
+            return result
+        }
+        try #require(ready)
+        #expect(created.surface.readText(region: .viewport)?.contains("Cloud startup ready") == true)
+        #expect(session.connectionPresentation == nil)
+        router.send(.bytes(Data("pwd\n".utf8)))
+        var sentInput = false
+        for _ in 0..<10 {
+            guard let command = await fixture.nextCommand(timeout: .seconds(2)) else { break }
+            if command.cmd == "send" {
+                #expect(command.surface == 17)
+                sentInput = true
+                break
+            }
+            fixture.send(["id": command.id, "ok": true])
+        }
+        #expect(sentInput)
     }
 
     @Test @MainActor
