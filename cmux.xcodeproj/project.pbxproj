@@ -722,6 +722,7 @@
 		12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */; };
 		124760000000000000000005 /* CloudImagePasteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000005 /* CloudImagePasteError.swift */; };
 		124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000028 /* CloudImagePasteInputLease.swift */; };
+		124760000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift */; };
 		124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */; };
 		12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001F /* CloudImagePasteTestPeer.swift */; };
 		C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */; };
@@ -4552,6 +4553,7 @@
 		12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteCoordinatorTests.swift; sourceTree = "<group>"; };
 		124770000000000000000005 /* CloudImagePasteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteError.swift"; sourceTree = SOURCE_ROOT; };
 		124770000000000000000028 /* CloudImagePasteInputLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteInputLease.swift"; sourceTree = SOURCE_ROOT; };
+		124770000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteMirrorIntegrationTests.swift; sourceTree = "<group>"; };
 		31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteRoutingTests.swift; sourceTree = "<group>"; };
 		12477000000000000000001F /* CloudImagePasteTestPeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteTestPeer.swift; sourceTree = "<group>"; };
 		C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudInitialWorkspaceNamingTests.swift"; sourceTree = "<group>"; };
@@ -11244,6 +11246,7 @@
 				F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */,
 				C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */,
 				ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */,
+				124770000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift */,
 				12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */,
 				12477000000000000000001F /* CloudImagePasteTestPeer.swift */,
 				31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */,
@@ -14867,6 +14870,7 @@
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,
 				57BC801370636A4E2C1B31B7 /* CloudFileDeliveryTests.swift in Sources */,
 				12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */,
+				124760000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift in Sources */,
 				124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */,
 				12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */,
 				C12542000000000000000002 /* CloudInitialWorkspaceNamingTests.swift in Sources */,
