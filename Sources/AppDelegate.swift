@@ -18977,7 +18977,6 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
-
 private extension NSApplication {
     @objc func cmux_accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if Thread.isMainThread, let cache = AppDelegate.shared?.accessibilityWindowCache {
@@ -19946,8 +19945,6 @@ private extension NSWindow {
 
         return nil
     }
-
-
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
         if let webView = view as? CmuxWebView {
             return webView
@@ -20171,8 +20168,6 @@ private extension NSWindow {
 
 // MARK: - CmuxUpdater seams
 
-/// Conforms the composition root to updater host actions, retry, and relaunch seams.
-/// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension NSWindow {
     /// Resolves browser ownership for both window and app key-event routing.
     static func cmuxOwningWebView(
@@ -20209,6 +20204,8 @@ extension NSWindow {
     }
 }
 
+/// Conforms the composition root to updater host actions, retry, and relaunch seams.
+/// `checkForUpdatesInCustomUI()` is satisfied by the main `AppDelegate` declaration.
 extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     func updaterRequestsRetryCheckForUpdates() {
         checkForUpdates(nil)
