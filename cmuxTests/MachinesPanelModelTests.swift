@@ -1396,7 +1396,7 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
 
         let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
-        #expect(fact == nil, "spend belongs in the tooltip, leaving row space for resources")
+        #expect(fact == nil, "usage has its own line instead of competing with the machine name")
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 

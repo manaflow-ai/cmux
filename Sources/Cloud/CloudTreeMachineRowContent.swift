@@ -34,14 +34,7 @@ struct CloudTreeMachineRowContent: View {
                         )
                         .frame(minHeight: scaled(style.machineResourceHeight))
                     }
-                    if style.machineRowLayout == .twoLine, let usageLine {
-                        Text(usageLine)
-                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(height: scaled(style.machineResourceHeight))
-                    }
+                    CloudTreeMachineDetailView(line: usageSummary, style: style)
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -50,7 +43,7 @@ struct CloudTreeMachineRowContent: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// Keeps the original usage summary beside the machine identity.
+    /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
             HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
@@ -74,14 +67,6 @@ struct CloudTreeMachineRowContent: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 0)
-            if let usageLine, let cost = usageCost {
-                ViewThatFits(in: .horizontal) {
-                    Text(usageLine).fixedSize()
-                    Text(cost).fixedSize()
-                }
-                .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                .foregroundStyle(.tertiary)
-            }
         }
         .frame(height: scaled(style.machineNameLineHeight))
     }
@@ -89,7 +74,7 @@ struct CloudTreeMachineRowContent: View {
     /// Combines this machine's identity, activity, and resource readings for assistive technology.
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
-        if let usageLine { parts.append(usageLine) }
+        parts.append(usageSummary)
         if machine.isDefault {
             parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
         }
@@ -107,12 +92,16 @@ struct CloudTreeMachineRowContent: View {
         }
         lines.append(subtitle)
         lines.append(machine.image)
-        if let usageLine { lines.append(usageLine) }
+        lines.append(usageSummary)
         return lines.joined(separator: "\n")
     }
 
-    /// "$1.23 · 41K tokens · 30d": coderouter spend over the usage window. Nil
-    /// when the machine routed nothing, so an idle machine shows no spend row.
+    /// A missing backend report remains visible instead of looking like a removed feature.
+    var usageSummary: String {
+        usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+    }
+
+    /// "$1.23 · 41K tokens · 30d", including a measured zero. Nil means no report.
     var usageLine: String? {
         guard let usage = machine.usage, let cost = usageCost else { return nil }
         let tokens = usage.totals.totalTokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
@@ -126,9 +115,9 @@ struct CloudTreeMachineRowContent: View {
         )
     }
 
-    /// The narrow header keeps measured spend; full usage stays on hover.
+    /// API-equivalent spend from a reported usage sample, including zero.
     private var usageCost: String? {
-        guard let usage = machine.usage, !usage.totals.isEmpty else { return nil }
+        guard let usage = machine.usage else { return nil }
         return Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
             ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
     }

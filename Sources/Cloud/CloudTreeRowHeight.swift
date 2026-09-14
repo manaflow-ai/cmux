@@ -19,9 +19,7 @@ struct CloudTreeRowHeight {
         }
         switch node.kind {
         case .machine(let machine, _):
-            let hasUsage = machine.usage?.totals.isEmpty == false
-            let base = GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true, hasUsage: hasUsage))
-            guard style.showsMachineStats else { return base }
+            let base = GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true, hasUsage: true))
             let indentation = CGFloat(max(0, outline.level(forItem: node)) + 1) * outline.indentationPerLevel
             // Mirror the cell's stable hover slot, row decoration, band, and icon insets.
             let width = (outline.tableColumns.first?.width ?? outline.bounds.width) - indentation
@@ -29,8 +27,13 @@ struct CloudTreeRowHeight {
                 - CloudTreeRowGrid.trailingPadding * 2 - CloudTreeRowGrid.trailingGap - 22
                 - (node.isPinned ? 13 : 0) - (style.machineBand ? 4 : 0)
             let resource = CloudTreeMachineResourceView(metrics: CloudMachineResourcePresentation(machine: machine), style: style)
-            return base + resource.height(width: width, magnification: GlobalFontMagnification.storedPercent)
-                - GlobalFontMagnification.scaledSize(style.machineResourceHeight)
+            let usage = CloudTreeMachineDetailView(
+                line: CloudTreeMachineRowContent(machine: machine, style: style).usageSummary, style: style
+            )
+            let magnification = GlobalFontMagnification.storedPercent
+            let lineHeight = GlobalFontMagnification.scaledSize(style.machineResourceHeight)
+            let resourceOverflow = style.showsMachineStats ? resource.height(width: width, magnification: magnification) - lineHeight : 0
+            return base + resourceOverflow + usage.height(width: width, magnification: magnification) - lineHeight
         case .localMachine, .pendingMachine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:

@@ -151,7 +151,7 @@ struct CloudTreeRowContentView: View {
     /// Formats the transport and screen label shown beneath a VNC display row.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
-    static func text(for resource: SurfaceResource) -> String {
+    nonisolated static func text(for resource: SurfaceResource) -> String {
         let transport = String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC")
         guard let screen = screenLabel(displayKey: resource.id.key) else { return transport }
         return String(
@@ -163,7 +163,7 @@ struct CloudTreeRowContentView: View {
 
     /// Converts a display resource key such as `display:1` to its X display
     /// label (`:1`), returning nil for keys that are not numbered displays.
-    static func screenLabel(displayKey key: String) -> String? {
+    nonisolated static func screenLabel(displayKey key: String) -> String? {
         let prefix = "display:"
         guard key.hasPrefix(prefix) else { return nil }
         let number = key.dropFirst(prefix.count)

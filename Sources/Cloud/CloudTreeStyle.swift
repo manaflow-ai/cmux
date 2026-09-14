@@ -84,24 +84,19 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
     var machineResourceHeight: CGFloat { detailSize + 3.5 }
 
-    /// Reserve exactly one resource line, including before the first sample.
+    /// Reserves independent resource and token-usage lines in every visual preset.
     func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
+        let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
         if machineRowLayout == .twoLine {
-            let statsLine = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
-            let usageLine = hasUsage ? 1 + machineResourceHeight : 0
+            let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
-                + statsLine + usageLine + (machineBand ? 8 : 0)
+                + statsHeight + usageHeight + (machineBand ? 8 : 0)
         }
         if hasStats && showsMachineStats {
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineResourceHeight
-                + (machineBand ? 8 : 0)
+                + usageHeight + (machineBand ? 8 : 0)
         }
-        switch machineRowLayout {
-        case .singleLine:
-            return rowHeight + (machineBand ? 7 : 2)
-        case .twoLine:
-            return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
-        }
+        return rowHeight + (machineBand ? 7 : 2) + usageHeight
     }
 
     // MARK: Presets

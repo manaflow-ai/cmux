@@ -169,7 +169,7 @@ struct CloudTreeMachineResourcesTests {
         )
     }
 
-    /// The outline reserves enough height for normal and wrapped resource text.
+    /// An unavailable ledger must remain distinguishable from an omitted UI feature.
     @Test @MainActor func missingTokenUsageIsVisibleInsteadOfSilentlyOmitted() {
         let row = CloudTreeMachineRowContent(machine: machine(), style: .compact, now: Self.sampleTime)
         #expect(row.accessibilityLabel.contains("Token usage unavailable"))
@@ -196,6 +196,21 @@ struct CloudTreeMachineResourcesTests {
         }
     }
 
+    @Test @MainActor func usageSummaryWrapsWithoutDroppingTokensOrTheWindow() {
+        for style in CloudTreeStyle.presets {
+            for width in [CGFloat(120), 200, 320] {
+                for scale in [100, 150, 200] {
+                    let view = CloudTreeMachineDetailView(line: "$123.45 · 41K tokens · 30d", style: style)
+                    let host = NSHostingView(rootView: view
+                        .environment(\.cmuxGlobalFontMagnificationPercent, scale).frame(width: width))
+                    #expect(host.fittingSize.height <= view.height(width: width, magnification: scale) + 1)
+                    #expect(host.fittingSize.width <= width + 1)
+                }
+            }
+        }
+    }
+
+    /// The outline reserves enough height for normal and wrapped resource text.
     @Test @MainActor func resourceSummaryUsesOneCompactLine() {
         let resources = CloudMachineResourcePresentation(
             availability: .awake, cpuPercent: 100,
