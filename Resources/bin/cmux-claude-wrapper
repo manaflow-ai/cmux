@@ -848,8 +848,20 @@ exec_real_claude_passthrough() {
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
 ensure_node_options_restore_module() {
-    local guard_dir="${TMPDIR:-/tmp}"
-    guard_dir="${guard_dir%/}/cmux-claude-node-options"
+    # NODE_OPTIONS is inherited by every descendant for the life of the session, so
+    # the module it points at has to outlive the session. TMPDIR is swept, and once
+    # the file goes missing node refuses to start any script at all.
+    # Keep this resolution policy in sync with createClaudeNodeOptionsRestoreModule.
+    # The fixed child directory preserves restore-path recognition for overrides.
+    local guard_dir="${CMUX_NODE_OPTIONS_DIR:-${HOME}/.cmux}"
+    if [[ "$guard_dir" == '~/'* ]]; then
+        guard_dir="$HOME/${guard_dir:2}"
+    fi
+    # Our NODE_OPTIONS serializers use bare tokens. Fail closed for paths they
+    # cannot round-trip, and for relative paths that change meaning in children.
+    [[ "$guard_dir" == /* ]] || return 1
+    [[ "$guard_dir" =~ [[:space:]] || "$guard_dir" == *\"* || "$guard_dir" == *\\* ]] && return 1
+    guard_dir="${guard_dir%/}/cmux-node-options"
     local guard_path="$guard_dir/restore-node-options.cjs"
     mkdir -p "$guard_dir" || return 1
     local temp_path
@@ -1108,7 +1120,7 @@ cmux_computer_use_auth_token() {
     local auth_file metadata owner mode token
     auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
     if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
-        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || /usr/bin/stat -c '%u %a' "$auth_file" 2>/dev/null || true)"
         read -r owner mode <<< "$metadata"
         if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
             IFS= read -r token < "$auth_file" || true
