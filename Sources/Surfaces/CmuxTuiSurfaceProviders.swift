@@ -101,7 +101,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case workspace(String)
         case tab(String)
     }
-    private struct PendingRemoteRename {
+    struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
