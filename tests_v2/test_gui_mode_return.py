@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run against an isolated tagged app: CMUX_TAG=<tag> python3 tests_v2/test_gui_mode_return.py."""
 
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
