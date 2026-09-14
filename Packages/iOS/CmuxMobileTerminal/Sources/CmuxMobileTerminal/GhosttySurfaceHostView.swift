@@ -627,8 +627,8 @@ public final class GhosttySurfaceHostView: UIView {
     private var resolvedBottomSafeAreaInset: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0,
-            capturedInset: capturedBottomSafeAreaInset,
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
             ancestorInsets: safeAreaAncestorBottomInsets
         )
     }

@@ -1,7 +1,48 @@
+import CmuxAuthRuntime
 public import CmuxIrxTransport
+import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
+    /// Keeps each Mac build's version evidence attached to its exact device record.
+    nonisolated static func macListAuthEntries(
+        from directory: V2Directory,
+        now: Date = .now
+    ) -> [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] {
+        let fresh = directory.permissionExpiresAt > Int(now.timeIntervalSince1970)
+        var entries: [MobileMacListAuthState.Identity: MobileMacListAuthState.Entry] = [:]
+        for record in directory.devices where record.descriptor.metadata.platform == .mac {
+            let descriptor = record.descriptor
+            let identity = MobileMacListAuthState.Identity(
+                pairingID: MobilePairedMac.pairingID(
+                    macDeviceID: descriptor.identity.deviceID,
+                    instanceTag: descriptor.identity.buildTag
+                ),
+                endpointIDHex: descriptor.endpointID,
+                bindingID: record.deviceRecordID,
+                identityGeneration: descriptor.identityGeneration
+            )
+            entries[identity] = MobileMacListAuthState.Entry(
+                status: record.revoked ? "revoked" : "active",
+                revoked: record.revoked,
+                isFresh: fresh,
+                appVersion: descriptor.metadata.appVersion,
+                releaseTrack: descriptor.identity.buildTag == "nightly" ? "nightly" : "stable"
+            )
+        }
+        return entries
+    }
+
+    func projectDirectoryForUI(_ directory: V2Directory, scope: AuthenticatedTeamScope) async {
+        let entries = Self.macListAuthEntries(from: directory)
+        guard let auth else { return }
+        await MainActor.run {
+            guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return }
+            MobileMacListAuthState.shared.replace(entriesByIdentity: entries)
+        }
+    }
+
     func directoryScopeID() async -> String? {
         guard let scope = activeScope, (try? await assertScope(scope, epoch: epoch)) != nil else { return nil }
         return "\(scope.session.accountID):\(scope.teamID):\(scope.generation):\(epoch)"

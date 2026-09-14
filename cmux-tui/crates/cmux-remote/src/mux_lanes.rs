@@ -162,9 +162,13 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         Some("copy") if envelope.mode.as_ref().map(MuxName::as_str) == Some("scrollback") => {
             Lane::Bulk
         }
+        // Read-only lookups never wait behind PTY input or a slow mutation
+        // commit; a stalled Interactive lane must not make a live terminal
+        // look missing to the client resolving it.
         Some(
             "identify" | "ping" | "list-clients" | "list-workspaces" | "export-layout" | "wait-for"
-            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe",
+            | "ids" | "list-agents" | "pane-neighbor" | "process-info" | "subscribe"
+            | "resolve-terminal",
         ) => Lane::Control,
         // Mutations default to one ordered lane with compact PTY input. This
         // keeps a later close, move, focus, resize, or configuration change
@@ -345,6 +349,19 @@ mod tests {
         assert_eq!(
             tracker.classify_server_line(br#"{"event":"out\u0070ut","data":"YQ=="}"#),
             Some(Lane::Bulk)
+        );
+    }
+
+    /// `resolve-terminal` is a lookup. Queueing it behind PTY input and every
+    /// mutation on the ordered Interactive lane let one slow commit trip the
+    /// resolver's deadline for unrelated terminals (#12362).
+    #[test]
+    fn read_only_terminal_resolution_rides_the_control_lane() {
+        assert_eq!(
+            classify_client_line(
+                br#"{"id":4,"cmd":"resolve-terminal","terminal_id":"term_41fb0b7fe0f204d428acf9db124023f4"}"#
+            ),
+            Lane::Control
         );
     }
 

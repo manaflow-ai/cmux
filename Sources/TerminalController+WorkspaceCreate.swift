@@ -284,7 +284,14 @@ extension TerminalController {
         let remoteWorkspaceID = remoteRaw?.isEmpty == false
             ? remoteRaw
             : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase, remoteWorkspaceID: remoteWorkspaceID)
+        let generatedTitle = v2RawString(params, "generated_title")
+        SurfaceCatalog.shared.bindCloudWorkspace(
+            localWorkspaceID: workspaceId,
+            machine: .cloud(vmID),
+            remoteWorkspaceID: remoteWorkspaceID,
+            isBase: isBase,
+            generatedTitle: generatedTitle
+        )
         return .ok([
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),

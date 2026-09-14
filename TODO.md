@@ -100,7 +100,7 @@
   - `browser.frame.main`
   - `browser.dialog.accept`
   - `browser.dialog.dismiss`
-  - `browser.download.wait`
+  - `browser.download.wait|list`
 - [x] Implement session/context state APIs:
   - `browser.cookies.get|set|clear`
   - `browser.storage.get|set|clear`

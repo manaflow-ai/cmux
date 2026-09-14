@@ -729,10 +729,10 @@ for (const sessionId of [
                 if record.get("session_id") == "T-amp-session-test"
             }
             if (
-                "hooks amp session-start" in args_log
-                and "hooks amp prompt-submit" in args_log
-                and "hooks amp title-update" in args_log
-                and "hooks amp lifecycle" in args_log
+                "hooks enqueue amp session-start" in args_log
+                and "hooks enqueue amp prompt-submit" in args_log
+                and "hooks enqueue amp title-update" in args_log
+                and "hooks enqueue amp lifecycle" in args_log
                 and {"running", "awaiting-approval", "idle", "error"}.issubset(primary_states)
                 and any(record.get("session_id") == "T-amp-session-second" for record in lifecycle_records)
                 and any(record.get("session_id") == "T-amp-session-third" for record in lifecycle_records)
@@ -748,10 +748,10 @@ for (const sessionId of [
         stdin_log = read_text(fake_stdin_log)
         env_log = read_text(fake_env_log)
         for expected in [
-            "hooks amp session-start",
-            "hooks amp prompt-submit",
-            "hooks amp title-update",
-            "hooks amp lifecycle",
+            "hooks enqueue amp session-start",
+            "hooks enqueue amp prompt-submit",
+            "hooks enqueue amp title-update",
+            "hooks enqueue amp lifecycle",
         ]:
             if expected not in args_log:
                 print(f"FAIL: plugin did not invoke {expected}, got {args_log!r}")

@@ -32,6 +32,7 @@ extension TerminalSurface {
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
         let rendererRealization = rendererRealization
+        let callbackTarget = TerminalSurfaceCallbackTarget(surface: self)
         let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
             surfaceHost: view,
             surfaceController: self,
@@ -41,7 +42,17 @@ extension TerminalSurface {
                 Task { @MainActor in
                     rendererRealization.scheduleRendererPresentationRepair(surfaceID: surfaceID)
                 }
-            }
+            },
+            rendererFramePresented: { _, token in
+                Task { @MainActor in
+                    callbackTarget.surface?.rendererFrameDidPresent(token: token)
+                }
+            },
+            rendererFrameFailed: { _, token, status in
+                Task { @MainActor in
+                    callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
+                }
+            },
         ))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceConfig.renderer_event_cb = terminalRendererEventCallback
@@ -291,6 +302,20 @@ extension TerminalSurface {
                     surfaceConfig.initial_input = cInitialInput
                     return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
                 }
+            }
+        }
+        if let createdSurface {
+            guard ghostty_surface_set_render_presented_callback(
+                createdSurface,
+                terminalRendererPresentedCallback,
+                callbackContext.toOpaque()
+            ), ghostty_surface_set_render_failed_callback(
+                createdSurface,
+                terminalRendererFailedCallback,
+                callbackContext.toOpaque()
+            ) else {
+                ghostty_surface_free(createdSurface)
+                return (createdSurface: nil, runtimeInitialInput: runtimeInitialInput)
             }
         }
         return (createdSurface, runtimeInitialInput)

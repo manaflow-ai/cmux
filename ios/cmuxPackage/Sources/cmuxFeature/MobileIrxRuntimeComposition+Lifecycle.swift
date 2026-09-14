@@ -1,5 +1,6 @@
 public import CmuxAuthRuntime
 import CmuxIrxTransport
+import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
@@ -68,6 +69,10 @@ extension MobileIrxRuntimeComposition {
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
         publish()
+        if let directory = restored?.directory, restored?.authorityRevoked == false {
+            await projectDirectoryForUI(directory, scope: scope)
+            try await assertScope(scope, epoch: currentEpoch)
+        }
         // Cached IROH binding never waits for a backend handshake or Stack refresh.
         if let restored, !restored.authorityRevoked {
             let credentials = Self.credentials(restored)
@@ -136,6 +141,8 @@ extension MobileIrxRuntimeComposition {
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
         if snapshot.cache.authorityRevoked {
+            await MainActor.run { MobileMacListAuthState.shared.clear() }
+            guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
             let directSupervisor = directEndpointSupervisor
@@ -149,6 +156,8 @@ extension MobileIrxRuntimeComposition {
             return
         }
         if let directory = snapshot.cache.directory {
+            await projectDirectoryForUI(directory, scope: scope)
+            guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let permitted = Set(directory.devices.filter { !$0.revoked }.map { $0.descriptor.endpointID })
             for (peer, engine) in enginesByPeer where !permitted.contains(peer) {
                 await engine.stop(code: .revoked)
@@ -245,6 +254,7 @@ extension MobileIrxRuntimeComposition {
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
         publish()
+        await MainActor.run { MobileMacListAuthState.shared.clear() }
         await oldControl?.stop()
         for engine in oldEngines { await engine.stop() }
         await oldSupervisor?.deactivate()

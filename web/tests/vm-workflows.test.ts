@@ -61,6 +61,7 @@ import {
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
   resetBaseVm,
+  renameVm,
   restoreVm,
   reconcileVmProviderStatuses,
   resizeVm,
@@ -74,6 +75,55 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 // concurrent tests for this file.
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = runDbTests ? serialTest : test.skip;
+
+describe("Cloud prompt rename", () => {
+  test("publishes the committed name to the running guest", async () => {
+    let current = testCloudVmRow({ providerVmId: "vm-prompt", status: "running", slug: "brave-blue-otter" });
+    const calls: string[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: current }),
+      findUserVm: () => Effect.succeed(current),
+      setDisplayName: ({ displayName }) => Effect.sync(() => {
+        current = { ...current, displayName, updatedAt: new Date(200) };
+        return true;
+      }),
+    };
+    const result = await Effect.runPromise(renameVm({
+      userId: current.userId, providerVmId: "vm-prompt", displayName: "My Build Box",
+    }).pipe(Effect.provide(Layer.merge(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, {
+        ...unusedProviderGateway(),
+        exec: (_provider, id, command) => Effect.sync(() => {
+          calls.push(id, command);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+      }),
+    ))));
+    expect(result.displayName).toBe("My Build Box");
+    expect(result.slug).toBe("brave-blue-otter");
+    expect(calls[0]).toBe("vm-prompt");
+    expect(calls[1]).toContain('"name":"my-build-box","revision":200');
+  });
+
+  test("renames a paused machine without waking it", async () => {
+    let current = testCloudVmRow({ providerVmId: "vm-prompt", status: "paused" });
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: current }),
+      findUserVm: () => Effect.succeed(current),
+      setDisplayName: ({ displayName }) => Effect.sync(() => {
+        current = { ...current, displayName };
+        return true;
+      }),
+    };
+    // The provider rejects every guest operation, so a wake would fail here.
+    const result = await Effect.runPromise(renameVm({
+      userId: current.userId, providerVmId: "vm-prompt", displayName: "Paused Box",
+    }).pipe(Effect.provide(Layer.succeed(VmRepository, repo)), Effect.provide(Layer.succeed(VmProviderGateway, unusedProviderGateway()))));
+    expect(result.displayName).toBe("Paused Box");
+    expect(result.status).toBe("paused");
+  });
+});
 
 let sql: Sql | null = null;
 
@@ -144,6 +194,29 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-prompt-revisions";
+    const providerVmId = "provider-prompt-revisions";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: () => Effect.succeed({ provider: "freestyle", providerVmId, image: "prompt-test", status: "running", createdAt: Date.now() }),
+    });
+    await Effect.runPromise(createVm({
+      userId, billingCustomerType: "team", billingTeamId: userId, billingPlanId: "free", provider: "freestyle", image: "prompt-test", maxActiveVms: 1,
+    }).pipe(Effect.provide(layer)));
+    const [{ id }] = await sql<{ id: string }[]>`update cloud_vms set updated_at = '2100-01-01T00:00:00Z' where user_id = ${userId} returning id`;
+    const revisions: number[] = [];
+    for (const displayName of ["first", "second"]) {
+      await Effect.runPromise(vmRepositoryLiveShape.setDisplayName({ id, displayName }));
+      const row = await Effect.runPromise(vmRepositoryLiveShape.findUserVm({ userId, billingTeamId: userId, providerVmId }));
+      revisions.push(row!.updatedAt.getTime());
+    }
+    expect(revisions).toEqual([Date.parse("2100-01-01T00:00:00.001Z"), Date.parse("2100-01-01T00:00:00.002Z")]);
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+  });
+
   test("repairs a legacy fork claim from provider CPU and memory stats", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000151",
@@ -584,6 +657,53 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(1);
     expect(usageEvents[0]?.eventType).toBe("vm.resize");
   });
+
+  for (const storageMb of [undefined, 65536]) {
+    test.each([true, false])(`reservation compare-and-set controls ${storageMb ? "combined" : "compute"} resize success: %s`, async (committed) => {
+      const vm = testCloudVmRow({
+        userId: "resize-reservation-race", providerVmId: "provider-reservation-race",
+        status: "running", billingPlanId: "max",
+        providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 } },
+      });
+      const usageEvents: RecordedUsageEvent[] = [];
+      const confirmations: Parameters<NonNullable<VmRepositoryShape["setResourceReservation"]>>[0][] = [];
+      let resized = false;
+      const repo: VmRepositoryShape = {
+        ...testWorkflowRepo({ vm, usageEvents }),
+        setResourceReservation: (confirmation) => Effect.sync(() => {
+          expect(resized).toBe(true);
+          confirmations.push(confirmation);
+          return committed;
+        }),
+      };
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        getStatus: () => Effect.succeed("running"),
+        getStats: () => Effect.sync(() => ({
+          state: "awake", sampledAt: 1780000000000,
+          cpus: resized ? 4 : 2, memoryTotalMb: resized ? 8192 : 4096,
+          diskTotalMb: resized ? storageMb ?? 32768 : 32768,
+        })),
+        resize: () => Effect.sync(() => { resized = true; }),
+      };
+      const result = await Effect.runPromise(resizeVm({
+        userId: vm.userId, teamIds: [vm.billingTeamId!], providerVmId: vm.providerVmId!,
+        billingPlanId: "max", cpu: 4, memoryMb: 8192, storageMb,
+      }).pipe(Effect.either, Effect.provide(workflowLayer(repo, provider))));
+      expect(confirmations).toEqual([{
+        id: vm.id,
+        reservation: { vcpus: 4, memoryMb: 8192, diskMb: storageMb ?? 32768 },
+        expectedReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+      }]);
+      if (committed) {
+        expect(result).toMatchObject({ _tag: "Right", right: { cpus: 4, memoryTotalMb: 8192 } });
+        expect(usageEvents).toHaveLength(1);
+      } else {
+        expect(result).toMatchObject({ _tag: "Left", left: { _tag: "VmResizeInProgressError", vmId: vm.providerVmId } });
+        expect(usageEvents).toHaveLength(0);
+      }
+    });
+  }
 
   test("persists a provider-rounded disk claim after a paid resize", async () => {
     const vm = testCloudVmRow({

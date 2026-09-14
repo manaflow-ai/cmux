@@ -409,6 +409,10 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func openCloudVPNSetup() {
+        AppDelegate.shared?.openCloudVPNSetupWorkspace()
+    }
+
     func openCloudMachinesPanel() {
         _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(mode: .machines)
     }

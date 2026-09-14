@@ -1,6 +1,6 @@
 import CmuxAuthRuntime
 import Foundation
-import Synchronization
+import os
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -117,7 +117,8 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 }
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
-    private static let storedRequestCount = Mutex(0)
+    // lint:allow lock - URLProtocol callbacks share this request count across executors.
+    private static let storedRequestCount = OSAllocatedUnfairLock(initialState: 0)
 
     static var requestCount: Int { storedRequestCount.withLock { $0 } }
 

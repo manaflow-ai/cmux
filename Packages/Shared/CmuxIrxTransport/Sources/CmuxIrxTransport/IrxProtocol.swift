@@ -45,6 +45,13 @@ public enum IrxCloseCode: String, CaseIterable, Sendable {
     case keepaliveTimeout = "keepalive-timeout"
     case explicitRedial = "explicit-redial"
 
+    /// Codes that represent an admission result, not a session lifecycle
+    /// close. Lifecycle closes stay transport failures so the owner can redial.
+    public static let admissionOutcomeCodes: Set<IrxCloseCode> = [
+        .invalidGrant, .grantExpired, .revoked, .identityMismatch,
+        .malformedHello, .protocolMismatch, .admissionTimeout,
+    ]
+
     /// Codes that must NOT trigger automatic redial.
     public static let terminalForAutoRedial: Set<IrxCloseCode> = [
         .superseded, .userRequested, .invalidGrant, .grantExpired, .revoked,
