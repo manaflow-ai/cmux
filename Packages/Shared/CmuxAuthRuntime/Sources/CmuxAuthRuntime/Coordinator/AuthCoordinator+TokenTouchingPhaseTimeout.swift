@@ -12,6 +12,8 @@ extension AuthCoordinator {
             log.log("auth.phase=\(phase.rawValue) previous timed-out token work still active")
             throw AuthError.timedOut
         }
+        try Task.checkCancellation()
+        let deadline = clock.authTokenDeadline(after: timeout)
         let phaseID = UUID()
         let generation = sessionGeneration
         let signOutEpoch = signOutEpoch
@@ -28,6 +30,8 @@ extension AuthCoordinator {
                 signOutEpoch: signOutEpoch,
                 storeWriteHighWater: storeWriteHighWater
             )
+            try Task.checkCancellation()
+            guard !deadline.hasExpired() else { throw AuthError.timedOut }
             switch result {
             case .success(let value):
                 return value

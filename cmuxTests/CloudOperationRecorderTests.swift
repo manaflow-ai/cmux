@@ -8,6 +8,28 @@ import Testing
 
 @MainActor
 struct CloudOperationRecorderTests {
+    @Test func authenticationFailuresKeepTheirTelemetryClassification() async throws {
+        let identity = AuthenticatedSessionIdentity(generation: 1, accountID: "synthetic")
+        let sink = CapturedCloudDiagnostics()
+        let recorder = CloudOperationRecorder(uploader: sink, identity: { identity })
+        let scenarios: [(AuthError, CloudDiagnosticFailure, CloudTelemetrySpan.Outcome)] = [
+            (.timedOut, .timeout, .timeout),
+            (.networkError, .sessionRefresh, .failure),
+            (.cancelled, .cancelled, .cancelled),
+            (.unauthorized, .authentication, .failure)
+        ]
+        for (error, failure, outcome) in scenarios {
+            let root = recorder.begin(.list)
+            let auth = recorder.beginChild(of: root, phase: .authentication, attempt: 0, file: #fileID, line: #line)
+            await recorder.finish(auth, error: error)
+            let span = try #require(await sink.spans.last)
+            #expect(span.failure == failure)
+            #expect(span.outcome == outcome)
+            await recorder.finish(root)
+        }
+        #expect(CloudDiagnosticFailure.sessionRefresh.label == CloudDiagnosticFailure.network.label)
+    }
+
     @Test func alertLabelsAndScrollableDetailsOfferCopyError() throws {
         for text in ["Cloud could not connect.", String(repeating: "Cloud connection failed\n", count: 100)] {
             let alert = NSAlert()

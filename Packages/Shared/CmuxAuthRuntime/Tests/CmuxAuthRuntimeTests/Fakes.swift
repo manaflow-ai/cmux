@@ -17,6 +17,7 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 
 /// Scriptable ``AuthClient`` recording calls and returning canned results.
 actor FakeAuthClient: AuthClient {
+    var rejectsRefreshOnAccess = false
     var access: String?
     var refresh: String?
     /// Result of ``forceRefreshAccessToken()``. When `nil` (the default), the
@@ -49,6 +50,7 @@ actor FakeAuthClient: AuthClient {
         self.user = user
     }
 
+    func setRejectsRefreshOnAccess(_ value: Bool) { rejectsRefreshOnAccess = value }
     func setUser(_ user: CMUXAuthUser?) { self.user = user }
     func setTokens(access: String?, refresh: String?) {
         self.access = access
@@ -67,6 +69,7 @@ actor FakeAuthClient: AuthClient {
     /// recorded in ``lastMintedRefreshToken``, and PERSISTED into the store so
     /// a repeat read reuses it instead of re-minting.
     func accessToken() async -> String? {
+        if rejectsRefreshOnAccess { access = nil; refresh = nil; return nil }
         if storedAccessIsStale, let refresh {
             mintedAccessTokenCount += 1
             lastMintedRefreshToken = refresh

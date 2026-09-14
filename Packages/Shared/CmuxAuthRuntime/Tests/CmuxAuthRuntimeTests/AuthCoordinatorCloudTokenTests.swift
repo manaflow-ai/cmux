@@ -5,6 +5,13 @@ import Testing
 
 @MainActor
 @Suite struct AuthCoordinatorCloudTokenTests {
+    @Test func definitivelyRejectedRefreshIsUnauthorized() async {
+        let client = FakeAuthClient(access: "expired", refresh: "rejected")
+        await client.setRejectsRefreshOnAccess(true)
+        let coordinator = makeCoordinator(client: client)
+        await #expect(throws: AuthError.unauthorized) { try await coordinator.currentTokens() }
+    }
+
     @Test func cancelledCloudCallerDoesNotReturnCredentials() async throws {
         let client = FakeAuthClient(access: "access", refresh: "refresh")
         let coordinator = makeCoordinator(client: client)

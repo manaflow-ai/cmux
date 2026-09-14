@@ -50,6 +50,16 @@ public struct StackAuthClient: AuthClient {
         await stack.getAccessToken()
     }
 
+    public func resolvedAccessToken(forceRefresh: Bool) async throws -> String? {
+        let pair = await stack.resolvedTokenPair(forceRefresh: forceRefresh)
+        try Task.checkCancellation()
+        switch pair.refreshFailure {
+        case .cancelled, .sessionChanged: throw CancellationError()
+        case .timedOut: throw AuthError.timedOut
+        case nil: return pair.accessToken
+        }
+    }
+
     public func refreshToken() async -> String? {
         await stack.getRefreshToken()
     }
