@@ -66,6 +66,32 @@ struct FileSearchSnapshot: Equatable, Sendable {
     static let empty = FileSearchSnapshot(query: "", results: [], status: .idle, isSearching: false)
 }
 
+/// The filesystem scope used by the Files and Find right-sidebar tools.
+enum FileSearchScope: Equatable, Sendable {
+    case unsupported
+    case local
+    case remoteCloud(vmID: String)
+
+    init(provider: FileExplorerProvider?) {
+        if provider is LocalFileExplorerProvider {
+            self = .local
+        } else if let cloudProvider = provider as? CloudVMFileExplorerProvider,
+                  cloudProvider.isAvailable {
+            self = .remoteCloud(vmID: cloudProvider.vmID)
+        } else {
+            self = .unsupported
+        }
+    }
+
+    var debugName: String {
+        switch self {
+        case .unsupported: return "unsupported"
+        case .local: return "local"
+        case .remoteCloud: return "remoteCloud"
+        }
+    }
+}
+
 enum RipgrepIntegrationSettings {
     static let customRipgrepPathKey = "ripgrepCustomBinaryPath"
 
@@ -184,7 +210,19 @@ protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int)
     func cancel(clear: Bool)
+}
+
+extension FileSearchControlling {
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int) {
+        search(
+            query: rawQuery,
+            rootPath: rootPath,
+            isLocal: scope == .local,
+            contentRevision: contentRevision
+        )
+    }
 }
 
 struct FileSearchPipelineUpdate: Sendable {
@@ -421,7 +459,7 @@ final class FileSearchController: FileSearchControlling {
     private struct Request: Equatable {
         let query: String
         let rootPath: String
-        let isLocal: Bool
+        let scope: FileSearchScope
         let contentRevision: Int
     }
 
@@ -429,7 +467,7 @@ final class FileSearchController: FileSearchControlling {
 
     private let maxResults = 500
     private let snapshotInterval: TimeInterval = 0.05
-    private let excludedSearchGlobs = [
+    private static let excludedSearchGlobs = [
         "!.git/**",
         "!**/.git/**",
         "!node_modules/**",
@@ -447,16 +485,31 @@ final class FileSearchController: FileSearchControlling {
     private var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     private var searchTask: Task<Void, Never>?
+    private let cloudCommandRunner: any CloudFileExplorerCommandRunning
+
+    init(cloudCommandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()) {
+        self.cloudCommandRunner = cloudCommandRunner
+    }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+        search(
+            query: rawQuery,
+            rootPath: rootPath,
+            scope: isLocal ? .local : .unsupported,
+            contentRevision: contentRevision
+        )
+    }
+
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
-            isLocal: isLocal,
+            scope: scope,
             contentRevision: contentRevision
         )
-        if nextRequest == request, process?.isRunning == true {
+        if (nextRequest == request && process?.isRunning == true) ||
+           (nextRequest == request && searchTask != nil) {
             return
         }
         request = nextRequest
@@ -468,12 +521,40 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
-            emit(status: .unsupported, isSearching: false)
-            return
-        }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
+            return
+        }
+
+        if case .remoteCloud(let vmID) = scope {
+            generation += 1
+            let searchGeneration = generation
+            emit(status: .searching, isSearching: true)
+            let runner = cloudCommandRunner
+            searchTask = Task { [weak self] in
+                do {
+                    let result = try await runner.run(
+                        vmID: vmID,
+                        command: Self.remoteSearchCommand(query: query, rootPath: rootPath),
+                        timeoutMs: 30_000
+                    )
+                    guard !Task.isCancelled else { return }
+                    let snapshot = Self.remoteSearchSnapshot(from: result, query: query, rootPath: rootPath, maxResults: 500)
+                    self?.finishRemoteSearch(snapshot, generation: searchGeneration)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    self?.finishRemoteSearch(
+                        FileSearchSnapshot(query: query, results: [], status: .failed(error.localizedDescription), isSearching: false),
+                        generation: searchGeneration
+                    )
+                }
+            }
+            return
+        }
+
+        guard scope == .local else {
+            emit(status: .unsupported, isSearching: false)
             return
         }
         let resolution = RipgrepExecutableResolver.resolution()
@@ -511,7 +592,7 @@ final class FileSearchController: FileSearchControlling {
             "--max-columns-preview",
             "--color", "never",
             "--hidden",
-        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + [
+        ] + Self.excludedSearchGlobs.flatMap { ["--glob", $0] } + [
             "--",
             query,
             rootPath,
@@ -579,6 +660,56 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
+    private func finishRemoteSearch(_ snapshot: FileSearchSnapshot, generation searchGeneration: Int) {
+        guard searchGeneration == generation else { return }
+        searchTask = nil
+        results = snapshot.results
+        emit(status: snapshot.status, isSearching: false)
+    }
+
+    private static func remoteSearchSnapshot(
+        from result: VMExecResult,
+        query: String,
+        rootPath: String,
+        maxResults: Int
+    ) -> FileSearchSnapshot {
+        let parsed = result.stdout
+            .split(whereSeparator: \.isNewline)
+            .compactMap { FileSearchRipgrepParser.parseMatchLine(String($0), rootPath: rootPath) }
+        let results = Array(parsed.prefix(maxResults))
+        if result.exitCode == 0 || result.exitCode == 1 {
+            return FileSearchSnapshot(
+                query: query,
+                results: results,
+                status: results.isEmpty ? .noMatches : (parsed.count > maxResults ? .limited(maxResults) : .matches),
+                isSearching: false
+            )
+        }
+        let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = String(
+            format: String(localized: "fileExplorer.search.rgExited", defaultValue: "rg exited with status %d"),
+            result.exitCode
+        )
+        return FileSearchSnapshot(
+            query: query,
+            results: results,
+            status: .failed(detail.isEmpty ? fallback : detail),
+            isSearching: false
+        )
+    }
+
+    private static func remoteSearchCommand(query: String, rootPath: String) -> String {
+        let arguments = [
+            "rg", "--json", "--line-number", "--column", "--smart-case", "--fixed-strings",
+            "--max-columns", "300", "--max-columns-preview", "--color", "never", "--hidden",
+        ] + excludedSearchGlobs.flatMap { ["--glob", $0] } + ["--", query, rootPath]
+        return arguments.map(shellQuote).joined(separator: " ")
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
     func cancel(clear: Bool) {
         request = nil
         stopAndAdvanceGeneration()
@@ -621,11 +752,12 @@ final class FileSearchController: FileSearchControlling {
     }
 
     private func stopCurrentProcess() {
-        guard let process else { return }
+        let process = self.process
         self.process = nil
         searchTask?.cancel()
         searchTask = nil
         pipeline = nil
+        guard let process else { return }
         if process.isRunning {
             _ = Darwin.kill(process.processIdentifier, SIGTERM)
         }

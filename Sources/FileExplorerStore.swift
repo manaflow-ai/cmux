@@ -221,6 +221,28 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
+/// A file provider whose filesystem lives outside this Mac.
+protocol RemoteFileExplorerProvider: FileExplorerProvider {
+    var displayTarget: String { get }
+    func resolveHomePath() async throws -> String
+    func downloadFile(path: String, to localURL: URL) async throws
+}
+
+/// The small command boundary used by Cloud file browsing and search.
+protocol CloudFileExplorerCommandRunning: Sendable {
+    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult
+}
+
+/// Executes Cloud filesystem commands through the authenticated VM API.
+struct LiveCloudFileExplorerCommandRunner: CloudFileExplorerCommandRunning {
+    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult {
+        guard let client = await MainActor.run(body: { VMClient.shared }) else {
+            throw FileExplorerError.providerUnavailable
+        }
+        return try await client.exec(id: vmID, command: command, timeoutMs: timeoutMs)
+    }
+}
+
 struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
@@ -253,6 +275,14 @@ enum FileExplorerWorkspaceRoot: Equatable {
         isAvailable: Bool,
         unavailableDetail: String?
     )
+    case remoteCloud(
+        workspaceId: UUID,
+        vmID: String,
+        displayTarget: String,
+        rootPath: String?,
+        isAvailable: Bool,
+        unavailableDetail: String?
+    )
 }
 
 // MARK: - Local Provider
@@ -277,7 +307,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 // MARK: - SSH Provider
 
 // Captured by async SSH tasks; mutable availability/root state is guarded by stateLock.
-final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
+final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Sendable {
     private struct State: Sendable {
         var homePath: String
         var isAvailable: Bool
@@ -375,6 +405,106 @@ final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
             throw FileExplorerError.providerUnavailable
         }
         try await transport.downloadFile(path: path, connection: connection, to: localURL)
+    }
+}
+
+/// Provides directory listings and file previews for a cmux Cloud machine.
+final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider {
+    let vmID: String
+    let displayTarget: String
+    private let commandRunner: any CloudFileExplorerCommandRunning
+    private var currentHomePath: String
+    private var available: Bool
+
+    init(
+        vmID: String,
+        displayTarget: String,
+        homePath: String = "",
+        isAvailable: Bool,
+        commandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()
+    ) {
+        self.vmID = vmID
+        self.displayTarget = displayTarget
+        self.currentHomePath = homePath
+        self.available = isAvailable
+        self.commandRunner = commandRunner
+    }
+
+    var homePath: String { currentHomePath }
+    var isAvailable: Bool { available }
+
+    func updateAvailability(_ available: Bool, homePath: String? = nil) {
+        self.available = available
+        if let homePath, !homePath.isEmpty {
+            currentHomePath = homePath
+        }
+    }
+
+    func resolveHomePath() async throws -> String {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        let result = try await commandRunner.run(
+            vmID: vmID,
+            command: #"printf '%s\n' "$HOME""#,
+            timeoutMs: 30_000
+        )
+        guard result.exitCode == 0 else {
+            throw FileExplorerError.remoteCommandFailed(result.stderr)
+        }
+        let home = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !home.isEmpty else { throw FileExplorerError.remoteCommandFailed("remote HOME was empty") }
+        return home
+    }
+
+    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        var command = "find -- \(Self.shellQuote(path)) -mindepth 1 -maxdepth 1"
+        if !showHidden {
+            command += " ! -name \(Self.shellQuote(".*"))"
+        }
+        // GNU find on the Cloud image emits a type byte and path as NUL-delimited
+        // pairs, so filenames containing spaces, tabs, or newlines remain intact.
+        command += " -printf '%y\\0%p\\0'"
+        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
+        guard result.exitCode == 0 else {
+            throw FileExplorerError.remoteCommandFailed(result.stderr)
+        }
+        let fields = result.stdout.split(separator: "\0", omittingEmptySubsequences: false)
+        var entries: [FileExplorerEntry] = []
+        var index = 0
+        while index + 1 < fields.count {
+            let kind = fields[index]
+            let entryPath = String(fields[index + 1])
+            if let type = kind.first, !entryPath.isEmpty {
+                entries.append(FileExplorerEntry(
+                    name: URL(fileURLWithPath: entryPath).lastPathComponent,
+                    path: entryPath,
+                    isDirectory: type == "d"
+                ))
+            }
+            index += 2
+        }
+        return entries
+    }
+
+    func downloadFile(path: String, to localURL: URL) async throws {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        let result = try await commandRunner.run(
+            vmID: vmID,
+            command: "base64 --wrap=0 -- \(Self.shellQuote(path))",
+            timeoutMs: 30_000
+        )
+        guard result.exitCode == 0, let data = Data(base64Encoded: result.stdout) else {
+            throw FileExplorerError.remoteCommandFailed(result.stderr)
+        }
+        try FileManager.default.createDirectory(
+            at: localURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try data.write(to: localURL)
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 
@@ -680,6 +810,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
+    case remoteCommandFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -687,6 +818,8 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed:
             return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
+        case .remoteCommandFailed:
+            return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
         }
     }
 }
@@ -765,6 +898,12 @@ final class FileExplorerStore: ObservableObject {
             }
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
+        if let cloudProvider = provider as? CloudVMFileExplorerProvider {
+            guard !rootPath.isEmpty else {
+                return "cloud://\(cloudProvider.displayTarget)"
+            }
+            return "cloud://\(cloudProvider.displayTarget):\(rootPath)"
+        }
         return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
     }
 
@@ -795,6 +934,15 @@ final class FileExplorerStore: ObservableObject {
                 isAvailable: isAvailable,
                 unavailableDetail: unavailableDetail,
                 sshTransport: sshTransport
+            )
+        case .remoteCloud(let workspaceId, let vmID, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
+            applyRemoteCloudWorkspaceRoot(
+                workspaceId: workspaceId,
+                vmID: vmID,
+                displayTarget: displayTarget,
+                rootPath: rootPath,
+                isAvailable: isAvailable,
+                unavailableDetail: unavailableDetail
             )
         }
     }
@@ -842,6 +990,11 @@ final class FileExplorerStore: ObservableObject {
                     self?.gitStatusByPath = status
                 }
             }
+        } else if provider is CloudVMFileExplorerProvider {
+            // Cloud terminals do not expose a local Git working tree. Git
+            // status belongs to the remote machine and is not inferred from
+            // this Mac's filesystem.
+            gitStatusByPath = [:]
         } else {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
@@ -859,14 +1012,14 @@ final class FileExplorerStore: ObservableObject {
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
         }
-        guard let sshProvider = provider as? SSHFileExplorerProvider else {
+        guard let remoteProvider = provider as? any RemoteFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }
         let cacheURL = Self.remotePreviewCacheURL(
-            displayTarget: sshProvider.displayTarget,
+            displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
-        try await sshProvider.downloadFile(path: path, to: cacheURL)
+        try await remoteProvider.downloadFile(path: path, to: cacheURL)
         return cacheURL
     }
 
@@ -1183,57 +1336,124 @@ final class FileExplorerStore: ObservableObject {
         resolveRemoteHome(
             workspaceId: workspaceId,
             provider: sshProvider,
-            connection: connection
+            providerKey: [
+                connection.destination,
+                connection.port.map(String.init) ?? "",
+                connection.identityFile ?? "",
+                connection.sshOptions.joined(separator: "\u{1f}")
+            ].joined(separator: "\u{1e}")
+        )
+    }
+
+    private func applyRemoteCloudWorkspaceRoot(
+        workspaceId: UUID,
+        vmID: String,
+        displayTarget: String,
+        rootPath requestedRootPath: String?,
+        isAvailable: Bool,
+        unavailableDetail: String?
+    ) {
+        setWorkspaceRootIdentity(workspaceId)
+
+        let existingProvider = provider as? CloudVMFileExplorerProvider
+        let cloudProvider: CloudVMFileExplorerProvider
+        if let existingProvider,
+           existingProvider.vmID == vmID,
+           existingProvider.displayTarget == displayTarget {
+            cloudProvider = existingProvider
+            cloudProvider.updateAvailability(isAvailable)
+        } else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            cloudProvider = CloudVMFileExplorerProvider(
+                vmID: vmID,
+                displayTarget: displayTarget,
+                isAvailable: isAvailable
+            )
+            setProvider(cloudProvider, reloadIfAvailable: false)
+        }
+
+        guard isAvailable else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            let detail = unavailableDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            setRootStatusMessage(
+                detail?.isEmpty == false
+                    ? String(localized: "fileExplorer.status.remoteUnavailableWithDetail", defaultValue: "Remote files unavailable: \(detail!)")
+                    : String(localized: "fileExplorer.status.remoteUnavailable", defaultValue: "Remote files unavailable")
+            )
+            return
+        }
+
+        if let requestedRootPath = Self.normalizedRootPath(requestedRootPath) {
+            cancelRemoteHomeResolution()
+            setRootStatusMessage(nil)
+            setRootPath(requestedRootPath)
+            return
+        }
+
+        let currentHomePath = cloudProvider.homePath
+        if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setRootStatusMessage(nil)
+            setRootPath(currentHomePath)
+            return
+        }
+
+        resolveRemoteHome(
+            workspaceId: workspaceId,
+            provider: cloudProvider,
+            providerKey: vmID
         )
     }
 
     private func resolveRemoteHome(
         workspaceId: UUID,
-        provider sshProvider: SSHFileExplorerProvider,
-        connection: SSHFileExplorerConnection
+        provider: any RemoteFileExplorerProvider,
+        providerKey: String
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
-            connection.destination,
-            connection.port.map(String.init) ?? "",
-            connection.identityFile ?? "",
-            connection.sshOptions.joined(separator: "\u{1f}"),
+            providerKey,
         ].joined(separator: "\u{1e}")
 
         guard remoteHomeResolutionKey != resolutionKey else { return }
         remoteHomeResolutionTask?.cancel()
         remoteHomeResolutionKey = resolutionKey
         setRootPath("")
-        setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+        setRootStatusMessage(String(localized: "fileExplorer.status.remoteResolvingHome", defaultValue: "Resolving remote home..."))
 
-        remoteHomeResolutionTask = Task { [weak self, weak sshProvider] in
-            guard let sshProvider else { return }
+        remoteHomeResolutionTask = Task { [weak self, weak provider] in
+            guard let provider else { return }
             do {
-                let homePath = try await sshProvider.resolveHomePath()
-                await MainActor.run { [weak self, weak sshProvider] in
+                let homePath = try await provider.resolveHomePath()
+                await MainActor.run { [weak self, weak provider] in
                     guard let self,
-                          let sshProvider,
+                          let provider,
                           self.remoteHomeResolutionKey == resolutionKey,
-                          self.provider === sshProvider else { return }
+                          self.provider === provider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
-                    sshProvider.updateAvailability(true, homePath: homePath)
+                    if let sshProvider = provider as? SSHFileExplorerProvider {
+                        sshProvider.updateAvailability(true, homePath: homePath)
+                    } else if let cloudProvider = provider as? CloudVMFileExplorerProvider {
+                        cloudProvider.updateAvailability(true, homePath: homePath)
+                    }
                     self.setRootStatusMessage(nil)
                     self.setRootPath(homePath)
                 }
             } catch {
-                await MainActor.run { [weak self, weak sshProvider] in
+                await MainActor.run { [weak self, weak provider] in
                     guard let self,
-                          let sshProvider,
+                          let provider,
                           self.remoteHomeResolutionKey == resolutionKey,
-                          self.provider === sshProvider else { return }
+                          self.provider === provider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
                     self.setRootPath("")
                     self.setRootStatusMessage(
                         String(
-                            localized: "fileExplorer.status.sshHomeFailed",
-                            defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                            localized: "fileExplorer.status.remoteHomeFailed",
+                            defaultValue: "Unable to resolve remote home: \(error.localizedDescription)"
                         )
                     )
                 }

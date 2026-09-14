@@ -195,6 +195,20 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
 
+        if let cloudBinding = workspace.cloudVMBinding {
+            store.applyWorkspaceRoot(
+                .remoteCloud(
+                    workspaceId: workspace.id,
+                    vmID: cloudBinding.vmID,
+                    displayTarget: cloudBinding.vmID,
+                    rootPath: workspace.trustedRemoteCurrentDirectory,
+                    isAvailable: ManagedCloudPolicy.isEnabled,
+                    unavailableDetail: ManagedCloudPolicy.isEnabled ? nil : ManagedCloudPolicy.disabledMessage
+                )
+            )
+            return
+        }
+
         if workspace.usesRemoteDirectoryProvenance {
             guard let configuration = workspace.remoteConfiguration,
                   configuration.transport == .ssh else {
