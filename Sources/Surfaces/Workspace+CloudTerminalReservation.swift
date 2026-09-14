@@ -28,7 +28,10 @@ extension Workspace {
         panel.surface.setManualIONoReflow(false)
         let panelID: UUID
         do {
-            panelID = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: true)
+            // Creation is asynchronous, but the pane is already usable as a
+            // terminal surface. Keep the tab strip quiet while the remote
+            // attachment resolves; failures are rendered in the pane itself.
+            panelID = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
         } catch {
             #if DEBUG
             cmuxDebugLog("cloud.pane.reserveFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
