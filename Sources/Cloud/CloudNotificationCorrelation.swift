@@ -33,6 +33,12 @@ enum CloudNotificationCorrelation {
         return (machineID, notificationID)
     }
 
+    /// Matches either the current or legacy key format to a daemon event.
+    static func matches(_ key: String, machineID: String, notificationIDs: Set<String>) -> Bool {
+        guard let source = parse(key) else { return false }
+        return source.machineID == machineID && notificationIDs.contains(source.notificationID)
+    }
+
     private static func encode(_ value: String) -> String {
         Data(value.utf8).base64EncodedString()
     }
