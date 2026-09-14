@@ -10,6 +10,33 @@ import CmuxTerminal
 
 extension TerminalWindowPortalLifecycleTests {
 
+    /// Every AppKit boundary around a portal-hosted Ghostty surface clips its
+    /// descendants, so stale drawables cannot bleed across panes after restore.
+    @MainActor
+    func testPortalHostedTerminalUsesViewLevelClippingAtEveryBoundary() throws {
+        let window = makeTestWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 340))
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else { XCTFail("Expected content view"); return }
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue(); realizeWindowLayout(window)
+        XCTAssertTrue(portal.hostView.clipsToBounds)
+        XCTAssertTrue(surface.hostedView.clipsToBounds)
+        XCTAssertTrue(surface.hostedView.surfaceView.clipsToBounds)
+        XCTAssertTrue(portal.hostView.layer?.masksToBounds == true)
+        XCTAssertTrue(surface.hostedView.layer?.masksToBounds == true)
+        XCTAssertTrue(surface.hostedView.surfaceView.layer?.masksToBounds == true)
+        withExtendedLifetime((portal, surface)) {}
+    }
+
     @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
         let window = makeTestWindow(

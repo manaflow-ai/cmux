@@ -742,7 +742,7 @@ final class WindowTerminalPortal: NSObject {
         self.window = window
         super.init()
         hostView.wantsLayer = true
-        hostView.layer?.masksToBounds = true
+        hostView.clipsToBounds = true; hostView.layer?.masksToBounds = true
         hostView.postsFrameChangedNotifications = true
         hostView.postsBoundsChangedNotifications = true
         // Frame-based on purpose (see ensureInstalled): the portal owns
@@ -883,7 +883,6 @@ final class WindowTerminalPortal: NSObject {
             }
         })
     }
-
     private func removeReferenceGeometryObservers() {
         for observer in referenceGeometryObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -1233,6 +1232,7 @@ final class WindowTerminalPortal: NSObject {
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
+        hostView.clipsToBounds = true; hostView.layer?.masksToBounds = true
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
         let browserHost = preferredBrowserHost(in: container)
