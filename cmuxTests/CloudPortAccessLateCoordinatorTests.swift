@@ -45,9 +45,10 @@ struct CloudPortAccessLateCoordinatorTests {
     }
 
     /// Polls on the main actor so the model's observation task gets to run.
+    /// Bounded only so a regression fails instead of hanging the suite.
     private static func holds(
-        within timeout: Duration = .seconds(5),
-        _ predicate: @MainActor () -> Bool
+        _ predicate: @MainActor () -> Bool,
+        within timeout: Duration = .seconds(5)
     ) async -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
@@ -95,11 +96,14 @@ struct CloudPortAccessLateCoordinatorTests {
         let model = Self.makeModel(store: store, port: 8080)
         #expect(await Self.holds { model.phase == .direct })
 
-        // A second, never-started coordinator must not take the pane back to
-        // the setup card.
+        // A second, never-started coordinator must not displace the first. The
+        // pane proves which one it follows by tracking that one's transitions.
         store.coordinator = Self.makeCoordinator()
 
-        #expect(await Self.holds(within: .milliseconds(300)) { model.phase != .direct } == false)
+        await connected.requestDown()
+        #expect(await Self.holds { model.phase == .needsVPN })
+        await connected.prepareForPrivateNetworkUse(Self.use)
+        #expect(await Self.holds { model.phase == .direct })
         await connected.requestDown()
     }
 }
