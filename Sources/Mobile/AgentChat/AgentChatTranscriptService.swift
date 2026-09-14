@@ -704,12 +704,24 @@ final class AgentChatTranscriptService {
     }
 
     deinit {
-        // This app-owned service is created and released on the main actor.
+        // The app releases this service on the main actor, but an `AppDelegate`
+        // owned by a test can be released from a Swift concurrency thread.
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
-        // so keep teardown synchronous while asserting that owner invariant.
-        MainActor.assumeIsolated {
-            proseWakeDriver?.stop()
-            proseStreamer?.stopAll()
+        // so stop synchronously on the main thread and hop there otherwise.
+        let wakeDriver = proseWakeDriver
+        let streamer = proseStreamer
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { Self.stopProseStreaming(wakeDriver, streamer) }
+        } else {
+            Task { @MainActor in Self.stopProseStreaming(wakeDriver, streamer) }
         }
+    }
+
+    private static func stopProseStreaming(
+        _ wakeDriver: AgentChatProseStreamWakeDriver?,
+        _ streamer: AgentChatProseStreamer?
+    ) {
+        wakeDriver?.stop()
+        streamer?.stopAll()
     }
 }
