@@ -599,6 +599,7 @@ struct MachinesPanelView: View {
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
             source: treeSource,
             devicesSection: CloudTreeDevicesSection(
                 discoveryEnabled: includesDevices,
@@ -607,7 +608,6 @@ struct MachinesPanelView: View {
                 incomingAccessManaged: incomingAccessManaged
             ),
             reveal: devicesModel.revealRequest,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -628,7 +628,7 @@ struct MachinesPanelView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                 Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
-                    SettingsWindowPresenter.show(navigationTarget: .computers)
+                    SettingsWindowPresenter.show(navigationTarget: .cloudMachines)
                 }
             } else if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
                 // The list failed to load: say the true thing instead of
