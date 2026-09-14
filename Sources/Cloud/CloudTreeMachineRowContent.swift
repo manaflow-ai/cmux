@@ -65,14 +65,14 @@ struct CloudTreeMachineRowContent: View {
                 }
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            if let usageLine {
-                Text(usageLine)
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .minimumScaleFactor(0.85)
+            .layoutPriority(1)
+            if let usageLine, let cost = usageCost {
+                ViewThatFits(in: .horizontal) {
+                    Text(usageLine).fixedSize()
+                    Text(cost).fixedSize()
+                }
+                .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                .foregroundStyle(.tertiary)
             }
         }
         .frame(height: scaled(style.machineNameLineHeight))
@@ -106,9 +106,7 @@ struct CloudTreeMachineRowContent: View {
     /// "$1.23 · 41K tokens · 30d": coderouter spend over the usage window. Nil
     /// when the machine routed nothing, so an idle machine shows no spend row.
     var usageLine: String? {
-        guard let usage = machine.usage, !usage.totals.isEmpty else { return nil }
-        let cost = Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
-            ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
+        guard let usage = machine.usage, let cost = usageCost else { return nil }
         let tokens = usage.totals.totalTokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
         let period = String(
             format: String(localized: "machines.usage.period.days", defaultValue: "%dd"),
@@ -118,6 +116,13 @@ struct CloudTreeMachineRowContent: View {
             format: String(localized: "machines.usage.line", defaultValue: "%1$@ \u{00B7} %2$@ tokens \u{00B7} %3$@"),
             cost, tokens, period
         )
+    }
+
+    /// The narrow header keeps measured spend; full usage stays on hover.
+    private var usageCost: String? {
+        guard let usage = machine.usage, !usage.totals.isEmpty else { return nil }
+        return Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
+            ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
     }
 
     /// API-equivalent spend is always in US dollars, whatever the user's locale.
