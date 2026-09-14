@@ -10,6 +10,77 @@ import Testing
 @MainActor
 @Suite("Cloud folder native drops")
 struct CloudSidebarNativeDropTests {
+    @Test("Empty folders drag without a pane transfer registry")
+    func emptyFolderSource() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: fixture.coordinator.machineActions,
+            nodeActions: fixture.coordinator.nodeActions,
+            expansionStore: CloudTreeExpansionStore(defaults: fixture.defaults),
+            organization: fixture.catalog.sidebarOrganization,
+            tabDragTransferRegistry: { Issue.record("Folder drags cannot request pane capabilities"); return nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let snapshot = fixture.snapshot()
+        let empty = SurfaceCatalogSnapshot(machines: snapshot.machines, resources: [], projections: [])
+        coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: [], snapshot: empty, localWorkspaces: [], includeLocalMachine: false))
+        let folder = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") })
+        #expect(folder.dragGroup == nil)
+        let outline = try #require(coordinator.outlineView)
+        let writer = try #require(coordinator.outlineView(outline, pasteboardWriterForItem: folder) as? CloudTreeSurfaceDragPasteboardWriter)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([writer]))
+        #expect(board.types == [.cloudSidebarRow])
+        #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) == nil)
+        let session = CloudSidebarDraggingSession(pasteboard: board)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [folder])
+        #expect(outline.activeNativeDragCoordinator === coordinator)
+        #expect(writer.sourceViewForDrag === outline)
+        coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: [])
+        #expect(!coordinator.isDragging)
+        #expect(outline.activeNativeDragCoordinator == nil)
+        #expect(writer.sourceViewForDrag == nil)
+        _ = container
+    }
+
+    @Test("Three-folder drag drains a concurrent refresh in saved order at native completion")
+    func refreshDuringDrag() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let titles = ["workspace-1", "workspace-2", "workspace-3"]
+        let snapshot = fixture.snapshot(titles: titles)
+        _ = fixture.catalog.replaceResources(snapshot.resources, on: fixture.machine, info: snapshot.machines[0], from: fixture.provider)
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes(titles: titles))
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let ids = parent.children.map(\.id)
+        let source = parent.children[2]
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let writer = try #require(coordinator.outlineView(outline, pasteboardWriterForItem: source))
+        #expect(board.writeObjects([writer]))
+        let session = CloudSidebarDraggingSession(pasteboard: board)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        #expect(coordinator.isDragging)
+        coordinator.apply(nodes: fixture.nodes(titles: ["new-1", "new-2", "new-3"]))
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
+        #expect(parent.children.map(\.id) == ids, "AppKit's source tree stays frozen until endedAt")
+        coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
+        #expect(!coordinator.isDragging)
+        let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
+        #expect(current.children.map(\.id) == [ids[2], ids[0], ids[1]])
+        #expect(current.children.map(\.searchableTitle) == ["new-3", "new-1", "new-2"])
+        let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
+        let refreshed = CloudSidebarOrganizationTree(nodes: fixture.nodes(titles: titles)).arrange(using: restored.state)
+        #expect(CloudSidebarOrganizationTree(nodes: refreshed).parent(of: source.id)?.children.map(\.id) == [ids[2], ids[0], ids[1]])
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
+    }
+
     @Test("Dropping on a folder reorders above and below without opening a pane", arguments: [false, true])
     func dropOnFolder(after: Bool) throws {
         let fixture = CloudSidebarOrderingFixture()
