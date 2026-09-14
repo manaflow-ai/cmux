@@ -277,6 +277,29 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
+    func testConfiguredMenuHidesCloudRowsWhenSignedOut() throws {
+        setCloudMachinesEnabled(true)
+        let (store, root) = try loadStore(globalJSON: """
+        {
+          "ui": { "newWorkspace": { "contextMenu": ["cmux.newTerminal", "newCloudWorkspace", "cmux.newCloudMachine", "cmux.cloudvm"] } }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: root) }
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+        let appDelegate = AppDelegate()
+        installDependencies(on: appDelegate, presenter: RecordingSheetPresenter(), signedIn: false)
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let actions = builtInMenuRows(menu).map(\.action)
+        XCTAssertTrue(actions.contains(.newTerminal))
+        XCTAssertFalse(actions.contains(.newCloudWorkspace))
+        XCTAssertFalse(actions.contains(.newCloudMachine))
+        XCTAssertFalse(actions.contains(.cloudVM))
+    }
+
     func testConfiguredMenuKeepsUserOrderAndStillShowsHints() throws {
         setCloudMachinesEnabled(true)
         let (store, root) = try loadStore(globalJSON: """
