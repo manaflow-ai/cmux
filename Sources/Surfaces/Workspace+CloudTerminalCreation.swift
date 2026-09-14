@@ -86,7 +86,8 @@ extension Workspace {
         preferredRemoteWorkspaceID: String? = nil,
         focus: Bool,
         splitDirection: SurfaceSplitDirection? = nil,
-        pendingPane: PaneID? = nil
+        pendingPane: PaneID? = nil,
+        createdResource: SurfaceResource? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
@@ -195,11 +196,33 @@ extension Workspace {
         } else {
             Task { @MainActor in
                 defer { endProjectionMutation() }
+                var retainedResource = createdResource
                 do {
-                    let created = try await create()
+                    let created: SurfaceResource
+                    if let retainedResource { created = retainedResource }
+                    else { created = try await create() }
+                    retainedResource = created
                     _ = try await project(created)
+                } catch is CancellationError {
+                    return
                 } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
+                    // Only replay projection when creation was acknowledged. An
+                    // unknown create outcome must never mint another terminal.
+                    let retry: (() -> Void)? = retainedResource.map { created in
+                        { [weak self] in
+                            guard let self else { return }
+                            _ = self.routeCloudPaneTerminalCreate(
+                                near: resource, sourcePanelID: sourcePanelID,
+                                destination: destination,
+                                preferredRemoteWorkspaceID: preferredRemoteWorkspaceID,
+                                focus: focus, splitDirection: splitDirection,
+                                pendingPane: pendingPane, createdResource: created
+                            )
+                        }
+                    }
+                    self.presentCloudPaneCreationFailure(
+                        machine: machine, error: error, requestID: requestID, retry: retry
+                    )
                 }
             }
         }
@@ -208,11 +231,16 @@ extension Workspace {
 
     /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID) {
+    func presentCloudPaneCreationFailure(
+        machine: SurfaceMachineID,
+        error: Error,
+        requestID: UUID,
+        retry: (() -> Void)? = nil
+    ) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID, retry: retry)
     }
 
 }

@@ -19,6 +19,8 @@ extension CloudTuiManualMirrorSession {
     }
 
     func resetStartupReadiness() {
+        startupReplayTask?.cancel()
+        startupReplayTask = nil
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         startupReadiness.begin(baselineFrame: surface?.hostedView.surfaceView.renderedFrameSequence ?? 0)
@@ -28,15 +30,28 @@ extension CloudTuiManualMirrorSession {
     }
 
     func updateStartupAttachment() {
+        armStartupDeadline()
+        recordStartupStage("attached")
         _ = startupReadiness.markAttached()
         publishStartupReadinessIfNeeded()
         refreshSurfaceAfterStartupReplayIfNeeded()
     }
 
     func updateStartupReplay() {
-        _ = startupReadiness.markReplayApplied()
-        publishStartupReadinessIfNeeded()
-        refreshSurfaceAfterStartupReplayIfNeeded()
+        guard !startupReadiness.replayApplied, startupReplayTask == nil, let surface else { return }
+        recordStartupStage("replay-received")
+        startupReplayTask = Task { @MainActor [weak self, weak surface] in
+            guard let self, let surface else { return }
+            defer { if !Task.isCancelled { self.startupReplayTask = nil } }
+            guard await surface.waitForRemoteOutput(), !Task.isCancelled,
+                  self.surface === surface else { return }
+            self.startupReadiness.beginVisiblePresentation(
+                baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence
+            )
+            self.startupReadiness.markReplayApplied()
+            self.recordStartupStage("replay-parsed")
+            self.refreshSurfaceAfterStartupReplayIfNeeded()
+        }
     }
 
     func updateStartupVisibility(_ visible: Bool) {
@@ -66,6 +81,8 @@ extension CloudTuiManualMirrorSession {
     }
 
     func endStartupReadiness() {
+        startupReplayTask?.cancel()
+        startupReplayTask = nil
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
         if let startupFrameObserver {
@@ -78,6 +95,9 @@ extension CloudTuiManualMirrorSession {
 
     private func publishStartupReadinessIfNeeded() {
         guard startupReadiness.isReady else { return }
+        startupDeadlineTask?.cancel()
+        startupDeadlineTask = nil
+        recordStartupStage("usable-frame")
         surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
     }
@@ -89,6 +109,15 @@ extension CloudTuiManualMirrorSession {
               surface.isNativeViewInRealWindow,
               surface.isRendererEffectivelyVisible else { return }
         surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
+    }
+
+    func recordStartupStage(_ stage: String) {
+        guard startupStages.insert(stage).inserted else { return }
+        let elapsed = startupStartedAt.duration(to: .now).components
+        log.startupStage(
+            machineID: machineID, terminalID: terminalID, stage: stage,
+            elapsedMilliseconds: Int(elapsed.seconds * 1_000 + elapsed.attoseconds / 1_000_000_000_000_000)
+        )
     }
 
     private func armStartupDeadline() {

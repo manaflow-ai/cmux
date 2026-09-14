@@ -54,7 +54,8 @@ struct CloudTerminalStartupReadiness: Equatable, Sendable {
         rendererPresented: Bool,
         effectivelyVisible: Bool
     ) -> Bool {
-        guard sequence > baselineFrame,
+        guard replayApplied,
+              sequence > baselineFrame,
               rendererPresented,
               effectivelyVisible else { return false }
         guard presentedFrame == nil else { return false }

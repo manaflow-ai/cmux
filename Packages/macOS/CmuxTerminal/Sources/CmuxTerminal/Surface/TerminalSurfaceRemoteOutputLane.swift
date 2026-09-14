@@ -79,6 +79,13 @@ final class TerminalSurfaceRemoteOutputLane: @unchecked Sendable {
         }
     }
 
+    /// Waits for submitted output without closing this generation's lane.
+    func waitForSubmittedOutput() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { continuation.resume() }
+        }
+    }
+
     /// Stops admission of new work for this runtime generation.
     ///
     /// Operations accepted before this call remain in FIFO order and are

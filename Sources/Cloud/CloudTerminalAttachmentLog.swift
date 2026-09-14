@@ -67,6 +67,18 @@ struct CloudTerminalAttachmentLog: Sendable {
         Self.logger.error("correlation=\(correlationID, privacy: .public) give-up machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempts=\(attempts) outcome=give-up reason=\(reason, privacy: .private)")
     }
 
+    /// Records one startup milestone with a monotonic elapsed sample.
+    func startupStage(
+        machineID: String,
+        terminalID: String,
+        stage: String,
+        elapsedMilliseconds: Int
+    ) {
+        Self.logger.info(
+            "correlation=\(correlationID, privacy: .public) startup machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) stage=\(stage, privacy: .public) elapsed_ms=\(elapsedMilliseconds)"
+        )
+    }
+
     /// Records which owner presented the connection state for one pane.
     ///
     /// Only stable identities and state labels are emitted. The rendered
