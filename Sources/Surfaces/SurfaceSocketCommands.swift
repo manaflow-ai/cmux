@@ -999,11 +999,7 @@ extension TerminalController {
             if v2HasNonNullParam(params, "surface_id") {
                 guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
                 let owner = v2MainSync { () -> UUID? in
-                    if let owner = self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })?.id {
-                        return owner
-                    }
-                    return AppDelegate.shared?.tabManagerFor(tabId: surfaceID)?.tabs
-                        .first(where: { $0.panels[surfaceID] != nil })?.id
+                    self.surfaceWorkspace(containing: surfaceID, preferredWorkspaceID: explicitWorkspaceID)?.id
                 }
                 guard let owner else { return nil }
                 if let explicitWorkspaceID, explicitWorkspaceID != owner {
@@ -1021,12 +1017,28 @@ extension TerminalController {
         }
         if let surfaceID = v2UUID(params, "surface_id") {
             let owner = v2MainSync { () -> UUID? in
-                guard let tabManager = self.tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                self.surfaceWorkspace(containing: surfaceID)?.id
             }
             if let owner { return owner }
         }
         return v2MainSync { self.tabManager?.selectedTabId }
+    }
+
+    /// Resolves the live surface owner across windows, including projected panes.
+    /// A surface UUID is never used as a workspace lookup key.
+    @MainActor
+    private func surfaceWorkspace(containing surfaceID: UUID, preferredWorkspaceID: UUID? = nil) -> Workspace? {
+        if let preferredWorkspaceID,
+           let workspace = tabManager?.workspacesById[preferredWorkspaceID],
+           workspace.surfaceOwnershipTarget(for: surfaceID) != nil {
+            return workspace
+        }
+        if let owner = AppDelegate.shared?.workspaceContainingPanel(
+            panelId: surfaceID, preferredWorkspaceId: preferredWorkspaceID
+        ) {
+            return owner.workspace
+        }
+        return tabManager?.tabs.first { $0.surfaceOwnershipTarget(for: surfaceID) != nil }
     }
 
     /// `pane_id` / `surface_id` may be UUIDs or handle refs (`pane:3`, `surface:7`); the pure
@@ -1038,10 +1050,12 @@ extension TerminalController {
             resolved["pane_id"] = paneID.uuidString
         }
         if resolved["pane_id"] == nil, let surfaceID = v2UUID(params, "surface_id") {
+            let preferredWorkspaceID = v2UUID(params, "workspace_id")
             let paneID = v2MainSync { () -> String? in
-                guard let tabManager = self.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else { return nil }
-                return SurfacePaneFactory.paneID(ofPanel: surfaceID, in: workspace.id)
+                guard let workspace = self.surfaceWorkspace(
+                    containing: surfaceID, preferredWorkspaceID: preferredWorkspaceID
+                ) else { return nil }
+                return workspace.controlSurfaceTarget(for: surfaceID)?.paneID?.uuidString
             }
             if let paneID {
                 resolved["pane_id"] = paneID
