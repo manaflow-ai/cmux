@@ -66,6 +66,45 @@ func screenAnchoredHostKeepsPrimaryScrollLocal() async throws {
     #expect(try await pollUntil { await router.count(of: "mobile.terminal.scroll") == 1 })
 }
 
+@MainActor
+@Test("a reconnect keeps confirmed primary scrolling pixel precise until the first new frame")
+func reconnectPreservesPrimaryScrollLease() async throws {
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.render_grid.screen_anchor.v1",
+        "terminal.replay.v1"
+    ])
+    let store = try await makeConnectedStore(
+        router: router,
+        box: TransportBox(),
+        clock: TestClock()
+    )
+    try #require(store.usesScreenAnchoredRenderGrid)
+    store.terminalActiveScreenBySurfaceID["live-terminal"] = .primary
+
+    // The client teardown path clears the negotiated transport and active
+    // screen. The confirmed primary lease must bridge that short reconnect
+    // window so gestures stay pixel precise.
+    store.remoteClient = nil
+    #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == nil)
+    #expect(store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
+
+    store.recordTerminalRenderGridDelivery(
+        try renderGridFrame(
+            surfaceID: "live-terminal",
+            seq: 1,
+            text: "alternate",
+            activeScreen: .alternate,
+            full: true
+        )
+    )
+    #expect(!store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
+}
+
 @Test("a transient status failure retains the dedicated terminal lane")
 func transientStatusFailureRetainsVerifiedTransport() {
     let verifiedCapabilities: Set<String> = [

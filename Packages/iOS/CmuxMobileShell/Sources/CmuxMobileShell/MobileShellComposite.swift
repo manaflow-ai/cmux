@@ -1532,6 +1532,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
+    /// Surfaces that had a confirmed primary screen immediately before a
+    /// transient connection teardown. Keep their local pixel-scroll lease
+    /// alive until the replacement connection publishes its first
+    /// authoritative frame. This avoids a reconnect-sized window where the
+    /// gesture path regresses to row-quantized scrolling.
+    var terminalReconnectLocalScrollSurfaceIDs: Set<String>
     /// History-row count of the last DELIVERED screen-anchored frame. Deltas
     /// carry the producer's previous history count as their diff base; a
     /// mismatch here means a frame was missed and dirty-row patching can no
@@ -1954,6 +1960,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
+        self.terminalReconnectLocalScrollSurfaceIDs = []
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalRenderGridRevisionContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
@@ -11405,6 +11412,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func resetTerminalOutputTracking() {
+        let reconnectLocalScrollSurfaceIDs = usesScreenAnchoredRenderGrid
+            ? Set(terminalActiveScreenBySurfaceID.compactMap { surfaceID, screen in
+                screen == .primary ? surfaceID : nil
+            })
+            : []
+        if !reconnectLocalScrollSurfaceIDs.isEmpty {
+            MobileDebugLog.anchormux(
+                "sync.scroll_lease=reconnect_preserved surfaces=\(reconnectLocalScrollSurfaceIDs.sorted().joined(separator: ","))"
+            )
+        }
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         // Keep viewport sequences for the account lifetime. A warm peer keeps
@@ -11425,6 +11442,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
+        terminalReconnectLocalScrollSurfaceIDs = reconnectLocalScrollSurfaceIDs
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalRenderGridRevisionContinuityBySurfaceID = [:]
@@ -13423,6 +13441,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             supportedHostCapabilities = Set(payload.capabilities)
+            // A successful capability snapshot is authoritative for the new
+            // connection. If it cannot provide screen-anchored render grids,
+            // revoke any reconnect grace lease captured from the old Mac.
+            if !supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability) {
+                if !terminalReconnectLocalScrollSurfaceIDs.isEmpty {
+                    MobileDebugLog.anchormux("sync.scroll_lease=reconnect_revoked reason=screen_anchor_unsupported")
+                }
+                terminalReconnectLocalScrollSurfaceIDs.removeAll()
+            }
             phonePushMacStatus = payload.phonePush
             seedForegroundCaffeineStatusIfSupported()
             restartActiveMobileBrowserStreams()
@@ -14651,6 +14678,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReconnectLocalScrollSurfaceIDs.remove(surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)

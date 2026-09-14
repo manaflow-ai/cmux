@@ -14,8 +14,9 @@ extension MobileShellComposite {
     /// the Mac scroll RPC in `scrollTerminal` and routes the local mirror's
     /// pixel-precise scroll path.
     public func ownsLocalPrimaryScreenScroll(surfaceID: String) -> Bool {
-        usesScreenAnchoredRenderGrid
-            && terminalActiveScreenBySurfaceID[surfaceID] == .primary
+        (usesScreenAnchoredRenderGrid
+            && terminalActiveScreenBySurfaceID[surfaceID] == .primary)
+            || terminalReconnectLocalScrollSurfaceIDs.contains(surfaceID)
     }
 
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the

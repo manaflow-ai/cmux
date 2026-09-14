@@ -16,6 +16,14 @@ extension MobileShellComposite {
         return true
     }
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+        // The replacement connection has now identified the active screen.
+        // Drop the reconnect grace lease before updating the live screen fact,
+        // so an alternate frame can never inherit primary-screen ownership.
+        if terminalReconnectLocalScrollSurfaceIDs.remove(renderGrid.surfaceID) != nil {
+            MobileDebugLog.anchormux(
+                "sync.scroll_lease=reconnect_resolved surface=\(renderGrid.surfaceID) screen=\(renderGrid.activeScreen.rawValue)"
+            )
+        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
