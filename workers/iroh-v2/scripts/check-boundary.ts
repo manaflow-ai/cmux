@@ -34,7 +34,7 @@ for (const environment of [config, ...Object.values(config.env ?? {})] as Record
   const hyperdrive = environment.hyperdrive;
   if (hyperdrive !== undefined) {
     const bindings = Array.isArray(hyperdrive) ? hyperdrive.map(value => value?.binding) : [];
-    if (bindings.length !== 2 || !bindings.includes("HYPERDRIVE_IROH_OWNERSHIP") || !bindings.includes("HYPERDRIVE_CONNECTED_WORKSPACES")) {
+    if (bindings.length !== 1 || bindings[0] !== "HYPERDRIVE_CONNECTED_WORKSPACES") {
       errors.push("v2 configuration declares an unexpected Hyperdrive binding");
     }
   }
