@@ -561,7 +561,7 @@ final class CloudTuiManualMirrorSession {
         surface?.processRemoteOutput(delta)
     }
 
-    private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
+    func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
         tearDownConnection()
         guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
