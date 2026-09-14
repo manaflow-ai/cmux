@@ -11,6 +11,53 @@ import CmuxTerminal
 extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
+    func testParkingWorkspaceEntriesRemovesHostedLayersButRetainsBindingState() throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let portal = makeTrackedPortal(window: window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+
+        XCTAssertTrue(surface.hostedView.superview != nil)
+        portal.parkHostedViews(forWorkspaceID: surface.tabId)
+
+        XCTAssertNil(
+            surface.hostedView.superview,
+            "An unmounted workspace must remove its terminal layer tree from the WindowServer hierarchy"
+        )
+        XCTAssertTrue(surface.hostedView.isHidden)
+        XCTAssertEqual(
+            portal.debugEntryCount(),
+            1,
+            "Parking must retain the logical portal binding so the workspace can reattach on reveal"
+        )
+        XCTAssertTrue(
+            portal.updateEntryVisibility(
+                forHostedId: ObjectIdentifier(surface.hostedView),
+                visibleInUI: true
+            ),
+            "A parked entry must request a reattach when its workspace becomes visible"
+        )
+        withExtendedLifetime(surface) {}
+    }
+
+    @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
