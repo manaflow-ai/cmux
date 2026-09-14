@@ -6,6 +6,7 @@ import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
+import CmuxSettings
 
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
@@ -858,17 +859,9 @@ struct EmptyPanelView: View {
             // notification), and the CLI writes from another process
             // (caught on app activation at the latest).
             await withTaskGroup(of: Void.self) { group in
-                for name in [
-                    BrowserAvailabilitySettings.didChangeNotification,
-                    UserDefaults.didChangeNotification,
-                    NSApplication.didBecomeActiveNotification,
-                ] {
-                    group.addTask { @MainActor in
-                        for await _ in NotificationCenter.default.notifications(named: name) {
-                            browserAvailable = BrowserAvailabilitySettings.isEnabled()
-                        }
-                    }
-                }
+                group.addTask { @MainActor in for await _ in NotificationCenter.default.notifications(named: BrowserAvailabilitySettings.didChangeNotification) { browserAvailable = BrowserAvailabilitySettings.isEnabled() } }
+                group.addTask { @MainActor in for await _ in UserDefaultsSettingsStore.changeSignals() { browserAvailable = BrowserAvailabilitySettings.isEnabled() } }
+                group.addTask { @MainActor in for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) { browserAvailable = BrowserAvailabilitySettings.isEnabled() } }
             }
         }
 #if DEBUG

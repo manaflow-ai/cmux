@@ -162,6 +162,8 @@ final class TitlebarControlsLayoutModel {
     private let contentSizeProvider: ContentSizeProvider
     @ObservationIgnored
     private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
+    @ObservationIgnored
+    private var defaultsChangeObserver: UserDefaultsSettingsChangeObserver?
 
     init(
         defaults: UserDefaults = .standard,
@@ -179,17 +181,11 @@ final class TitlebarControlsLayoutModel {
             contentSize: contentSizeProvider(style.config)
         )
 
-        observers.append(
-            notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.refreshStyleIfNeeded()
-                }
-            }
-        )
+        defaultsChangeObserver = UserDefaultsSettingsChangeObserver(
+            notificationCenter: notificationCenter
+        ) { [weak self] in
+            self?.refreshStyleIfNeeded()
+        }
         observers.append(
             notificationCenter.addObserver(
                 forName: KeyboardShortcutSettings.didChangeNotification,
@@ -1959,7 +1955,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private weak var observedWindow: NSWindow?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
-    private var userDefaultsObserver: NSObjectProtocol?
+    private var userDefaultsObserver: UserDefaultsSettingsChangeObserver?
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
@@ -2040,11 +2036,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = UserDefaultsSettingsChangeObserver { [weak self] in
             guard let self else { return }
             let shouldShow = self.showsWorkspaceTitlebar
             let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
@@ -2073,9 +2065,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     deinit {
-        if let userDefaultsObserver {
-            NotificationCenter.default.removeObserver(userDefaultsObserver)
-        }
         removeWindowGeometryObservers()
     }
 
@@ -2753,6 +2742,7 @@ final class UpdateTitlebarAccessoryController {
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
+    private var defaultsChangeObserver: UserDefaultsSettingsChangeObserver?
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
@@ -2865,15 +2855,11 @@ final class UpdateTitlebarAccessoryController {
 
         // Re-evaluate all windows when the presentation mode changes so that
         // accessories are removed in minimal mode and re-attached in standard mode.
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.reattachIfPresentationModeChanged()
-            }
-        })
+        defaultsChangeObserver = UserDefaultsSettingsChangeObserver(
+            notificationCenter: center
+        ) { [weak self] in
+            self?.reattachIfPresentationModeChanged()
+        }
 
         // We intentionally do not rely on "window became visible" notifications here:
         // AppKit does not provide a stable cross-SDK API for this. Startup scans handle this case.

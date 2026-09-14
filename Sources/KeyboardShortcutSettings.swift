@@ -1202,7 +1202,7 @@ final class SystemWideHotkeyController {
 
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandler: EventHandlerRef?
-    private var defaultsObserver: NSObjectProtocol?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     private var shortcutObserver: NSObjectProtocol?
     private var recorderObserver: NSObjectProtocol?
     private var packageRecorderObserver: NSObjectProtocol?
@@ -1218,11 +1218,7 @@ final class SystemWideHotkeyController {
 
         installHotKeyHandlerIfNeeded()
 
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        defaultsObserver = UserDefaultsSettingsChangeObserver { [weak self] in
             self?.refreshRegistration()
         }
         shortcutObserver = NotificationCenter.default.addObserver(

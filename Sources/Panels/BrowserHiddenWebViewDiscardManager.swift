@@ -94,7 +94,7 @@ final class BrowserHiddenWebViewDiscardManager {
     weak var delegate: BrowserHiddenWebViewDiscardManagerDelegate?
 
     private var discardTimer: DispatchSourceTimer?
-    private var policyObserver: NSObjectProtocol?
+    private var policyObserver: UserDefaultsSettingsChangeObserver?
     private var systemSleepObservers: [NSObjectProtocol] = []
     private var systemSleepObserverCenter: NotificationCenter?
     private let policyDefaults: UserDefaults
@@ -306,14 +306,8 @@ final class BrowserHiddenWebViewDiscardManager {
     func installPolicyObserver() {
         policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
         guard policyObserver == nil else { return }
-        policyObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.handlePolicyDefaultsChanged()
-            }
+        policyObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.handlePolicyDefaultsChanged()
         }
     }
 
@@ -416,10 +410,7 @@ final class BrowserHiddenWebViewDiscardManager {
 
     private func stopOnMainActor() {
         cancel()
-        if let policyObserver {
-            NotificationCenter.default.removeObserver(policyObserver)
-            self.policyObserver = nil
-        }
+        policyObserver = nil
         if let center = systemSleepObserverCenter {
             for observer in systemSleepObservers {
                 center.removeObserver(observer)

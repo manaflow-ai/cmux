@@ -428,6 +428,7 @@ class TabManager: ObservableObject {
             }
     }
     private var observers: [NSObjectProtocol] = []
+    private var defaultsChangeObserver: UserDefaultsSettingsChangeObserver?
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -726,18 +727,12 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { [weak self] in
-                self?.sidebarMetadataSettingsDidChange()
-                self?.focusHistoryScopeSettingsDidChange()
-                self?.refreshTabCloseButtonVisibility()
-                self?.refreshWindowTitle()
-            }
-        })
+        defaultsChangeObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.sidebarMetadataSettingsDidChange()
+            self?.focusHistoryScopeSettingsDidChange()
+            self?.refreshTabCloseButtonVisibility()
+            self?.refreshWindowTitle()
+        }
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()

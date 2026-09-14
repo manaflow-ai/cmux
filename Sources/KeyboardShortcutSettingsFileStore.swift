@@ -1,4 +1,3 @@
-import Combine
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -55,7 +54,7 @@ final class CmuxSettingsFileStore {
 
     private var watchers: [FileWatcher] = []
     private var watchTasks: [Task<Void, Never>] = []
-    private var defaultsCancellable: AnyCancellable?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     private var socketPasswordObserver: NSObjectProtocol?
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -121,7 +120,7 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
+        defaultsObserver = UserDefaultsSettingsChangeObserver(notificationCenter: notificationCenter) { [weak self] in self?.reapplyManagedSettingsIfNeeded() }
         socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             self?.reapplyManagedSettingsIfNeeded()
         }
@@ -131,7 +130,6 @@ final class CmuxSettingsFileStore {
         watchTasks.forEach { $0.cancel() }
         // Dropping the watchers runs each deinit, cancelling its DispatchSources.
         watchers.removeAll()
-        defaultsCancellable?.cancel()
         if let socketPasswordObserver {
             notificationCenter.removeObserver(socketPasswordObserver)
         }

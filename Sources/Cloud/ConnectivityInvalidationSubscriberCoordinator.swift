@@ -19,20 +19,16 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     private var subscriber: CmxConnectivityInvalidationSubscriber?
     private var reconfigureTask: Task<Void, Never>?
     private var authObservationTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     private var activeScopeKey: String?
 
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         if defaultsObserver == nil {
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.evaluate()
-                }
+            defaultsObserver = UserDefaultsSettingsChangeObserver(
+                defaults: .standard
+            ) { [weak self] in
+                self?.evaluate()
             }
         }
         armAuthScopeObservation()
@@ -138,10 +134,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
         let subscriber = subscriber
         self.subscriber = nil
         activeScopeKey = nil
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-            self.defaultsObserver = nil
-        }
+        defaultsObserver = nil
         reconfigureTask = Task {
             await subscriber?.stop()
         }

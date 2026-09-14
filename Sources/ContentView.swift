@@ -11057,7 +11057,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     private let sidebarFontSizeProvider: () async -> CGFloat
     private var sidebarFontSize: CGFloat
     private var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
+    private var defaultsObserver: UserDefaultsSettingsChangeObserver?
     private var sidebarFontSizeObserver: NSObjectProtocol?
 
     init(
@@ -11072,14 +11072,8 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
             defaults: defaults,
             sidebarFontSize: sidebarFontSize
         )
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshSnapshot()
-            }
+        defaultsObserver = UserDefaultsSettingsChangeObserver { [weak self] in
+            self?.refreshSnapshot()
         }
         refreshSidebarFontSize()
         sidebarFontSizeObserver = NotificationCenter.default.addObserver(
@@ -11095,9 +11089,6 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 
     deinit {
         sidebarFontSizeLoadTask?.cancel()
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
         if let sidebarFontSizeObserver {
             NotificationCenter.default.removeObserver(sidebarFontSizeObserver)
         }

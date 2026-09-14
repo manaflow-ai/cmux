@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - Packages/macOS/CmuxAgentJournal/**
+      - Packages/macOS/CmuxSettings/**
       - CLI/*Notification*.swift
       - CLI/CMUXCLI+AgentJournalEmission.swift
       - CLI/CMUXCLI+VMTui.swift
@@ -37,6 +38,8 @@ jobs:
         run: swift test --package-path Packages/macOS/CmuxAgentJournal -Xswiftc -warnings-as-errors
       - name: Test immutable Feed ingestion
         run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter Workstream -Xswiftc -warnings-as-errors
+      - name: Test nonblocking settings observation during app-host startup
+        run: swift test --package-path Packages/macOS/CmuxSettings --filter UserDefaultsSettingsStoreObservationTests -Xswiftc -warnings-as-errors
 
   semantic-delivery-integration:
     needs: agent-notification-tests

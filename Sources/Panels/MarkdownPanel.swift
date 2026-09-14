@@ -124,7 +124,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private let selectionReader = NativeTextSurfaceSelectionReader()
     var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
-    private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    private var typographyDefaultsObserver: UserDefaultsSettingsChangeObserver?
     // The typography default this viewer is currently tracking. While the panel
     // still matches it, a default change (Set as Default / cmux.json reload) is
     // adopted; once the user customizes the panel it diverges and is left alone.
@@ -267,14 +267,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// or a `cmux.json` reload), but only while this viewer still matches the
     /// default it was tracking — i.e. the user has not customized it.
     private func observeTypographyDefaults() {
-        typographyDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.adoptTypographyDefaultsIfFollowing()
-            }
+        typographyDefaultsObserver = UserDefaultsSettingsChangeObserver(
+            defaults: .standard
+        ) { [weak self] in
+            self?.adoptTypographyDefaultsIfFollowing()
         }
     }
 
@@ -419,10 +415,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatchingForFileChanges()
-        if let typographyDefaultsObserver {
-            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
-            self.typographyDefaultsObserver = nil
-        }
+        typographyDefaultsObserver = nil
     }
 
     func updateWorkspaceId(
@@ -700,11 +693,6 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         loadFileContent(replacingDirtyContent: false)
     }
 
-    deinit {
-        if let typographyDefaultsObserver {
-            NotificationCenter.default.removeObserver(typographyDefaultsObserver)
-        }
-    }
 }
 
 extension MarkdownPanel: FileContentChangeObservingPanel {}

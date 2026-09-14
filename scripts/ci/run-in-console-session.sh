@@ -193,6 +193,38 @@ prepare_app_host_home_for_console_user() {
         "$validation_function" "$confirmation_validation_function"
 }
 
+prepare_app_host_build_paths_for_console_user() {
+  local console_user="$1"
+  # Depot publishes its result root before crossing the account boundary.
+  # Other callers retain their existing build-directory ownership contract.
+  [ -n "${CMUX_APP_HOST_RESULTS_ROOT:-}" ] || return 0
+  cmux_validate_published_app_host_identity_values || return 1
+  local expected_results="$CMUX_RESOLVED_RUNNER_TEMP/cmux-unit-results-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+  local expected_build="$CMUX_RESOLVED_RUNNER_TEMP/cmux-depot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+  local result_directory="${CMUX_APP_HOST_RESULT_DIRECTORY:-}"
+  if [ "$CMUX_APP_HOST_RESULTS_ROOT" != "$expected_results" ] \
+    || [ "${CMUX_DERIVED_DATA_PATH:-}" != "$expected_build" ]; then
+    echo "FAIL: app-host build/result roots do not match the run identity" >&2
+    return 1
+  fi
+  local directories=("$expected_build")
+  if [ -n "$result_directory" ]; then
+    [ "$(dirname "$result_directory")" = "$expected_results" ] || return 1
+    case "$(basename "$result_directory")" in suite.*) ;; *) return 1 ;; esac
+    directories+=("$result_directory")
+  fi
+  local directory resolved_directory
+  for directory in "${directories[@]}"; do
+    [ ! -L "$directory" ] && [ -d "$directory" ] || return 1
+    resolved_directory="$(cd "$directory" && pwd -P)" || return 1
+    [ "$resolved_directory" = "$directory" ] || return 1
+    # Keep the result root runner-owned so it can allocate the next suite's
+    # directory. Xcode owns only this result directory and the build cache.
+    sudo -n chown -R -P "$console_user" "$directory"
+    sudo -n chmod -R u+rwX,go+rX "$directory"
+  done
+}
+
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
@@ -200,6 +232,9 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   [ -n "$console_home" ] || console_home="$HOME"
   prepare_app_host_home_for_console_user \
     "$console_user" "$cleanup_app_host_home_requested"
+  if [ "$cleanup_app_host_home_requested" != "1" ]; then
+    prepare_app_host_build_paths_for_console_user "$console_user"
+  fi
 
   # Forward only environment variables that are actually set, with their real
   # values, so we mirror the current environment exactly. Never inject an empty

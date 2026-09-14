@@ -44,6 +44,9 @@ with open(env['CMUX_FIXTURE_CALLS'], 'a') as calls:
                           'host_home': env.get('TEST_RUNNER_HOME'),
                           'host_ci': env.get('TEST_RUNNER_CI')}) + '\\n')
 assert env.get('CMUX_FIXTURE_CONSOLE_SESSION') == '1', 'app host bypassed console session'
+if '-resolvePackageDependencies' in sys.argv or '-only-testing:cmuxUITests' in sys.argv:
+    assert sys.argv[sys.argv.index('-derivedDataPath') + 1] == env['CMUX_DERIVED_DATA_PATH']
+    raise SystemExit(0)
 assert env.get('TEST_RUNNER_CMUX_TEST_PROCESS') == '1', 'missing early test-process marker'
 assert env.get('TEST_RUNNER_CI') == 'true', 'CI identity lost before hook deadlines'
 assert env.get('TEST_RUNNER_HOME') != env['HOME'], 'host shares driver home'
@@ -88,12 +91,17 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
             "CI": "true",
             "GITHUB_ACTIONS": "true",
             "UNIT_TEST_SUITES": "ClaudeFixture,CodexFixture",
-            "TEST_RESULTS_ROOT": str(self.root / "results"),
+            "TEST_FILTER": "",
+            "TEST_TIMEOUT": "120",
             "CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER": "1",
             "CMUX_APP_HOST_LSOF": str(self.bin / "lsof-fixture"),
             "CMUX_APP_HOST_TEST_LOCK_FILE": str(self.root / "test.lock"),
             "CMUX_FIXTURE_CALLS": str(self.root / "calls.jsonl"),
         })
+        self.results = self.runner_temp / (
+            "cmux-unit-results-" + self.environment["GITHUB_RUN_ID"] + "-1"
+        )
+        self.environment["TEST_RESULTS_ROOT"] = str(self.results)
 
     def write_executable(self, path, text):
         """Install an executable fixture inside this test's temporary checkout."""
@@ -129,13 +137,13 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
         for key in ("CMUX_APP_HOST_HOME", "CMUX_APP_HOST_RECEIPT_DIR", "CMUX_APP_HOST_CONFIRMATION_FILE"):
             self.assertFalse(Path(self.environment[key]).exists(), key)
 
-    def assert_selected_suites(self):
+    def assert_selected_suites(self, expected_invocations=2):
         """Require one invocation for each selector, including on a failing run."""
         calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), expected_invocations)
         self.assertCountEqual(
             ["-only-testing:cmuxTests/ClaudeFixture", "-only-testing:cmuxTests/CodexFixture"],
-            [arg for call in calls for arg in call["args"] if arg.startswith("-only-testing:")],
+            [arg for call in calls for arg in call["args"] if arg.startswith("-only-testing:cmuxTests/")],
         )
 
     def test_selected_suites_use_shared_isolated_console_launch(self):
@@ -145,7 +153,7 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assert_selected_suites()
         self.assertEqual(result.stdout.count("category=tests passed"), 2)
-        self.assertEqual(len(list((self.root / "results").glob("suite.*/result.xcresult"))), 2)
+        self.assertEqual(len(list(self.results.glob("suite.*/result.xcresult"))), 2)
 
     def test_assertions_stay_red_without_retrying_or_dropping_later_suites(self):
         """A first-suite failure neither retries nor prevents the second suite."""
@@ -155,6 +163,63 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
         self.assertNotEqual(result.returncode, 0)
         self.assert_selected_suites()
         self.assertEqual(result.stdout.count("category=test assertion failure"), 2)
+
+    def test_cross_account_hop_transfers_only_build_and_individual_results(self):
+        """Exercise the real console wrapper with simulated privileged OS calls."""
+        shutil.copy2(ROOT / "scripts/ci/run-in-console-session.sh", self.scripts)
+        console_home = self.root / "console-home"
+        console_home.mkdir()
+        self.environment["CMUX_FIXTURE_CONSOLE_HOME"] = str(console_home)
+        self.environment["CMUX_FIXTURE_OWNERSHIP"] = str(self.root / "ownership.jsonl")
+        self.write_executable(self.bin / "stat", """#!/usr/bin/env python3
+import getpass, os, sys
+if sys.argv[1:] == ['-f', '%Su', '/dev/console']:
+    print('fixture-console')
+elif sys.argv[1:3] == ['-f', '%Su']:
+    print(getpass.getuser())
+else:
+    os.execv('/usr/bin/stat', ['/usr/bin/stat', *sys.argv[1:]])
+""")
+        self.write_executable(self.bin / "id", """#!/usr/bin/env python3
+import os, sys
+if sys.argv[1:] == ['-u', 'fixture-console']:
+    print('501')
+else:
+    os.execv('/usr/bin/id', ['/usr/bin/id', *sys.argv[1:]])
+""")
+        self.write_executable(self.bin / "dscl", """#!/usr/bin/env python3
+import os
+print('NFSHomeDirectory: ' + os.environ['CMUX_FIXTURE_CONSOLE_HOME'])
+""")
+        self.write_executable(self.bin / "sudo", """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+while args and args[0].startswith('-'):
+    flag = args.pop(0)
+    if flag == '-u': args.pop(0)
+if args[0] == 'chown':
+    with open(os.environ['CMUX_FIXTURE_OWNERSHIP'], 'a') as output:
+        output.write(json.dumps(args) + '\\n')
+    raise SystemExit(0)
+if args[:2] == ['launchctl', 'asuser']:
+    assert args[3] == 'sudo'
+    os.environ['CMUX_FIXTURE_CONSOLE_SESSION'] = '1'
+    args = args[3:]
+os.execvp(args[0], args)
+""")
+        self.prepare()
+        resolved = self.step("Resolve Swift packages")
+        self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+        result = self.step("Run unit tests")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ui = self.step("Run UI tests")
+        self.assertEqual(ui.returncode, 0, ui.stdout + ui.stderr)
+        self.assert_selected_suites(expected_invocations=4)
+        transfers = [json.loads(line)[-1] for line in (self.root / "ownership.jsonl").read_text().splitlines()]
+        self.assertEqual(transfers.count(self.environment["CMUX_DERIVED_DATA_PATH"]), 4)
+        self.assertNotIn(str(self.results), transfers)
+        for bundle in self.results.glob("suite.*/result.xcresult"):
+            self.assertIn(str(bundle.parent), transfers)
 
 
 if __name__ == "__main__":
