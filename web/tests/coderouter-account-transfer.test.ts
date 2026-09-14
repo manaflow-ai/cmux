@@ -48,12 +48,12 @@ describe("coderouter account transfer route", () => {
   test("transfers an account only after validating both team permissions", async () => {
     const transfer = mock(async () => true);
     const POST = makeCoderouterTransferHandler({
-      resolve: mock(async () => context),
+      resolve: mock(async () => context) as never,
       listTeams: mock(async () => teams),
       transfer,
     });
 
-    const response = await POST(request());
+    const response = await POST(request(), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -72,14 +72,14 @@ describe("coderouter account transfer route", () => {
   test("rejects a destination without account-management permission", async () => {
     const transfer = mock(async () => true);
     const POST = makeCoderouterTransferHandler({
-      resolve: mock(async () => context),
+      resolve: mock(async () => context) as never,
       listTeams: mock(async () => teams.map((team) =>
         team.teamId === "team-destination" ? { ...team, manageAccounts: false } : team,
       )),
       transfer,
     });
 
-    const response = await POST(request());
+    const response = await POST(request(), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
 
     expect(response.status).toBe(403);
     expect(transfer).not.toHaveBeenCalled();
@@ -91,12 +91,12 @@ describe("coderouter account transfer route", () => {
       resolve: mock(async () => ({
         ...context,
         value: { ...context.value, team: { ...context.value.team, manageAccounts: false } },
-      })),
+      })) as never,
       listTeams: mock(async () => teams),
       transfer,
     });
 
-    const response = await POST(request());
+    const response = await POST(request(), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
 
     expect(response.status).toBe(403);
     expect(transfer).not.toHaveBeenCalled();
@@ -106,14 +106,14 @@ describe("coderouter account transfer route", () => {
     const transfer = mock(async () => true);
     const listTeams = mock(async () => teams);
     const POST = makeCoderouterTransferHandler({
-      resolve: mock(async () => context),
+      resolve: mock(async () => context) as never,
       listTeams,
       transfer,
     });
     const response = await POST(new Request(
       "https://coderouter.dev/api/coderouter/accounts/not-an-id/transfer",
       { method: "POST" },
-    ));
+    ), { params: Promise.resolve({ accountId: "not-an-id" }) });
 
     expect(response.status).toBe(400);
     expect(listTeams).not.toHaveBeenCalled();

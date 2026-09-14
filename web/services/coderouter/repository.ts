@@ -13,6 +13,10 @@ import {
 import type { EncryptedCredential } from "./encryption";
 import { ownerFromProviderKey, providerIdentityKey } from "./codexIdentity";
 import {
+  assertAccountDeletionUserMutationAllowed,
+  assertNoAccountDeletionUserMutationInProgress,
+} from "../account/deletionLock";
+import {
   credentialExpiresAt,
   credentialLabel,
   type CodeRouterAccountSummary,
@@ -23,6 +27,8 @@ import {
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
 const REFRESH_LEASE_MS = 30_000;
+
+type CodeRouterDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
 export class CodeRouterLeaseBusy extends Error {
   readonly _tag = "CodeRouterLeaseBusy";
@@ -462,19 +468,70 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  const expectedRevision = input.credential.credentialRevision - 1;
+  if (expectedRevision < 0) return false;
   return await cloudDb().transaction(async (tx) => {
-    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
-    await lockHandoffTeam(tx, input.destinationTeamId);
+    // Transfers can run in either direction. Acquiring both team locks in a
+    // stable order prevents A -> B and B -> A from deadlocking each other.
+    for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
+      await lockHandoffTeam(tx, teamId);
+    }
+    await lockCoderouterAccountMutation(tx, input.stackUserId);
+    const [currentCredential] = await tx
+      .select({ credentialRevision: coderouterCredentials.credentialRevision })
+      .from(coderouterCredentials)
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+      ))
+      .limit(1);
+    if (!currentCredential) return false;
+    if (currentCredential.credentialRevision !== expectedRevision) {
+      throw new CodeRouterCredentialRace("credential revision changed");
+    }
     const [updated] = await tx.update(coderouterAccounts)
-      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
-      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .set({
+        teamId: input.destinationTeamId,
+        vaultRevision: input.credential.credentialRevision,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+      ))
       .returning({ id: coderouterAccounts.id });
     if (!updated) return false;
-    await tx.update(coderouterCredentials)
-      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
-      .where(eq(coderouterCredentials.accountId, input.accountId));
+    const [updatedCredential] = await tx.update(coderouterCredentials)
+      .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.credentialRevision, expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) {
+      throw new CodeRouterCredentialRace("credential changed during transfer");
+    }
     return true;
   });
+}
+
+async function lockCoderouterAccountMutation(
+  tx: CodeRouterDbTransaction,
+  stackUserId: string,
+): Promise<void> {
+  await assertAccountDeletionUserMutationAllowed(tx, stackUserId);
+  await assertNoAccountDeletionUserMutationInProgress(tx, stackUserId);
+}
+
+async function lockHandoffTeam(
+  tx: CodeRouterDbTransaction,
+  teamId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`,
+  );
 }
 
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
