@@ -68,9 +68,9 @@ struct CloudTreeRowContentView: View {
         case .device(let row):
             CloudTreeDeviceRowContent(row: row, style: style)
         case .devicesSection(let section):
-            groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"), count: section.count)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"), count: section.count, style: style, helpAction: nil)
         case .cloudMachinesSection:
-            groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"), count: nil, style: style, helpAction: nil)
         case .devicesEmpty:
             EmptyView()
         case .terminalsPool(_, let count):
