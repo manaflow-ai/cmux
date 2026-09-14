@@ -1171,7 +1171,7 @@ struct CloudTreeMachineInlineFactTests {
         )
         let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact).inlineFact
         #expect(fact == nil)
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) > CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     @Test("No reading yet means no inline fact")
