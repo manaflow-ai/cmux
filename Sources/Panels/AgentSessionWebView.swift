@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 
 @MainActor
-final class AgentSessionWebView: WKWebView {
+final class AgentSessionWebView: CmuxUndoableWebView {
     var onPointerDown: (() -> Void)?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

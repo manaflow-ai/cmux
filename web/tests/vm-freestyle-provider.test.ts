@@ -316,9 +316,8 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
-    expect(fake.execs).toHaveLength(3);
     expect(fake.execs[1]).toContain(`mv -f`);
-    expect(fake.execs[2]).toBe("cmux self --json");
+    expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {

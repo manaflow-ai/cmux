@@ -4,12 +4,14 @@ import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
   coderouterAccounts,
+  coderouterApiKeys,
   coderouterCredentials,
   coderouterRouteTokens,
   coderouterSessionAccounts,
   coderouterVaultLeases,
 } from "../../db/schema";
 import type { EncryptedCredential } from "./encryption";
+import { ownerFromProviderKey, providerIdentityKey } from "./codexIdentity";
 import {
   credentialExpiresAt,
   credentialLabel,
@@ -35,12 +37,21 @@ export function routeTokenHash(token: string): string {
 }
 
 const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
+const API_KEY_PATTERN = /^crk_[A-Za-z0-9_-]{40,}$/;
+const API_KEY_LIFETIME_LABEL = "api key";
+
+const pendingApiKeyUsageWrites = new Map<string, {
+  readonly teamId: string;
+  readonly promise: Promise<void>;
+}>();
 
 export type RouteTokenPrincipal = {
   readonly teamId: string;
   readonly stackUserId: string;
   /** Cloud VM the token is bound to, or null for an unbound (CLI) token. */
   readonly vmId: string | null;
+  /** Opaque database id when a long-lived API key authenticated the request. */
+  readonly apiKeyId?: string | null;
 };
 
 export async function issueRouteToken(
@@ -103,26 +114,44 @@ export async function revokeRouteTokensForUser(
   stackUserId: string,
   now = new Date(),
 ): Promise<void> {
-  await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ revokedAt: now })
-    .where(and(
-      eq(coderouterRouteTokens.stackUserId, stackUserId),
-      isNull(coderouterRouteTokens.revokedAt),
-    ));
+  await cloudDb().transaction(async (tx) => {
+    await tx
+      .update(coderouterRouteTokens)
+      .set({ revokedAt: now })
+      .where(and(
+        eq(coderouterRouteTokens.stackUserId, stackUserId),
+        isNull(coderouterRouteTokens.revokedAt),
+      ));
+    await tx
+      .update(coderouterApiKeys)
+      .set({ revokedAt: now })
+      .where(and(
+        eq(coderouterApiKeys.stackUserId, stackUserId),
+        isNull(coderouterApiKeys.revokedAt),
+      ));
+  });
 }
 
 export async function revokeRouteTokensForTeam(
   teamId: string,
   now = new Date(),
 ): Promise<void> {
-  await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ revokedAt: now })
-    .where(and(
-      eq(coderouterRouteTokens.teamId, teamId),
-      isNull(coderouterRouteTokens.revokedAt),
-    ));
+  await cloudDb().transaction(async (tx) => {
+    await tx
+      .update(coderouterRouteTokens)
+      .set({ revokedAt: now })
+      .where(and(
+        eq(coderouterRouteTokens.teamId, teamId),
+        isNull(coderouterRouteTokens.revokedAt),
+      ));
+    await tx
+      .update(coderouterApiKeys)
+      .set({ revokedAt: now })
+      .where(and(
+        eq(coderouterApiKeys.teamId, teamId),
+        isNull(coderouterApiKeys.revokedAt),
+      ));
+  });
 }
 
 export async function authenticateRouteToken(
@@ -145,6 +174,164 @@ export async function authenticateRouteToken(
       vmId: coderouterRouteTokens.vmId,
     });
   return row ?? null;
+}
+
+export type CoderouterApiKeySummary = {
+  readonly id: string;
+  readonly teamId: string;
+  readonly keyPrefix: string;
+  readonly label: string;
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+};
+
+export type IssuedCoderouterApiKey = {
+  readonly id: string;
+  readonly key: string;
+  readonly keyPrefix: string;
+  readonly label: string;
+  readonly createdAt: Date;
+};
+
+export function apiKeyHash(key: string): string {
+  return createHash("sha256").update(key, "utf8").digest("hex");
+}
+
+export function isCoderouterApiKey(value: string): boolean {
+  return API_KEY_PATTERN.test(value);
+}
+
+export async function createApiKey(
+  teamId: string,
+  stackUserId: string,
+  label = "default",
+): Promise<IssuedCoderouterApiKey> {
+  const normalizedLabel = normalizeApiKeyLabel(label);
+  const key = `crk_${randomBytes(32).toString("base64url")}`;
+  const keyPrefix = `${key.slice(0, 12)}...`;
+  const [row] = await cloudDb()
+    .insert(coderouterApiKeys)
+    .values({
+      teamId,
+      stackUserId,
+      keyHash: apiKeyHash(key),
+      keyPrefix,
+      label: normalizedLabel,
+    })
+    .returning({
+      id: coderouterApiKeys.id,
+      createdAt: coderouterApiKeys.createdAt,
+    });
+  if (!row) throw new Error("coderouter API key was not created");
+  return {
+    id: row.id,
+    key,
+    keyPrefix,
+    label: normalizedLabel,
+    createdAt: row.createdAt,
+  };
+}
+
+export async function listApiKeys(teamId: string): Promise<readonly CoderouterApiKeySummary[]> {
+  await Promise.all(
+    [...pendingApiKeyUsageWrites.values()]
+      .filter((pending) => pending.teamId === teamId)
+      .map((pending) => pending.promise),
+  );
+  const rows = await cloudDb()
+    .select({
+      id: coderouterApiKeys.id,
+      teamId: coderouterApiKeys.teamId,
+      keyPrefix: coderouterApiKeys.keyPrefix,
+      label: coderouterApiKeys.label,
+      createdAt: coderouterApiKeys.createdAt,
+      lastUsedAt: coderouterApiKeys.lastUsedAt,
+      revokedAt: coderouterApiKeys.revokedAt,
+    })
+    .from(coderouterApiKeys)
+    .where(eq(coderouterApiKeys.teamId, teamId))
+    .orderBy(coderouterApiKeys.createdAt);
+  return rows.map((row) => ({
+    id: row.id,
+    teamId: row.teamId,
+    keyPrefix: row.keyPrefix,
+    label: row.label,
+    createdAt: row.createdAt.toISOString(),
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+  }));
+}
+
+export async function authenticateApiKey(
+  key: string,
+  now = new Date(),
+): Promise<RouteTokenPrincipal | null> {
+  if (!API_KEY_PATTERN.test(key)) return null;
+  const [row] = await cloudDb()
+    .select({
+      id: coderouterApiKeys.id,
+      teamId: coderouterApiKeys.teamId,
+      stackUserId: coderouterApiKeys.stackUserId,
+    })
+    .from(coderouterApiKeys)
+    .where(and(
+      eq(coderouterApiKeys.keyHash, apiKeyHash(key)),
+      isNull(coderouterApiKeys.revokedAt),
+    ))
+    .limit(1);
+  if (!row) return null;
+  // Authentication stays a read-only lookup. A best-effort metadata write is
+  // deferred so a slow Postgres update cannot add latency to model requests.
+  scheduleApiKeyUsageWrite(row.id, row.teamId, now);
+  return { teamId: row.teamId, stackUserId: row.stackUserId, vmId: null, apiKeyId: row.id };
+}
+
+function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
+  if (pendingApiKeyUsageWrites.has(id)) return;
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  pendingApiKeyUsageWrites.set(id, { teamId, promise });
+  queueMicrotask(() => {
+    void cloudDb()
+      .update(coderouterApiKeys)
+      .set({ lastUsedAt: now })
+      .where(and(
+        eq(coderouterApiKeys.id, id),
+        isNull(coderouterApiKeys.revokedAt),
+      ))
+      .then(() => undefined)
+      .catch(() => undefined)
+      .then(() => {
+        resolve();
+        pendingApiKeyUsageWrites.delete(id);
+      });
+  });
+}
+
+export async function revokeApiKey(
+  teamId: string,
+  id: string,
+  now = new Date(),
+): Promise<boolean> {
+  const [row] = await cloudDb()
+    .update(coderouterApiKeys)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterApiKeys.id, id),
+      eq(coderouterApiKeys.teamId, teamId),
+      isNull(coderouterApiKeys.revokedAt),
+    ))
+    .returning({ id: coderouterApiKeys.id });
+  return row !== undefined;
+}
+
+function normalizeApiKeyLabel(label: string): string {
+  const normalized = label.trim();
+  if (!normalized || normalized.length > 80 || /[\r\n]/.test(normalized)) {
+    throw new Error(`${API_KEY_LIFETIME_LABEL} label is invalid`);
+  }
+  return normalized;
 }
 
 export async function revokeRouteToken(
@@ -170,6 +357,9 @@ export async function deleteAccount(input: {
 }): Promise<{ removed: boolean; lastAccount: boolean }> {
   const now = input.now ?? new Date();
   return await cloudDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + input.teamId}, 0))`,
+    );
     const [removed] = await tx
       .delete(coderouterAccounts)
       .where(and(
@@ -194,6 +384,13 @@ export async function deleteAccount(input: {
         .where(and(
           eq(coderouterRouteTokens.teamId, input.teamId),
           isNull(coderouterRouteTokens.revokedAt),
+        ));
+      await tx
+        .update(coderouterApiKeys)
+        .set({ revokedAt: now })
+        .where(and(
+          eq(coderouterApiKeys.teamId, input.teamId),
+          isNull(coderouterApiKeys.revokedAt),
         ));
     }
     return { removed: true, lastAccount: !remaining };
@@ -221,6 +418,7 @@ export async function listAccounts(
   ]);
   return rows.map((row) => ({
     ...row,
+    ...(row.provider === "codex" ? providerIdentitySummary(row.providerAccountId) : {}),
     credentialExpiresAt: row.credentialExpiresAt?.toISOString() ?? null,
     cooldownUntil: row.cooldownUntil?.toISOString() ?? null,
     activeSessions: sessionCounts.get(row.id) ?? 0,
@@ -253,6 +451,30 @@ async function countActiveSessionsByAccount(
   } catch {
     return new Map();
   }
+}
+
+/** Atomically moves one account and its encrypted envelope to another team. */
+export async function transferEncryptedAccount(input: {
+  accountId: string;
+  sourceTeamId: string;
+  destinationTeamId: string;
+  stackUserId: string;
+  credential: EncryptedCredential;
+}): Promise<boolean> {
+  if (input.sourceTeamId === input.destinationTeamId) return false;
+  return await cloudDb().transaction(async (tx) => {
+    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
+    await lockHandoffTeam(tx, input.destinationTeamId);
+    const [updated] = await tx.update(coderouterAccounts)
+      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
+      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .returning({ id: coderouterAccounts.id });
+    if (!updated) return false;
+    await tx.update(coderouterCredentials)
+      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
+      .where(eq(coderouterCredentials.accountId, input.accountId));
+    return true;
+  });
 }
 
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
@@ -323,7 +545,7 @@ export async function insertAccountWithCredential(input: {
         id: input.encrypted.accountId,
         teamId: input.encrypted.teamId,
         provider: input.credential.provider,
-        providerAccountId: input.credential.accountId,
+        providerAccountId: providerIdentityKey(input.credential),
         label,
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
@@ -438,7 +660,7 @@ export async function upsertAccountMetadata(input: {
   readonly credential: CodeRouterCredential;
   readonly vaultRevision: number;
 }): Promise<void> {
-  const providerAccountId = input.credential.accountId;
+  const providerAccountId = providerIdentityKey(input.credential);
   const label = credentialLabel(input.credential);
   await cloudDb()
     .insert(coderouterAccounts)
@@ -489,6 +711,39 @@ export async function findAccountByProviderIdentity(
     ))
     .limit(1);
   return row ?? null;
+}
+
+function providerIdentitySummary(key: string) {
+  const owner = ownerFromProviderKey(key);
+  return owner ? { providerAccountId: owner.workspaceId, providerUserId: owner.userId } : {};
+}
+
+/** Changes metadata only. Credential revisions and session foreign keys stay intact. */
+export async function bindCodexOwnerIdentity(input: {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly expectedKey: string;
+  readonly expectedRevision: number;
+  readonly credential: CodeRouterCredential;
+}): Promise<boolean> {
+  if (input.credential.provider !== "codex") throw new Error("Codex owner required");
+  const [row] = await cloudDb().update(coderouterAccounts).set({
+    providerAccountId: providerIdentityKey(input.credential),
+    label: credentialLabel(input.credential),
+    updatedAt: new Date(),
+  }).where(and(
+    eq(coderouterAccounts.id, input.accountId),
+    eq(coderouterAccounts.teamId, input.teamId),
+    eq(coderouterAccounts.provider, "codex"),
+    eq(coderouterAccounts.providerAccountId, input.expectedKey),
+    eq(coderouterAccounts.vaultRevision, input.expectedRevision),
+  )).returning({ id: coderouterAccounts.id });
+  return row !== undefined;
+}
+
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+  await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
 }
 
 export type RoutedAccount = {

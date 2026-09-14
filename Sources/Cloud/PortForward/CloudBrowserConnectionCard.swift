@@ -4,6 +4,7 @@ struct CloudBrowserConnectionCard: View {
     let address: String
     let phase: CloudPortAccessModel.Phase
     let message: String?
+    let setupTitle: String
     let onSetup: () -> Void
     let onRetry: (() -> Void)?
 
@@ -17,10 +18,22 @@ struct CloudBrowserConnectionCard: View {
                 if let message {
                     Text(message).foregroundStyle(.secondary).textSelection(.enabled)
                 }
-                Text(String(localized: "cloud.ports.explanation", defaultValue: "Connect Cloud VPN, or choose Forward Port. Forwarding stays off until you start it. This table shows the address and lets you stop it."))
+                Text(String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection."))
                     .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "cloud.vpn.setup.steps.title", defaultValue: "First-time setup"))
+                        .font(.headline)
+                    Text(String(localized: "cloud.vpn.setup.steps.extension", defaultValue: "1. Click Set Up cmux VPN. When macOS asks, allow the cmux network extension in System Settings."))
+                    Text(ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 15
+                        ? String(localized: "cloud.vpn.setup.steps.settings", defaultValue: "Open General > Login Items & Extensions > Network Extensions, then enable cmux.")
+                        : String(localized: "cloud.vpn.setup.steps.settingsLegacy", defaultValue: "Open System Settings > Extensions > Network Extensions, then enable cmux."))
+                    Text(String(localized: "cloud.vpn.setup.steps.configuration", defaultValue: "2. Allow cmux to add a VPN configuration named cmux Cloud."))
+                    Text(String(localized: "cloud.vpn.setup.steps.return", defaultValue: "3. Return to this pane. The connection continues automatically after approval."))
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
                 HStack {
-                    Button(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), action: onSetup)
+                    Button(setupTitle, action: onSetup)
                         .buttonStyle(.borderedProminent)
                         .accessibilityIdentifier("CloudBrowserVPNSetupButton")
                     if let onRetry {

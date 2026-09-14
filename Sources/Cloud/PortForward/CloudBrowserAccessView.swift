@@ -7,45 +7,23 @@ struct CloudBrowserAccessView<Content: View>: View {
     let panel: BrowserPanel
     let backgroundColor: NSColor
     @ViewBuilder let content: () -> Content
-    @State private var showsVPNSetup = false
-
     var body: some View {
         let state = panel.cloudAccess
         Group {
             if let model = state.model {
-                VStack(spacing: 0) {
-                    HStack(spacing: 10) {
-                        Label(CloudPortAccessText.status(model.phase), systemImage: "network")
-                        Spacer(minLength: 0)
-                        Button(String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")) {
-                            showsVPNSetup.toggle()
-                        }
-                        Button(String(localized: "cloud.ports.title", defaultValue: "Ports")) { state.showsPorts.toggle() }
-                            .accessibilityIdentifier("CloudBrowserPortsButton")
-                    }
-                    .font(.system(size: 12))
-                    .padding(10)
-                    if state.showsPorts || model.prefersForwarding {
-                        ScrollView(.horizontal) {
-                            CloudPortsTable(models: [model], allowsStart: state.remoteURL?.scheme == "http")
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if showsVPNSetup {
-                        CloudVPNSetupPanelView(
-                            appearance: PanelAppearance(backgroundColor: backgroundColor, foregroundColor: .labelColor, dividerColor: .secondary, unfocusedOverlayNSColor: .clear, unfocusedOverlayOpacity: 0, usesClearContentBackground: false),
-                            onRequestPanelFocus: {},
-                            model: model.vpn,
-                            portAccessStore: CmuxTuiSurfaceProviderRegistry.shared.portAccess
-                        )
-                    } else if state.showsPage {
-                        content()
-                    } else {
+                Group {
+                    if state.showsPage { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             phase: model.phase,
                             message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
-                            onSetup: { showsVPNSetup = true },
+                            setupTitle: model.vpn.state == .awaitingApproval
+                                ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
+                                : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
+                            onSetup: {
+                                if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
+                                else { Task { await model.vpn.connect() } }
+                            },
                             onRetry: {
                                 state.retry()
                                 navigateIfReady()
@@ -53,13 +31,10 @@ struct CloudBrowserAccessView<Content: View>: View {
                         )
                     }
                 }
-                .task(id: model.phase) {
-                    if model.isReady { showsVPNSetup = false }
-                    navigateIfReady()
-                }
+                .task(id: model.phase) { navigateIfReady() }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, onSetup: {
+                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, setupTitle: String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), onSetup: {
                     AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId))
                 }, onRetry: nil)
             } else {
@@ -76,7 +51,7 @@ struct CloudBrowserAccessView<Content: View>: View {
 
     private var showsNativeContent: Bool {
         panel.cloudAccess.unavailable != nil ||
-            (panel.cloudAccess.model != nil && (showsVPNSetup || !panel.cloudAccess.showsPage))
+            (panel.cloudAccess.model != nil && !panel.cloudAccess.showsPage)
     }
 
     private func navigateIfReady() {

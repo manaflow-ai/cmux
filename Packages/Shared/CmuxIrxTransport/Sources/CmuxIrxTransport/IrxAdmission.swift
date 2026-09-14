@@ -56,11 +56,12 @@ public enum IrxAdmission {
         grantJWS: String? = nil,
         journal: IrxJournal
     ) async throws -> (IrxAdmit, IrxLaneStream) {
+        let startedAt = DispatchTime.now()
+        let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
+        try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
+        let admit: IrxAdmit?
         do {
-            let startedAt = DispatchTime.now()
-            let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
-            try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
-            let admit = try await withIrxDeadline(deadline, onTimeout: {
+            admit = try await withIrxDeadline(deadline, onTimeout: {
                 await connection.close(code: .admissionTimeout, origin: .transport)
             }) {
                 guard let admit = try await control.reader.readControlFrame(IrxAdmit.self) else {
@@ -68,45 +69,56 @@ public enum IrxAdmission {
                 }
                 return admit
             }
-            guard let admit else {
-                // A stalled QUIC read can outlive the deadline and ignore task
-                // cancellation. Preserve a close reason already received from the
-                // peer; otherwise close locally so the read loses its transport
-                // owner before we inspect the termination reason.
-                if await connection.closeReason() == nil {
-                    await connection.close(code: .admissionTimeout, origin: .transport)
-                }
+        } catch {
+            // A peer denial can surface as a native QUIC read error before
+            // the stream wrapper returns EOF. Preserve its machine-readable
+            // connection reason for the admission caller.
+            if await connection.isConnectionClosed() {
                 let termination = await connection.termination()
                 journal.record(
                     "admission", "denied-or-timeout",
                     ["code": termination.code]
                 )
-                if let code = IrxCloseCode(rawValue: termination.code) {
+                if let code = IrxCloseCode(rawValue: termination.code),
+                    IrxCloseCode.admissionOutcomeCodes.contains(code)
+                {
                     throw IrxAdmissionDenied(code: code)
                 }
-                throw IrxConnectionError.admissionTimeout
-            }
-            let elapsedMs =
-                (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
-            journal.record(
-                "admission", "admitted",
-                [
-                    "session": admit.session,
-                    "elapsed_ms": String(elapsedMs),
-                    "path": connection.selectedPathDescription(),
-                ]
-            )
-            return (admit, control)
-        } catch {
-            // A native read/write can throw as soon as the peer's close
-            // arrives, before the deadline path inspects the reason. Preserve
-            // the denial code so authorization failure cannot become a retry loop.
-            if let reason = await connection.closeReason(),
-               let code = IrxCloseCode.parse(fromRenderedCause: reason) {
-                throw IrxAdmissionDenied(code: code)
+                throw IrxConnectionError.closed(termination)
             }
             throw error
         }
+        guard let admit else {
+            // A stalled QUIC read can outlive the deadline and ignore task
+            // cancellation. Preserve a close reason already received from the
+            // peer; otherwise close locally so the read loses its transport
+            // owner before we inspect the termination reason.
+            if await connection.closeReason() == nil {
+                await connection.close(code: .admissionTimeout, origin: .transport)
+            }
+            let termination = await connection.termination()
+            journal.record(
+                "admission", "denied-or-timeout",
+                ["code": termination.code]
+            )
+            if let code = IrxCloseCode(rawValue: termination.code),
+                IrxCloseCode.admissionOutcomeCodes.contains(code)
+            {
+                throw IrxAdmissionDenied(code: code)
+            }
+            throw IrxConnectionError.closed(termination)
+        }
+        let elapsedMs =
+            (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
+        journal.record(
+            "admission", "admitted",
+            [
+                "session": admit.session,
+                "elapsed_ms": String(elapsedMs),
+                "path": connection.selectedPathDescription(),
+            ]
+        )
+        return (admit, control)
     }
 
     /// Server half: read the control descriptor + hello off the first stream,

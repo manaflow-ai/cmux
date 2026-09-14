@@ -1,6 +1,23 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Suspended work cannot publish through a replacement provider.
+    func isRegisteredInCatalog() -> Bool {
+        guard let current = catalog.provider(for: machine) else { return false }
+        return ObjectIdentifier(current) == ObjectIdentifier(self)
+    }
+
+    /// A link acknowledgement can suspend between installing and publishing a graph.
+    /// Only the current graph may update catalog rows or restored local titles.
+    func canPublishCloudState(_ candidate: CloudVMState) -> Bool {
+        guard isRegisteredInCatalog(), candidate.machine == machine,
+              let current = cloudState else { return false }
+        if let cursor = current.cursor {
+            return candidate.cursor == cursor
+        }
+        return candidate == current
+    }
+
     func refresh() async {
         await refreshCurrentGraph(force: false)
     }
