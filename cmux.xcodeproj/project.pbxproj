@@ -7941,13 +7941,12 @@
 				C12469AA0000000000000028 /* Workspace+CloudTerminalLoading.swift */,
 				C12469AA0000000000000016 /* CmuxTuiSurfaceProvider+CreationRecovery.swift */,
 				C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */,
+				DEC1CE000000000000000039 /* SurfaceDeviceInstanceID.swift */,
+				DEC1CE00000000000000003B /* SurfaceDevicePresence.swift */,
 			);
 			name = Surfaces;
 			path = Surfaces;
-			sourceTree = "<group>"
-				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */,
-				DEC1CE000000000000000039 /* SurfaceDeviceInstanceID.swift */,
-				DEC1CE00000000000000003B /* SurfaceDevicePresence.swift */,;
+			sourceTree = "<group>";
 		};
 		590E4F5F342E5B27010ECC8D /* Cloud */ = {
 			isa = PBXGroup;
