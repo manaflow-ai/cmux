@@ -26,7 +26,7 @@ final class CloudImagePasteTestPeer {
     private let continuation: AsyncStream<Command>.Continuation
     private(set) var sent: [Command] = []
 
-    init() {
+    convenience init() {
         self.init(coordinator: CloudImagePasteCoordinator())
     }
 
