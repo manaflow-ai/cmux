@@ -67,6 +67,21 @@ describe("Freestyle live machine stats", () => {
     expect(result.resourceSampledAt).toBeDefined();
   });
 
+  test("a fresh-to-stale transition clears the previously displayed gauges", () => {
+    const previous = { state: "awake" as const, sampledAt: 100_000, resourceSampledAt: 100_000,
+      cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
+    const stale = applyVmResourceUsage(
+      previous,
+      { [VM_RESOURCE_USAGE_KEY]: { ...gauges, receivedAt: 100_000, providerVmId: "vm-stats" } },
+      "vm-stats",
+      190_001,
+    );
+    expect(stale.cpuPercent).toBeUndefined();
+    expect(stale.memoryUsedMb).toBeUndefined();
+    expect(stale.diskUsedMb).toBeUndefined();
+    expect(stale.resourceSampledAt).toBe(100_000);
+  });
+
   test("freshness boundary uses server time and retains partial zero readings", () => {
     const base = { state: "awake" as const, sampledAt: 100000, diskTotalMb: 16384 };
     const metadata = { [VM_RESOURCE_USAGE_KEY]: { cpuPercent: 0, diskUsedMb: 0, receivedAt: 10000, providerVmId: "vm-stats" } };

@@ -43,7 +43,11 @@ export function applyVmResourceUsage(
   const usage = parseVmResourceUsage(sample);
   if (!usage) return stats;
   const result = { ...stats, resourceSampledAt: receivedAt };
-  return now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS
-    ? result
-    : { ...result, ...usage, sampledAt: receivedAt };
+  if (now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS) {
+    delete result.cpuPercent;
+    delete result.memoryUsedMb;
+    delete result.diskUsedMb;
+    return result;
+  }
+  return { ...result, ...usage, sampledAt: receivedAt };
 }

@@ -1,5 +1,37 @@
 import Foundation
 
+private func validCPU(_ percent: Double) -> Double? {
+    guard percent.isFinite, (0...100).contains(percent) else { return nil }
+    return percent
+}
+
+private func capacity(
+    label: String,
+    used: Int?,
+    total: Int?,
+    format: String,
+    unavailable: String,
+    placeholder: String
+) -> CloudMachineResourcePresentation.Reading {
+    guard let used, let total, used >= 0, total > 0 else {
+        return .init(label: label, percent: nil, detail: "\(label): \(unavailable)", placeholder: placeholder)
+    }
+    // Separate OS counters may straddle an update. Keep the percentage within capacity
+    // while preserving the actual reported amounts in the detail.
+    let percent = min(100, Double(used) / Double(total) * 100)
+    let value = CloudMachineResourcePresentation.Reading(label: label, percent: percent, detail: "", placeholder: placeholder).value
+    return .init(
+        label: label,
+        percent: percent,
+        detail: "\(String(format: format, gb(used), gb(total))) (\(value))",
+        placeholder: placeholder
+    )
+}
+
+private func gb(_ mb: Int) -> String {
+    (Double(mb) / 1024).formatted(.number.precision(.fractionLength(0...1)))
+}
+
 /// Pure presentation of the latest stats snapshot, shared by the row and its tooltip.
 public struct CloudMachineResourcePresentation: Sendable {
     /// Whether the latest sample can be presented as live usage.
@@ -99,7 +131,7 @@ public struct CloudMachineResourcePresentation: Sendable {
             ? String(localized: "cloudTree.resources.loading.symbol", defaultValue: "…")
             : String(localized: "cloudTree.resources.missing", defaultValue: "—")
         let cpuLabel = String(localized: "machines.stats.cpu", defaultValue: "CPU")
-        let cpuPercent = available ? cpuPercent.flatMap(Self.validCPU) : nil
+        let cpuPercent = available ? cpuPercent.flatMap(validCPU) : nil
         cpu = Reading(
             label: cpuLabel,
             percent: cpuPercent,
@@ -108,7 +140,7 @@ public struct CloudMachineResourcePresentation: Sendable {
             } ?? "\(cpuLabel): \(unavailable)",
             placeholder: placeholder
         )
-        memory = Self.capacity(
+        memory = capacity(
             label: String(localized: "cloudTree.resources.ram", defaultValue: "RAM"),
             used: available ? memoryUsedMb : nil,
             total: available ? memoryTotalMb : nil,
@@ -116,7 +148,7 @@ public struct CloudMachineResourcePresentation: Sendable {
             unavailable: unavailable,
             placeholder: placeholder
         )
-        disk = Self.capacity(
+        disk = capacity(
             label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
             used: available ? diskUsedMb : nil,
             total: available ? diskTotalMb : nil,
@@ -126,35 +158,4 @@ public struct CloudMachineResourcePresentation: Sendable {
         )
     }
 
-    private static func validCPU(_ percent: Double) -> Double? {
-        guard percent.isFinite, (0...100).contains(percent) else { return nil }
-        return percent
-    }
-
-    private static func capacity(
-        label: String,
-        used: Int?,
-        total: Int?,
-        format: String,
-        unavailable: String,
-        placeholder: String
-    ) -> Reading {
-        guard let used, let total, used >= 0, total > 0 else {
-            return Reading(label: label, percent: nil, detail: "\(label): \(unavailable)", placeholder: placeholder)
-        }
-        // Separate OS counters may straddle an update. Keep the percentage within capacity
-        // while preserving the actual reported amounts in the detail.
-        let percent = min(100, Double(used) / Double(total) * 100)
-        let value = Reading(label: label, percent: percent, detail: "", placeholder: placeholder).value
-        return Reading(
-            label: label,
-            percent: percent,
-            detail: "\(String(format: format, gb(used), gb(total))) (\(value))",
-            placeholder: placeholder
-        )
-    }
-
-    private static func gb(_ mb: Int) -> String {
-        (Double(mb) / 1024).formatted(.number.precision(.fractionLength(0...1)))
-    }
 }
