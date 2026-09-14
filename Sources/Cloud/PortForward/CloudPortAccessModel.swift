@@ -100,10 +100,11 @@ final class CloudPortAccessModel: Identifiable {
         if state == .up {
             if phase == .needsVPN || (!prefersForwarding && phase == .failed) { connectDirect() }
         } else {
+            let wasUsingDirectRoute = phase == .direct
             generation += 1
             operation?.cancel()
             phase = .needsVPN
-            if canForward { forward() }
+            if canForward && wasUsingDirectRoute { forward() }
         }
     }
 
