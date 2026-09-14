@@ -88,8 +88,17 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     /// token-scoped terminal transition.
     func installProvisionalDelegate() {
         guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
-        previousTableDelegate = tableView.delegate
-        tableView.delegate = self
+        // Table reconstruction can install the same writer again, or install a
+        // newer writer over an older one. Forward to the original delegate in
+        // both cases; a writer chain would make `responds(to:)` recurse.
+        if tableView.delegate !== self {
+            if let installedWriter = tableView.delegate as? SidebarWorkspaceDragPasteboardWriter {
+                previousTableDelegate = installedWriter.previousTableDelegate
+            } else {
+                previousTableDelegate = tableView.delegate
+            }
+            tableView.delegate = self
+        }
         controller = nil
     }
 
