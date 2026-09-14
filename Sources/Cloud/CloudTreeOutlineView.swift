@@ -398,7 +398,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             if let node = item as? CloudTreeNode, case .devicesEmpty = node.kind { return false }
-            true
+            return true
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {

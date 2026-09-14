@@ -52,35 +52,41 @@ struct MachinesFreeAccessBanner: View {
     let isExpired: Bool
     let windowDays: Int
     let backgroundColor: NSColor
+    let onDismiss: () -> Void
     @State private var isHovered = false
 
     var body: some View {
-        Button {
-            ProUpgradePresenter.present(source: .machinesPanelTrialBanner)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: isExpired ? "lock.fill" : "clock")
-                    .font(.system(size: 10, weight: .semibold))
-                Text(text)
-                    .cmuxFont(size: 11, monospacedDigit: true)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                Text(String(localized: "machines.freeAccess.upgrade", defaultValue: "Upgrade"))
-                    .cmuxFont(size: 11)
-                    .underline(isHovered)
+        HStack(spacing: 5) {
+            Button {
+                ProUpgradePresenter.present(source: .machinesPanelTrialBanner)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: isExpired ? "lock.fill" : "clock")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(text)
+                        .cmuxFont(size: 11, monospacedDigit: true)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Text(String(localized: "machines.freeAccess.upgrade", defaultValue: "Upgrade"))
+                        .cmuxFont(size: 11)
+                        .underline(isHovered)
+                }
             }
+            .buttonStyle(.plain)
             .foregroundColor(isExpired ? Color.orange : .secondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .accessibilityLabel(text)
+            .layoutPriority(1)
+            CloudBannerDismissButton(action: onDismiss)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundColor(isExpired ? Color.orange : .secondary)
+        .contentShape(Rectangle())
         .onHover { isHovered = $0 }
         .background(Color(nsColor: backgroundColor))
         .help(helpText)
-        .accessibilityLabel(text)
         .accessibilityIdentifier("CloudMachinesFreeAccessBanner")
     }
 

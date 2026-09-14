@@ -40,6 +40,7 @@ struct MachinesPanelView: View {
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
+    @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -164,23 +165,10 @@ struct MachinesPanelView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("CloudVPNSetupEntryButton")
         }
-        if includesCloud, let banner = tunnelStatus.banner, banner.showsInMachinesPanel {
-            MachinesTunnelBanner(
-                banner: banner,
-                backgroundColor: chromeBackgroundColor,
-                openSystemSettings: {
-                    SystemExtensionSettingsLink.open()
-                },
-                onDismiss: {}
-            )
-        }
-
-        if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
-            MachinesFreeAccessBanner(
-                text: text,
-                isExpired: plan.freeAccessBanner == .expired,
-                windowDays: plan.freeAccessWindowDays,
-                backgroundColor: chromeBackgroundColor
+        if includesCloud {
+            MachinesPanelBanners(
+                tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
+                bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
             )
         }
         content
@@ -568,6 +556,7 @@ struct MachinesPanelView: View {
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
         )
+        machineActions.setDefault = { [weak viewModel] id in viewModel?.setDefaultMachine(id: id) }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -633,7 +622,7 @@ struct MachinesPanelView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
                 Button(String(localized: "devices.settings", defaultValue: "Computers Settings…")) {
-                    SettingsWindowPresenter.show(navigationTarget: .cloudMachines)
+                    SettingsWindowPresenter.show(navigationTarget: .computers)
                 }
             } else if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
                 // The list failed to load: say the true thing instead of
@@ -762,7 +751,7 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
-    let setDefault: @MainActor (String) -> Void
+    var setDefault: @MainActor (String) -> Void = { _ in }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 
@@ -804,9 +793,6 @@ struct MachineRowActions {
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
-            },
-            setDefault: { id in
-                AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore?.machineID = id
             }
         )
     }
