@@ -446,6 +446,7 @@ extension Workspace {
         preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         clearCloudMaterializationFailure(surfaceID: panelId)
+        cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)

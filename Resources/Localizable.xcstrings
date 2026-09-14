@@ -8524,360 +8524,6 @@
         }
       }
     },
-    "cloudTerminal.creation.failed.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The Cloud service did not accept the terminal request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud サービスがターミナル要求を受け付けませんでした。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Cloud-Dienst hat die Terminalanfrage nicht akzeptiert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le service Cloud n’a pas accepté la demande de terminal."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم تقبل خدمة Cloud طلب الطرفية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El servicio Cloud no aceptó la solicitud del terminal."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 服務未接受終端機要求。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 服务未接受终端请求。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 서비스가 터미널 요청을 수락하지 않았습니다."
-          }
-        }
-      }
-    },
-    "cloudTerminal.creation.failed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud terminal could not start"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloudターミナルを起動できませんでした"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Terminal konnte nicht gestartet werden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de démarrer le terminal Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعذر بدء طرفية Cloud"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo iniciar el terminal de Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無法啟動 Cloud 終端機"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法启动 Cloud 终端"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 터미널을 시작할 수 없음"
-          }
-        }
-      }
-    },
-    "cloudTerminal.creation.retry": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Retry"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再試行"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erneut versuchen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Réessayer"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إعادة المحاولة"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reintentar"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重試"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重试"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        }
-      }
-    },
-    "cloudTerminal.creation.starting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Starting Cloud terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloudターミナルを起動中"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Terminal wird gestartet"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Démarrage du terminal Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ بدء طرفية Cloud"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Iniciando el terminal de Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在啟動 Cloud 終端機"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在启动 Cloud 终端"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 터미널 시작 중"
-          }
-        }
-      }
-    },
-    "cloudTerminal.creation.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloudターミナル"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-Terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "طرفية Cloud"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal de Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 終端機"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 终端"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 터미널"
-          }
-        }
-      }
-    },
-    "cloudTerminal.creation.waiting": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Waiting for the Cloud service to accept the terminal."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud サービスがターミナルを受け付けるのを待機中です。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warten, bis der Cloud-Dienst das Terminal akzeptiert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "En attente de l’acceptation du terminal par le service Cloud."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "في انتظار قبول خدمة Cloud للطرفية."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esperando a que el servicio Cloud acepte el terminal."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在等待 Cloud 服務接受終端機。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在等待 Cloud 服务接受终端。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud 서비스가 터미널을 수락하기를 기다리는 중입니다."
-          }
-        }
-      }
-    },
     "cloudTree.error.invalidPreviewURL": {
       "extractionState": "manual",
       "localizations": {
@@ -148974,17 +148620,72 @@
             "value": "Open Cloud as Pane"
           }
         },
-        "bs": { "stringUnit": { "state": "translated", "value": "Otvori Cloud kao okno" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Åbn Cloud som rude" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Apri Cloud come pannello" } },
-        "km": { "stringUnit": { "state": "translated", "value": "បើក Cloud ជាផ្ទាំង" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Åpne Cloud som rute" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Otwórz Cloud jako panel" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir o Cloud como painel" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Открыть Cloud как панель" } },
-        "th": { "stringUnit": { "state": "translated", "value": "เปิด Cloud เป็นบานหน้าต่าง" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Cloud'u bölme olarak aç" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Відкрити Cloud як панель" } },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori Cloud kao okno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn Cloud som rude"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Cloud come pannello"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Cloud ជាផ្ទាំង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne Cloud som rute"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz Cloud jako panel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir o Cloud como painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть Cloud как панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิด Cloud เป็นบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud'u bölme olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити Cloud як панель"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -525543,6 +525244,360 @@
         }
       }
     },
+    "cloud.overlay.disconnected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud session disconnected"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Sitzung getrennt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Cloud déconnectée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال بجلسة Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Cloud desconectada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作階段已中斷連線"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 会话已断开连接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 세션 연결이 끊겼습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud セッションが切断されました"
+          }
+        }
+      }
+    },
+    "cloud.overlay.disconnected.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal session is offline. Reconnect when you are ready."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Terminal-Sitzung ist offline. Verbinden Sie sich wieder, wenn Sie bereit sind."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session de terminal est hors ligne. Reconnectez-vous quand vous êtes prêt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة المحطة غير متصلة. أعد الاتصال عندما تكون جاهزًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sesión del terminal está sin conexión. Reconéctese cuando esté listo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機工作階段已離線。準備好後請重新連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端会话已离线。准备好后请重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 세션이 오프라인입니다. 준비되면 다시 연결하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルセッションはオフラインです。準備ができたら再接続してください。"
+          }
+        }
+      }
+    },
+    "cloud.overlay.suspended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud session unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Sitzung nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Cloud indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Cloud غير متاحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Cloud no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作階段無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 会话不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 세션을 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud セッションを利用できません"
+          }
+        }
+      }
+    },
+    "cloud.overlay.suspended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic reconnect paused. Reconnect to try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisches Wiederverbinden pausiert. Verbinden Sie sich wieder, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnexion automatique en pause. Reconnectez-vous pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف إعادة الاتصال التلقائية مؤقتًا. أعد الاتصال للمحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconexión automática en pausa. Reconéctese para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動重新連線已暫停。請重新連線以再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动重新连接已暂停。请重新连接以重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 다시 연결이 일시 중지되었습니다. 다시 연결하여 재시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動再接続は一時停止中です。再接続してもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.overlay.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud session unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Sitzung nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Cloud indisponible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Cloud غير متاحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Cloud no disponible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作階段無法使用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 会话不可用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 세션을 사용할 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud セッションを利用できません"
+          }
+        }
+      }
+    },
+    "cloud.overlay.error.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The secure terminal endpoint is unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der sichere Terminal-Endpunkt ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le point de terminaison sécurisé du terminal est indisponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقطة نهاية المحطة الآمنة غير متاحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El punto de conexión seguro del terminal no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全的終端機端點無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全的终端端点不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보안 터미널 엔드포인트를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全なターミナルエンドポイントを利用できません。"
+          }
+        }
+      }
+    },
     "command.newCloudWorkspace.title": {
       "extractionState": "manual",
       "localizations": {
@@ -528712,6 +528767,93 @@
           "stringUnit": {
             "state": "translated",
             "value": "ペインを右にリサイズ"
+          }
+        }
+      }
+    },
+    "featureFlags.cloudMachines.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud Machines" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Maschinen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Machines Cloud" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "أجهزة Cloud" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Máquinas Cloud" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシン" } }
+      }
+    },
+    "featureFlags.cloudMachines.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。" } }
+      }
+    },
+    "cloud.feature.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are temporarily unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen sind vorübergehend nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud sont temporairement indisponibles."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Cloud غير متاحة مؤقتًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas Cloud no están disponibles temporalmente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器暫時無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器暂时不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신을 일시적으로 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンは一時的に利用できません。"
           }
         }
       }

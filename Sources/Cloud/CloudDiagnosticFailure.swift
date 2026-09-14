@@ -44,7 +44,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .sessionRefreshFailed: return .sessionRefresh
             case .backendUnreachable: return .network
             case .malformedResponse: return .response
-            case .disabledByManagedPolicy: return .permission
+            case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
             case .httpStatus(let status, _): return classify(status: status)
             }
@@ -54,6 +54,17 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .timedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
             case .clientMissing, .spawnFailed, .exited: return .process
+            }
+        }
+        if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound,
+                 .noWorkspaceOnMachine, .remotePlacementUnavailable, .terminalExited: return .notFound
+            case .terminalNotCreated, .invalidSnapshot, .stateUnavailable,
+                 .invalidPreviewURL, .localForwardURLUnavailable: return .response
+            case .terminalAttachTimedOut: return .timeout
+            case .snapshotOnly, .hubUnavailable: return .unsupported
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }

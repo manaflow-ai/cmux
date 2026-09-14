@@ -196,6 +196,14 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                // A cloud machine gets its pane at once; the sidebar shares the
+                // shortcut routes' optimistic path. The local machine and a missing
+                // workspace keep the awaited create below.
+                if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
+                   let workspace = Workspace.liveWorkspace(id: workspaceID),
+                   workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
+                    return
+                }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
@@ -213,6 +221,11 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
+                    if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
+                       let workspace = Workspace.liveWorkspace(id: workspaceID),
+                       workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
+                        return
+                    }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
@@ -231,7 +244,8 @@ struct CloudTreeNodeActions {
                         _ = try await catalog.projectGroup(
                             routedGroup,
                             into: try destination(placement),
-                            focus: true
+                            focus: true,
+                            optimistic: .app
                         )
                     }
                 }
@@ -253,7 +267,7 @@ struct CloudTreeNodeActions {
                             ),
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app
+                            host: .appOptimistic
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
@@ -273,7 +287,7 @@ struct CloudTreeNodeActions {
                             routedGroup,
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
-                            host: .app,
+                            host: .appOptimistic,
                             layout: layout
                         )
                         catalog.bindCloudWorkspace(
@@ -442,7 +456,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .app
+            host: .appOptimistic
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,
