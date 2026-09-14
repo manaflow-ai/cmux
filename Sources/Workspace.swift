@@ -7538,10 +7538,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
             return session.connectionPresentation
         }
+        let surfaceConnectionState: WorkspaceRemoteConnectionState
+        switch remoteTerminalSessionStatesBySurfaceId[surfaceId]?.phase {
+        case .some(.connected):
+            // A workspace controller can reconnect while this terminal's
+            // established PTY remains usable. Its per-surface liveness owns
+            // the card, so the controller state cannot cover this pane.
+            return nil
+        case .some(.launching):
+            // A workspace can be connected through another pane. Keep this
+            // panel's loading card until its own attach callback arrives.
+            surfaceConnectionState = remoteConnectionState == .connected
+                ? .connecting
+                : remoteConnectionState
+        case .some(.ended):
+            surfaceConnectionState = .disconnected
+        case .none:
+            surfaceConnectionState = remoteConnectionState
+        }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
-            connectionState: remoteConnectionState,
+            connectionState: surfaceConnectionState,
             detail: remoteConnectionDetail
         )
     }

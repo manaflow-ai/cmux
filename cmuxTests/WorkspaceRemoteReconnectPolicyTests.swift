@@ -107,6 +107,33 @@ struct WorkspaceRemoteReconnectPolicyTests {
 @Suite("Cloud terminal reconnect overlay policy")
 struct CloudTerminalReconnectOverlayPolicyTests {
     @Test @MainActor
+    func connectedLegacyCloudSurfaceSuppressesWorkspaceReconnectCard() throws {
+        let workspace = Workspace()
+        let panel = try #require(workspace.focusedTerminalPanel)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cloud VM",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_015,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            managedCloudVMID: "machine",
+            terminalStartupCommand: "cmux vm ssh-attach --id machine"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: panel.id,
+            relayPort: configuration.relayPort
+        ))
+        workspace.remoteConnectionState = .reconnecting
+
+        #expect(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panel.id) == nil)
+    }
+
+    @Test @MainActor
     func nativeCloudAttachmentOwnsPresentationWhenCatalogProjectionIsMissing() throws {
         let workspace = Workspace()
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
