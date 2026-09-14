@@ -3866,5 +3866,11 @@
         "action": "គ្រប់គ្រងគម្រោង"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "អ៊ីមែល",
+    "emailUnavailable": "មិនមានអ៊ីមែល",
+    "organization": "ស្ថាប័ន",
+    "personalAccount": "គណនីផ្ទាល់ខ្លួន"
   }
 }

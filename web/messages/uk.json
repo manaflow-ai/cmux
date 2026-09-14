@@ -3942,5 +3942,11 @@
         "action": "Керувати тарифом"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Електронна пошта",
+    "emailUnavailable": "адреса електронної пошти недоступна",
+    "organization": "Організація",
+    "personalAccount": "особистий обліковий запис"
   }
 }

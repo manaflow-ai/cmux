@@ -12,10 +12,10 @@ import Testing
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
     private final class HoverWindow: NSWindow {
-        var isKeyForTesting = false
+        var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero
 
-        override var isKeyWindow: Bool { isKeyForTesting }
+        override var isKeyWindow: Bool { simulatedKeyWindow }
         override var mouseLocationOutsideOfEventStream: NSPoint { pointerOnScreen }
     }
 
@@ -317,7 +317,7 @@ struct CloudTreeNativeDragOwnershipTests {
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(buttons.alphaValue == 0)
-        window.isKeyForTesting = true
+        window.simulatedKeyWindow = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(buttons.alphaValue == 1)
         _ = window
