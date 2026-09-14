@@ -287,19 +287,56 @@ struct MachinesPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var cloudMachinesUnavailableNotice: some View {
+        switch viewModel.listProblem ?? .unreachable {
+        case .sessionRejected:
+            cloudMachinesNotice(
+                symbolName: "person.crop.circle.badge.exclamationmark",
+                title: String(localized: "machines.sessionRejected.title", defaultValue: "Sign-in needs a refresh"),
+                actionTitle: String(localized: "machines.sessionRejected.signInAgain", defaultValue: "Sign Out & Sign In Again"),
+                actionIdentifier: "CloudMachinesSessionRejectedSignInButton",
+                action: signOutForFreshSignIn
+            )
+        case .requiresPro:
+            cloudMachinesNotice(
+                symbolName: "sparkles",
+                title: String(localized: "machines.requiresPro.title", defaultValue: "Cloud machines need cmux Pro"),
+                actionTitle: String(localized: "machines.requiresPro.upgrade", defaultValue: "Upgrade to Pro"),
+                actionIdentifier: "CloudMachinesRequiresProUpgradeButton"
+            ) {
+                ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
+            }
+        case .unreachable:
+            cloudMachinesNotice(
+                symbolName: "cloud.slash",
+                title: String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"),
+                actionTitle: String(localized: "machines.unavailable.retry", defaultValue: "Retry"),
+                actionIdentifier: "CloudMachinesUnavailableRetryButton"
+            ) {
+                viewModel.refresh()
+            }
+        }
+    }
+
+    private func cloudMachinesNotice(
+        symbolName: String,
+        title: String,
+        actionTitle: String,
+        actionIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "cloud.slash")
+            Image(systemName: symbolName)
                 .font(.system(size: 11, weight: .semibold))
-            Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
+            Text(title)
                 .cmuxFont(size: 11)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            Button(String(localized: "machines.unavailable.retry", defaultValue: "Retry")) {
-                viewModel.refresh()
-            }
-            .buttonStyle(.link)
-            .cmuxFont(size: 11)
+            Button(actionTitle, action: action)
+                .buttonStyle(.link)
+                .cmuxFont(size: 11)
+                .accessibilityIdentifier(actionIdentifier)
         }
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
