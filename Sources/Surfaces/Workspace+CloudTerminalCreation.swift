@@ -90,12 +90,19 @@ extension Workspace {
         createdResource: SurfaceResource? = nil
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
-        guard let provider = catalog.provider(for: resource.machine) else { return false }
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
+        guard let provider = catalog.provider(for: machine) else {
+            Task { @MainActor in
+                self.presentCloudPaneCreationFailure(
+                    machine: machine, error: SurfaceCatalogError.noProvider(machine), requestID: requestID
+                )
+            }
+            return true
+        }
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
-        if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
+        if createdResource == nil, remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
                 self.presentCloudPaneCreationFailure(
                     machine: machine,
