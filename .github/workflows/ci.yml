@@ -1519,11 +1519,14 @@ jobs:
             set -e
           fi
 
-          scripts/ci/classify-app-host-test-result.sh "$EXIT_CODE" "$TEST_OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
-            # A tolerated nonzero status must also have no unexpected failure in
-            # any XCTest summary, not just the last one.
-            python3 scripts/ci/classify-app-host-test-output.py "$TEST_OUTPUT"
+            # Expected failures are normalized inside run_unit_test_batch. Any
+            # remaining non-zero status is a real batch failure or an incomplete
+            # run with no trustworthy summary and must stay red. Reclassifying the
+            # whole log here would read an earlier batch's clean summary for a
+            # batch that crashed before printing its own.
+            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
+            exit "$EXIT_CODE"
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
