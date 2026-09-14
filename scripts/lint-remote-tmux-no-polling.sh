@@ -116,7 +116,9 @@ while IFS= read -r hit; do
     used="$(grep -cxF "$key" "$used_file" 2>/dev/null)" || used=0
     if [ "${allowance:-0}" -gt "${used:-0}" ]; then
       allowed=1
-      printf '%s\n' "$key" >> "$used_file"
+      if ! printf '%s\n' "$key" >> "$used_file"; then
+        echo "lint-remote-tmux-no-polling: cannot record a used baseline allowance" >&2; exit 2
+      fi
     fi
   fi
 
