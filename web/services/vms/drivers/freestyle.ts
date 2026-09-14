@@ -46,7 +46,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
-import { isProviderIdentityNotFoundError } from "../providerErrors";
+import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
@@ -144,10 +144,6 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
-const FREESTYLE_SSH_HOST = "beta-ssh.freestyle.sh";
-const FREESTYLE_SSH_PORT = 22;
-const CMUX_LINUX_USER = "cmux";
-
 /**
  * Every guest command the driver runs is administrative — systemd, sudoers, the
  * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
@@ -913,47 +909,22 @@ export class FreestyleProvider implements VMProvider {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
   }
 
-  async openSSH(vmId: string): Promise<import("./types").SSHEndpoint> {
-    return withVmSpan(
-      "cmux.vm.provider.open_ssh",
-      "provider",
-      spanAttributes(vmId, "open_ssh"),
-      async (span) => {
-        const fs = this.deps.client();
-        let identityId = "";
-        try {
-          const { identity, identityId: createdIdentityId } = await fs.identities.create({});
-          identityId = createdIdentityId;
-          setSpanAttributes(span, { "cmux.ssh.identity_created": true });
-          await identity.permissions.vm.grant({ vmId, allowedLinuxUsers: [CMUX_LINUX_USER] });
-          const { token } = await identity.tokens.create();
-          return {
-            transport: "ssh" as const,
-            host: FREESTYLE_SSH_HOST,
-            port: FREESTYLE_SSH_PORT,
-            username: `${vmId}+${CMUX_LINUX_USER}`,
-            publicKeyFingerprint: null,
-            credential: { kind: "password" as const, value: token },
-            identityHandle: identityId,
-          };
-        } catch (error) {
-          if (identityId) {
-            await fs.identities.delete(identityId).catch((cleanupError) => recordSpanError(span, cleanupError));
-          }
-          throw new ProviderError("freestyle", `openSSH(${vmId})`, error);
-        }
-      },
-    );
-  }
-
-  async revokeSSHIdentity(identityHandle: string): Promise<void> {
-    if (!identityHandle) return;
-    try {
-      await this.deps.client().identities.delete(identityHandle);
-    } catch (error) {
-      if (isProviderIdentityNotFoundError(error)) return;
-      throw new ProviderError("freestyle", `revokeSSHIdentity(${identityHandle})`, error);
-    }
+  async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
+    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), async () => {
+      const key = parseSshPublicKey(publicKey);
+      const vm = this.deps.client().vms.ref(vmId);
+      const data = await vm.data();
+      const host = freestylePortAddress(data, vmId);
+      const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
+      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
+      if (!result || result.exitCode !== 0) {
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      }
+      let hostPublicKey: string;
+      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
+      return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
+    });
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {

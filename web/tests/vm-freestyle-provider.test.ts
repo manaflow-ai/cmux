@@ -100,13 +100,13 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("openAttach stays absent while explicit SSH minting is available", () => {
+  test("legacy attach and public SSH remain unavailable", () => {
     // SSH is an explicit legacy attach verb. It must not become the default
     // transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
-    expect(typeof provider.openSSH).toBe("function");
-    expect(typeof provider.revokeSSHIdentity).toBe("function");
+    expect(provider.openSSH).toBeUndefined();
+    expect(provider.revokeSSHIdentity).toBeUndefined();
   });
 
   test("fork is not implemented, so the capability resolves false", () => {

@@ -2262,7 +2262,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port" | "resize" | "user";
+type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user";
 
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
@@ -3429,41 +3429,42 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   });
 }
 
-export function openSshEndpoint(input: {
+export function prepareScpEndpoint(input: {
+  readonly publicKey: string;
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh", {
-      forceProviderProbe: true,
+    if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
+    if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms,
     });
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
     const endpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
       input.providerVmId,
-      "ssh",
-      providers.openSSH(vm.provider, input.providerVmId),
-    );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((error) => revokeEndpointIdentity(vm.provider, endpoint).pipe(Effect.andThen(Effect.fail(error)))),
+      "scp",
+      providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey),
+      input.maxActiveVms,
     );
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
       vmId: vm.id,
-      eventType: "vm.ssh_endpoint",
+      eventType: "vm.scp_endpoint",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { credentialKind: endpoint.credential.kind },
+      metadata: { transport: "wireguard-scp", expiresAtUnix: endpoint.expiresAtUnix },
     }).pipe(Effect.catchAll(() => Effect.void));
     return endpoint;
   });
