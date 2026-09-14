@@ -65,19 +65,23 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
             if connection != nil, !admission.reopen() { return }
-            flushInputBytes()
             self.connection = connection
-            guard connection != nil else { return }
-            var handedOff = 0
-            for line in pendingLines {
-                guard handOff(line) else { break }
-                handedOff += 1
-                pendingByteCount -= line.count
-            }
-            // Only false is known not to have been retained. Replaying a true
-            // handoff after a transport failure could duplicate remote input.
-            pendingLines.removeFirst(handedOff)
+            flushPendingLines()
+            flushInputBytes()
         }
+    }
+
+    private func flushPendingLines() {
+        guard connection != nil else { return }
+        var handedOff = 0
+        for line in pendingLines {
+            guard handOff(line) else { break }
+            handedOff += 1
+            pendingByteCount -= line.count
+        }
+        // Only false is known not to have been retained. Replaying a true
+        // handoff after a transport failure could duplicate remote input.
+        pendingLines.removeFirst(handedOff)
     }
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.

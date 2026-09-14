@@ -138,7 +138,7 @@ import Testing
             inputQueue.suspend()
             router.setConnection(connection)
             for byte in expected { router.send(.bytes(Data([byte]))) }
-            router.setConnection(nil)
+            router.setConnection(connection)
             inputQueue.resume()
             try await Self.blocking { inputQueue.sync {} }
             writerQueue.resume()
