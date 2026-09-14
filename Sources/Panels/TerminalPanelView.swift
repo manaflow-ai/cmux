@@ -122,9 +122,10 @@ struct TerminalPanelView: View {
             .id(panel.id)
             .background(Color.clear)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .top) {
-                CloudTerminalAttachmentBanner(status: panel.cloudAttachment)
-            }
+            // CloudTerminalOverlayCoordinator is the sole reconnect presenter.
+            // The attachment status remains available to startup loading, but
+            // rendering it here would put a second reconnect indicator above
+            // the native card while the same session is resolving.
             .overlay {
                 CloudTerminalStartupLoadingView(readiness: panel.cloudStartupReadiness)
             }
