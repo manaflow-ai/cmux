@@ -19164,7 +19164,7 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
-private extension NSWindow {
+extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
               textView.isFieldEditor,
