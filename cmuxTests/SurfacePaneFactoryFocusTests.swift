@@ -170,6 +170,57 @@ import Testing
         }
     }
 
+    @Test("Cloud failure controls stay above native surfaces and stop intercepting input after dismissal")
+    func cloudFailureOwnsItsRenderedHitRegion() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)"
+        })
+        let target = try #require(AppWindowChromeComposition().contentOverlayTargetResolver.installationTarget(for: window))
+        let store = harness.workspace.cloudPaneCreationFailureStore
+        let request = store.beginRequest()
+        store.present(machine: .cloud("overlay-test"), error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("overlay-test"), requestID: request)
+
+        func card() -> NSView? {
+            target.container.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
+        }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while card() == nil, ContinuousClock.now < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        let overlay = try #require(card())
+        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+
+        // A browser portal installed after the card must remain underneath it.
+        let browserPortal = WindowBrowserPortal(window: window)
+        _ = browserPortal.webViewAtWindowPoint(.zero)
+        let nativeHosts = target.container.subviews.filter {
+            $0 is WindowTerminalHostView || $0 is WindowBrowserHostView
+        }
+        #expect(!nativeHosts.isEmpty)
+        let overlayIndex = try #require(target.container.subviews.firstIndex(of: overlay))
+        for host in nativeHosts {
+            #expect(try #require(target.container.subviews.firstIndex(of: host)) < overlayIndex)
+        }
+        let point = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: target.container.superview)
+        let hit = try #require(target.container.hitTest(point))
+        #expect(hit === overlay || hit.isDescendant(of: overlay))
+
+        let outside = overlay.convert(NSPoint(x: -20, y: overlay.bounds.midY), to: target.container.superview)
+        if let outsideHit = target.container.hitTest(outside) {
+            #expect(outsideHit !== overlay && !outsideHit.isDescendant(of: overlay))
+        }
+
+        store.dismiss(id: try #require(store.failure?.id))
+        let dismissDeadline = ContinuousClock.now + .seconds(3)
+        while card() != nil, ContinuousClock.now < dismissDeadline {
+            await Task.yield()
+        }
+        #expect(card() == nil)
+    }
+
     /// Ensures a suspended older request cannot replace a newer request's failure.
     @Test("Superseded cloud pane failures are ignored")
     func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
