@@ -186,11 +186,12 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
-    private func withDefaultPlusMenu<T>(_ body: (NSMenu) throws -> T) throws -> T {
+    private func withDefaultPlusMenu<T>(signedIn: Bool = true, _ body: (NSMenu) throws -> T) throws -> T {
         let (store, root) = try loadStore(globalJSON: "{}")
         defer { try? FileManager.default.removeItem(at: root) }
         XCTAssertFalse(store.newWorkspaceContextMenuIsConfigured)
         let appDelegate = AppDelegate()
+        installDependencies(on: appDelegate, presenter: RecordingSheetPresenter(), signedIn: signedIn)
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: tabManager,
@@ -256,6 +257,16 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
+    func testPlusMenuHidesCloudRowsWhenSignedOut() throws {
+        setCloudMachinesEnabled(true)
+        try withDefaultPlusMenu(signedIn: false) { menu in
+            let actions = builtInMenuRows(menu).map(\.action)
+            XCTAssertFalse(actions.contains(.newCloudWorkspace))
+            XCTAssertFalse(actions.contains(.newCloudMachine))
+            XCTAssertEqual(actions.prefix(3).map { $0 }, [.newWorkspace, .newTerminal, .newBrowser])
+        }
+    }
+
     func testPlusMenuHidesBrowserRowWhenBrowserIsDisabled() throws {
         setCloudMachinesEnabled(true)
         UserDefaults.standard.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
@@ -276,6 +287,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         XCTAssertTrue(store.configurationIssues.isEmpty)
         let appDelegate = AppDelegate()
+        installDependencies(on: appDelegate, presenter: RecordingSheetPresenter())
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
@@ -283,7 +295,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
         let rows = builtInMenuRows(menu)
         XCTAssertEqual(rows.prefix(2).map(\.action), [.newTerminal, .newCloudWorkspace])
-        XCTAssertEqual(rows[1].item.keyEquivalent, "y")
+        XCTAssertEqual(rows.dropFirst().first?.item.keyEquivalent, "y")
     }
 
     // MARK: Shared action path

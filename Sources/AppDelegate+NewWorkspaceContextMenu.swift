@@ -79,7 +79,7 @@ extension AppDelegate {
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
                 guard case .action(let menuAction) = item,
                       case .builtIn(let builtIn) = menuAction.action.action else { return true }
-                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
+                return isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
             },
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
             templateNames: savedLayoutNames(),
@@ -99,12 +99,12 @@ extension AppDelegate {
 
     /// Feature gates for built-in plus-menu rows, evaluated when the menu
     /// opens (not at config load) so flag and setting flips apply at once.
-    /// Mirrors the command palette's gates for the same actions.
-    static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
+    /// Cloud rows ask this delegate's cloud operation controller, which the app
+    /// wires to the Cloud Machines feature and sign-in.
+    func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
         switch action {
         case .newCloudWorkspace, .newCloudMachine, .cloudVM:
-            return CloudMachinesFeature.isEnabled
-                && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
+            return cloudWorkspaceOperationController?.isCurrentlyAvailable == true
         case .newBrowser, .newAgentChat:
             return BrowserAvailabilitySettings.isEnabled()
         case .newSimulator:
