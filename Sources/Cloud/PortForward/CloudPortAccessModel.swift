@@ -22,7 +22,7 @@ final class CloudPortAccessModel: Identifiable {
     private(set) var tunnelState: CloudTunnelState = .off
     private(set) var prefersForwarding = false
     let vpn: CloudVPNSetupModel
-    private let coordinator: CloudTunnelCoordinator?
+    private var coordinator: CloudTunnelCoordinator?
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
@@ -71,6 +71,14 @@ final class CloudPortAccessModel: Identifiable {
                 self?.acceptTunnelState(state)
             }
         }
+    }
+
+    /// Providers can materialize before the registry installs its shared
+    /// tunnel coordinator. Attach late so those panes can observe VPN state.
+    func attach(coordinator: CloudTunnelCoordinator) {
+        guard self.coordinator == nil, phase != .closed else { return }
+        self.coordinator = coordinator
+        observe()
     }
 
     func acceptTunnelState(_ state: CloudTunnelState) {

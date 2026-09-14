@@ -83,6 +83,71 @@ private func chainGateFrame(
     )
 }
 
+// Render-grid continuity advances when a frame is admitted, before the
+// renderer acknowledges the chunk. A valid delta queued behind an in-flight
+// frame must retain the admission decision made against its own predecessor;
+// recomputing it at yield time would see the newer shared cursor and route the
+// delta through an unnecessary verified replay.
+@MainActor
+@Test func queuedRenderGridDeltaRetainsAdmissionReplayPolicy() async throws {
+    let surfaceID = "terminal-queued-policy"
+    let store = MobileShellComposite.preview()
+    store.selectedTerminalID = MobileTerminalPreview.ID(rawValue: surfaceID)
+    store.terminalOutputTransport = .renderGrid
+    store.supportedHostCapabilities = [
+        MobileShellComposite.terminalVerifiedReplayCapability,
+        MobileShellComposite.terminalScreenAnchorCapability,
+    ]
+    var outputIterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    var baseline = try chainGateFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        revision: 1,
+        full: true,
+        text: "baseline"
+    )
+    baseline.anchor = .screen
+    baseline.historyRows = 0
+    store.deliverAuthoritativeTerminalRenderGrid(baseline, source: "event")
+    let baselineChunk = try #require(await outputIterator.next())
+    #expect(baselineChunk.requiresVerifiedReplay)
+
+    var firstDelta = try chainGateFrame(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        revision: 2,
+        full: false,
+        baseRevision: 1,
+        text: "first-delta"
+    )
+    firstDelta.anchor = .screen
+    firstDelta.historyRows = 0
+    firstDelta.deltaBaseHistoryRows = 0
+    store.deliverAuthoritativeTerminalRenderGrid(firstDelta, source: "event")
+
+    var secondDelta = try chainGateFrame(
+        surfaceID: surfaceID,
+        stateSeq: 3,
+        revision: 3,
+        full: false,
+        baseRevision: 2,
+        text: "second-delta"
+    )
+    secondDelta.anchor = .screen
+    secondDelta.historyRows = 0
+    secondDelta.deltaBaseHistoryRows = 0
+    store.deliverAuthoritativeTerminalRenderGrid(secondDelta, source: "event")
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 2)
+    #expect(store.terminalRenderGridRevisionContinuityBySurfaceID[surfaceID]?.renderRevision == 3)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: baselineChunk.streamToken)
+    let queuedChunk = try #require(await outputIterator.next())
+    #expect(queuedChunk.sourceRenderGridFrame?.renderRevision == 2)
+    #expect(!queuedChunk.requiresVerifiedReplay)
+}
+
 // Legacy producers emit deltas without a base revision; the history chain
 // remains their only guard and delivery must keep painting them.
 @MainActor

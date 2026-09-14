@@ -21,6 +21,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
     var endSequence: UInt64?
+    /// Whether this delivery was admitted to the verified replay path. This
+    /// decision is captured before delivery advances render-grid continuity;
+    /// queued chunks must retain the admission result until they are yielded.
+    let requiresVerifiedReplay: Bool
 
     var replaceable: Bool {
         replacementScope != nil
@@ -31,31 +35,39 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        endSequence: UInt64? = nil
+        endSequence: UInt64? = nil,
+        requiresVerifiedReplay: Bool = false
     ) {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = endSequence
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
-    init(theme frame: MobileTerminalRenderGridFrame) {
+    init(
+        theme frame: MobileTerminalRenderGridFrame,
+        requiresVerifiedReplay: Bool = false
+    ) {
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
         self.endSequence = nil
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
     init(
         renderGrid frame: MobileTerminalRenderGridFrame,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
+        requiresVerifiedReplay: Bool = false
     ) {
         self.payload = .renderGrid(frame)
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
         self.endSequence = frame.stateSeq
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
     var bytes: Data {

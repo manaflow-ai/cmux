@@ -2,9 +2,7 @@ import CmuxTerminal
 import CmuxCore
 import Foundation
 import os
-
 private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudManualMirror")
-
 /// Owns one native cloud-terminal attachment.
 ///
 /// The session is the only bridge between a remote cmux-tui PTY and a local
@@ -20,18 +18,14 @@ final class CloudTuiManualMirrorSession {
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
+
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
     private var diagnosticReplayReceived = false
     private var diagnosticDeadline: Task<Void, Never>?
-    var startupReadiness = CloudTerminalStartupReadiness()
-    var startupDeadlineTask: Task<Void, Never>?
-    // MainActor owns observer/token mutation; unsafe only covers nonisolated ARC deinit.
-    nonisolated(unsafe) var startupFrameObserver: NSObjectProtocol?
-    nonisolated(unsafe) var releaseStartupFrameDemand: (() -> Void)?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    weak var surface: TerminalSurface?
+    private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
@@ -40,7 +34,7 @@ final class CloudTuiManualMirrorSession {
     private var runtimeSampleTask: Task<Void, Never>?
     private var socketPath: String?
     private var nextRequestID: UInt64 = 1
-    var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
+    private var pendingRequests: [UInt64: CloudTuiManualMirrorRequestKind] = [:]
     /// Capabilities belong to the current control connection. They must not
     /// survive a daemon restart because an older generation may not implement
     /// lease-fenced sizing or initial attach dimensions.
@@ -85,17 +79,11 @@ final class CloudTuiManualMirrorSession {
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
     private var automaticReconnectSuppressed = false
-    deinit {
-        if let startupFrameObserver { NotificationCenter.default.removeObserver(startupFrameObserver) }
-        startupDeadlineTask?.cancel(); releaseStartupFrameDemand?()
-    }
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
         guard let state = CloudManualMirrorPresentation(
-            phase: phase,
-            replayReceived: diagnosticReplayReceived,
-            rendererReady: startupReadiness.isReady
+            phase: phase, replayReceived: diagnosticReplayReceived
         ).connectionState else { return nil }
         var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
@@ -192,12 +180,10 @@ final class CloudTuiManualMirrorSession {
         }
         surface.onManualWindowAttached = { [weak self] in
             self?.runtimeReady()
-            self?.updateStartupVisibility(true)
         }
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
-        beginStartupReadiness(on: surface)
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
@@ -231,12 +217,12 @@ final class CloudTuiManualMirrorSession {
             claimInFlight = false
             discardPendingSizingRequests()
             resizeScheduler.resetForReconnect()
-            updateStartupVisibility(false)
             return
         }
-        if phase == .disconnected || phase == .idle { onNeedsReconnect() }
+        if (phase == .disconnected || phase == .idle), allowsAutomaticReconnect {
+            onNeedsReconnect()
+        }
         runtimeReady()
-        updateStartupVisibility(visible)
     }
     /// Rebinds the public terminal to the numeric surface ID from a fresh
     /// compatibility-tree snapshot. Numeric IDs are process-local and can be
@@ -290,7 +276,6 @@ final class CloudTuiManualMirrorSession {
         resizeScheduler.resetForReconnect()
         lastRemoteGrid = nil
         diagnosticReplayReceived = false
-        resetStartupReadiness()
     }
     /// Samples the grid after Ghostty has created its runtime surface. Runtime
     /// creation can happen on a hidden bootstrap window; those dimensions are
@@ -317,7 +302,7 @@ final class CloudTuiManualMirrorSession {
     }
     /// Starts or rebinds the byte attachment to the current link socket.
     func reconnect(socketPath: String) {
-        guard phase != .stopped, remoteSurfaceID != 0 else { return }
+        guard phase != .stopped else { return }
         if self.socketPath == socketPath,
            (connection != nil || connectTask != nil) {
             if phase == .attached {
@@ -433,7 +418,6 @@ final class CloudTuiManualMirrorSession {
         runtimeSampleTask?.cancel()
         runtimeSampleTask = nil
         inputRouter.invalidate()
-        endStartupReadiness()
         if let connection,
            wasAttached,
            let remoteLease {
@@ -497,7 +481,6 @@ final class CloudTuiManualMirrorSession {
             replayNeedsReset = false
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
-            updateStartupReplay()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -514,7 +497,6 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
-            updateStartupReplay()
             if phase == .attached { finishDiagnostics() }
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
@@ -565,7 +547,7 @@ final class CloudTuiManualMirrorSession {
         surface?.processRemoteOutput(delta)
     }
 
-    func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
+    private func transitionToDisconnected(reason: CloudTerminalAttachmentInterruption) {
         tearDownConnection()
         guard phase != .stopped else { return }
         let diagnosticError: CloudDiagnosticFailure
@@ -681,7 +663,6 @@ final class CloudTuiManualMirrorSession {
             attachResponseReceived = true
             remoteLease = lease
             transition(to: .attached)
-            updateStartupAttachment()
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
@@ -883,4 +864,23 @@ final class CloudTuiManualMirrorSession {
         return nextRequestID
     }
 
+    /// Removes size/claim responses that belong to a hidden projection. Their
+    /// commands may still be processed remotely, but their acknowledgements
+    /// must not retire a newer grid after the pane is revealed.
+    private func discardPendingSizingRequests() {
+        pendingRequests = pendingRequests.filter { _, kind in
+            switch kind {
+            case .resize(_), .claim:
+                return false
+            case .identify, .clientInfo, .attach, .ping:
+                return true
+            }
+        }
+    }
+    private static func isUnsupportedClaimError(_ error: String?) -> Bool {
+        guard let error = error?.lowercased() else { return false }
+        return error.contains("unknown command")
+            || error.contains("unsupported")
+            || error.contains("unrecognized command")
+    }
 }
