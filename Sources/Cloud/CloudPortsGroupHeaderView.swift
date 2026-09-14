@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 /// Native Ports group header with an inline, accessible optional-VPN action.
 @MainActor
