@@ -91,7 +91,7 @@ import Testing
             Issue.record("unfinished command or pipe drain must not be reported as success")
         } catch is CancellationError {
             #expect(cancel)
-        } catch CloudMachineLink.LinkError.timedOut {
+        } catch CloudMachineLink.LinkError.commandTimedOut {
             #expect(!cancel)
         }
         #expect(kill(pids[0], 0) == -1 && errno == ESRCH, "the directly owned child must be reaped")
@@ -101,6 +101,7 @@ import Testing
             let size = Int32(MemoryLayout<proc_bsdinfo>.size)
             let bytes = proc_pidinfo(descendantPID, PROC_PIDTBSDINFO, 0, &info, size)
             #expect(bytes == 0 || info.pbi_status == 5, "a pipe-holding descendant survived cleanup")
+            if bytes != 0, info.pbi_status != 5 { _ = kill(descendantPID, SIGKILL) }
         }
     }
 }

@@ -51,9 +51,9 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
-            case .timedOut: return .timeout
+            case .timedOut, .commandTimedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
-            case .clientMissing, .spawnFailed, .exited: return .process
+            case .clientMissing, .spawnFailed, .exited, .commandOutputFailed, .commandCleanupFailed: return .process
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
