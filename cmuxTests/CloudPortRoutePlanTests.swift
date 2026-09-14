@@ -122,6 +122,24 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("A VPN loss moves an existing direct pane onto the shared forward")
+    func vpnLossFallsBackToForward() async {
+        var starts = 0
+        let model = makeModel(
+            canForward: true,
+            forward: { _ in
+                starts += 1
+                return 42_000
+            }
+        )
+        model.acceptTunnelState(.up)
+        #expect(await wait { model.phase == .direct })
+        model.acceptTunnelState(.off)
+        #expect(await wait { model.phase == .forwarded(42_000) })
+        #expect(starts == 1)
+        await model.retire()
+    }
+
     @Test("A failed load returns to native connection UI")
     func failedLoadShowsControls() async {
         let model = makeModel()
@@ -162,9 +180,10 @@ struct CloudPortRoutePlanTests {
         coordinator: CloudTunnelCoordinator? = nil,
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
-        stop: @escaping @MainActor () async -> Void = {}
+        stop: @escaping @MainActor () async -> Void = {},
+        canForward: Bool = false
     ) -> CloudPortAccessModel {
-        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop)
+        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: coordinator, wake: wake, startForward: forward, stopForward: stop, canForward: canForward)
     }
 
     private enum TestForwardError: Error { case unavailable }

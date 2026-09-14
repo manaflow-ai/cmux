@@ -27,6 +27,7 @@ final class CloudPortAccessModel: Identifiable {
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
+    private let canForward: Bool
     private var observation: Task<Void, Never>?
     private var vpnObservation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
@@ -39,7 +40,8 @@ final class CloudPortAccessModel: Identifiable {
         coordinator: CloudTunnelCoordinator?,
         wake: @escaping @MainActor () async throws -> Void,
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
-        stopForward: @escaping @MainActor () async -> Void
+        stopForward: @escaping @MainActor () async -> Void,
+        canForward: Bool = false
     ) {
         id = CloudHubPortForwarder.Key(machineID: machineID, port: target.port)
         self.target = target
@@ -48,6 +50,7 @@ final class CloudPortAccessModel: Identifiable {
         self.wake = wake
         self.startForward = startForward
         self.stopForward = stopForward
+        self.canForward = canForward
     }
 
     var failureMessage: String? {
@@ -100,6 +103,7 @@ final class CloudPortAccessModel: Identifiable {
             generation += 1
             operation?.cancel()
             phase = .needsVPN
+            if canForward { forward() }
         }
     }
 

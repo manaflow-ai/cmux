@@ -97,7 +97,8 @@ extension CmuxTuiSurfaceProvider {
                 },
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
-                }
+                },
+                canForward: portForwards != nil
             )
         }
     }
