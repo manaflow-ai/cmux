@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettings
 import Foundation
 import XCTest
+import Testing
 import CmuxCloudMachines
 
 #if canImport(cmux_DEV)
@@ -103,7 +104,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let shortcut = action.defaultShortcut
         XCTAssertEqual(shortcut.key, "y")
         XCTAssertTrue(shortcut.command)
-        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertFalse(shortcut.control)
         XCTAssertEqual(shortcut.displayString, "⇧⌘Y")
@@ -125,7 +126,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let settingsAction = try XCTUnwrap(
             ShortcutAction(rawValue: KeyboardShortcutSettings.Action.newCloudWorkspace.rawValue)
         )
-        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "y", command: true))
+        XCTAssertEqual(settingsAction.defaultStroke, ShortcutStroke(key: "y", command: true, shift: true))
         XCTAssertEqual(settingsAction.displayName, KeyboardShortcutSettings.Action.newCloudWorkspace.label)
         XCTAssertEqual(settingsAction.group, .workspace)
         XCTAssertTrue(ShortcutAction.settingsVisibleActions.contains(settingsAction))
@@ -210,9 +211,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             XCTAssertEqual(hints[.newWorkspace]?.keyEquivalent, "n")
             XCTAssertEqual(hints[.newWorkspace]?.keyEquivalentModifierMask, [.command])
             XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalent, "y")
-            XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalentModifierMask, [.command])
+            XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalentModifierMask, [.command, .shift])
             XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalent, "y")
-            XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalentModifierMask, [.command, .shift])
+            XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalentModifierMask, [.command])
             XCTAssertEqual(hints[.newTerminal]?.keyEquivalent, "t")
             XCTAssertEqual(hints[.newTerminal]?.keyEquivalentModifierMask, [.command])
             XCTAssertEqual(hints[.newBrowser]?.keyEquivalent, "l")
@@ -344,13 +345,13 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         ))
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
-        XCTAssertEqual(presenter.presentCount, 0)
+        XCTAssertEqual(presenter.presentCount, 1)
 #else
         throw XCTSkip("Shortcut routing seam is DEBUG-only")
 #endif
     }
 
-    func testCommandYCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
+    func testDefaultMachineWorkspaceCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
@@ -423,7 +424,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             ))
         }
 
-        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command], 16)))
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command, .shift], 16)))
         XCTAssertEqual(presenter.presentCount, 0, "the old ⌘Y binding must not fire after a rebind")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: try keyEvent("K", [.command, .shift], 40)))
@@ -441,4 +442,47 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         )
     }
 
+}
+
+@Suite(.serialized)
+@MainActor
+struct CurrentCloudWorkspaceActionTests {
+    @Test func newWorkspaceCapturesSelectedMachineAndDoesNotFallBackToLocalOnRepeat() async throws {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
+        let originalIDs = manager.tabs.map(\.id)
+        var targets: [String] = []
+        let store = DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        store.machineID = "different-default"
+        app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: store,
+            allowsOperation: { true },
+            loadMachines: { Issue.record("Cmd-N must not resolve the default VM"); return [] },
+            createWorkspace: { id, focus in
+                #expect(focus)
+                targets.append(id)
+                return UUID()
+            }
+        )
+        app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+        #expect(app.performNewWorkspaceAction(tabManager: manager))
+        _ = app.performNewWorkspaceAction(tabManager: manager)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "later-selection", isBase: false)
+        await app.cloudWorkspaceOperationController?.waitForPendingOperations()
+        #expect(targets == ["selected-machine"])
+        #expect(manager.tabs.map(\.id) == originalIDs)
+        #expect(store.machineID == "different-default")
+    }
+
+    @Test func unavailableCloudDoesNotCreateLocalWorkspace() throws {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
+        let originalIDs = manager.tabs.map(\.id)
+        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        #expect(manager.tabs.map(\.id) == originalIDs)
+    }
 }
