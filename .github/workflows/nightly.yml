@@ -469,6 +469,7 @@ jobs:
           cache: false
 
       - name: Build nightly app (Release)
+        timeout-minutes: 20
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
@@ -487,8 +488,26 @@ jobs:
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=100 -Xllvm -time-passes' \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+      - name: Summarize diagnostic Swift intermediates
+        if: always()
+        run: python3 scripts/ci/summarize-swift-intermediates.py
+
+      - name: Save diagnostic Swift intermediates
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-swift-intermediates
+          path: |
+            build-universal/**/*.sil
+            build-universal/**/*.ll
+            Sources/**/*.sil
+            Sources/**/*.ll
+            *.sil
+            *.ll
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
