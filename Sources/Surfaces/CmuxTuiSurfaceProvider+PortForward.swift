@@ -71,12 +71,14 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    // Opening the endpoint is also the provider's
-                    // readiness/healing operation for cached-running machines.
-                    // The returned public URL is discarded; all browser traffic
-                    // still uses the authenticated private route or loopback hub.
-                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                    _ = try await client.openPort(id: self.machineID, port: target.port)
+                    // A sleeping machine must be resumed before its private
+                    // service can accept the authenticated hub connection. Do
+                    // not create a control-plane preview lease for a machine
+                    // that is already awake; its private route stays private.
+                    if !self.isAwake {
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                        _ = try await client.openPort(id: self.machineID, port: target.port)
+                    }
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
                 startForward: { [weak self] target in
