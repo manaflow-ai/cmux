@@ -3201,6 +3201,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// A restored Cloud terminal can fail before its mirror session exists.
     /// Keep that failure on the placeholder panel so it cannot remain blank.
     var cloudMaterializationFailures: [UUID: (detail: String, reference: String?)] = [:]
+    /// Optimistic Cloud panes whose terminal the machine is still creating, by panel id.
+    var cloudPendingCreations: [UUID: CloudTerminalPaneReservation] = [:]
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -7526,6 +7528,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 reference: failure.reference
             )
         }
+        // A reserved pane still waiting for its terminal shows nothing but its
+        // tab spinner; only a recorded failure (above) puts a card on it.
+        if cloudPendingCreations[surfaceId] != nil { return nil }
         if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
@@ -10494,8 +10499,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
-
     private func teardownPanelResources(retireDock: Bool) {
+        cancelAllReservedCloudTerminalPanes()
+        cloudPaneCreationFailureStore.cancelAll()
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()

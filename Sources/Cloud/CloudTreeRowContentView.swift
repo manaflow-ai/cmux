@@ -25,12 +25,9 @@ enum CloudTreeIconPalette {
     static let machine = Color.accentColor
 }
 
-@MainActor
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
-    var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -57,14 +54,6 @@ struct CloudTreeRowContentView: View {
         }
     }
 
-    /// The Ports header's VPN help action. Written as statements, not a ternary: Swift 6.3
-    /// fails with "failed to produce diagnostic for expression" when a ternary joins an
-    /// optional `@MainActor` closure with `nil`.
-    private var portsHelpAction: (@MainActor (NSWindow?) -> Void)? {
-        guard showsCloudVPNWarning else { return nil }
-        return cloudVPNSetup
-    }
-
     @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
@@ -75,11 +64,11 @@ struct CloudTreeRowContentView: View {
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style)
         case .displaysPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style)
         case .workspacesGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style)
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
@@ -110,7 +99,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -120,12 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style,
-                helpAction: portsHelpAction
-            )
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -151,7 +135,7 @@ struct CloudTreeRowContentView: View {
     /// Formats the transport and screen label shown beneath a VNC display row.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
-    nonisolated static func text(for resource: SurfaceResource) -> String {
+    static func text(for resource: SurfaceResource) -> String {
         let transport = String(localized: "cloudTree.node.desktop.detail", defaultValue: "noVNC")
         guard let screen = screenLabel(displayKey: resource.id.key) else { return transport }
         return String(
@@ -163,11 +147,47 @@ struct CloudTreeRowContentView: View {
 
     /// Converts a display resource key such as `display:1` to its X display
     /// label (`:1`), returning nil for keys that are not numbered displays.
-    nonisolated static func screenLabel(displayKey key: String) -> String? {
+    static func screenLabel(displayKey key: String) -> String? {
         let prefix = "display:"
         guard key.hasPrefix(prefix) else { return nil }
         let number = key.dropFirst(prefix.count)
         return number.isEmpty ? nil : ":\(number)"
+    }
+}
+
+/// A row glyph in the shared icon slot, drawn per the style's icon treatment:
+/// monochrome label color, semantic tint, or a Settings-style filled squircle
+/// with a white glyph.
+struct CloudTreeRowIcon: View {
+    let style: CloudTreeStyle
+    let systemName: String
+    let tint: Color
+    var dimmed: Bool = false
+
+    var body: some View {
+        switch style.iconTreatment {
+        case .monochrome:
+            Image(systemName: systemName)
+                .font(.system(size: style.iconSize, weight: .regular))
+                .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+                .frame(width: style.iconSlot, alignment: .center)
+        case .tinted:
+            Image(systemName: systemName)
+                .font(.system(size: style.iconSize, weight: .regular))
+                .foregroundStyle(tint.opacity(dimmed ? 0.45 : 0.85))
+                .frame(width: style.iconSlot, alignment: .center)
+        case .chips:
+            let side = style.iconSlot - 4
+            RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
+                .fill(tint.opacity(dimmed ? 0.4 : 0.9))
+                .frame(width: side, height: side)
+                .overlay {
+                    Image(systemName: systemName)
+                        .font(.system(size: style.iconSize, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: style.iconSlot, alignment: .center)
+        }
     }
 }
 
