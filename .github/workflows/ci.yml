@@ -210,6 +210,9 @@ jobs:
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      - name: Validate actionlint downloader provenance and fallback
+        run: ./tests/test_ci_actionlint_download.sh
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
