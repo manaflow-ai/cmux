@@ -1,0 +1,33 @@
+name = "cmux-iroh-v2"
+main = "src/index.ts"
+compatibility_date = "2026-09-10"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "TEAM_CONTROL_PLANE"
+class_name = "TeamControlPlane"
+
+[[migrations]]
+tag = "v2-1"
+new_sqlite_classes = ["TeamControlPlane"]
+
+# API_TICKET_KEYS is a secret JSON object, for example {"current":"<base64url>"}.
+# Keep the key sets and Stack projects separate for every environment.
+[vars]
+ENVIRONMENT = "development"
+
+[env.staging]
+name = "cmux-iroh-v2-staging"
+[[env.staging.durable_objects.bindings]]
+name = "TEAM_CONTROL_PLANE"
+class_name = "TeamControlPlane"
+[env.staging.vars]
+ENVIRONMENT = "staging"
+
+[env.production]
+name = "cmux-iroh-v2-production"
+[[env.production.durable_objects.bindings]]
+name = "TEAM_CONTROL_PLANE"
+class_name = "TeamControlPlane"
+[env.production.vars]
+ENVIRONMENT = "production"

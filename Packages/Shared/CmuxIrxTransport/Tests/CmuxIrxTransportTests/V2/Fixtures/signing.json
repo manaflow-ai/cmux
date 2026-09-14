@@ -1,0 +1,70 @@
+{
+  "source": "workers/iroh-v2/src/crypto.ts canonicalJSON and signing-input contract",
+  "secretSeedHex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "device": {
+    "endpointId": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+    "identity": {
+      "environment": "test",
+      "projectId": "project",
+      "teamId": "team",
+      "userId": "user",
+      "deviceId": "device",
+      "appNamespace": "com.cmux.test",
+      "buildTag": "test"
+    },
+    "identityGeneration": 0,
+    "metadata": {
+      "platform": "ios",
+      "displayName": "Mac / \"Aziz\"\nمرحبا 😀 line paragraph",
+      "appVersion": "2.0",
+      "pairingEnabled": true,
+      "capabilities": [
+        "terminal"
+      ],
+      "relayURLs": [
+        "https://relay.example.com/"
+      ]
+    }
+  },
+  "challenge": {
+    "challengeId": "challenge-one",
+    "nonce": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+    "payloadHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expiresAt": 1789001800
+  },
+  "setup": {
+    "schemaId": "session.open.v1",
+    "requestId": "request-one",
+    "device": {
+      "endpointId": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+      "identity": {
+        "environment": "test",
+        "projectId": "project",
+        "teamId": "team",
+        "userId": "user",
+        "deviceId": "device",
+        "appNamespace": "com.cmux.test",
+        "buildTag": "test"
+      },
+      "identityGeneration": 0,
+      "metadata": {
+        "platform": "ios",
+        "displayName": "Mac / \"Aziz\"\nمرحبا 😀 line paragraph",
+        "appVersion": "2.0",
+        "pairingEnabled": true,
+        "capabilities": [
+          "terminal"
+        ],
+        "relayURLs": [
+          "https://relay.example.com/"
+        ]
+      }
+    },
+    "haveRevision": 9
+  },
+  "issuedAt": 1789000000,
+  "enrollmentCanonical": "{\"challengeId\":\"challenge-one\",\"device\":{\"endpointId\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"identity\":{\"appNamespace\":\"com.cmux.test\",\"buildTag\":\"test\",\"deviceId\":\"device\",\"environment\":\"test\",\"projectId\":\"project\",\"teamId\":\"team\",\"userId\":\"user\"},\"identityGeneration\":0,\"metadata\":{\"appVersion\":\"2.0\",\"capabilities\":[\"terminal\"],\"displayName\":\"Mac / \\\"Aziz\\\"\\nمرحبا 😀 line paragraph\",\"pairingEnabled\":true,\"platform\":\"ios\",\"relayURLs\":[\"https://relay.example.com/\"]}},\"nonce\":\"nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\",\"purpose\":\"cmux-iroh-v2-enrollment\"}",
+  "requestCanonical": "{\"body\":{\"device\":{\"endpointId\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"identity\":{\"appNamespace\":\"com.cmux.test\",\"buildTag\":\"test\",\"deviceId\":\"device\",\"environment\":\"test\",\"projectId\":\"project\",\"teamId\":\"team\",\"userId\":\"user\"},\"identityGeneration\":0,\"metadata\":{\"appVersion\":\"2.0\",\"capabilities\":[\"terminal\"],\"displayName\":\"Mac / \\\"Aziz\\\"\\nمرحبا 😀 line paragraph\",\"pairingEnabled\":true,\"platform\":\"ios\",\"relayURLs\":[\"https://relay.example.com/\"]}},\"haveRevision\":9,\"requestId\":\"request-one\",\"schemaId\":\"session.open.v1\"},\"endpointId\":\"ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c\",\"identity\":{\"appNamespace\":\"com.cmux.test\",\"buildTag\":\"test\",\"deviceId\":\"device\",\"environment\":\"test\",\"projectId\":\"project\",\"teamId\":\"team\",\"userId\":\"user\"},\"identityGeneration\":0,\"issuedAt\":1789000000,\"purpose\":\"cmux-iroh-v2-request\",\"requestId\":\"request-one\"}",
+  "enrollmentSignature": "D_pLmGmHpTmZw_zhveSoIuNJvf5mCwAs27Dgw_-KbgMOSWcc2Pat0yjaYCifvDDLrqX2VtiVR-JwZCUCyNmoBg",
+  "requestSignature": "OdXrHkPOfW9U2ikT9nVnkj3AALTQ0WvGdfhII3DhISOe-RKuDJg_uu0n25zhF58m8XzHSxC1uR77duBUOlY5DA"
+}
