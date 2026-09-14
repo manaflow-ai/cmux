@@ -586,8 +586,16 @@ struct IrxLiveQUICTests {
             )
         )
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
-        #expect(await engine.currentSession() == nil)
+        let cleanupDeadline = ContinuousClock.now + .seconds(2)
+        var cleanupObserved = false
+        while ContinuousClock.now < cleanupDeadline {
+            if await engine.currentSession() == nil {
+                cleanupObserved = true
+                break
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(cleanupObserved, "retired session was not cleared")
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0
                 == dialStartsBeforeRetirement
