@@ -532293,16 +532293,58 @@
     "remoteTmux.mirrorPublishedNoTopology": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصل الاتصال إلى tmux لكن لم تصل أي نافذة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Verbindung hat tmux erreicht, aber es kam nie ein Fenster an"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "the connection reached tmux but no window ever arrived"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la conexión llegó a tmux, pero nunca llegó ninguna ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la connexion a atteint tmux, mais aucune fenêtre n’est jamais arrivée"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "tmux には接続できましたが、ウィンドウが届きませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 tmux에 도달했지만 창이 하나도 도착하지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已到达 tmux，但始终没有收到任何窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已到達 tmux，但始終沒有收到任何視窗"
           }
         }
       }
