@@ -1327,7 +1327,6 @@
 		C11323210000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */; };
 		C12469AA0000000000000030 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */; };
 		C12469AA0000000000000030 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */; };
-		58E8FB4BECA84B2283E0D906 /* CmuxTuiSurfaceProvider+PendingMutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4091B3DC55D4121A082A1F0 /* CmuxTuiSurfaceProvider+PendingMutations.swift */; };
 		779E7556FC96D977E6ECCFE3 /* CmuxTuiSurfaceProvider+PlacementSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */; };
 		7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */; };
 		ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */; };
@@ -5051,7 +5050,6 @@
 		C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ManualMirror.swift"; sourceTree = "<group>"; };
 		C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PendingCreationRecovery.swift"; sourceTree = "<group>"; };
 		C12469AA0000000000000031 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PendingCreationRecovery.swift"; sourceTree = "<group>"; };
-		F4091B3DC55D4121A082A1F0 /* CmuxTuiSurfaceProvider+PendingMutations.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PendingMutations.swift"; sourceTree = "<group>"; };
 		90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PlacementSync.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000727 /* CmuxTuiSurfaceProvider+PortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+PortForward.swift"; sourceTree = "<group>"; };
 		F0508401C3A0232FEDD7F97D /* CmuxTuiSurfaceProvider+ProjectionLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+ProjectionLayout.swift"; sourceTree = "<group>"; };
@@ -12632,7 +12630,6 @@
 				C11323210000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift in Sources */,
 				C12469AA0000000000000030 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift in Sources */,
 				C12469AA0000000000000030 /* CmuxTuiSurfaceProvider+PendingCreationRecovery.swift in Sources */,
-				58E8FB4BECA84B2283E0D906 /* CmuxTuiSurfaceProvider+PendingMutations.swift in Sources */,
 				779E7556FC96D977E6ECCFE3 /* CmuxTuiSurfaceProvider+PlacementSync.swift in Sources */,
 				7A0CE1000000000000000728 /* CmuxTuiSurfaceProvider+PortForward.swift in Sources */,
 				ED88B312C3651E0A28469584 /* CmuxTuiSurfaceProvider+ProjectionLayout.swift in Sources */,
