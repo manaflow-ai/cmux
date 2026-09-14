@@ -28,8 +28,6 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-    var showsCloudVPNWarning = false
-    var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
@@ -66,11 +64,11 @@ struct CloudTreeRowContentView: View {
         case .localMachine(let row):
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil)
+            groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
         case .displaysPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil)
+            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil)
+            groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
@@ -101,7 +99,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             )
         case .browsersGroup:
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
+            groupRow(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"))
         case .browser(let row):
             CloudTreeLeafRow(
                 style: style,
@@ -111,12 +109,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
-            )
+            groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -131,6 +124,25 @@ struct CloudTreeRowContentView: View {
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
+    }
+    /// Renders a section label and its optional count.
+    private func groupRow(title: String, count: Int? = nil) -> some View {
+        HStack(alignment: .center, spacing: style.iconGap) {
+            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
+                    .tracking(style.groupLabelStyle == .uppercased ? 0.8 : 0)
+                    .cmuxFont(size: style.groupLabelSize, weight: .medium, design: style.fontDesign)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if style.showsGroupCounts, let count {
+                    Text(String(count))
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
     }
     /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {

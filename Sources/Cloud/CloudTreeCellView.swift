@@ -14,6 +14,7 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
+    private var vpnHeader: CloudPortsGroupHeaderView?
     private var vpnCallout: CloudPortsVPNEmptyStateContent?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
@@ -69,17 +70,20 @@ final class CloudTreeCellView: NSTableCellView {
         }
         #endif
         let showsCallout = showsCloudVPNWarning && node.isPortsEmptyPlaceholder
-        displayHost.isHidden = showsCallout
+        let showsPortsHeader = showsCloudVPNWarning && node.isPortsGroup
+        displayHost.isHidden = showsCallout || showsPortsHeader
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(
-                kind: node.kind,
-                style: style,
-                showsCloudVPNWarning: showsCloudVPNWarning,
-                cloudVPNSetup: showsCloudVPNWarning ? machineActions.setupVPN : nil
-            )
+            CloudTreeRowContentView(kind: node.kind, style: style)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
+        if showsPortsHeader {
+            let header = vpnHeader ?? makeVPNHeader()
+            header.isHidden = false
+            header.configure(style: style, setup: machineActions.setupVPN)
+        } else {
+            vpnHeader?.isHidden = true
+        }
         if showsCallout {
             let callout = vpnCallout ?? makeVPNCallout()
             callout.isHidden = false
@@ -160,6 +164,20 @@ final class CloudTreeCellView: NSTableCellView {
         return callout
     }
 
+    private func makeVPNHeader() -> CloudPortsGroupHeaderView {
+        let header = CloudPortsGroupHeaderView(frame: .zero)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(header)
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: displayHost.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        vpnHeader = header
+        return header
+    }
+
     func setHovered(_ hovered: Bool) {
         guard self.hovered != hovered else { return }
         self.hovered = hovered
@@ -175,14 +193,6 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point) else { return nil }
-        var candidate: NSView? = hit
-        while let view = candidate {
-            if view is CloudVPNSetupButton { return view }
-            candidate = view.superview
-        }
-        // The outline owns all ordinary row interaction. Returning nil here is
-        // what keeps a header click from being swallowed by the SwiftUI host.
         return nil
     }
 }
