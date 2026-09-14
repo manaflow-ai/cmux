@@ -10,7 +10,7 @@ extension CmuxTuiSurfaceProvider {
     /// graph reaches each receipt. The canonical graph is never edited here.
     /// A generation change, or a cursorless snapshot after a versioned receipt,
     /// retires the overlay because the old placement cannot be proven to exist.
-    private func resourcesWithPendingCreations(
+    func resourcesWithPendingCreations(
         _ resources: [SurfaceResource],
         state: CloudVMState?
     ) -> [SurfaceResource] {
@@ -80,7 +80,7 @@ extension CmuxTuiSurfaceProvider {
         resources[index] = resource
     }
 
-    private func remoteWorkspaces(for state: CloudVMState?) -> [SurfaceRemoteWorkspace]? {
+    func remoteWorkspaces(for state: CloudVMState?) -> [SurfaceRemoteWorkspace]? {
         var result = state.map(Self.remoteWorkspaces) ?? info.remoteWorkspaces ?? []
         var seen = Set(result.map(\.id))
         for pending in pendingRemoteCreations.values {
@@ -91,7 +91,7 @@ extension CmuxTuiSurfaceProvider {
         return result.isEmpty ? nil : result
     }
 
-    private func pendingMutationMetadata() -> [CloudVMPendingMutation] {
+    func pendingMutationMetadata() -> [CloudVMPendingMutation] {
         var writes = pendingRemoteCreations.map { resourceID, pending in
             CloudVMPendingMutation(
                 kind: .terminalCreate,
@@ -134,7 +134,7 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    private func observationWithPendingWrites(
+    func observationWithPendingWrites(
         _ base: CloudVMStateObservation = .current
     ) -> CloudVMStateObservation {
         var observation = base
@@ -143,7 +143,7 @@ extension CmuxTuiSurfaceProvider {
         return observation
     }
 
-    private func publishPendingMutationMetadata() {
+    func publishPendingMutationMetadata() {
         catalog.updateCloudPendingWrites(
             on: machine,
             writes: pendingMutationMetadata(),
@@ -151,7 +151,7 @@ extension CmuxTuiSurfaceProvider {
         )
     }
 
-    private func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
+    func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
         pendingRemoteCreations[resourceID]
     }
 
