@@ -312,8 +312,8 @@ struct CloudTreeNativeDragOwnershipTests {
         container.layoutSubtreeIfNeeded()
         let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
         let buttons = try #require(cell.subviews.last)
-        let rowPoint = NSPoint(x: outline.rect(ofRow: 0).midX, y: outline.rect(ofRow: 0).midY)
-        window.pointerOnScreen = window.convertToScreen(outline.convert(rowPoint, to: nil))
+        let rowRect = window.convertToScreen(outline.convert(outline.rect(ofRow: 0), to: nil))
+        window.pointerOnScreen = NSPoint(x: rowRect.midX, y: rowRect.midY)
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(buttons.alphaValue == 0)
