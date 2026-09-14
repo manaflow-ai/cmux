@@ -21,6 +21,9 @@ on:
       test_timeout:
         type: string
         default: "120"
+      job_timeout:
+        type: number
+        default: 0
   workflow_dispatch:
     inputs:
       ref:
@@ -49,11 +52,16 @@ on:
         description: "Per-test timeout in seconds (default: 120)"
         required: false
         default: "120"
+      job_timeout:
+        description: "Job timeout in minutes; 0 keeps the default for the selected suites"
+        required: false
+        type: number
+        default: 0
 
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
+    timeout-minutes: ${{ inputs.job_timeout > 0 && inputs.job_timeout || (inputs.unit_test_suites != '' && 35 || 20) }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
