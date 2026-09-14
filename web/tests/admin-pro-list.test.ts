@@ -3,8 +3,17 @@ import { describe, expect, test } from "bun:test";
 import {
   isValidScanCursor,
   listAllPendingEmailGrants,
+  loadProListSnapshot,
+  loadProListSnapshotWithin,
+  ProListDatabaseUnavailableError,
+  ProListTimeoutError,
+  type ProListClock,
+  withStatementTimeout,
+  mapWithConcurrency,
+  PRO_LIST_MAX_ROWS,
   listStripeProSubscribers,
   listStripeTeamSubscriptions,
+  resolveStripeTeamNames,
   scanManualTeamGrants,
   scanManualUserGrants,
   type ProListDb,
@@ -60,6 +69,29 @@ function fakeApp(input: {
   };
 }
 
+/** Virtual clock: time only moves when a test advances it; timers fire on demand. */
+function virtualClock(start = 1_000_000) {
+  let now = start;
+  const timers: Array<{ at: number; fn: () => void; cancelled: boolean }> = [];
+  const clock: ProListClock = {
+    now: () => now,
+    schedule: (fn, ms) => {
+      const timer = { at: now + ms, fn, cancelled: false };
+      timers.push(timer);
+      return () => { timer.cancelled = true; };
+    },
+  };
+  return {
+    clock,
+    advance(ms: number) {
+      now += ms;
+      for (const timer of timers) {
+        if (!timer.cancelled && timer.at <= now) { timer.cancelled = true; timer.fn(); }
+      }
+    },
+  };
+}
+
 describe("Pro roster", () => {
   test("lists one Stripe subscriber per user with the customer email", async () => {
     const db = fakeDb(new Map([[stripeSubscriptions, [
@@ -67,7 +99,8 @@ describe("Pro roster", () => {
       { userId: "u1", subscriptionId: "sub_old", status: "past_due", cancelAtPeriodEnd: true, currentPeriodEnd: new Date("2026-09-01T00:00:00Z"), email: "pat@example.com" },
       { userId: "u2", subscriptionId: "sub_2", status: "trialing", cancelAtPeriodEnd: false, currentPeriodEnd: null, email: null },
     ]]]));
-    const rows = await listStripeProSubscribers({ db });
+    const { rows, truncated } = await listStripeProSubscribers({ db });
+    expect(truncated).toBe(false);
     expect(rows).toEqual([
       { userId: "u1", email: "pat@example.com", subscriptionId: "sub_new", status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: "2026-10-01T00:00:00.000Z" },
       { userId: "u2", email: null, subscriptionId: "sub_2", status: "trialing", cancelAtPeriodEnd: false, currentPeriodEnd: null },
@@ -81,7 +114,7 @@ describe("Pro roster", () => {
       { teamId: "t9", subscriptionId: "sub_t9", status: "active", seats: null, cancelAtPeriodEnd: true, currentPeriodEnd: null },
     ]]]));
     const app = fakeApp({ teams: [{ id: "t1", displayName: "Acme" }] });
-    const rows = await listStripeTeamSubscriptions({ db, app });
+    const { rows } = await listStripeTeamSubscriptions({ db, app });
     expect(rows.map((row) => [row.teamId, row.displayName, row.seats, row.cancelAtPeriodEnd])).toEqual([
       ["t1", "Acme", 5, false],
       ["t9", null, null, true],
@@ -92,9 +125,12 @@ describe("Pro roster", () => {
     const db = fakeDb(new Map([[adminPlanGrants, [
       { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
     ]]]));
-    expect(await listAllPendingEmailGrants({ db })).toEqual([
-      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
-    ]);
+    expect(await listAllPendingEmailGrants({ db })).toEqual({
+      truncated: false,
+      rows: [
+        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
+      ],
+    });
   });
 
   test("scans the user directory page by page and keeps only paid manual overrides", async () => {
@@ -128,6 +164,228 @@ describe("Pro roster", () => {
     const page = await scanManualTeamGrants(null, { app });
     expect(page.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "team"]]);
     expect(page.nextCursor).toBeNull();
+  });
+
+  test("reports truncation when a source exceeds the row cap", async () => {
+    const many = Array.from({ length: PRO_LIST_MAX_ROWS + 1 }, (_, i) => ({
+      userId: `u${i}`, subscriptionId: `sub_${i}`, status: "active", cancelAtPeriodEnd: false, currentPeriodEnd: null, email: null,
+    }));
+    const { rows, truncated } = await listStripeProSubscribers({ db: fakeDb(new Map([[stripeSubscriptions, many]])) });
+    expect(truncated).toBe(true);
+    expect(rows).toHaveLength(PRO_LIST_MAX_ROWS);
+  });
+
+  test("team name lookups run with bounded concurrency", async () => {
+    const subs = Array.from({ length: 20 }, (_, i) => ({
+      teamId: `t${i}`, subscriptionId: `sub_${i}`, status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null,
+    }));
+    let inFlight = 0; let peak = 0;
+    const app: ProListStackApp = {
+      async getTeam(teamId) {
+        inFlight += 1; peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+        inFlight -= 1;
+        return { id: teamId, displayName: `Team ${teamId}` };
+      },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const { rows } = await listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 4 });
+    expect(rows.map((row) => row.displayName)).toEqual(subs.map((sub) => `Team ${sub.teamId}`));
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(await mapWithConcurrency([], 3, async () => 1)).toEqual([]);
+  });
+
+  test("the page-render load is bounded by a timeout and passes the same budget to the reads", async () => {
+    const snapshot = { subscribers: [], teamSubscriptions: [], pendingGrants: [], truncated: { subscribers: false, teamSubscriptions: false, pendingGrants: false } };
+    const { clock, advance } = virtualClock(50_000);
+    const budgets: Array<[number, number]> = [];
+    expect(await loadProListSnapshotWithin(1000, async (budget) => {
+      budgets.push([budget.statementTimeoutMs, budget.deadlineMs]);
+      return snapshot;
+    }, clock)).toBe(snapshot);
+    expect(budgets).toEqual([[1000, 51_000]]);
+    const pending = loadProListSnapshotWithin(1000, () => new Promise(() => undefined), clock);
+    advance(999);
+    advance(1);
+    await expect(pending).rejects.toBeInstanceOf(ProListTimeoutError);
+  });
+
+  test("reads run under a scoped statement timeout when the client supports transactions", async () => {
+    const executed: string[] = [];
+    const base = fakeDb(new Map());
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) =>
+        await operation({
+          select: base.select,
+          execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
+            executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
+          }) as never,
+        }),
+    };
+    const snapshot = await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000 });
+    // One short transaction per read, so an optional read that fails aborts only its own.
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 8000"));
+    expect(snapshot.subscribers).toEqual([]);
+    // No transaction support, or no budget: reads run directly.
+    expect(await withStatementTimeout(base, 8000, async () => "direct")).toBe("direct");
+    expect(await withStatementTimeout(db, undefined, async () => "direct")).toBe("direct");
+    expect(executed).toHaveLength(3);
+  });
+
+  test("a missing grants table inside a transaction still yields an empty pending list", async () => {
+    const base = fakeDb(new Map());
+    let committed = 0;
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        const result = await operation({
+          select: ((...args: unknown[]) => {
+            const chain = (base.select as (...a: unknown[]) => { from: (t: unknown) => unknown })(...args);
+            return {
+              from: (table: unknown) => {
+                if (table === adminPlanGrants) {
+                  const failing = { leftJoin: () => failing, where: () => failing, orderBy: () => failing, limit: async () => { throw Object.assign(new Error("Failed query"), { cause: { code: "42P01" } }); } };
+                  return failing;
+                }
+                return chain.from(table);
+              },
+            };
+          }) as never,
+          execute: (async () => undefined) as never,
+        });
+        committed += 1;
+        return result;
+      },
+    };
+    const snapshot = await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 100 });
+    expect(snapshot.pendingGrants).toEqual([]);
+    // The two healthy reads committed; the failing one never reached commit.
+    expect(committed).toBe(2);
+  });
+
+  test("each read's statement timeout is capped by the remaining deadline", async () => {
+    const executed: string[] = [];
+    const base = fakeDb(new Map());
+    const now = 1_000_000;
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        const result = await operation({
+          select: base.select,
+          execute: (async (query: { queryChunks?: Array<{ value?: string[] }> }) => {
+            executed.push((query.queryChunks ?? []).map((chunk) => (chunk.value ?? []).join("")).join(""));
+          }) as never,
+        });
+        return result;
+      },
+    };
+    const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
+    // Reads start together, so each sees the full budget when there is time
+    // left; a read that starts with 3 seconds left gets 3 seconds.
+    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 8000, clock });
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 8000"));
+    executed.length = 0;
+    await loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 8000, deadlineMs: now + 3000, clock });
+    expect(executed).toEqual(Array(3).fill("set local statement_timeout = 3000"));
+  });
+
+  test("team name lookups stop once the deadline has passed", async () => {
+    const subs = Array.from({ length: 6 }, (_, i) => ({
+      teamId: `t${i}`, subscriptionId: `sub_${i}`, status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null,
+    }));
+    let now = 0;
+    let lookups = 0;
+    const app: ProListStackApp = {
+      async getTeam(teamId) { lookups += 1; now += 10; return { id: teamId, displayName: teamId }; },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const clock: ProListClock = { now: () => now, schedule: () => () => undefined };
+    const { rows } = await listStripeTeamSubscriptions({ db: fakeDb(new Map([[stripeSubscriptions, subs]])), app, concurrency: 1, deadlineMs: 25, clock });
+    // Three lookups fit before the deadline (0, 10, 20); the rest keep null names.
+    expect(lookups).toBe(3);
+    expect(rows.map((row) => row.displayName)).toEqual(["t0", "t1", "t2", null, null, null]);
+  });
+
+  test("a hung team name lookup is abandoned at the remaining budget", async () => {
+    const { clock, advance } = virtualClock(0);
+    const app: ProListStackApp = {
+      getTeam: () => new Promise(() => undefined),
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const row = { teamId: "t1", subscriptionId: "sub_1", status: "active", seats: null, cancelAtPeriodEnd: false, currentPeriodEnd: null };
+    const pending = resolveStripeTeamNames([row], { app, deadlineMs: 500, clock });
+    advance(500);
+    expect(await pending).toEqual([{ ...row, displayName: null }]);
+  });
+
+  test("the team query commits before any name lookup starts", async () => {
+    const order: string[] = [];
+    const base = fakeDb(new Map([[stripeSubscriptions, [
+      { teamId: "t1", subscriptionId: "sub_1", status: "active", seats: 1, cancelAtPeriodEnd: false, currentPeriodEnd: null },
+    ]]]));
+    const db: ProListDb = {
+      ...base,
+      transaction: async (operation) => {
+        order.push("begin");
+        const result = await operation({ select: base.select, execute: (async () => undefined) as never });
+        order.push("commit");
+        return result;
+      },
+    };
+    const app: ProListStackApp = {
+      async getTeam(teamId) { order.push(`lookup ${teamId}`); return { id: teamId, displayName: "Acme" }; },
+      listUsers: async () => Object.assign([], { nextCursor: null }) as never,
+      listTeams: async () => Object.assign([], { nextCursor: null }) as never,
+    };
+    const snapshot = await loadProListSnapshot({ db, app, statementTimeoutMs: 1000 });
+    expect(snapshot.teamSubscriptions[0]?.displayName).toBe("Acme");
+    // All three transactions have committed before the first name lookup.
+    const lookupAt = order.indexOf("lookup t1");
+    expect(order.slice(0, lookupAt).filter((step) => step === "commit")).toHaveLength(3);
+    expect(order.slice(lookupAt)).toEqual(["lookup t1"]);
+  });
+
+  test("a missing database config becomes ProListDatabaseUnavailableError, a timeout stays a timeout", async () => {
+    const noConfig = {
+      select: () => { throw new Error("DATABASE_URL is required for Cloud VM database access"); },
+    } as unknown as ProListDb;
+    await expect(loadProListSnapshot({ db: noConfig, app: fakeApp({}) })).rejects.toBeInstanceOf(ProListDatabaseUnavailableError);
+    await expect(
+      loadProListSnapshot({ db: fakeDb(new Map()), app: fakeApp({}), deadlineMs: 99, clock: { now: () => 100, schedule: () => () => undefined } }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
+  });
+
+  test("a transaction setup that crosses the deadline starts no read", async () => {
+    let now = 0;
+    let selects = 0;
+    const db: ProListDb = {
+      select: (() => { selects += 1; throw new Error("select must not run"); }) as never,
+      transaction: async (operation) =>
+        await operation({
+          select: (() => { selects += 1; throw new Error("select must not run"); }) as never,
+          // Acquiring the transaction and SET LOCAL together take longer than the budget.
+          execute: (async () => { now += 2000; }) as never,
+        }),
+    };
+    await expect(
+      loadProListSnapshot({ db, app: fakeApp({}), statementTimeoutMs: 1000, deadlineMs: 1000, clock: { now: () => now, schedule: () => () => undefined } }),
+    ).rejects.toBeInstanceOf(ProListTimeoutError);
+    expect(selects).toBe(0);
+  });
+
+  test("no read starts at or after the deadline", async () => {
+    for (const nowValue of [99, 100]) {
+      let selects = 0;
+      const db = { select: (() => { selects += 1; throw new Error("select must not run"); }) as never } as unknown as ProListDb;
+      await expect(
+        loadProListSnapshot({ db, app: fakeApp({}), deadlineMs: 99, clock: { now: () => nowValue, schedule: () => () => undefined } }),
+      ).rejects.toBeInstanceOf(ProListTimeoutError);
+      expect(selects).toBe(0);
+    }
   });
 
   test("isValidScanCursor accepts opaque tokens and rejects junk", () => {

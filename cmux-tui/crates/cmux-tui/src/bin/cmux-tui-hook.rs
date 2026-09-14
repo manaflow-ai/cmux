@@ -12,7 +12,7 @@
 //! retrying children. The child waits for the receipt and retries.
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -24,6 +24,7 @@ use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 
 const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
+const MAX_REQUEST_ID_BYTES: usize = 128;
 const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(4);
@@ -196,8 +197,8 @@ fn handoff_wait(source: &str, native_event: &str) -> Duration {
 /// one byte on stdout once the request is written.
 fn confirm_handoff_on_stdout() {
     let mut stdout = io::stdout().lock();
-    let _ = std::io::Write::write_all(&mut stdout, b"1");
-    let _ = std::io::Write::flush(&mut stdout);
+    let _ = stdout.write_all(b"1");
+    let _ = stdout.flush();
 }
 
 /// Entry point of the detached child spawned by `DETACHED_MODE_ARG`.
@@ -207,10 +208,7 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .context("CMUX_TUI_SOCKET is required in detached mode")?;
     let mut reader = BufReader::new(io::stdin().lock());
-    let mut request_id = String::new();
-    reader.read_line(&mut request_id).context("read detached request id")?;
-    let request_id = request_id.trim_end_matches(['\r', '\n']).to_owned();
-    anyhow::ensure!(!request_id.is_empty(), "detached request id is empty");
+    let request_id = read_detached_request_id(&mut reader)?;
     let mut encoded = Vec::new();
     reader
         .take(MAX_MESSAGE_BYTES as u64 + 1)
@@ -218,6 +216,35 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
         .context("read detached request")?;
     anyhow::ensure!(encoded.len() <= MAX_MESSAGE_BYTES, "detached request exceeds 4 MiB");
     append_with_receipt(&socket, &request_id, &encoded, &confirm_handoff_on_stdout)
+}
+
+/// Read the detached request id without allowing a missing delimiter to grow
+/// the destination string indefinitely. `read_line` otherwise keeps reading
+/// until a newline or EOF, so the `Take` limit is part of the framing contract.
+fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String> {
+    // Allow an optional carriage return before the required newline. The
+    // delimiter itself is not part of the request id byte limit.
+    let line_limit =
+        MAX_REQUEST_ID_BYTES.checked_add(2).expect("detached request id limit fits usize");
+    let mut line = String::new();
+    let bytes_read =
+        reader.take(line_limit as u64).read_line(&mut line).context("read detached request id")?;
+    if bytes_read == 0 {
+        bail!("detached request id is empty");
+    }
+    if !line.ends_with('\n') {
+        if bytes_read >= line_limit {
+            bail!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes");
+        }
+        bail!("detached request id is missing newline delimiter");
+    }
+    let request_id = line.trim_end_matches(['\r', '\n']);
+    anyhow::ensure!(!request_id.is_empty(), "detached request id is empty");
+    anyhow::ensure!(
+        request_id.len() <= MAX_REQUEST_ID_BYTES,
+        "detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes"
+    );
+    Ok(request_id.to_owned())
 }
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
@@ -647,13 +674,17 @@ mod detach {
             .stderr(Stdio::null());
         // `pre_exec` runs in the child after fork and is therefore unsafe to
         // call unless the closure is limited to async-signal-safe operations.
+        // `setsid` is async-signal-safe.
+        let detach_session = || {
+            // SAFETY: `setsid` takes no arguments and only changes the
+            // calling process's session membership.
+            if unsafe { libc::setsid() } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        };
         unsafe {
-            command.pre_exec(|| {
-                if unsafe { libc::setsid() } < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+            command.pre_exec(detach_session);
         }
         let mut child =
             super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
@@ -681,6 +712,9 @@ mod detach {
     }
 }
 
+// Unix uses the `setsid`-based implementation above. Keep this fallback
+// explicitly limited to targets that are neither Unix nor Windows, where no
+// common process-group detachment API is available.
 #[cfg(not(unix))]
 mod detach {
     use std::io::{Read, Write};
@@ -693,31 +727,29 @@ mod detach {
 
     use super::{DETACHED_MODE_ARG, Handoff};
 
-    /// Respawns this helper detached from the provider's console and process
-    /// group with the request on its stdin, then waits (bounded) for the
-    /// child's one-byte confirmation that the request reached the server
-    /// socket, giving the same ordering and backpressure as the fork path.
+    /// Respawns this helper with the request on its stdin, then waits (bounded)
+    /// for the child's one-byte confirmation that the request reached the
+    /// server socket, giving the same ordering and backpressure as the fork
+    /// path. Windows adds process-detachment flags; other non-Unix targets use
+    /// a regular child spawn because Rust has no common process-group API for
+    /// them.
     pub(super) fn append_detached(
         socket: &Path,
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
     ) -> anyhow::Result<Handoff> {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         let exe = std::env::current_exe().context("locate hook helper")?;
-        let mut child = super::DetachedChildGuard::new(
-            Command::new(exe)
-                .arg(DETACHED_MODE_ARG)
-                .env("CMUX_TUI_SOCKET", socket)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
-                .spawn()
-                .context("spawn detached hook child")?,
-        );
+        let mut command = Command::new(exe);
+        command
+            .arg(DETACHED_MODE_ARG)
+            .env("CMUX_TUI_SOCKET", socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        configure_detached_command(&mut command);
+        let mut child =
+            super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
         let mut stdin =
             child.child_mut().stdin.take().context("detached hook child has no stdin")?;
         let mut stdout =
@@ -742,6 +774,18 @@ mod detach {
         super::settle_detached_child(child, reader);
         Ok(outcome)
     }
+
+    #[cfg(windows)]
+    fn configure_detached_command(command: &mut Command) {
+        use std::os::windows::process::CommandExt;
+
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+
+    #[cfg(all(not(unix), not(windows)))]
+    fn configure_detached_command(_command: &mut Command) {}
 }
 
 fn random_identifiers() -> anyhow::Result<(String, String)> {
@@ -789,6 +833,58 @@ mod tests {
     fn invalid_utf8_is_retained_as_base64() {
         let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
         assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
+    }
+
+    #[test]
+    fn bounded_detached_request_id_preserves_uuid_and_payload() {
+        use std::io::Cursor;
+
+        let request_id = "550e8400-e29b-41d4-a716-446655440000";
+        let mut reader =
+            BufReader::new(Cursor::new(format!("{request_id}\n{{\"event\":\"Stop\"}}")));
+        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
+
+        let mut payload = Vec::new();
+        reader.read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, br#"{"event":"Stop"}"#);
+    }
+
+    #[test]
+    fn bounded_detached_request_id_accepts_maximum_length_with_crlf() {
+        use std::io::Cursor;
+
+        let request_id = "x".repeat(MAX_REQUEST_ID_BYTES);
+        let mut input = request_id.as_bytes().to_vec();
+        input.extend_from_slice(b"\r\n{}");
+        let mut reader = BufReader::new(Cursor::new(input));
+        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
+
+        let mut payload = Vec::new();
+        reader.read_to_end(&mut payload).unwrap();
+        assert_eq!(payload, b"{}");
+    }
+
+    #[test]
+    fn bounded_detached_request_id_rejects_an_unterminated_line() {
+        use std::io::Cursor;
+
+        let mut reader = BufReader::new(Cursor::new(b"550e8400-e29b-41d4-a716-446655440000"));
+        let error = read_detached_request_id(&mut reader).unwrap_err();
+        assert_eq!(error.to_string(), "detached request id is missing newline delimiter");
+    }
+
+    #[test]
+    fn bounded_detached_request_id_rejects_an_oversized_line() {
+        use std::io::Cursor;
+
+        let mut input = vec![b'x'; MAX_REQUEST_ID_BYTES + 1];
+        input.push(b'\n');
+        let mut reader = BufReader::new(Cursor::new(input));
+        let error = read_detached_request_id(&mut reader).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
+        );
     }
 
     #[test]

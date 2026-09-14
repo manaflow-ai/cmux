@@ -28,6 +28,9 @@ struct MacComputerDetailView: View {
     /// Computer without a usable grant offers it under the picker, and
     /// dismissing it lands back here. The scanner is one tap away inside.
     @State private var showsAddTailscaleConnection = false
+    /// Whether the Tailscale pairing sheet adds the first route or replaces
+    /// the route already shown for this Computer.
+    @State private var tailscalePairingPresentation: PairingPresentation = .tailscaleSetup
     @Environment(\.dismiss) private var dismiss
     @State private var newDirectAddress = ""
     @State private var newDirectAddressLabel = ""
@@ -122,8 +125,9 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if let listAuthEntry,
-               listAuthEntry.status == "seeded" || listAuthEntry.isOutdated {
+            if MobileMacListAuthState.shared.hasSnapshot,
+               let listAuthEntry,
+               listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
             connectionMethodSection
@@ -283,17 +287,39 @@ struct MacComputerDetailView: View {
         .sheet(isPresented: $showsAddTailscaleConnection) {
             PairingView(
                 pairingCode: $store.pairingCode,
-                initialPresentation: .tailscaleSetup,
+                initialPresentation: tailscalePairingPresentation,
                 connectionError: store.connectionError,
                 connectionErrorGuidance: store.connectionErrorGuidance,
                 versionWarning: store.pairingVersionWarning,
-                connectPairingCode: { await store.connectPairingInput() },
-                acceptVersionWarning: { _ = await store.acceptPairingVersionWarning() },
+                connectPairingCode: {
+                    await store.connectPairingInput(
+                        allowPreview: false,
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                },
+                acceptVersionWarning: {
+                    await store.acceptPairingVersionWarning(
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
+                },
                 connectManualHost: { name, host, port in
-                    await store.connectManualHost(name: name, host: host, port: port)
+                    await store.connectManualHostResult(
+                        name: name,
+                        host: host,
+                        port: port,
+                        pairedMacDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    )
                 },
                 cancelPairing: { store.cancelPairing() },
-                cancel: { showsAddTailscaleConnection = false }
+                cancel: { showsAddTailscaleConnection = false },
+                onPairingResult: { result in
+                    if result == .connected {
+                        showsAddTailscaleConnection = false
+                    }
+                }
             )
         }
         .onChange(of: computerHasUsableTailscaleAuthorization) { _, authorized in
@@ -390,7 +416,12 @@ struct MacComputerDetailView: View {
             )]
         }
         if let registryEntry = thisMacPrivateNetworkRegistryEntry {
-            return [registryEntry]
+            return [.init(
+                macDeviceID: registryEntry.macDeviceID,
+                instanceTag: registryEntry.instanceTag,
+                displayName: displayTitle,
+                supportsPrivatePaths: registryEntry.supportsPrivatePaths
+            )]
         }
         return []
     }
@@ -483,7 +514,10 @@ struct MacComputerDetailView: View {
     }
 
     private var listAuthEntry: MobileMacListAuthState.Entry? {
-        MobileMacListAuthState.shared.entry(deviceID: macDeviceID)
+        MobileMacListAuthState.shared.compatibilityEntry(
+            pairingID: MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
+            routes: pairedMac?.routes ?? []
+        )
     }
 
     // MARK: - Connection configuration
@@ -551,7 +585,7 @@ struct MacComputerDetailView: View {
                 }
                 .accessibilityIdentifier("MobileComputerTailscaleUnauthorizedWarning")
                 Button {
-                    showsAddTailscaleConnection = true
+                    presentTailscalePairing(.tailscaleSetup)
                 } label: {
                     Label(
                         L10n.string(
@@ -1122,6 +1156,20 @@ struct MacComputerDetailView: View {
                 ForEach(routes, id: \.id) { route in
                     routeRow(route)
                 }
+                if routes.contains(where: { $0.kind == .tailscale }) {
+                    Button {
+                        presentTailscalePairing(.tailscaleReplacement)
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.connections.tailscale.replace",
+                                defaultValue: "Replace Tailscale Connection"
+                            ),
+                            systemImage: "qrcode.viewfinder"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
+                }
                 Button {
                     pingAllRoutes(routes)
                 } label: {
@@ -1194,6 +1242,11 @@ struct MacComputerDetailView: View {
             return
         }
         pendingLastRouteRemoval = route
+    }
+
+    private func presentTailscalePairing(_ presentation: PairingPresentation) {
+        tailscalePairingPresentation = presentation
+        showsAddTailscaleConnection = true
     }
 
     /// The per-route ping status sub-line: nothing before the first ping, a
@@ -1275,13 +1328,10 @@ struct MacComputerDetailView: View {
     private var actionsSection: some View {
         Section {
             Button {
-                // Reconnect THIS computer, not whichever Mac is currently active:
-                // `switchToMac` promotes a live secondary connection to this Mac or
-                // re-dials it specifically. `reconnectOrRefresh()` would instead
-                // refresh/redial the foreground/active Mac and leave the computer
-                // shown here untouched.
+                // Use the shared reconnect action for this exact computer so
+                // an already-connected Mac also refreshes its terminal output.
                 Task {
-                    await store.switchToMac(
+                    await store.reconnectToMac(
                         macDeviceID: macDeviceID,
                         instanceTag: instanceTag
                     )
@@ -1289,6 +1339,7 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
+            .accessibilityIdentifier("MobileComputerReconnect")
             // Iroh is the permanent identity route and is deliberately not
             // removable row-by-row, so route deletion alone can never delete
             // an Iroh-paired Computer. Forget is that record's one deletion
@@ -1332,10 +1383,9 @@ struct MacComputerDetailView: View {
     }
 }
 
-/// Persistent explanation for a Mac that has not confirmed the current
-/// control plane or is below the server-advertised version floor. This is a
-/// separate view so the detail form's other state does not share this section's
-/// invalidation boundary.
+/// Persistent explanation for a Mac whose remembered build is below the
+/// server-advertised version floor. This is a separate view so the detail
+/// form's other state does not share this section's invalidation boundary.
 private struct MacComputerCompatibilitySection: View {
     let entry: MobileMacListAuthState.Entry
 
@@ -1359,33 +1409,24 @@ private struct MacComputerCompatibilitySection: View {
     }
 
     private var warningTitle: String {
-        if entry.isOutdated {
-            return L10n.string(
-                "computers.version.outdated.title",
-                defaultValue: "Mac update required"
-            )
-        }
         return L10n.string(
-            "computers.listauth.unverified.title",
-            defaultValue: "Not verified on the new connection system yet"
+            "computers.version.outdated.title",
+            defaultValue: "Mac update required"
         )
     }
 
     private var warningMessage: String {
-        if entry.isOutdated,
-           let installed = entry.appVersion,
-           let required = entry.minimumSupportedVersion {
-            let updateMessage = L10n.string(
-                "computers.version.outdated.detail",
-                defaultValue: "This Mac is running %@. Update it to %@ or later."
+        guard let required = entry.requiredVersionDisplay else {
+            return L10n.string(
+                "mobile.pairing.guidance.macUpdateRequired",
+                defaultValue: "Update cmux on this Mac to connect securely."
             )
-            return String(format: updateMessage, installed, required)
         }
-        return L10n.string(
-            "computers.listauth.unverified.detail",
-            defaultValue:
-                "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
-        )
+        let requirement = "cmux \(required) or later"
+        return String(format: L10n.string(
+            "mobile.macUpdate.requiredOnMacFormat",
+            defaultValue: "Requires %@ on your Mac."
+        ), requirement)
     }
 }
 

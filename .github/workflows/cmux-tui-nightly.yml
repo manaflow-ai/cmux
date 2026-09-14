@@ -219,3 +219,8 @@ jobs:
         with:
           packages-dir: dist
           attestations: true
+
+      - name: Verify every nightly PyPI wheel after upload
+        env:
+          VERSION: ${{ needs.version.outputs.pypi_version }}
+        run: bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist "$VERSION"

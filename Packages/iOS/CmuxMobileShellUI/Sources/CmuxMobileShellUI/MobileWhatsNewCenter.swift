@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 import Observation
@@ -45,6 +46,10 @@ public final class MobileWhatsNewCenter {
     /// that gates web-content pages into the one-time sheet, so an offline
     /// launch skips them instead of presenting an unloadable webview.
     private(set) var lastRefreshSucceeded = false
+    /// The policy currently enforced by the shell. Root view pushes the
+    /// cached/baked policy before the first refresh and the refreshed policy
+    /// after it succeeds, keeping What's New copy in lockstep with admission.
+    private(set) var macCompatibilityPolicy: MobileMacCompatPolicy = .baked
 
     public init(
         apiBaseURL: String?,
@@ -63,7 +68,7 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.buildType = buildType
         self.defaults = defaults
-        self.loader = loader ?? Self.urlSessionLoader
+        self.loader = loader ?? mobileRemoteJSONLoader
         if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
             remoteList = list
@@ -98,6 +103,12 @@ public final class MobileWhatsNewCenter {
             // Keep the cached list; no cache ever fetched means binary
             // entries stay visible (fail-open to binary truth).
         }
+    }
+
+    /// Keeps the What's New compatibility footnote synchronized with the
+    /// policy used by the connection store.
+    public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
+        macCompatibilityPolicy = policy
     }
 
     /// Drops acknowledged announcement ids the authoritative list no longer
@@ -140,9 +151,19 @@ public final class MobileWhatsNewCenter {
                 buildType: buildType
             )
         }
-        guard let remoteList else { return channelAllowed }
+        let withCompatibilityCopy = channelAllowed.map { page -> MobileWhatsNewPage in
+            guard page.id == "connections.v1" else { return page }
+            var updated = page
+            updated.footnote = MobileWhatsNewCatalog.macUpdateFootnote(
+                buildType: buildType,
+                iosVersion: appVersion,
+                policy: macCompatibilityPolicy
+            )
+            return updated
+        }
+        guard let remoteList else { return withCompatibilityCopy }
         let visible = Set(remoteList.visibleEntryIds)
-        return channelAllowed.filter { visible.contains($0.id) }
+        return withCompatibilityCopy.filter { visible.contains($0.id) }
     }
 
     /// Cached announcements targeted at this app version, resolved to
@@ -279,19 +300,5 @@ public final class MobileWhatsNewCenter {
         return url
     }
 
-    private static let urlSessionLoader: Loader = { url in
-        var request = URLRequest(
-            url: url,
-            cachePolicy: .reloadRevalidatingCacheData,
-            timeoutInterval: 10
-        )
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse,
-              (200...299).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return data
-    }
 }
 #endif

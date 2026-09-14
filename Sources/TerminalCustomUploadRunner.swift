@@ -33,8 +33,14 @@ struct TerminalCustomUploadRunner {
     }
 
     private let runProcess: ProcessRunner
+    /// `DisableFileTransfer` (MDM), injected so tests can force it.
+    private let isFileTransferDisabled: () -> Bool
 
-    init(runProcess: @escaping ProcessRunner = TerminalCustomUploadRunner.spawnCommand) {
+    init(
+        runProcess: @escaping ProcessRunner = TerminalCustomUploadRunner.spawnCommand,
+        isFileTransferDisabled: @escaping () -> Bool = { ManagedFileTransferPolicy.isDisabled }
+    ) {
+        self.isFileTransferDisabled = isFileTransferDisabled
         self.runProcess = runProcess
     }
 
@@ -141,6 +147,19 @@ struct TerminalCustomUploadRunner {
     ) -> Bool {
         guard case .uploadFiles(let fileURLs, .detectedSSH(let session)) = plan else {
             return false
+        }
+        // `DisableFileTransfer` (MDM): a custom upload command is still cmux
+        // mediating a transfer, so it fails closed exactly like the built-in
+        // transport — and takes ownership before any rule is consulted, so
+        // neither a configured command nor the built-in path can run.
+        // Nothing is spawned.
+        if isFileTransferDisabled() {
+            cleanup(fileURLs)
+            DispatchQueue.main.async {
+                guard operation.finish() else { return }
+                completion(.failure(ManagedFileTransferPolicy.refusalError()))
+            }
+            return true
         }
         let endpoint = Endpoint(
             destination: session.destination,

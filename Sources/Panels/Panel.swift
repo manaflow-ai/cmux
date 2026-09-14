@@ -19,6 +19,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
+    case cloudVPNSetup
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -61,6 +62,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
             self = .accountSignIn
+            return
+        }
+        if rawValue.lowercased() == Self.cloudVPNSetup.rawValue.lowercased() {
+            self = .cloudVPNSetup
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -330,6 +335,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unfocus the panel
     func unfocus()
 
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
+
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
 
@@ -358,6 +366,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

@@ -526,6 +526,50 @@ describe("sign out and sign back in", () => {
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 
+  const publicationTransaction = "tx_0123456789abcdefghijklmnopqrstuvwxyz";
+  const publicationState = "st_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+  function publicationSignIn(access: string): string {
+    const afterSignIn = `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(access)}`;
+    return `/handler/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+  }
+
+  test("signs out and redirects into sign-in for a protected Cloud VM domain transaction", async () => {
+    const access = `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`;
+    const signIn = publicationSignIn(access);
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+  });
+
+  test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {
+    const malformed = [
+      `/cloud/access?transaction=short&state=${publicationState}`,
+      `/cloud/access?transaction=${publicationTransaction}`,
+      `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}&next=%2Fdocs`,
+      `/cloud/other?transaction=${publicationTransaction}&state=${publicationState}`,
+      `https://evil.test/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`,
+    ];
+
+    for (const access of malformed) {
+      const response = await GET(switchRequest(publicationSignIn(access)));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+
+    const extraSignInParam = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(
+      `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(`/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`)}`,
+    )}&prompt=none`;
+    const response = await GET(switchRequest(extraSignInParam));
+    expect(signOut).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
   test("rejects cross-site attempts to force sign-out", async () => {
     const afterSignIn = "/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback%3Fcmux_auth_state%3Dstate-123";
     const nativeSignIn = `/handler/native-sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;

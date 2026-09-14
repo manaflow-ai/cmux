@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
+
 import { checkRateLimit } from "@vercel/firewall";
 import { NextResponse } from "next/server";
 
 import "../../env";
 import { readBoundedJsonObject } from "../../../services/apns/routePolicy";
+import { reportMissingRateLimitRule } from "../../../services/rateLimitObservability";
 import {
   CLIENT_CONFIG_FLAGS_TIMEOUT_MS,
   MAX_CLIENT_CONFIG_REQUEST_BYTES,
@@ -13,20 +16,38 @@ import {
   postHogFlagsBody,
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
+import { rateLimitDeploymentPartition } from "../../../services/rateLimitPartition";
 
 
 export async function POST(request: Request): Promise<Response> {
+  const rateLimitRequest = request.clone();
+  const body = await readBoundedJsonObject(request, MAX_CLIENT_CONFIG_REQUEST_BYTES);
+  if (!body.ok) {
+    return json({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+  }
+  const distinctId = normalizeDistinctId(body.value.distinctId);
+
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails
   // open rather than making client config unavailable for every app boot.
   const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+  if (process.env.VERCEL === "1" && !rateLimitId) {
+    void reportMissingRateLimitRule({ route: "/api/client-config", reason: "unset" });
+  }
   if (process.env.VERCEL === "1" && rateLimitId) {
     try {
-      const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
+      const { error, rateLimited } = await checkRateLimit(rateLimitId, {
+        request: rateLimitRequest,
+        rateLimitKey: clientConfigRateLimitKey(distinctId),
+      });
       if (rateLimited || error === "blocked") {
-        return json({ error: "rate_limited" }, 429);
+        return json(
+          { error: "rate_limited" },
+          429,
+          { "retry-after": "60" },
+        );
       }
       if (error === "not-found") {
-        console.warn("client-config.route.rate_limit_not_found; failing open", rateLimitId);
+        void reportMissingRateLimitRule({ route: "/api/client-config", reason: "not-found" });
       } else if (error) {
         console.error("client-config.route.rate_limit_error", { failure: "check_error" });
         return json({ error: "client_config_unavailable" }, 503);
@@ -37,12 +58,6 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const body = await readBoundedJsonObject(request, MAX_CLIENT_CONFIG_REQUEST_BYTES);
-  if (!body.ok) {
-    return json({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
-  }
-
-  const distinctId = normalizeDistinctId(body.value.distinctId);
   const context = normalizeClientConfigEvaluationContext(body.value.context);
   try {
     const response = await fetch(postHogFlagsUrl(), {
@@ -70,11 +85,23 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-function json(body: Record<string, unknown>, status = 200): Response {
+function json(
+  body: Record<string, unknown>,
+  status = 200,
+  extraHeaders?: HeadersInit,
+): Response {
   return NextResponse.json(body, {
     status,
     headers: {
       "Cache-Control": "no-store",
+      ...Object.fromEntries(new Headers(extraHeaders)),
     },
   });
+}
+
+function clientConfigRateLimitKey(distinctId: string): string {
+  const installPartition = createHash("sha256")
+    .update(`cmux/client-config/v1\0${distinctId}`)
+    .digest("hex");
+  return `${rateLimitDeploymentPartition()}:${installPartition}`;
 }

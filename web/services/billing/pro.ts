@@ -6,7 +6,7 @@
 // `cmuxVmPlan` takes precedence over `cmuxPlan` there and is left untouched
 // here so manual overrides survive.
 
-import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
@@ -27,6 +27,8 @@ import {
   "../account/metadataMutation";
 
 export const PRO_PLAN_ID = "pro";
+/** Max is the personal tier that unlocks the largest VM shapes. */
+export const MAX_PLAN_ID = "max";
 export const TEAM_PLAN_ID = "team";
 // Founder's Edition is a one-time purchase. Its completion recorder stores a
 // durable active Pro row with a Founder marker, and subscription reconciliation
@@ -34,12 +36,29 @@ export const TEAM_PLAN_ID = "team";
 // Existing operator grants may still use `cmuxVmPlan: "founders"`.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
+/** Stack project used by the local cmux development server. */
+export const DEVELOPMENT_STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
+
+/**
+ * Local development accounts are Pro by default. This is intentionally tied
+ * to the local launcher, Next's development runtime, and the non-production
+ * Stack project so a misconfigured preview or production process cannot grant
+ * access.
+ */
+export function isDevelopmentProAccessEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.NODE_ENV === "development" &&
+    env.CMUX_LOCAL_DEV_PRO === "1" &&
+    !env.VERCEL_ENV &&
+    env.NEXT_PUBLIC_STACK_PROJECT_ID === DEVELOPMENT_STACK_PROJECT_ID;
+}
 /**
  * Plan ids an operator may write to `clientReadOnlyMetadata.cmuxVmPlan` to
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
  * services/vms/entitlements.ts so the desktop plan and the VM plan agree.
  */
-export const PAID_PLAN_IDS = [PRO_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const PAID_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, TEAM_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";
 export const ACTIVE_STRIPE_PRO_STATUSES = ["active", "trialing", "past_due"] as const;
 /** Subscription states that Stripe Billing Portal can manage or recover. */
@@ -103,6 +122,7 @@ export async function syncProPlanMetadata(
 
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
+  readonly isAnonymous?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -172,6 +192,7 @@ export async function reconcileProPlanMetadata(
   );
 }
 
+// oxlint-disable-next-line complexity -- Rollback keeps the legacy billing resolution path intact.
 export async function resolveProPlanStatus(
   user: ProReconcileUser,
   options: {
@@ -180,11 +201,23 @@ export async function resolveProPlanStatus(
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
+    /** Runtime environment override used by deterministic callers and tests. */
+    environment?: Record<string, string | undefined>;
   } = {},
 ): Promise<ProPlanStatus> {
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(options.environment)) {
+    return {
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      metadataPlanId,
+      hasManualVmPlanOverride,
+      metadataChanged: false,
+    };
+  }
   const hasLegacyQueryOverrides = Boolean(
     options.hasActiveStripeSubscription || options.hasStripeCustomer,
   );
@@ -549,47 +582,8 @@ export async function hasActiveTeamSubscriptionForTeam(
   }
 }
 
-/**
- * A hosted coderouter seat is covered either by the user's own Pro
- * subscription or by the selected team's Team subscription. Keep this as one
- * indexed query so route-session issuance does not serialize two RDS reads.
- * The caller must establish membership in `stackTeamId` before calling.
- */
-export async function hasActiveCoderouterSubscription(
-  stackUserId: string,
-  stackTeamId: string,
-): Promise<boolean> {
-  try {
-    const rows = await cloudDb()
-      .select({ id: stripeSubscriptions.id })
-      .from(stripeSubscriptions)
-      .where(
-        and(
-          inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-          or(
-            and(
-              eq(stripeSubscriptions.stackUserId, stackUserId),
-              eq(stripeSubscriptions.scope, "user"),
-              eq(stripeSubscriptions.plan, PRO_PLAN_ID),
-            ),
-            and(
-              eq(stripeSubscriptions.stackTeamId, stackTeamId),
-              eq(stripeSubscriptions.scope, "team"),
-              eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
-            ),
-          ),
-        ),
-      )
-      .limit(1);
-    return rows.length > 0;
-  } catch (error) {
-    if (isMissingDatabaseConfig(error)) return false;
-    throw error;
-  }
-}
-
 export async function isTestflightEligible(
-  user: ProReconcileUser,
+  user: Pick<ProReconcileUser, "id">,
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
   } = {},

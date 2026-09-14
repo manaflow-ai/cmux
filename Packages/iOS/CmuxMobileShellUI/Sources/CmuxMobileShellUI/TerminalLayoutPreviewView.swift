@@ -83,7 +83,13 @@ struct TerminalLayoutPreviewView: View {
                 // color showing through behind it.
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Image(systemName: "chevron.left").fontWeight(.semibold)
+                        // Keep this standalone DEBUG fixture independent of
+                        // CoreUI's SF Symbol rasterizer. On a fresh simulator,
+                        // the terminal surface can make a toolbar symbol's
+                        // initial proposed size zero, which crashes CoreUI.
+                        Text("‹")
+                            .font(.system(size: 28, weight: .semibold))
+                            .frame(width: 22, height: 22)
                     }
                     // Title on its own Liquid Glass pill so it stays legible over
                     // terminal text when the bar background is cleared (iOS 26),
@@ -97,7 +103,9 @@ struct TerminalLayoutPreviewView: View {
                             .mobileGlassNavigationTitle()
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Image(systemName: "terminal")
+                        Text("▣")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 22, height: 22)
                     }
                     if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1",
                        displaySettings.showAltScreenNotice {

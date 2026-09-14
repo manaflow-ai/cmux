@@ -164,3 +164,46 @@ struct MobileHostIrxSettingsMappingTests {
         }
     }
 }
+
+/// The irx activation retry ladder must honor a broker `Retry-After` floor.
+/// Before this coverage, a 429 on `/api/devices/iroh/challenge` was retried on
+/// a fixed 5 s cadence (35 rejected mints in 3 minutes on one Mac).
+struct MobileHostIrxActivationRetryTests {
+    @Test func firstFailureWithoutServerFloorWaitsTheBaseDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.notConnectedToInternet),
+            failureCount: 0,
+            jitterUnitInterval: 0
+        )
+        #expect(delay == 5)
+    }
+
+    @Test func retryAfterFloorWinsOverTheBaseDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: CmxRateLimitedError(retryAfterSeconds: 60),
+            failureCount: 0,
+            jitterUnitInterval: 0
+        )
+        #expect(delay == 60)
+    }
+
+    @Test func repeatedFailuresDoubleUpToTheCap() {
+        let third = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.timedOut), failureCount: 2, jitterUnitInterval: 0
+        )
+        let capped = MobileHostIrxRuntime.activationRetryDelay(
+            after: URLError(.timedOut), failureCount: 20, jitterUnitInterval: 0
+        )
+        #expect(third == 20)
+        #expect(capped == MobileHostIrxRuntime.maximumActivationRetryDelay)
+    }
+
+    @Test func jitterAddsAtMostAQuarterOfTheDelay() {
+        let delay = MobileHostIrxRuntime.activationRetryDelay(
+            after: CmxRateLimitedError(retryAfterSeconds: 60),
+            failureCount: 0,
+            jitterUnitInterval: 1
+        )
+        #expect(delay == 75)
+    }
+}

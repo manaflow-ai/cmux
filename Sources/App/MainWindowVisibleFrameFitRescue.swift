@@ -1,11 +1,11 @@
 import AppKit
 import CmuxWindowing
 
-/// Fits cut-off main windows back into a current visible frame after AppDelegate
+/// Fits cut-off main windows back into current display geometry after AppDelegate
 /// observes and guards a real display-topology change. This complements the
 /// titlebar-stranding rescue in PR #7265: that pass handles unreachable drag
 /// handles; this pass handles reachable windows whose body is still clipped or
-/// oversized.
+/// oversized, including native-fullscreen frames restored by AppKit.
 @MainActor
 final class MainWindowVisibleFrameFitRescue {
     private let fitCore: MainWindowVisibleFrameFitCore
@@ -15,25 +15,33 @@ final class MainWindowVisibleFrameFitRescue {
         self.fitCore = fitCore
     }
 
+    /// Fits each main window and reports whether every requested frame applied.
+    @discardableResult
     func performFitIfNeeded(
         displays: [SessionDisplayGeometry],
         windows: [NSWindow]
-    ) {
-        guard !displays.isEmpty else { return }
+    ) -> Bool {
+        guard !displays.isEmpty else { return false }
 
         let mainWindows = windows
             .compactMap { $0 as? CmuxMainWindow }
-            .filter { window in
-                !window.styleMask.contains(.fullScreen)
-            }
-        guard !mainWindows.isEmpty else { return }
+        guard !mainWindows.isEmpty else { return true }
 
-        let fittedFrames = fitCore.fittedFrames(
-            for: mainWindows.map(\.frame),
-            displays: displays,
-            minimumWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            minimumHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
-        )
+        let fittedFrames = mainWindows.map { window -> CGRect? in
+            if window.styleMask.contains(.fullScreen) {
+                return fitCore.fittedFullscreenFrame(
+                    for: window.frame,
+                    displays: displays
+                )
+            }
+            return fitCore.fittedFrame(
+                for: window.frame,
+                displays: displays,
+                minimumWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+                minimumHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+            )
+        }
+        var fitCompleted = true
         for (window, targetFrame) in zip(mainWindows, fittedFrames) {
             guard let targetFrame, targetFrame != window.frame else { continue }
             let originalFrame = window.frame
@@ -52,7 +60,11 @@ final class MainWindowVisibleFrameFitRescue {
                 ]
             )
             window.setFrame(targetFrame, display: true)
+            if window.frame != targetFrame {
+                fitCompleted = false
+            }
         }
+        return fitCompleted
     }
 
     private static func rectDescription(_ rect: CGRect) -> String {

@@ -73,6 +73,29 @@ module.delete_assets("manaflow-ai/cmux", [module.ReleaseAsset(asset_id=456, name
 assert gh_calls == [
     ["gh", "api", "-X", "DELETE", "repos/manaflow-ai/cmux/releases/assets/456"],
 ]
+
+assets = [
+    module.ReleaseAsset(
+        asset_id=build * 10 + index,
+        name=f"cmux-nightly-macos-arm64-{build}-{index}.delta",
+        build=build,
+    )
+    for build in range(1, 5)
+    for index in range(2)
+]
+release_assets = [
+    {"id": asset.asset_id, "name": asset.name}
+    for asset in assets
+] + [{"id": 1000, "name": "appcast.xml"}]
+immutable_assets, ignored_assets = module.collect_immutable_assets({"assets": release_assets})
+assert ignored_assets == 1
+to_delete, builds = module.partition_assets(
+    immutable_assets, keep_builds=3, total_assets=9, max_assets=8
+)
+assert builds == [4, 3, 2, 1]
+assert {asset.build for asset in to_delete} == {1}
+assert len(to_delete) == 2
+assert all(asset.asset_id != 1000 for asset in to_delete)
 PY
 
 echo "PASS: nightly prune script is compatible with older macOS runner Python"

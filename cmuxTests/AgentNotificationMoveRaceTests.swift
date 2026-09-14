@@ -455,7 +455,8 @@ struct AgentNotificationRegressionTests {
         let recorded = fixture.store.notifications.filter { $0.title == "Relay immediate" }
         #expect(recorded.map(\.tabId) == [fixture.source.id])
         #expect(!recorded.contains { $0.tabId == fixture.destination.id })
-        #expect(fixture.store.focusedReadIndicatorSurfaceId(forTabId: fixture.destination.id) == nil)
+        #expect(fixture.store.focusedReadIndicatorSurfaceId(forTabId: fixture.source.id) == nil)
+        #expect(fixture.store.focusedReadIndicatorSurfaceId(forTabId: fixture.destination.id) == fixture.panelId)
     }
 
     @Test("Session persistence preserves source-confined notification provenance")

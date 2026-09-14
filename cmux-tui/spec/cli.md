@@ -16,10 +16,15 @@ cmux server start [START OPTIONS]
 cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
+cmux wg hub --config <wg-quick file> --socket <unix socket>
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
-socket. Machine connectors use it as a transport primitive. `attach` opens the
+socket. Machine connectors use it as a transport primitive. `wg hub` owns one
+in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
+socket so several `remote connect --wireguard-hub <socket>` clients share one
+key; it prints one `hub-ready` JSON line when listening and removes the socket
+on SIGTERM or SIGINT. `attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
@@ -58,9 +63,14 @@ owner from an owner still starting.
 ```text
 cmux server start [START OPTIONS]
 cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
 cmux server stop [--session <name>] [--socket <path>] [--force]
 cmux server reload-config [--session <name>] [--socket <path>]
 ```
+
+`server stats` prints the `server-stats` diagnostics (registry lock contention
+with holder sites, journal writer batches and commit latency, connection
+admission); see `docs/journal-operations.md` for how to read it.
 
 `server start` is the canonical foreground spelling of `--headless`.
 The shared `--session` and `--socket` routing options can also precede the
@@ -85,7 +95,11 @@ filesystem error text.
 
 Authenticated network operations use `remote connect|ssh|forward|rpc`,
 `remote enroll`, and `remote known-daemons`; they cannot accept local server
-targeting. `remote stop` manages only a replaceable SSH sidecar. A listener
+targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
+authentication and no enrollment; only a daemon started with
+`--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
+listener is reachable solely from a private network of authorized members,
+accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
 embedded by `server start` stops only through `server stop`, which also stops
 the local owner and its workspaces. `server start` accepts the explicit
 remote-listener flags when the owning process also serves authenticated
@@ -299,7 +313,11 @@ browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
-notification list|create
+notification list
+notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
+notification clear [--terminal <term_id>]
+notification ack --client <id> <notification-id>...
+notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 agent list|report
 pairing request list
 pairing request <selector> respond <accept|reject>
@@ -311,6 +329,30 @@ sidebar plugin list|install|use|update|remove
 provider authority install
 
 ```
+
+`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
+work unchanged inside a machine: `--title` (default `Notification`, at most
+512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
+`--clear`, `--surface`, `--workspace`, `--json`; `--window` and `--id-format`
+are accepted and ignored. The target defaults to the caller's own terminal
+(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
+current` says the same, `--surface <term_id>` names another terminal of this
+session, and `--workspace` alone posts a session-level row with no terminal.
+A machine can only address its own session. `--clear` removes the retained
+rows for that target on the machine (`notification.clear`), so every attached
+client drops them. `--reply` is refused: a reply would type into a terminal,
+and that channel does not cross the link. Every row is bounded because each
+one is pushed to every attached client.
+
+`notification ack --client <id> <notification-id>...` records that one client
+install has read the listed notifications. `--client` is the durable client
+id (1 to 128 printable ASCII bytes) that the client also reports through
+`client-focus`. Read state is per client: every notification row carries
+`read_by`, the sorted client ids that acknowledged it, and a second client
+keeps its own unread state. The shared `unread` marker on the console tree is
+unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
+returned under `unknown`, not rejected, so a late acknowledgement after
+eviction is complete.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,

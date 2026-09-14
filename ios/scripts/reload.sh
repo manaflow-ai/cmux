@@ -267,15 +267,30 @@ fi
 # server. A physical device cannot: localhost is the phone itself, so Debug
 # device builds use staging unless the caller supplies a reachable override.
 # Production-auth builds retain production origins. Explicit overrides always
-# win, including the shared CMUX_DEV_API_BASE_URL used by tagged Mac builds.
+# win for Debug builds, including the shared CMUX_DEV_API_BASE_URL used by
+# tagged Mac builds. --prod-auth is fail-closed: it cannot be combined with a
+# staging/loopback origin.
+cmux_ios_require_production_origin() {
+  local label="$1"
+  local value="$2"
+  if [[ -n "$value" && "$value" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use $label '$value'; production builds must use https://cmux.com" >&2
+    return 1
+  fi
+}
+
 cmux_ios_resolve_api_base_url() {
   local target="$1"
   local explicit_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the API origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
     printf '%s' "$CMUX_VM_API_BASE_URL"
   elif [[ "$target" == "physical_device" ]]; then
@@ -293,14 +308,24 @@ cmux_ios_resolve_api_base_url() {
 cmux_ios_resolve_iroh_broker_base_url() {
   local explicit_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-}}"
 
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    cmux_ios_require_production_origin "the Iroh broker origin" "$explicit_base_url" || return 1
+    printf '%s' "https://cmux.com"
+    return 0
+  fi
+
   if [[ -n "$explicit_base_url" ]]; then
     printf '%s' "$explicit_base_url"
-  elif [[ "$PROD_AUTH" -eq 1 ]]; then
-    printf '%s' "https://cmux.com"
   else
     printf '%s' "https://cmux-staging.vercel.app"
   fi
 }
+
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  cmux_ios_require_production_origin "the presence origin" "${CMUX_PRESENCE_BASE_URL:-}" || exit 1
+  CMUX_PRESENCE_BASE_URL="https://presence.cmux.dev"
+  export CMUX_PRESENCE_BASE_URL
+fi
 
 CMUX_IOS_SIMULATOR_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url simulator)"
 CMUX_IOS_DEVICE_API_BASE_URL_VALUE="$(cmux_ios_resolve_api_base_url physical_device)"

@@ -1,8 +1,8 @@
 # SDK ergonomics findings
 
 The seven public SDKs expose handwritten resource handles over the reviewed
-124-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
-separate compatibility surface with 101 commands and 46 events. Deterministic
+125-operation `cmux.protocol/2` catalog. The raw protocol inventory is a
+separate compatibility surface with 104 commands and 47 events. Deterministic
 generation is limited to those private protocol-12 models under each package's
 explicit `raw` namespace. Consumers do not run a generator or install a
 generator runtime.
@@ -64,7 +64,7 @@ implemented public behavior. None remains protocol work.
 
 ## Conformance evidence
 
-The 124 public operations are the API inventory. The public fake-server
+The 125 public operations are the API inventory. The public fake-server
 matrix is test inventory: 20 cases in each language, 140 cases total. It checks
 exact envelopes, decimal preservation, mutation replay, indeterminate effects,
 revision conflicts, duplicate-name ambiguity, bounded stream overflow,
@@ -74,7 +74,9 @@ and secret redaction.
 The exact-binary live matrix adds one isolated create, run, exit, restart, and
 cleanup flow per language. TypeScript repeats it over authenticated WebSocket,
 for eight live transport runs. The separate raw protocol-12 suite runs 266
-compatibility checks over its 101 commands and 46 events.
+compatibility checks across seven language adapters: 34 fake cases, one metadata
+audit, and three live cases per language. Those checks cover the 104 generated
+commands and 47 event shapes.
 
 Each package suite also opens a stream with a short request deadline, leaves it
 idle past that deadline, then delivers and cancels normally. This separates

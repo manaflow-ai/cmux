@@ -19,12 +19,18 @@ struct MemoryPressureStateTracker: Sendable {
     mutating func ingest(
         systemSeverity: MemoryPressureSeverity?,
         physicalFootprintBytes: UInt64?,
+        aggregateMemoryPressure: MemoryPressureAggregateSnapshot? = nil,
         sampledAt: Date
     ) -> MemoryPressureStateEvaluation {
         let previousSeverity = currentSeverity
         let footprintSeverity = thresholds.severity(
             forPhysicalFootprintBytes: physicalFootprintBytes
         )
+        // Aggregate pressure is a distinct signal lane. Keep the legacy
+        // system/footprint severity here so aggregate pressure cannot trigger
+        // unrelated resource shedding or the persistent-critical callback.
+        // The monitor dispatches the aggregate snapshot explicitly to the
+        // aggregate responder after this evaluation.
         let nextSeverity = max(systemSeverity ?? .normal, footprintSeverity)
         currentSeverity = nextSeverity
 
@@ -47,6 +53,7 @@ struct MemoryPressureStateTracker: Sendable {
         let snapshot = MemoryPressureSnapshot(
             severity: nextSeverity,
             physicalFootprintBytes: physicalFootprintBytes,
+            aggregateMemoryPressure: aggregateMemoryPressure,
             sampledAt: sampledAt
         )
         return MemoryPressureStateEvaluation(

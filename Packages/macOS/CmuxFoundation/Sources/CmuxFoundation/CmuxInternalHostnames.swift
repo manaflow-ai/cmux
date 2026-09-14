@@ -20,6 +20,30 @@ public enum CmuxInternalHostnames {
     public static let blockBeginMarker = "# BEGIN cmux managed hosts (cmux vpn hosts)"
     public static let blockEndMarker = "# END cmux managed hosts"
 
+    /// The default tunnel scope (production): its block keeps the historical
+    /// unscoped markers. Any other scope — a dev build on the same Mac, whose
+    /// machines live on another private network behind its own tunnel — gets
+    /// markers carrying the scope name, so each build owns exactly one block
+    /// and never rewrites or clears the other's.
+    public static let defaultScope = "cmux"
+
+    public static func blockBeginMarker(scope: String?) -> String {
+        guard let scope = scopedName(scope) else { return blockBeginMarker }
+        return "# BEGIN cmux managed hosts [\(scope)] (cmux vpn hosts)"
+    }
+
+    public static func blockEndMarker(scope: String?) -> String {
+        guard let scope = scopedName(scope) else { return blockEndMarker }
+        return "# END cmux managed hosts [\(scope)]"
+    }
+
+    private static func scopedName(_ scope: String?) -> String? {
+        guard let scope = scope?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty, scope != defaultScope else {
+            return nil
+        }
+        return scope
+    }
+
     /// One machine's entry: the private address and every name it should
     /// answer to (its id always; its display label too, when it has one and
     /// the label survives slugging).
@@ -98,16 +122,18 @@ public enum CmuxInternalHostnames {
     /// end in one). `body` may be empty, which removes the block entirely
     /// (leaving one trailing newline) — used when this Mac has no machines
     /// left to publish.
-    public static func mergedHostsFile(current: String, body: String) -> String {
-        let block = body.isEmpty ? "" : "\(blockBeginMarker)\n\(body)\n\(blockEndMarker)"
+    public static func mergedHostsFile(current: String, body: String, scope: String? = nil) -> String {
+        let beginMarker = blockBeginMarker(scope: scope)
+        let endMarker = blockEndMarker(scope: scope)
+        let block = body.isEmpty ? "" : "\(beginMarker)\n\(body)\n\(endMarker)"
         let lines = current.components(separatedBy: "\n")
-        guard let beginIndex = lines.firstIndex(of: blockBeginMarker) else {
+        guard let beginIndex = lines.firstIndex(of: beginMarker) else {
             guard !block.isEmpty else { return current }
             let trimmed = current.hasSuffix("\n") || current.isEmpty ? current : current + "\n"
             let separator = trimmed.isEmpty ? "" : "\n"
             return trimmed + separator + block + "\n"
         }
-        let endIndex = lines[beginIndex...].firstIndex(of: blockEndMarker) ?? (lines.count - 1)
+        let endIndex = lines[beginIndex...].firstIndex(of: endMarker) ?? (lines.count - 1)
         var out = Array(lines[..<beginIndex])
         // Drop a blank line this block owns immediately before it, so removing
         // an only block doesn't leave the file growing a blank line each sync.

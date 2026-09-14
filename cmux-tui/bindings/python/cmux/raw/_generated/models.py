@@ -96,6 +96,11 @@ class RenderUnderline(str, Enum):
     DOTTED = 'dotted'
     DASHED = 'dashed'
 
+class ServerStatsWriterPhase(str, Enum):
+    IDLE = 'idle'
+    WAITING_LOCK = 'waiting_lock'
+    COMMITTING = 'committing'
+
 class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
@@ -617,6 +622,28 @@ class LivePane:
 
 
 @dataclass(frozen=True)
+class MachineListeningTcpResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineListeningTcpResult'
+    stdout: str
+
+
+@dataclass(frozen=True)
+class MachineUsage:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineUsage'
+    api_equivalent_usd: float
+    as_of: Union[str, None]
+    period_days: int
+    total_tokens: int
+    vm_id: str
+
+
+@dataclass(frozen=True)
+class MachineUsageResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/MachineUsageResult'
+    usage: Union[MachineUsage, None]
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererResult:
     __cmux_schema_path__: ClassVar[str] = 'types/MintTerminalRendererResult'
     terminal_id: str
@@ -873,6 +900,91 @@ class Screen:
 
 
 @dataclass(frozen=True)
+class ServerStatsConnections:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
+    accepted: int
+    active: int
+    limit: int
+    peak: int
+    refused: int
+
+
+@dataclass(frozen=True)
+class ServerStatsHistogram:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
+    count: int
+    max: int
+    mean: int
+    p50: int
+    p90: int
+    p99: int
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalWriter:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
+    batch_size: ServerStatsHistogram
+    batches: int
+    commit_failures: int
+    commit_lock_wait_us: ServerStatsHistogram
+    commit_us: ServerStatsHistogram
+    deadline_expiries: int
+    durable_events: int
+    durable_queued: int
+    phase: ServerStatsWriterPhase
+    phase_for_us: int
+    receipt_wait_us: ServerStatsHistogram
+    terminal_events: int
+    terminal_queued: int
+
+
+@dataclass(frozen=True)
+class ServerStatsLockHolder:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockHolder'
+    held_for_us: int
+    site: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLockSite:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockSite'
+    acquisitions: int
+    hold_max_us: int
+    hold_total_us: int
+    site: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLockStall:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockStall'
+    blocker: Union[str, None]
+    waited_us: int
+    waiter: str
+
+
+@dataclass(frozen=True)
+class ServerStatsRegistryLock:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryLock'
+    contended_acquisitions: int
+    hold_us: ServerStatsHistogram
+    holder: Union[ServerStatsLockHolder, None]
+    last_stall: Union[ServerStatsLockStall, None]
+    stalls: int
+    top_sites: List[ServerStatsLockSite]
+    wait_us: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
+class ServerStatsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResult'
+    connections: ServerStatsConnections
+    journal_writer: Union[ServerStatsJournalWriter, None]
+    registry_lock: ServerStatsRegistryLock
+    schema: int
+    uptime_ms: int
+
+
+@dataclass(frozen=True)
 class SetCellPixelsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetCellPixelsResult'
     failures: List[CellPixelFailure]
@@ -932,6 +1044,14 @@ class Tab:
 
 
 @dataclass(frozen=True)
+class TerminalColorOverrides:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalColorOverrides'
+    bg: Union[ColorHex, None]
+    cursor: Union[ColorHex, None]
+    fg: Union[ColorHex, None]
+
+
+@dataclass(frozen=True)
 class TerminalColors:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalColors'
     bg: Union[ColorHex, None]
@@ -941,6 +1061,7 @@ class TerminalColors:
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
 
 
@@ -1473,6 +1594,18 @@ class ListWorkspacesRequest:
 
 
 @dataclass(frozen=True)
+class MachineListeningTcpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-listening-tcp/request'
+    pass
+
+
+@dataclass(frozen=True)
+class MachineUsageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/machine-usage/request'
+    pass
+
+
+@dataclass(frozen=True)
 class MarkWorkspacesProviderManagedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mark-workspaces-provider-managed/request'
     authority: str
@@ -1596,6 +1729,26 @@ class PaneNeighborRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pane-neighbor/request'
     pane: Id
     dir: PaneDirection
+
+
+@dataclass(frozen=True)
+class PasteImageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/request'
+    surface: Id
+    terminal_id: str
+    lease: str
+    op: str
+    upload_id: str
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    mime: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    size: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PasteImageResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/result'
+    accepted: bool
 
 
 @dataclass(frozen=True)
@@ -1814,6 +1967,12 @@ class SendKeyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/send-key/request'
     surface: Id
     keys: List[str]
+
+
+@dataclass(frozen=True)
+class ServerStatsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -2049,6 +2208,7 @@ class ColorsChangedEvent(EventBase):
     cursor: Union[ColorHex, None, MissingType] = field(default=MISSING)
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     cursor_style: Union[CursorStyle, None, MissingType] = field(default=MISSING)
+    overrides: Union[TerminalColorOverrides, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -2057,6 +2217,13 @@ class ColorsChangedEvent(EventBase):
 class ConfigReloadRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/config-reload-requested/payload'
     event: Literal['config-reload-requested']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class DaemonShutdownEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
+    event: Literal['daemon-shutdown']
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2120,6 +2287,14 @@ class LayoutChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/layout-changed/payload'
     screen: Id
     event: Literal['layout-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class MachineUsageChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
+    event: Literal['machine-usage-changed']
+    usage: Union[MachineUsage, None]
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2494,7 +2669,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2515,6 +2690,7 @@ __all__ = [
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',
+    'ServerStatsWriterPhase',
     'SplitDirection',
     'TerminalKey',
     'TerminalKeyAction',
@@ -2562,6 +2738,9 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'LivePane',
+    'MachineListeningTcpResult',
+    'MachineUsage',
+    'MachineUsageResult',
     'MintTerminalRendererResult',
     'MoveTerminalResult',
     'NotificationMarker',
@@ -2585,12 +2764,21 @@ __all__ = [
     'ResourceSelectors',
     'RunResult',
     'Screen',
+    'ServerStatsConnections',
+    'ServerStatsHistogram',
+    'ServerStatsJournalWriter',
+    'ServerStatsLockHolder',
+    'ServerStatsLockSite',
+    'ServerStatsLockStall',
+    'ServerStatsRegistryLock',
+    'ServerStatsResult',
     'SetCellPixelsResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
     'Size',
     'SurfaceResult',
     'Tab',
+    'TerminalColorOverrides',
     'TerminalColors',
     'TerminalEventsResult',
     'TerminalExit',
@@ -2653,6 +2841,8 @@ __all__ = [
     'ListClientsRequest',
     'ListTerminalsRequest',
     'ListWorkspacesRequest',
+    'MachineListeningTcpRequest',
+    'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
@@ -2668,6 +2858,8 @@ __all__ = [
     'NotifyRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'PasteImageRequest',
+    'PasteImageResult',
     'PingRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',
@@ -2695,6 +2887,7 @@ __all__ = [
     'SelectWorkspaceRequest',
     'SendRequest',
     'SendKeyRequest',
+    'ServerStatsRequest',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',
@@ -2723,12 +2916,14 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
+    'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',
     'FrameEvent',
     'FrontendProjectionChangedEvent',
     'GraphicsStatusEvent',
     'LayoutChangedEvent',
+    'MachineUsageChangedEvent',
     'NotificationEvent',
     'OutputEvent',
     'OverflowEvent',

@@ -2,6 +2,13 @@ import type { ProviderId } from "../drivers";
 import { allowUnmanifestedImages, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError, type VmImageSource } from "../errors";
 import manifest from "./manifest.json";
+import {
+  isVmImageSizeName,
+  pickVmImageSizeForMemory,
+  vmImageSizeRank,
+  type VmImageSize,
+  type VmImageSizeName,
+} from "./sizes";
 
 /**
  * What a machine is for. Clients ask for a kind instead of pinning an image id so
@@ -12,9 +19,27 @@ export type VmImageKind = "desktop" | "base";
 
 export const VM_IMAGE_KINDS: readonly VmImageKind[] = ["desktop", "base"];
 
+/**
+ * The kind served when a request names neither an image nor a kind: a
+ * machine with a screen (TigerVNC on 5901 loopback, noVNC on 6901, the
+ * `cmux-desktop` unit). Shell-only is always an explicit `kind: "base"`, so
+ * older clients that send no kind (`vm base open`, third-party callers) get
+ * the same default as the app's New Machine sheet and bare `cmux vm new`
+ * (#12239).
+ */
+export const VM_IMAGE_DEFAULT_KIND: VmImageKind = "desktop";
+
 export function isVmImageKind(value: unknown): value is VmImageKind {
   return typeof value === "string" && (VM_IMAGE_KINDS as readonly string[]).includes(value);
 }
+
+/** A manifest entry's machine shape: one snapshot per size on Freestyle. */
+export type VmImageManifestSize = {
+  readonly name: VmImageSizeName;
+  readonly cpu: number;
+  readonly memoryMb: number;
+  readonly storageMb: number;
+};
 
 export type VmImageManifestEntry = {
   readonly provider: ProviderId;
@@ -26,8 +51,13 @@ export type VmImageManifestEntry = {
   readonly defaultForLocalDev?: boolean;
   /** Which machine kind this image serves. Missing means "base" unless the id says otherwise. */
   readonly kind?: VmImageKind;
-  /** The image served for `kind` when the client does not name one. Exactly one per provider and kind. */
+  /**
+   * The image served for `kind` (and `size`, when the entry has one) when the
+   * client does not name an image. Exactly one per provider, kind and size.
+   */
   readonly defaultForKind?: boolean;
+  /** The shape this snapshot boots at. Entries without one are size-less (pre-ladder bakes). */
+  readonly size?: VmImageManifestSize;
   readonly cmuxdRemoteCommit: string;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
@@ -44,10 +74,17 @@ export type VmImageSelection = {
   readonly imageVersion: string | null;
   readonly manifestEntry: VmImageManifestEntry | null;
   readonly kind: VmImageKind;
+  /** The shape the machine boots at, when the manifest knows it. */
+  readonly size: VmImageManifestSize | null;
 };
 
 export type VmImageResolveOptions = {
   readonly kind?: VmImageKind;
+  /**
+   * The plan's machine memory in MiB. Picks the smallest ladder size that has
+   * at least this much; omitted means the smallest size the manifest offers.
+   */
+  readonly memoryMb?: number;
 };
 
 const typedManifest = manifest as {
@@ -88,11 +125,37 @@ export function findVmImageManifestEntry(
   return matches[0] ?? null;
 }
 
-/** The manifest entry flagged `defaultForKind` for `kind`, if the provider has one. */
-export function findVmImageKindDefault(provider: ProviderId, kind: VmImageKind): VmImageManifestEntry | null {
-  return typedManifest.images.find((entry) =>
-    entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true
-  ) ?? null;
+/** Every entry flagged `defaultForKind` for `kind`, smallest size first (size-less entries last). */
+export function listVmImageKindDefaults(provider: ProviderId, kind: VmImageKind): VmImageManifestEntry[] {
+  return typedManifest.images
+    .filter((entry) =>
+      entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true
+    )
+    .sort((a, b) => sizeRank(a) - sizeRank(b));
+}
+
+function sizeRank(entry: VmImageManifestEntry): number {
+  return entry.size && isVmImageSizeName(entry.size.name) ? vmImageSizeRank(entry.size.name) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * The manifest default for `kind` at the plan's size: the smallest sized
+ * default with at least `memoryMb` of memory. With no `memoryMb`, the smallest
+ * sized default. A provider whose defaults carry no sizes (a pre-ladder bake)
+ * serves its size-less default for every request.
+ */
+export function findVmImageKindDefault(
+  provider: ProviderId,
+  kind: VmImageKind,
+  memoryMb?: number,
+): VmImageManifestEntry | null {
+  const defaults = listVmImageKindDefaults(provider, kind);
+  const sized = defaults.filter((entry) => entry.size !== undefined);
+  if (sized.length === 0) return defaults[0] ?? null;
+  if (memoryMb === undefined) return sized[0] ?? null;
+  const wanted = pickVmImageSizeForMemory(memoryMb);
+  if (!wanted) return null;
+  return sized.find((entry) => vmImageSizeRank(entry.size!.name) >= vmImageSizeRank(wanted.name)) ?? null;
 }
 
 /**
@@ -110,24 +173,33 @@ export function vmImageKindFor(provider: ProviderId, image: string): VmImageKind
 }
 
 /**
- * The image each kind would resolve to for `provider`.
- * Kinds with no manifest default are omitted, so clients can offer only kinds that work.
+ * The image each kind would resolve to for `provider` at `memoryMb` (or the
+ * smallest size). Kinds with no manifest default are omitted, so clients can
+ * offer only kinds that work.
  */
 export function listVmImageKinds(
   provider: ProviderId,
   env: VmRuntimeEnv = process.env,
-): Array<{ kind: VmImageKind; image: string }> {
-  const kinds: Array<{ kind: VmImageKind; image: string }> = [];
+  options: { readonly memoryMb?: number } = {},
+): Array<{ kind: VmImageKind; image: string; size?: VmImageManifestSize }> {
+  const kinds: Array<{ kind: VmImageKind; image: string; size?: VmImageManifestSize }> = [];
   for (const kind of VM_IMAGE_KINDS) {
     try {
-      const selection = resolveVmImage(provider, undefined, env, { kind });
-      kinds.push({ kind, image: selection.image });
+      const selection = resolveVmImage(provider, undefined, env, { kind, memoryMb: options.memoryMb });
+      kinds.push({ kind, image: selection.image, ...(selection.size ? { size: selection.size } : {}) });
     } catch (err) {
       if (err instanceof VmImageConfigError) continue;
       throw err;
     }
   }
   return kinds;
+}
+
+/** The sizes a provider's manifest defaults offer for `kind`, ladder order. */
+export function listVmImageSizes(provider: ProviderId, kind: VmImageKind): VmImageManifestSize[] {
+  return listVmImageKindDefaults(provider, kind)
+    .map((entry) => entry.size)
+    .filter((size): size is VmImageManifestSize => size !== undefined);
 }
 
 /**
@@ -159,7 +231,9 @@ export function inferVmProviderForImage(requestedImage: string | undefined): Pro
  *     images are allowed, which they are outside deployed runtimes or with
  *     CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1);
  *  2. the manifest entry flagged `defaultForKind` for the requested kind
- *     (`base` when the client did not ask for a kind).
+ *     (`VM_IMAGE_DEFAULT_KIND`, desktop, when the client did not ask for a
+ *     kind) at the plan's size: the smallest sized default with at least
+ *     `memoryMb` of memory.
  * Rollback is a manifest change (revert the promotion PR) and a deploy.
  */
 export function resolveVmImage(
@@ -184,16 +258,20 @@ export function resolveVmImage(
     return resolveRequested(provider, requested, env, kind);
   }
 
-  const effectiveKind = kind ?? "base";
-  const kindDefault = findVmImageKindDefault(provider, effectiveKind);
+  const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
+  const kindDefault = findVmImageKindDefault(provider, effectiveKind, options.memoryMb);
   if (kindDefault) return selectionFromEntry(kindDefault);
 
+  const sizes = listVmImageSizes(provider, effectiveKind);
+  const reason = sizes.length > 0 && options.memoryMb !== undefined
+    ? `no ${effectiveKind} image size fits ${options.memoryMb} MiB for ${provider}: the manifest offers ${sizes.map((size) => `${size.name} (${size.memoryMb} MiB)`).join(", ")}`
+    : `no ${effectiveKind} image is recorded as the manifest default for ${provider}: promote one (bun run devbox:promote -- ${provider})`;
   throw new VmImageConfigError({
     provider,
     kind: effectiveKind,
     source: "default",
     allowedImages: listVmImageIds(provider),
-    reason: `no ${effectiveKind} image is recorded as the manifest default for ${provider}: promote one (bun run devbox:promote -- ${provider})`,
+    reason,
   });
 }
 
@@ -226,6 +304,7 @@ function resolveRequested(
       imageVersion: null,
       manifestEntry: null,
       kind: kind ?? deriveVmImageKind(null, image),
+      size: null,
     };
   }
 
@@ -319,5 +398,8 @@ function selectionFromEntry(entry: VmImageManifestEntry): VmImageSelection {
     imageVersion: entry.version,
     manifestEntry: entry,
     kind: deriveVmImageKind(entry, entry.imageId),
+    size: entry.size ?? null,
   };
 }
+
+export type { VmImageSize, VmImageSizeName };

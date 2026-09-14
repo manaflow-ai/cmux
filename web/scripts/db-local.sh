@@ -58,7 +58,11 @@ compose() {
 
 wait_for_postgres() {
   for _ in $(seq 1 60); do
-    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
+    # pg_isready can report success during the short handoff before a new
+    # server accepts a real client connection. Drizzle opens that connection
+    # immediately, so prove the same SQL handshake before returning ready.
+    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1 \
+      && compose exec -T postgres psql -XAtq -U "$db_user" -d "$db_name" -c 'SELECT 1' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -106,7 +110,8 @@ case "$command" in
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     ;;
   ready)
-    compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null
+    compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null \
+      && compose exec -T postgres psql -XAtq -U "$db_user" -d "$db_name" -c 'SELECT 1' >/dev/null
     ;;
   test)
     env \

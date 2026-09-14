@@ -1,4 +1,6 @@
-use super::resource_store::{apply_resource_patch, validate_resource_patch};
+use super::resource_store::{
+    apply_resource_patch, complete_terminal_close_patch, validate_resource_patch,
+};
 use super::*;
 use crate::resource::ResourceError;
 use serde_json::json;
@@ -703,7 +705,7 @@ impl WorkspaceRegistry {
         // does); otherwise later legacy CAS mutations conflict forever.
         let workspace_revision = workspace_ledger
             .map(|ledger| {
-                super::commit_workspace_registry_in_transaction(
+                commit_workspace_registry_in_transaction(
                     &tx,
                     mutation,
                     &fingerprint,
@@ -1044,7 +1046,6 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<ResourceCloseCommit> {
         validate_identifier("idempotency key", idempotency_key)?;
         validate_identifier("resource operation", operation)?;
-        validate_resource_patch(patch)?;
         let mutation = WorkspaceMutation::new(idempotency_key, "resource-api")?;
         validate_terminal_batch_close(&mutation, terminals)?;
         let fingerprint = canonical_json(fingerprint)?;
@@ -1053,6 +1054,7 @@ impl WorkspaceRegistry {
         let outcome_json = canonical_json(&outcome)?;
         let generation = self.generation.clone();
         let tx = self.connection.transaction()?;
+        let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
         let (workspace_revision, terminal_batch) = if let Some(close) = workspace_close {
             if let Some(active_workspace) = close.active_workspace.as_ref() {
@@ -1085,11 +1087,11 @@ impl WorkspaceRegistry {
             idempotency_key,
             operation,
             &fingerprint,
-            patch,
+            &patch,
             result,
             &outcome,
             &outcome_json,
-            deltas,
+            &deltas,
         )?;
         tx.commit()?;
         Ok(ResourceCloseCommit { resource, workspace_revision, terminal_batch })

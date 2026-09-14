@@ -50,6 +50,8 @@ import {
   parsePhoneReply,
   parsePhoneReplyAck,
 } from "./replies";
+import { captureSentryException } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 export { TeamPresence, AccountControlPlane };
 
@@ -92,7 +94,7 @@ async function resolveTeamOr403(
   return { ok: true, teamId: team.teamId, user, stub };
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
@@ -203,7 +205,7 @@ export default {
         const parsed = parsePhoneReply(body.value);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
         const result = await stub.enqueuePhoneReply(user.id, parsed.reply);
-        if (!result.ok) return json({ error: result.error }, 429);
+        if (!result.ok) return rateLimitedJson({ error: result.error });
         return json(result);
       }
       if (request.method === "GET") {
@@ -239,7 +241,11 @@ export default {
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
-      if ("error" in result) return json({ error: result.error }, result.status);
+      if ("error" in result) {
+        return result.status === 429
+          ? rateLimitedJson({ error: result.error })
+          : json({ error: result.error }, result.status);
+      }
       return json(result);
     }
 
@@ -317,5 +323,21 @@ export default {
     }
 
     return json({ error: "not_found" }, 404);
+  },
+} satisfies ExportedHandler<Env>;
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    try {
+      return await worker.fetch(request, env);
+    } catch (error) {
+      await captureSentryException(env, "cloudflare-worker", error, {
+        durable_object: "worker-router",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+      });
+      return json({ error: "internal_error" }, 500);
+    }
   },
 } satisfies ExportedHandler<Env>;

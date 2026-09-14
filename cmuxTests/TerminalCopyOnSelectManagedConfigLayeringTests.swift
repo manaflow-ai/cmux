@@ -1,4 +1,6 @@
 import Foundation
+import CmuxTerminal
+import GhosttyKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -64,7 +66,7 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
 
         #expect(
             TerminalManagedGhosttySettings.ghosttyConfigContents(defaults: defaults)
-                == "copy-on-select = clipboard"
+                == "term = \(TerminalSurface.managedTerminalType)\ncopy-on-select = clipboard"
         )
 
         let effectiveValue = Self.effectiveGhosttyValues(afterLoading: [
@@ -108,6 +110,46 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
         #expect(effectiveValues["selection-word-chars"] == "\"_-\"")
         #expect(effectiveValues["right-click-action"] == "copy-or-paste")
         #expect(effectiveValues["mouse-reporting"] == "false")
+    }
+
+    @Test
+    func managedSettingsSetGhosttyTerminalIdentity() throws {
+        let suiteName = "cmux-terminal-term-identity-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let managedConfig = TerminalManagedGhosttySettings.ghosttyConfigContents(
+            defaults: defaults,
+            emitsCopyOnSelectFalse: false
+        )
+
+        #expect(Self.ghosttyTerm(afterLoading: managedConfig) == TerminalSurface.managedTerminalType)
+    }
+
+    private static func ghosttyTerm(afterLoading configContents: String?) -> String? {
+        guard let configContents, let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+
+        let syntheticPath = "/__cmux_test__/managed-terminal-settings.conf"
+        configContents.withCString { contents in
+            syntheticPath.withCString { path in
+                ghostty_config_load_string(
+                    config,
+                    contents,
+                    UInt(configContents.utf8.count),
+                    path
+                )
+            }
+        }
+        ghostty_config_finalize(config)
+
+        guard ghostty_config_diagnostics_count(config) == 0 else { return nil }
+        var value: UnsafePointer<Int8>?
+        let key = "term"
+        guard ghostty_config_get(config, &value, key, UInt(key.utf8.count)), let value else {
+            return nil
+        }
+        return String(cString: value)
     }
 
     private static func effectiveGhosttyValues(afterLoading configs: [String?]) -> [String: String] {

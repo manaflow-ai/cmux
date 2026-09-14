@@ -72,6 +72,12 @@ public struct CMUXMobileRootScene: View {
     /// the shell's one-time sheet and Settings > What's New share one fetch
     /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
     @State private var whatsNewCenter: MobileWhatsNewCenter
+    // This state is inside the iOS-only block because the center is not
+    // defined for macOS builds of the shared root scene.
+    /// Minimum-Mac-version state (remote list + per-origin cache), hosted at
+    /// this root so onboarding copy and the shell store's connection gate
+    /// share one fetch through `@Environment(MobileMacCompatCenter.self)`.
+    @State private var macCompatCenter: MobileMacCompatCenter
     /// Exchanges the native Stack session for cmux web session cookies so
     /// in-app webviews (What's New web pages) render as the signed-in user.
     /// Injected as a plain environment value through
@@ -88,8 +94,11 @@ public struct CMUXMobileRootScene: View {
     /// store and the in-app diagnostics exporter.
     #if os(iOS)
     private let diagnosticLog: DiagnosticLog
+    /// App-wide durable logs used by Settings' single ZIP export.
+    private let appLog: AppLog?
     #else
     private let diagnosticLog: DiagnosticLog?
+    private let appLog: AppLog?
     #endif
 
     #if os(iOS)
@@ -123,6 +132,8 @@ public struct CMUXMobileRootScene: View {
     ///     by Iroh discovery, persistence, and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
+    ///   - appLog: The durable app and networking log used by the unified
+    ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -140,7 +151,8 @@ public struct CMUXMobileRootScene: View {
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog
+        diagnosticLog: DiagnosticLog,
+        appLog: AppLog? = nil
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -161,9 +173,13 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
+        self.appLog = appLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
         _whatsNewCenter = State(
             initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        _macCompatCenter = State(
+            initialValue: MobileMacCompatCenter(apiBaseURL: auth.config.apiBaseURL)
         )
         webAppSession = MobileWebAppSessionBroker(
             tokens: auth.coordinator,
@@ -194,6 +210,7 @@ public struct CMUXMobileRootScene: View {
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: nil)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = nil
+        self.appLog = nil
         _toastCenter = State(initialValue: ToastCenter())
     }
     #endif
@@ -389,6 +406,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             .analytics(analytics)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
+            .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
             .environment(pushCoordinator)
@@ -398,6 +416,7 @@ public struct CMUXMobileRootScene: View {
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
             .environment(whatsNewCenter)
+            .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
             #endif
     }
@@ -502,7 +521,7 @@ public struct CMUXMobileRootScene: View {
         #else
         resolvedPersonalIrohForget = personalIrohForget
         #endif
-        return CMUXMobileShellStore(
+        let store = CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: backedUpPairedMacStore,
             connectionMethodStore: connectionMethodStore,
@@ -531,5 +550,14 @@ public struct CMUXMobileRootScene: View {
             browserStreamEvents: browserStreamEvents,
             simulatorStreamStore: simulatorStreamStore
         )
+        #if os(iOS)
+        // Install the cached (or baked) Mac minimum-version list before the
+        // store is handed to any view, so the first stored-Mac reconnect can
+        // never race the root view's async policy push and admit a Mac under
+        // a stale floor. The root view still refreshes from the network and
+        // pushes updates.
+        store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+        #endif
+        return store
     }
 }

@@ -11,6 +11,7 @@ private final class RecordingMemoryPressureResponder: MemoryPressureResponder {
     let memoryPressureResponderID: String
     let memoryPressureMinimumSeverity: MemoryPressureSeverity
     let memoryPressurePriority: Int
+    let memoryPressureResponderScope: MemoryPressureResponderScope
     let result: MemoryPressureShedResult
     var calls: [MemoryPressureSnapshot] = []
 
@@ -18,11 +19,13 @@ private final class RecordingMemoryPressureResponder: MemoryPressureResponder {
         id: String,
         minimumSeverity: MemoryPressureSeverity,
         priority: Int,
+        scope: MemoryPressureResponderScope = .system,
         result: MemoryPressureShedResult = .init(reclaimedItemCount: 1)
     ) {
         memoryPressureResponderID = id
         memoryPressureMinimumSeverity = minimumSeverity
         memoryPressurePriority = priority
+        memoryPressureResponderScope = scope
         self.result = result
     }
 
@@ -37,6 +40,22 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
 
     func physicalFootprintBytes() -> UInt64? {
         bytes
+    }
+}
+
+private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
+    let sample: MemoryPressureAggregateSample
+
+    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+        sample.withSampledAt(sampledAt)
+    }
+}
+
+private struct FixedMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampling {
+    let bytes: UInt64?
+
+    func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage? {
+        bytes.map(MemoryPressureCoalitionUsage.init(physicalFootprintBytes:))
     }
 }
 
@@ -149,6 +168,149 @@ struct MemoryPressureStateTrackerTests {
         )
         #expect(secondEpisode.didBecomePersistentCritical)
     }
+
+    @Test func aggregateAccountingDeduplicatesOverlappingDescendants() {
+        let accounting = MemoryPressureAggregateAccounting()
+        let result = accounting.summarize([
+            .init(pid: 10, bytes: 400),
+            .init(pid: 11, bytes: 900),
+            .init(pid: 11, bytes: 900),
+            .init(pid: 12, bytes: 100)
+        ])
+
+        #expect(result.uniquePIDs == [10, 11, 12])
+        #expect(result.aggregateBytes == 1_400)
+        #expect(result.duplicatePIDs == [11])
+    }
+
+    @Test func aggregatePolicyUsesRelativeThresholdsAndFailsSafeWhenUnavailable() {
+        let policy = MemoryPressureAggregatePolicy(
+            warningCoalitionFraction: 0.5,
+            criticalCoalitionFraction: 0.75
+        )
+        let warning = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 4_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 4,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 10)
+        )
+        #expect(policy.severity(for: warning) == .warning)
+
+        let critical = warning.withAggregateBytes(6_000)
+        #expect(policy.severity(for: critical) == .critical)
+
+        let unavailable = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 11)
+        )
+        #expect(policy.severity(for: unavailable) == .normal)
+    }
+
+    @Test func coalitionABIValidationUsesKnownOSLayoutsOnly() {
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 14
+        ))
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 15
+        ))
+        #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 26
+        ))
+        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 27
+        ))
+    }
+
+    @Test func coalitionSamplingSkipsDescendantEnumeration() {
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: 42,
+            snapshotProvider: {
+                fatalError("coalition sampling should not enumerate descendants")
+            },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 5_000),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { 2_000 }
+        )
+
+        let sample = sampler.sample(at: Date(timeIntervalSince1970: 21))
+
+        #expect(sample.source == .coalition)
+        #expect(sample.aggregateBytes == 5_000)
+        #expect(sample.processCount == 0)
+        #expect(sample.missingProcessCount == 0)
+    }
+
+    @Test func implausibleCoalitionFootprintFallsBackToCompleteTree() {
+        let process = CmuxTopProcessInfo(
+            pid: 42,
+            parentPID: 1,
+            name: "cmux",
+            path: nil,
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 42,
+            terminalProcessGroupID: 42,
+            cpuPercent: 0,
+            memoryBytes: 4_000,
+            memorySource: .physicalFootprint,
+            residentBytes: 4_000,
+            residentMemorySource: .residentSize,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false,
+            includesCMUXScope: false
+        )
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: 42,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 9_000),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = sampler.sample(at: Date(timeIntervalSince1970: 1))
+
+        #expect(sample.source == .descendantProcessTree)
+        #expect(sample.aggregateBytes == 4_000)
+        #expect(sample.missingProcessCount == 0)
+    }
+
+    @Test func aggregatePressureIsRecordedWithoutRaisingSystemSeverity() {
+        let policy = MemoryPressureAggregatePolicy(
+            warningCoalitionFraction: 0.5,
+            criticalCoalitionFraction: 0.75
+        )
+        let sample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 5_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 3,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 20)
+        )
+        var tracker = MemoryPressureStateTracker(
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10
+        )
+        let evaluation = tracker.ingest(
+            systemSeverity: nil,
+            physicalFootprintBytes: 100,
+            aggregateMemoryPressure: policy.evaluate(sample: sample),
+            sampledAt: Date(timeIntervalSince1970: 20)
+        )
+
+        #expect(evaluation.snapshot.severity == .normal)
+        #expect(evaluation.snapshot.aggregateMemoryPressure?.severity == .warning)
+    }
 }
 
 @MainActor
@@ -238,6 +400,54 @@ struct MemoryPressureResponderRegistryTests {
         #expect(actions.map(\.responderID) == ["renderer"])
         #expect(responder.calls.count == 1)
     }
+
+    @Test func aggregateSignalOnlyInvokesAggregateScopedResponders() {
+        let registry = MemoryPressureResponderRegistry()
+        let system = RecordingMemoryPressureResponder(
+            id: "system",
+            minimumSeverity: .warning,
+            priority: 10
+        )
+        let aggregate = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 20,
+            scope: .aggregate
+        )
+        registry.register(system)
+        registry.register(aggregate)
+
+        let snapshot = MemoryPressureSnapshot(
+            severity: .warning,
+            physicalFootprintBytes: nil,
+            sampledAt: Date(timeIntervalSince1970: 4)
+        )
+        let actions = registry.dispatch(snapshot, signal: .aggregate)
+
+        #expect(actions.map(\.responderID) == ["aggregate"])
+        #expect(system.calls.isEmpty)
+        #expect(aggregate.calls.count == 1)
+    }
+
+    @Test func systemSignalDoesNotInvokeAggregateScopedResponders() {
+        let registry = MemoryPressureResponderRegistry()
+        let aggregate = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 1,
+            scope: .aggregate
+        )
+        registry.register(aggregate)
+
+        let snapshot = MemoryPressureSnapshot(
+            severity: .critical,
+            physicalFootprintBytes: nil,
+            sampledAt: Date(timeIntervalSince1970: 5)
+        )
+
+        #expect(registry.dispatch(snapshot).isEmpty)
+        #expect(aggregate.calls.isEmpty)
+    }
 }
 
 @MainActor
@@ -250,7 +460,7 @@ struct MemoryPressureMonitorTests {
         #expect(MemoryPressureMonitor.severity(forDispatchSourceEvent: [.warning, .critical]) == .critical)
     }
 
-    @Test func samplingInjectedFootprintDispatchesThroughRegistry() {
+    @Test func samplingInjectedFootprintDispatchesThroughRegistry() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -266,14 +476,173 @@ struct MemoryPressureMonitorTests {
             sampleInterval: 60
         )
 
-        monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 4))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 4))
 
         #expect(monitor.currentSeverity == .warning)
         #expect(monitor.physicalFootprintBytes == 1_500)
         #expect(responder.calls.map(\.severity) == [.warning])
     }
 
-    @Test func samplingPreservesRecentSystemPressureEvent() {
+    @Test func aggregateSamplingDrivesSeverityAndIsExposedInSnapshot() async {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 1,
+            scope: .aggregate
+        )
+        registry.register(responder)
+        let aggregateSample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 5_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 6,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: aggregateSample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10,
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 12))
+
+        #expect(monitor.currentSeverity == .normal)
+        #expect(monitor.aggregateMemoryPressure?.severity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.aggregateBytes == 5_000)
+        #expect(responder.calls.map(\.severity) == [.warning])
+    }
+
+    @Test func systemEventDoesNotReplayStaleAggregateEvidence() async {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 1,
+            scope: .aggregate
+        )
+        registry.register(responder)
+        let aggregateSample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 5_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 2,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: aggregateSample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 30))
+        monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 31))
+
+        #expect(responder.calls.count == 1)
+        #expect(monitor.aggregateMemoryPressure == nil)
+    }
+
+    @Test func backwardSystemPressureTimestampStillUpdatesTheHeldSeverity() async {
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(
+                sample: .unavailable(sampledAt: Date(timeIntervalSince1970: 0))
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60,
+            systemPressureHoldDuration: 120
+        )
+
+        monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 100))
+        monitor.recordSystemPressure(.critical, at: Date(timeIntervalSince1970: 90))
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 150))
+
+        #expect(monitor.currentSeverity == .critical)
+    }
+
+    @Test func clearingAggregateEvidenceNotifiesThePressureOwner() async {
+        let sample = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            sampleInterval: 60
+        )
+        var clearCount = 0
+        monitor.onAggregatePressureCleared = { clearCount += 1 }
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 32))
+
+        #expect(clearCount == 1)
+    }
+
+    @Test func unavailableAggregateMetricsNeverCreateActionableAggregatePressure() async {
+        let sample = MemoryPressureAggregateSample.unavailable(
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 13))
+
+        #expect(monitor.currentSeverity == .normal)
+        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+    }
+
+    @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() async {
+        let sample = MemoryPressureAggregateSample(
+            source: .coalition,
+            aggregateBytes: 500,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 3,
+            missingProcessCount: 0,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 14))
+        monitor.recordSystemPressure(.warning, at: Date(timeIntervalSince1970: 15))
+
+        #expect(monitor.currentSeverity == .warning)
+        // A system event carries no aggregate sample. The previous aggregate
+        // evidence must be cleared rather than replayed as a synthetic normal
+        // snapshot, so it cannot authorize a later aggregate response.
+        #expect(monitor.aggregateMemoryPressure == nil)
+    }
+
+    @Test func samplingPreservesRecentSystemPressureEvent() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -292,7 +661,7 @@ struct MemoryPressureMonitorTests {
         let start = Date(timeIntervalSince1970: 5)
 
         monitor.recordSystemPressure(.critical, at: start)
-        monitor.samplePhysicalFootprint(at: start.addingTimeInterval(1))
+        await monitor.samplePhysicalFootprint(at: start.addingTimeInterval(1))
 
         #expect(monitor.currentSeverity == .critical)
         #expect(responder.calls.map(\.severity) == [.critical, .critical])
@@ -323,7 +692,7 @@ struct MemoryPressureMonitorTests {
         #expect(responder.calls.map(\.severity) == [.critical, .critical])
     }
 
-    @Test func heldSystemPressureExpiresWithoutNewEvents() {
+    @Test func heldSystemPressureExpiresWithoutNewEvents() async {
         let registry = MemoryPressureResponderRegistry()
         let responder = RecordingMemoryPressureResponder(
             id: "renderer",
@@ -342,7 +711,7 @@ struct MemoryPressureMonitorTests {
         let start = Date(timeIntervalSince1970: 7)
 
         monitor.recordSystemPressure(.warning, at: start)
-        monitor.samplePhysicalFootprint(at: start.addingTimeInterval(31))
+        await monitor.samplePhysicalFootprint(at: start.addingTimeInterval(31))
 
         #expect(monitor.currentSeverity == .normal)
         #expect(responder.calls.map(\.severity) == [.warning])

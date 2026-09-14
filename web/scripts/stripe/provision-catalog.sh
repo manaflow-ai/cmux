@@ -25,6 +25,7 @@ WEBHOOK_DESCRIPTION="cmux billing (webhook-driven entitlements)"
 EVENTS=(
   "checkout.session.completed"
   "checkout.session.async_payment_succeeded"
+  "checkout.session.expired"
   "customer.subscription.created"
   "customer.subscription.updated"
   "customer.subscription.deleted"

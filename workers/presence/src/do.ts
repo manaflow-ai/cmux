@@ -80,6 +80,8 @@ import {
   type EnqueuePhoneReplyResult,
   type StoredPhoneReply,
 } from "./replies";
+import { captureSentryException, type SentryEnv } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -195,7 +197,7 @@ function ownerKey(deviceId: string): string {
   return `${OWNER_PREFIX}${deviceId}`;
 }
 
-export class TeamPresence extends DurableObject {
+export class TeamPresence extends DurableObject<SentryEnv> {
   /** Live SSE subscribers; in-memory only. An evicted DO drops the streams and
    * clients reconnect, which re-delivers a fresh snapshot. */
   private sseSubscribers = new Set<SseSubscriber>();
@@ -278,6 +280,11 @@ export class TeamPresence extends DurableObject {
         await this.syncOneDevice(beat.deviceId, now);
       } catch (err) {
         console.error("sync projection failed (heartbeat); presence unaffected", err);
+        await captureSentryException(this.env, userId, err, {
+          durable_object: "TeamPresence",
+          operation: "heartbeat_sync_projection",
+          team_id: teamId,
+        });
       }
     }
     await this.ensureAlarmFor(instance);
@@ -501,6 +508,20 @@ export class TeamPresence extends DurableObject {
   // ---- Subscribe transports (worker forwards the original Request) ----
 
   override async fetch(request: Request): Promise<Response> {
+    try {
+      return await this.handleFetch(request);
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-team-presence", error, {
+        durable_object: "TeamPresence",
+        operation: "fetch",
+        path: new URL(request.url).pathname,
+        method: request.method,
+      });
+      throw error;
+    }
+  }
+
+  private async handleFetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/v1/connectivity/subscribe") {
       return this.subscribeConnectivity(request);
     }
@@ -533,10 +554,7 @@ export class TeamPresence extends DurableObject {
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
 
     if (this.presenceSubscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -614,10 +632,7 @@ export class TeamPresence extends DurableObject {
       (ws) => wsConnectivityAccountId(ws) !== null && wsExpiresAt(ws) > now,
     ).length;
     if (connected >= MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -639,6 +654,18 @@ export class TeamPresence extends DurableObject {
   // from an old client that never sends sync) is ignored, so this stays
   // backward-compatible with the one-way presence transport.
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    try {
+      await this.handleWebSocketMessage(ws, message);
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-team-presence", error, {
+        durable_object: "TeamPresence",
+        operation: "websocket_message",
+      });
+      throw error;
+    }
+  }
+
+  private async handleWebSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (wsExpiresAt(ws) <= Date.now()) return;
     // Connectivity invalidation channels are push-only.
     if (wsConnectivityAccountId(ws) !== null) return;
@@ -826,14 +853,29 @@ export class TeamPresence extends DurableObject {
   override async webSocketClose(ws: WebSocket): Promise<void> {
     try {
       ws.close();
-    } catch {
-      // already closed
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-team-presence", error, {
+        durable_object: "TeamPresence",
+        operation: "websocket_close",
+      });
     }
   }
 
   // ---- Alarm: timeout-offline transitions and pruning ----
 
   override async alarm(): Promise<void> {
+    try {
+      await this.handleAlarm();
+    } catch (error) {
+      await captureSentryException(this.env, "cloudflare-team-presence", error, {
+        durable_object: "TeamPresence",
+        operation: "alarm",
+      });
+      throw error;
+    }
+  }
+
+  private async handleAlarm(): Promise<void> {
     const now = Date.now();
     const all = await this.allEntries();
     const { expired, events } = expireInstances([...all.values()], now);
@@ -876,6 +918,10 @@ export class TeamPresence extends DurableObject {
       }
     } catch (err) {
       console.error("sync projection/GC failed (alarm); presence unaffected", err);
+      await captureSentryException(this.env, "cloudflare-team-presence", err, {
+        durable_object: "TeamPresence",
+        operation: "alarm_sync_projection",
+      });
     }
     this.closeExpiredSubscribers(now);
     const candidates = [nextAlarmTime([...all.values()]), this.nextSubscriberDeadline(), tombGc]

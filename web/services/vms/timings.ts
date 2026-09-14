@@ -12,7 +12,7 @@ export type VmTimingStage =
   | "billing"
   | "billing_reconcile"
   | "resolve_network"
-  | "model_plane_env"
+  | "model_plane_provision"
   | "provider_create"
   | "mark_running"
   | "mark_base_running"
@@ -59,6 +59,11 @@ export class VmTimingRecorder implements VmTimingSink {
       ...context,
       timings: this.snapshot(),
     }));
+  }
+
+  /** `Server-Timing` header value: one metric per recorded stage, milliseconds. */
+  serverTimingHeader(): string {
+    return [...this.durations.entries()].map(([stage, duration]) => `${stage};dur=${duration}`).join(", ");
   }
 
   snapshot(): Record<string, number> {

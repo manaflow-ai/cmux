@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+internal import CMUXMobileCore
 
 private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
     Data(SHA256.hash(data: Data(authHeader.utf8)))
@@ -308,11 +309,15 @@ public actor GitHubPullRequestRequestCoordinator {
         }
 
         if response.statusCode == 403 || response.statusCode == 429,
-           let rawRetryAfter = response.value(forHTTPHeaderField: "Retry-After"),
-           let retryAfter = TimeInterval(rawRetryAfter),
-           retryAfter > 0 {
+           let retryAfterSeconds = CmxRetryAfterPolicy.seconds(
+               from: response,
+               now: now(),
+               defaultSeconds: response.statusCode == 429
+                   ? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                   : nil
+           ) {
             extendRateLimitRetryDate(
-                to: now().addingTimeInterval(retryAfter),
+                to: now().addingTimeInterval(TimeInterval(retryAfterSeconds)),
                 authorizationFingerprint: authorizationFingerprint
             )
         }

@@ -514,13 +514,16 @@ extension CMUXCLI {
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
             "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
             "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            // Choose the decoder before writing the payload. Repeating the large
+            // bootstrap for a fallback can push the launcher past macOS ARG_MAX.
+            "if base64 -d </dev/null >/dev/null 2>&1; then cmux_decode_flag=-d; else cmux_decode_flag=-D; fi",
+            "(printf %s \(encodedLiteral) | base64 \"$cmux_decode_flag\") > \"$cmux_tmp\" || exit 1",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
             "/bin/sh \"$cmux_tmp\"",
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp cmux_decode_flag",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")

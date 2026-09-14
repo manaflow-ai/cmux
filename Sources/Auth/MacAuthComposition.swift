@@ -145,6 +145,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -190,6 +191,11 @@ struct MacAuthComposition {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                await VMClient.revokeCloudAccess(
+                    deviceID: MobileHostIdentity.deviceID(),
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
                 // Endpoint/preview credentials are separate from Stack Auth;
                 // revoke them with the captured pre-clear token pair before
                 // the coordinator's server-session revocation tail completes.

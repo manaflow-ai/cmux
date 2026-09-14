@@ -22,6 +22,7 @@ final class DeviceRegistryClient {
     static let shared = DeviceRegistryClient()
 
     private let session = CmxCredentialedHTTPSession()
+    private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     /// The scope (team + tag + routes) most recently registered, used to skip
@@ -87,6 +88,9 @@ final class DeviceRegistryClient {
     }
 
     private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
+        // Status, route, and foreground events share this gate. Cached routes
+        // remain valid while the server owns the next registration attempt.
+        guard await retryAfterGate.remainingSeconds() == nil else { return }
         guard let auth else { return }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
         // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
@@ -150,6 +154,13 @@ final class DeviceRegistryClient {
                     // transient failure retries on the next status tick.
                     lastRegistration = registration
                 } else {
+                    if http.statusCode == 429 {
+                        let seconds = CmxRetryAfterPolicy.seconds(
+                            from: http,
+                            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                        await retryAfterGate.extend(by: seconds)
+                    }
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
                 }
             }

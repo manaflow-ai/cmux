@@ -195,6 +195,27 @@ public struct UITestConfig {
         )
     }
 
+    /// Hides transient workspace-change education from deterministic screenshot
+    /// captures. This is DEBUG-only so production users still see the hint.
+    public static var hideWorkspaceChangesHintForScreenshots: Bool {
+        hideWorkspaceChangesHintForScreenshots(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the screenshot-only workspace-change hint suppression flag.
+    public static func hideWorkspaceChangesHintForScreenshots(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> Bool {
+        #if DEBUG
+        return (env["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)) == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Resolves a changes preview mode from explicit process inputs.
     /// - Parameters:
     ///   - env: Environment dictionary to inspect.
