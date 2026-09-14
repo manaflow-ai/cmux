@@ -134,7 +134,7 @@ actor DeviceIrxClient {
                         guard await borrowed.isCurrent(),
                               let lease = borrowed.deviceList.current, lease.isFresh(now: .now),
                               let peer = lease.entries[endpoint], !peer.revoked,
-                              await self.isAuthorized(peer, endpoint: endpoint, owner: owner) else {
+                              self.isAuthorized(peer, endpoint: endpoint, owner: owner) else {
                             await self.release(endpoint: endpoint, owner: owner)
                             throw DeviceLinkError.notConnected
                         }

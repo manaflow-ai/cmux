@@ -65,7 +65,7 @@ struct DevicesCloudTreeBuilderTests {
             machineActions: MachineRowActions(
                 setupVPN: { _ in },
                 openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-                confirmDelete: { _ in }, promptRename: { _, _ in }, promptUpgrade: {}
+                confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions(
                 project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
