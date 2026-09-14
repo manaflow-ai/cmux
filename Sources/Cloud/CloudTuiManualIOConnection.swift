@@ -125,7 +125,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// preserve ordering while a connection is being rebound.
     func send(line: Data) {
         queue.async { [self, line] in
-            enqueueWriteLocked(line)
+            enqueueCommandLocked(line, needsReceipt: false)
         }
     }
 
@@ -133,10 +133,14 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// main-actor consumer. At most 32 replies can accumulate at the daemon.
     func sendInput(line: Data) {
         queue.async { [self, line] in
-            guard !closed, descriptor >= 0 else { return }
-            guard inputWindow.append(line) else { closeLocked(); return }
-            flushInputLocked()
+            enqueueCommandLocked(line, needsReceipt: true)
         }
+    }
+
+    private func enqueueCommandLocked(_ line: Data, needsReceipt: Bool) {
+        guard !closed, descriptor >= 0 else { return }
+        guard inputWindow.append(line, needsReceipt: needsReceipt) else { closeLocked(); return }
+        flushInputLocked()
     }
 
     private func flushInputLocked() {
@@ -146,12 +150,10 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func enqueueWriteLocked(_ line: Data) {
         guard !closed, descriptor >= 0 else { return }
         guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
-                // Commands are small and ordered. If a peer stops accepting
-                // them for long enough to exhaust this bound, dropping one
-                // command would be worse than restarting the attachment with
-                // a fresh replay, so close and let the owner reconnect.
-                closeLocked()
-                return
+            // Close a stalled attachment instead of dropping a command and
+            // presenting later input as though the missing bytes were sent.
+            closeLocked()
+            return
         }
         pendingWrites.append(line)
         pendingWriteBytes += line.count

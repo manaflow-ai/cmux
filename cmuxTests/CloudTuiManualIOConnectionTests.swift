@@ -69,7 +69,8 @@ import Testing
     }
 
     @Test func inputWaitsForReceiptsBeforeExhaustingThePeerReplyQueue() async throws {
-        try await Self.withConnection { connection, peer in
+        let writerQueue = DispatchQueue(label: "test.cloud-input-credit-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
             let queue = DispatchQueue(label: "test.cloud-input-credit")
             let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
             let consumer = Task { for await _ in connection.events {} }
@@ -81,14 +82,9 @@ import Testing
             queue.resume()
             try await Self.blocking { queue.sync {} }
             connection.send(line: Data("peer-barrier\n".utf8))
+            try await Self.blocking { writerQueue.sync {} }
             let initialSubmitted = try await Self.blocking {
-                var submitted = 0
-                while true {
-                    let line = try Self.readLine(peer)
-                    if line == Data("peer-barrier\n".utf8) { break }
-                    try #require(!line.isEmpty)
-                    submitted += 1
-                }
+                var submitted = try Self.readAvailable(peer).split(separator: 0x0A).count
                 // cmux-tui reserves 256 control replies. A paused reader must
                 // leave room for control traffic instead of closing the peer.
                 let initialSubmitted = submitted
@@ -100,6 +96,8 @@ import Testing
                     submitted += 1
                     try Self.write(peer, receipt)
                 }
+                let barrier = try Self.readLine(peer)
+                try #require(barrier == Data("peer-barrier\n".utf8))
                 return initialSubmitted
             }
             #expect(initialSubmitted > 0 && initialSubmitted < 256)
@@ -107,7 +105,8 @@ import Testing
     }
 
     @Test func rejectedInputClosesWithoutSpendingMoreCredits() async throws {
-        try await Self.withConnection { connection, peer in
+        let writerQueue = DispatchQueue(label: "test.cloud-input-rejection-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
             let queue = DispatchQueue(label: "test.cloud-input-rejected")
             let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
             let consumer = Task { for await _ in connection.events {} }
@@ -117,10 +116,9 @@ import Testing
             for _ in 0..<100 { router.send(.namedKey("Enter")) }
             queue.resume()
             try await Self.blocking { queue.sync {} }
-            connection.send(line: Data("peer-barrier\n".utf8))
+            try await Self.blocking { writerQueue.sync {} }
             let counts = try await Self.blocking {
-                var submitted = 0
-                while try Self.readLine(peer) != Data("peer-barrier\n".utf8) { submitted += 1 }
+                let submitted = try Self.readAvailable(peer).split(separator: 0x0A).count
                 try Self.write(peer, Data("{\"id\":0,\"ok\":false,\"error\":\"rejected\"}\n".utf8))
                 let afterRejection = try Self.readLine(peer)
                 return (submitted, afterRejection.isEmpty)
@@ -313,6 +311,20 @@ import Testing
             if count == 0 { return result }
             result.append(byte)
             if byte == 0x0A { return result }
+        }
+    }
+
+    /// Called only after the writer queue has processed the submitted burst.
+    /// A nonblocking drain observes the causal boundary without a timing wait.
+    private static func readAvailable(_ descriptor: Int32) throws -> Data {
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = recv(descriptor, &buffer, buffer.count, MSG_DONTWAIT)
+            if count < 0, errno == EINTR { continue }
+            if count < 0, errno == EAGAIN || errno == EWOULDBLOCK { return result }
+            guard count > 0 else { throw socketError() }
+            result.append(buffer, count: count)
         }
     }
 
