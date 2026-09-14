@@ -91,13 +91,18 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
 
     private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) {
         pendingLock.lock()
+        let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
+        if pendingCount >= Self.maximumPendingOperations {
+            // Preserve correctness when a producer outruns the scheduler. The
+            // underlying queue remains the same serial Ghostty boundary; this
+            // fallback avoids retaining an ever-growing Swift-side backlog.
+            pendingLock.unlock()
+            queue.async(execute: work)
+            return
+        }
         if priority {
-            guard pendingPriority.count - priorityHead + pendingNormal.count - normalHead
-                < Self.maximumPendingOperations else { return }
             pendingPriority.append(work)
         } else {
-            guard pendingPriority.count - priorityHead + pendingNormal.count - normalHead
-                < Self.maximumPendingOperations else { return }
             pendingNormal.append(work)
         }
         let shouldStart = !isRunning
