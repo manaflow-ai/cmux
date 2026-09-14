@@ -1004,6 +1004,8 @@ final class MachinesPanelModelTests: XCTestCase {
         for preset in presets {
             XCTAssertEqual(CloudTreeStyle.preset(id: preset.id), preset)
             XCTAssertGreaterThan(preset.rowHeight, 0)
+            // This legacy XCTest suite owns the complete preset contract; keep
+            // its row-height assertion with the surrounding model coverage.
             XCTAssertEqual(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
             XCTAssertGreaterThan(preset.machineRowHeight(hasStats: false), 0)
         }
