@@ -202,6 +202,7 @@ extension Workspace {
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }
             )
+            // Workspace teardown calls Panel.close(), which invokes this cancellation hook.
             pendingPanel.onCancel = {
                 coordinator.cancel()
                 endProjectionMutation()

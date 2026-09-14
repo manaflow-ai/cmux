@@ -11,11 +11,6 @@ struct CloudTerminalLayoutCreation: Sendable {
     let commandRunner: any CloudTuiCommandRunning
     var commandDeadline: Duration = .seconds(30)
 
-    struct Result: Sendable {
-        let created: CmuxTuiSnapshotParser.CreatedTerminalPath
-        let workspaceID: String
-    }
-
     /// Performs one create, retrying only a revision conflict that did not commit.
     /// The same idempotency key fences both attempts against duplicate terminals.
     #if compiler(>=6.2)
@@ -27,7 +22,7 @@ struct CloudTerminalLayoutCreation: Sendable {
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
         idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())"
-    ) async throws -> Result {
+    ) async throws -> CloudTerminalLayoutCreationResult {
         var attempt = 0
         while true {
             try Task.checkCancellation()
@@ -53,7 +48,7 @@ struct CloudTerminalLayoutCreation: Sendable {
                       let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
                     throw CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated(nearTabID)
                 }
-                return Result(created: created, workspaceID: screen.workspaceID)
+                return CloudTerminalLayoutCreationResult(created: created, workspaceID: screen.workspaceID)
             } catch {
                 guard attempt == 0, CmuxTuiSurfaceProvider.isRevisionConflict(error) else { throw error }
                 attempt += 1

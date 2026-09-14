@@ -5,11 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class CloudPaneCreationFailureStore {
-    private enum Phase {
-        case idle, starting, failed(CloudPaneCreationFailure)
-    }
-
-    private var phase: Phase = .idle
+    private var phase: CloudPaneCreationPhase = .idle
     private var activeRequestID: UUID?
     @ObservationIgnored private var failedRequestID: UUID?
     @ObservationIgnored private var requests: [UUID: CloudTerminalCreationCoordinator] = [:]

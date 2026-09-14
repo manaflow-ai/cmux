@@ -761,6 +761,7 @@
 		A12480000000000000000001 /* CloudPaneCreationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000002 /* CloudPaneCreationFailure.swift */; };
 		A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */; };
 		A12480000000000000000003 /* CloudPaneCreationFailureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12480000000000000000004 /* CloudPaneCreationFailureView.swift */; };
+		C12537000000000000000221 /* CloudPaneCreationPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000222 /* CloudPaneCreationPhase.swift */; };
 		C12537000000000000000213 /* CloudPaneCreationProgressView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000214 /* CloudPaneCreationProgressView.swift */; };
 		C12537000000000000000215 /* CloudPaneCreationRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000216 /* CloudPaneCreationRetryTests.swift */; };
 		118E574AA58D92C0A3FB893E /* CloudPlacementCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */; };
@@ -818,6 +819,7 @@
 		3EAC8AAF4F2E473CA9DA0194 /* CloudTerminalCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */; };
 		8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */; };
 		C12537000000000000000201 /* CloudTerminalLayoutCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000202 /* CloudTerminalLayoutCreation.swift */; };
+		C12537000000000000000223 /* CloudTerminalLayoutCreationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000224 /* CloudTerminalLayoutCreationResult.swift */; };
 		C12537000000000000000203 /* CloudTerminalLayoutCreationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000204 /* CloudTerminalLayoutCreationTests.swift */; };
 		BD5C6A44F9B646C29565CF59 /* CloudTerminalOverlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */; };
 		FA0000000000000000000005 /* CloudTerminalPaneClosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */; };
@@ -4588,6 +4590,7 @@
 		A12480000000000000000002 /* CloudPaneCreationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPaneCreationFailure.swift"; sourceTree = "<group>"; };
 		A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudPaneCreationFailureStore.swift"; sourceTree = "<group>"; };
 		A12480000000000000000004 /* CloudPaneCreationFailureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudPaneCreationFailureView.swift; sourceTree = "<group>"; };
+		C12537000000000000000222 /* CloudPaneCreationPhase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPaneCreationPhase.swift; sourceTree = "<group>"; };
 		C12537000000000000000214 /* CloudPaneCreationProgressView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudPaneCreationProgressView.swift; sourceTree = "<group>"; };
 		C12537000000000000000216 /* CloudPaneCreationRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPaneCreationRetryTests.swift; sourceTree = "<group>"; };
 		A22E92B91E0FFF066AE10237 /* CloudPlacementCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudPlacementCoordinator.swift; sourceTree = "<group>"; };
@@ -4645,6 +4648,7 @@
 		9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinator.swift; sourceTree = "<group>"; };
 		80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinatorTests.swift; sourceTree = "<group>"; };
 		C12537000000000000000202 /* CloudTerminalLayoutCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalLayoutCreation.swift; sourceTree = "<group>"; };
+		C12537000000000000000224 /* CloudTerminalLayoutCreationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalLayoutCreationResult.swift; sourceTree = "<group>"; };
 		C12537000000000000000204 /* CloudTerminalLayoutCreationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalLayoutCreationTests.swift; sourceTree = "<group>"; };
 		DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalOverlayCoordinator.swift; sourceTree = "<group>"; };
 		FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosure.swift; sourceTree = "<group>"; };
@@ -7889,6 +7893,7 @@
 				2B8B96B6079F479493DF32BC /* CmuxTuiSurfaceProvider+LayoutCreation.swift */,
 				C12537000000000000000212 /* CmuxTuiSurfaceProvider+TerminalCreation.swift */,
 				C12537000000000000000202 /* CloudTerminalLayoutCreation.swift */,
+				C12537000000000000000224 /* CloudTerminalLayoutCreationResult.swift */,
 				BFEB2668D80B41349D7CA539 /* CloudWorkspaceRenameService+Reconciliation.swift */,
 				798894FD4FBD473BAA1D9DF6 /* SurfaceCatalog+NameAuthority.swift */,
 				019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */,
@@ -7911,6 +7916,7 @@
 				2B46AEF9309B83E909710517 /* Workspace+CloudPlacementFailure.swift */,
 				A12480000000000000000002 /* CloudPaneCreationFailure.swift */,
 				A12480000000000000000006 /* CloudPaneCreationFailureStore.swift */,
+				C12537000000000000000222 /* CloudPaneCreationPhase.swift */,
 				CA467FE5247EDFC122C88129 /* SurfaceRemotePlacement.swift */,
 				ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */,
 				A1E6488D5D32D552A9888D65 /* SurfacePlacementSyncing.swift */,
@@ -12416,6 +12422,7 @@
 				A12480000000000000000001 /* CloudPaneCreationFailure.swift in Sources */,
 				A12480000000000000000005 /* CloudPaneCreationFailureStore.swift in Sources */,
 				A12480000000000000000003 /* CloudPaneCreationFailureView.swift in Sources */,
+				C12537000000000000000221 /* CloudPaneCreationPhase.swift in Sources */,
 				C12537000000000000000213 /* CloudPaneCreationProgressView.swift in Sources */,
 				118E574AA58D92C0A3FB893E /* CloudPlacementCoordinator.swift in Sources */,
 				462AE599482B727CBF10308F /* CloudPortAccessModel.swift in Sources */,
@@ -12453,6 +12460,7 @@
 				9655E17F287CE06166FC8CE2 /* CloudTerminalAttachmentStatus.swift in Sources */,
 				3EAC8AAF4F2E473CA9DA0194 /* CloudTerminalCreationCoordinator.swift in Sources */,
 				C12537000000000000000201 /* CloudTerminalLayoutCreation.swift in Sources */,
+				C12537000000000000000223 /* CloudTerminalLayoutCreationResult.swift in Sources */,
 				BD5C6A44F9B646C29565CF59 /* CloudTerminalOverlayCoordinator.swift in Sources */,
 				FA0000000000000000000005 /* CloudTerminalPaneClosure.swift in Sources */,
 				5A68DA857AD44DBCB34ED6AC /* CloudTerminalPendingPanel.swift in Sources */,
