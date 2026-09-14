@@ -3,6 +3,8 @@ import Testing
 @testable import StackAuth
 
 @Suite struct RefreshTransportTimingTests {
+    // Deliberate runtime timing smoke for the incident proof. Virtual deadline
+    // and wake ordering are covered separately by RefreshDeadlineTests.
     @Test func realTransportWaitHasATotalDeadline() async {
         let fixture = RefreshTransportFixture()
         let session = await fixture.session()

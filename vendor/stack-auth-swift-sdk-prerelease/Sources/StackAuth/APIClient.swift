@@ -455,10 +455,17 @@ actor APIClient {
             store: store, refreshToken: refresh, accessToken: observedAccess,
             clock: refreshClock, timeoutNanoseconds: refreshTimeoutNanoseconds
         ) { await self.refresh(refreshToken: refresh) }
+        let storedRefresh = await store.getStoredRefreshToken()
         guard !Task.isCancelled else {
             return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .cancelled)
         }
-        guard await store.getStoredRefreshToken() == result.refreshToken else {
+        // A proactive refresh timeout must retain the same offline fallback as
+        // a transport failure. Forced refresh never reuses a rejected token.
+        if result.refreshFailure == .timedOut, allowFallback,
+           storedRefresh == refresh, !isTokenExpired(observedAccess) {
+            return TokenPair(refreshToken: refresh, accessToken: observedAccess)
+        }
+        guard storedRefresh == result.refreshToken else {
             return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: result.refreshFailure ?? .sessionChanged)
         }
         if result.refreshFailure == nil, result.refreshToken != nil,

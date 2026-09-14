@@ -2,13 +2,13 @@ import Foundation
 @testable import StackAuth
 
 actor RefreshExchangeGate {
-    private var continuation: CheckedContinuation<APIClient.RefreshOutcome, Never>?
+    private var continuations: [CheckedContinuation<APIClient.RefreshOutcome, Never>] = []
     private var started: [CheckedContinuation<Void, Never>] = []
     private var calls = 0
     func exchange() async -> APIClient.RefreshOutcome {
         calls += 1
         return await withCheckedContinuation { continuation in
-            self.continuation = continuation
+            continuations.append(continuation)
             for waiter in started { waiter.resume() }
             started = []
         }
@@ -18,7 +18,8 @@ actor RefreshExchangeGate {
         await withCheckedContinuation { started.append($0) }
     }
     func release(_ result: APIClient.RefreshOutcome) {
-        continuation?.resume(returning: result)
-        continuation = nil
+        let pending = continuations
+        continuations = []
+        for continuation in pending { continuation.resume(returning: result) }
     }
 }

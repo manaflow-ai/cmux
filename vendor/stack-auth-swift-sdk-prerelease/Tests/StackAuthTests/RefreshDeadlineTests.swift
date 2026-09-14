@@ -68,6 +68,32 @@ import Testing
         await fixture.close()
     }
 
+    @Test(arguments: [true, false])
+    func deadlinePreservesUsableTokenOnlyForProactiveRefresh(force: Bool) async {
+        let clock = RefreshTestClock()
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let store = MemoryTokenStore()
+        // iat is old (proactive refresh needed), exp is still far in the future.
+        let usable = "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjEsImV4cCI6OTk5OTk5OTk5OX0.synthetic"
+        await store.setTokens(accessToken: usable, refreshToken: "session")
+        let client = APIClient(baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: adapted(clock), refreshTimeoutNanoseconds: 2_000_000_000)
+        let request = Task {
+            await (force ? client.fetchNewAccessToken() : client.getOrFetchLikelyValidTokens())
+        }
+        await fixture.waitForRequest()
+        await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(2))
+        let result = await request.value
+        #expect(result.accessToken == (force ? nil : usable))
+        #expect(result.refreshFailure == (force ? .timedOut : nil))
+        #expect(await store.getStoredAccessToken() == usable)
+        #expect(await store.getStoredRefreshToken() == "session")
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     private func adapted(_ clock: RefreshTestClock) -> TokenRefreshClock {
         TokenRefreshClock(now: {
             let parts = clock.now.offset.components
