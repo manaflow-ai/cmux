@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAuthRuntime
 import Testing
 
 #if canImport(cmux_DEV)
@@ -83,19 +84,21 @@ import Testing
     }
 
     /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
-    @Test("Failed cloud pane creation does not enter a process-modal run loop")
-    func failedCloudPaneCreationStaysInWorkspaceState() async throws {
+    @Test("Cloud shortcut failures show their cause and export a matching diagnostic", arguments: [false, true])
+    func failedCloudPaneCreationStaysInWorkspaceState(split: Bool) async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let diagnostics = CloudPaneCapturedDiagnostics()
+        let identity = AuthenticatedSessionIdentity(generation: 1, accountID: "test-account")
+        let recorder = CloudOperationRecorder(uploader: diagnostics, identity: { identity })
+        let previousRecorder = harness.appDelegate.cloudOperations
+        harness.appDelegate.cloudOperations = recorder
+        defer { harness.appDelegate.cloudOperations = previousRecorder }
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let sourcePanelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.cloud("failed-pane-\(UUID().uuidString)")
-        let error = NSError(
-            domain: "CloudPaneCreationFailureTests",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "connection refused"]
-        )
+        let error = CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab-failure")
         let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: error)
         let catalog = SurfaceCatalog.shared
         catalog.register(provider)
@@ -122,17 +125,49 @@ import Testing
             remoteTabID: "tab-failure"
         ))
 
-        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        if split {
+            #expect(workspace.routeCloudPaneTerminalSplit(from: sourcePanelID, orientation: .horizontal, insertFirst: false, focus: false))
+        } else {
+            #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        }
         await provider.creationAttemptSignal.wait()
+        let deadline = ContinuousClock.now + .seconds(2)
+        while recorder.operations.first?.outcome == nil, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
 
         #expect(NSApp.modalWindow == nil)
         let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
         #expect(failure.machine == machine)
-        #expect(!failure.errorText.isEmpty)
-        #expect(!failure.errorText.contains("connection refused"))
+        #expect(failure.errorText == error.errorDescription)
+        let operation = try #require(recorder.operations.first)
+        #expect(operation.operation == .terminal)
+        #expect(operation.failure == .notFound)
+        #expect(failure.copyableText.contains(operation.traceID))
+        let spans = await diagnostics.spans
+        #expect(spans.contains { $0.parentSpanId == nil && $0.failure == .notFound && $0.traceId == operation.traceID })
 
         workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+    }
+
+    @Test("Provider and placement failures retain safe error categories")
+    func knownCloudTerminalFailuresAreNotUnknown() {
+        let errors: [(Error, CloudDiagnosticFailure)] = [
+            (CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab"), .notFound),
+            (CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("machine"), .notFound),
+            (CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("machine"), .network),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalExited("term"), .notFound),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated("private response"), .response),
+            (SurfaceCatalogError.ambiguousRemotePlacement(.init(machine: .cloud("machine"), kind: .terminal, key: "term"), workspaceID: "private-workspace"), .conflict)
+        ]
+        for (error, expected) in errors {
+            #expect(CloudDiagnosticFailure.classify(error) == expected)
+            let failure = CloudPaneCreationFailure(machine: .cloud("machine"), error: error)
+            #expect(!failure.errorText.contains("unknown error"))
+            #expect(!failure.copyableText.contains("private response"))
+            #expect(!failure.copyableText.contains("private-workspace"))
+        }
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -359,4 +394,10 @@ import Testing
             }
         }
     }
+}
+
+private actor CloudPaneCapturedDiagnostics: CloudTelemetrySending {
+    private(set) var spans: [CloudTelemetrySpan] = []
+    func enqueue(_ span: CloudTelemetrySpan, identity: AuthenticatedSessionIdentity) { spans.append(span) }
+    func clearForSignOut() { spans.removeAll() }
 }
