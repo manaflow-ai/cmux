@@ -45,6 +45,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
+    private var inputWindow = CloudTuiManualIOInputWindow()
     private var closed = false
 
     init(
@@ -124,19 +125,37 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// preserve ordering while a connection is being rebound.
     func send(line: Data) {
         queue.async { [self, line] in
+            enqueueWriteLocked(line)
+        }
+    }
+
+    /// Input receipts are drained here rather than waiting for the renderer's
+    /// main-actor consumer. At most 32 replies can accumulate at the daemon.
+    func sendInput(line: Data) {
+        queue.async { [self, line] in
             guard !closed, descriptor >= 0 else { return }
-            guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
+            guard inputWindow.append(line) else { closeLocked(); return }
+            flushInputLocked()
+        }
+    }
+
+    private func flushInputLocked() {
+        while !closed, let line = inputWindow.next() { enqueueWriteLocked(line) }
+    }
+
+    private func enqueueWriteLocked(_ line: Data) {
+        guard !closed, descriptor >= 0 else { return }
+        guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
                 // Commands are small and ordered. If a peer stops accepting
                 // them for long enough to exhaust this bound, dropping one
                 // command would be worse than restarting the attachment with
                 // a fresh replay, so close and let the owner reconnect.
                 closeLocked()
                 return
-            }
-            pendingWrites.append(line)
-            pendingWriteBytes += line.count
-            flushWritesLocked()
         }
+        pendingWrites.append(line)
+        pendingWriteBytes += line.count
+        flushWritesLocked()
     }
 
     /// Closes only this attachment connection. The remote terminal session stays
@@ -262,6 +281,11 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingLineSearchOffset = 0
                 guard !line.isEmpty,
                       let frame = CloudTuiManualIOFrameDecoder().decode(line) else { continue }
+                if case let .response(0, ok, _, _, _, _, _) = frame, inputWindow.acknowledge() {
+                    guard ok else { closeLocked(); return }
+                    flushInputLocked()
+                    continue
+                }
                 let continuation = nextFrameContinuation
                 nextFrameContinuation = nil
                 suspendReadSourceLocked()
@@ -359,6 +383,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
+        inputWindow = CloudTuiManualIOInputWindow()
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0

@@ -53,7 +53,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             flushInputBytes()
             self.connection = connection
             guard let connection else { return }
-            for line in pendingLines { connection.send(line: line) }
+            for line in pendingLines { connection.sendInput(line: line) }
             pendingLines.removeAll(keepingCapacity: true)
             pendingByteCount = 0
         }
@@ -119,7 +119,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private func sendCommand(_ command: [String: Any]) {
         guard let line = commandBuilder.line(command) else { return }
         if let connection {
-            connection.send(line: line)
+            connection.sendInput(line: line)
             return
         }
         guard pendingByteCount + line.count <= pendingByteLimit else {

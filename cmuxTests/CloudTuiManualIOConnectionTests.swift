@@ -81,7 +81,7 @@ import Testing
             queue.resume()
             try await Self.blocking { queue.sync {} }
             connection.send(line: Data("peer-barrier\n".utf8))
-            try await Self.blocking {
+            let initialSubmitted = try await Self.blocking {
                 var submitted = 0
                 while true {
                     let line = try Self.readLine(peer)
@@ -91,7 +91,7 @@ import Testing
                 }
                 // cmux-tui reserves 256 control replies. A paused reader must
                 // leave room for control traffic instead of closing the peer.
-                #expect(submitted < 256)
+                let initialSubmitted = submitted
                 let receipt = Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8)
                 for _ in 0..<submitted { try Self.write(peer, receipt) }
                 while submitted < 512 {
@@ -100,13 +100,40 @@ import Testing
                     submitted += 1
                     try Self.write(peer, receipt)
                 }
-                #expect(submitted == 512)
+                return initialSubmitted
             }
+            #expect(initialSubmitted > 0 && initialSubmitted < 256)
+        }
+    }
+
+    @Test func rejectedInputClosesWithoutSpendingMoreCredits() async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-input-rejected")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<100 { router.send(.namedKey("Enter")) }
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            connection.send(line: Data("peer-barrier\n".utf8))
+            let counts = try await Self.blocking {
+                var submitted = 0
+                while try Self.readLine(peer) != Data("peer-barrier\n".utf8) { submitted += 1 }
+                try Self.write(peer, Data("{\"id\":0,\"ok\":false,\"error\":\"rejected\"}\n".utf8))
+                let afterRejection = try Self.readLine(peer)
+                return (submitted, afterRejection.isEmpty)
+            }
+            #expect(counts.0 > 0 && counts.0 < 100)
+            #expect(counts.1)
         }
     }
 
     @Test func byteBatchPreservesNamedKeyAndConnectionBoundaries() async throws {
         try await Self.withConnection { connection, peer in
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
             let queue = DispatchQueue(label: "test.cloud-input-order")
             let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
             queue.suspend()
@@ -121,7 +148,9 @@ import Testing
 
             let commands = try await Self.blocking {
                 try (0..<4).map { _ in
-                    try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                    let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                    try Self.write(peer, Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8))
+                    return command
                 }.map { command in
                     // Only immutable Sendable values cross out of peer I/O.
                     (command["cmd"] as? String, command["bytes"] as? String,
