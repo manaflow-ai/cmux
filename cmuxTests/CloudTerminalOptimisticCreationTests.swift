@@ -6,7 +6,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite(.serialized)
+@Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudTerminalOptimisticCreationTests {
     @Test(arguments: ["d", "shift-d", "t"])
     func shortcutsInsertTheirPendingDestinationBeforeRemoteWork(key: String) async throws {
@@ -24,6 +24,7 @@ struct CloudTerminalOptimisticCreationTests {
         harness.provider.acceptNext()
         #expect(await harness.waitUntil { harness.pending.isEmpty })
         #expect(harness.provider.anchors.count == 1)
+        #expect(harness.provider.directions == [key == "t" ? nil : key == "d" ? .right : .down])
         #expect(harness.provider.projected == 1)
         #expect(harness.workspace.bonsplitController.allPaneIds.count == (key == "t" ? 1 : 2))
         #expect(harness.workspace.panels.count == 2)
@@ -35,7 +36,7 @@ struct CloudTerminalOptimisticCreationTests {
         defer { harness.close() }
         try harness.shortcut("d")
         try harness.shortcut("t")
-        #expect(harness.pending.count == 2)
+        try #require(harness.pending.count == 2)
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
         _ = await arrivals.next()
         #expect(harness.provider.anchors == ["source-tab"])
@@ -83,11 +84,11 @@ struct CloudTerminalOptimisticCreationTests {
         #expect(harness.provider.projected == 1)
     }
 
-    @Test
-    func backgroundSplitKeepsFocusBeforeAndAfterAcknowledgement() async throws {
+    @Test(arguments: ["d", "shift-d", "t"])
+    func backgroundCreationKeepsFocusBeforeAndAfterAcknowledgement(key: String) async throws {
         let harness = try CloudTerminalOptimisticHarness()
         defer { harness.close() }
-        try harness.shortcut("shift-d", focus: false)
+        try harness.shortcut(key, focus: false)
         #expect(harness.pending.count == 1)
         #expect(harness.workspace.focusedPanelId == harness.sourcePanelID)
         var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
@@ -95,5 +96,54 @@ struct CloudTerminalOptimisticCreationTests {
         harness.provider.acceptNext()
         #expect(await harness.waitUntil { harness.pending.isEmpty })
         #expect(harness.workspace.focusedPanelId == harness.sourcePanelID)
+    }
+
+    @Test
+    func switchingAwayBeforeAcknowledgementKeepsTheNewSelection() async throws {
+        let harness = try CloudTerminalOptimisticHarness()
+        defer { harness.close() }
+        try harness.shortcut("d")
+        harness.workspace.focusPanel(harness.sourcePanelID)
+        var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
+        _ = await arrivals.next()
+        harness.provider.acceptNext()
+        #expect(await harness.waitUntil { harness.pending.isEmpty })
+        #expect(harness.workspace.focusedPanelId == harness.sourcePanelID)
+    }
+
+    @Test
+    func unknownCreationOutcomeStaysInlineWithoutReissuingTheRequest() async throws {
+        let harness = try CloudTerminalOptimisticHarness()
+        defer { harness.close() }
+        try harness.shortcut("t")
+        let pending = try #require(harness.pending.first)
+        var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
+        _ = await arrivals.next()
+        harness.provider.rejectNext()
+        #expect(await harness.waitUntil {
+            if case .failed = pending.state.phase { return true }
+            return false
+        })
+        #expect(!pending.state.canRetry)
+        pending.retry()
+        #expect(harness.provider.anchors.count == 1)
+        #expect(harness.provider.projected == 0)
+        #expect(harness.workspace.panels[pending.id] === pending)
+    }
+
+    @Test
+    func dividerButtonReservesItsExistingEmptyPane() async throws {
+        let harness = try CloudTerminalOptimisticHarness()
+        defer { harness.close() }
+        _ = harness.workspace.bonsplitController.splitPane(harness.sourcePaneID, orientation: .vertical)
+        let pending = try #require(harness.pending.first)
+        #expect(harness.workspace.bonsplitController.allPaneIds.count == 2)
+        #expect(harness.workspace.focusedPanelId == pending.id)
+        var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
+        _ = await arrivals.next()
+        harness.provider.acceptNext()
+        #expect(await harness.waitUntil { harness.pending.isEmpty })
+        #expect(harness.provider.directions == [.down])
+        #expect(harness.workspace.bonsplitController.allPaneIds.count == 2)
     }
 }

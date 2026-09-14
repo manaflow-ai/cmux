@@ -59,6 +59,10 @@ final class CloudTerminalOptimisticProvider: SurfaceProvider, SurfaceLayoutTermi
         pending.forEach { $0.resume(throwing: CancellationError()) }
         arrivals.continuation.finish()
     }
+    func rejectNext() {
+        guard !requests.isEmpty else { return }
+        requests.removeFirst().resume(throwing: SurfaceCatalogError.noProvider(machine))
+    }
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         if failNextProjection {
             failNextProjection = false
