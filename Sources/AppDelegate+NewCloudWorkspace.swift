@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-// MARK: - New Cloud Workspace (Cmd+Y)
+// MARK: - Cloud creation actions
 
 extension AppDelegate {
     /// Creates a workspace on the persisted default machine through the app-owned operation controller.
@@ -17,7 +17,7 @@ extension AppDelegate {
         let context = preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
         let focus = context?.tabManager.selectedTabId != nil
-        // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
+        // Default-machine creation is one logical intent. Coalesce repeated key
         // events while the remote receipt is still being discovered/attached.
         return operationController.start(key: "new-cloud-workspace.default") {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
@@ -27,22 +27,14 @@ extension AppDelegate {
         }
     }
 
-    /// Creates a workspace on the cloud VM currently selected in a workspace.
+    /// Creates on the VM captured by the shared New Workspace action.
     @discardableResult
-    func performNewCloudWorkspaceOnCurrentMachineAction(
-        preferredTabManager: TabManager? = nil,
-        preferredWindow: NSWindow? = nil,
-        debugSource: String = "newCloudWorkspace.currentMachine"
-    ) -> Bool {
+    func performNewCloudWorkspaceOnCurrentMachineAction(tabManager: TabManager, vmID: String) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
-              coordinator.isAvailable,
-              let manager = preferredTabManager ?? preferredWindow.flatMap({ contextForMainWindow($0)?.tabManager }) ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)?.tabManager,
-              let vmID = manager.selectedWorkspace?.cloudVMID,
-              !vmID.isEmpty else { return false }
-        let focus = manager.selectedTabId != nil
-        return operationController.start(key: "new-cloud-workspace.current-machine") {
-            _ = try await coordinator.createOnMachine(id: vmID, focus: focus)
+              coordinator.isAvailable else { return false }
+        return operationController.start(key: "new-cloud-workspace.\(vmID)") {
+            _ = try await coordinator.createOnMachine(id: vmID, focus: true)
         }
     }
 

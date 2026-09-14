@@ -8442,13 +8442,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        let preferredWindow = event.flatMap { mainWindowForShortcutEvent($0) }
-        if performNewCloudWorkspaceOnCurrentMachineAction(
-            preferredTabManager: preferredTabManager,
-            preferredWindow: preferredWindow,
-            debugSource: debugSource
-        ) {
-            return true
+        let manager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)?.tabManager
+        if let manager, let vmID = manager.selectedWorkspace?.cloudVMID, !vmID.isEmpty {
+            // Once this intent targets a VM, an unavailable or pending cloud
+            // operation must never fall through and create a local workspace.
+            return performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: vmID)
         }
         return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
@@ -15186,7 +15185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return performNewCloudWorkspaceOnDefaultMachineAction(
                 preferredWindow: mainWindowForShortcutEvent(event),
-                debugSource: "shortcut.cmdY"
+                debugSource: "shortcut.cmdShiftY"
             )
         }
 
@@ -15194,7 +15193,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudMachine \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudWorkspaceAction(event: event, debugSource: "shortcut.cmdShiftY")
+            return performNewCloudWorkspaceAction(event: event, debugSource: "shortcut.cmdY")
         }
 
         // New Window: Cmd+Shift+N
