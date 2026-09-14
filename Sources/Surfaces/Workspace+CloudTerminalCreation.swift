@@ -90,36 +90,11 @@ extension Workspace {
     ) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard let provider = catalog.provider(for: resource.machine) else { return false }
+        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
-        // Restored panes can briefly lose their explicit placement while a stale
-        // snapshot is being rejected. Recover only from the rename service's
-        // fail-closed resolver, which accepts a sole remote view and verifies any
-        // saved workspace id against that view. Never guess between multiple tabs.
-        let sourceTabID = sourceProjection.flatMap {
-            catalog.cloudWorkspaceRenameService.remoteTabID(for: $0, resource: resource)
-        }
-        let sourceRemoteView = sourceTabID.flatMap { tabID in
-            resource.remoteViews?.first { $0.tabID == tabID }
-        }
-        let resolvedPreferredWorkspaceID = sourceRemoteView?.workspace.id ?? preferredRemoteWorkspaceID
-        let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(
-            in: id,
-            near: resource,
-            preferredRemoteWorkspaceID: resolvedPreferredWorkspaceID
-        )
-        if resource.kind == .terminal, sourceProjection != nil, sourceTabID == nil {
-            Task { @MainActor in
-                self.presentCloudPaneCreationFailure(
-                    machine: machine,
-                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""),
-                    requestID: requestID
-                )
-            }
-            return true
-        }
-        if remoteWorkspaceID == nil, sourceTabID == nil {
+        if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
                 self.presentCloudPaneCreationFailure(
                     machine: machine,
@@ -159,7 +134,7 @@ extension Workspace {
                 let direction: SurfaceSplitDirection?
                 if case .split(_, _, let requested) = destination { direction = requested }
                 else { direction = splitDirection }
-                if let sourceTabID,
+                if let sourceTabID = source?.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,

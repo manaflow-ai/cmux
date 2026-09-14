@@ -28,7 +28,6 @@ private func rendererReleaseWasOccluded() -> Bool
 /// Window-level occlusion: the visible tab of a miniaturized or fully covered
 /// window must occlude the core surface, become reclaimable, and replay its
 /// presentation transition when the window returns on screen.
-extension TerminalRendererTests {
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceWindowOcclusionTests {
     @Test func windowHideOccludesAndUnprotectsTheRenderer() {
@@ -78,8 +77,6 @@ extension TerminalRendererTests {
         surface.setRendererWindowVisible(true)
 
         #expect(rendererOcclusionVisible())
-        #expect(!surface.isRendererPresented)
-        fixture.acknowledgePendingPresentation()
         #expect(surface.isRendererPresented)
         #expect(rendererRebuildCallCount() == 0)
         #expect(rendererRealizedCallCount() == 0)
@@ -138,6 +135,4 @@ extension TerminalRendererTests {
     private func rendererRealizedCalls() -> [Bool] {
         (0..<rendererRealizedCallCount()).map(rendererRealizedCallValue)
     }
-}
-
 }
