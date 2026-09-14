@@ -8,18 +8,27 @@ enum IdentityColdStartFixture {
     @MainActor
     static func main() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard let home = environment["CMUX_IDENTITY_FIXTURE_HOME"],
-              NSHomeDirectory() == home,
-              environment["CFFIXED_USER_HOME"] == home else {
+        guard let requestedHome = environment["CMUX_IDENTITY_FIXTURE_HOME"],
+              let fixedHome = environment["CFFIXED_USER_HOME"],
+              let support = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+              ).first else {
+            fail("fixture home metadata is missing")
+        }
+        let home = canonicalPath(requestedHome)
+        let foundationHome = canonicalPath(NSHomeDirectory())
+        emit([
+            "event": "fixture-home-preflight",
+            "expected_home": home,
+            "foundation_home": foundationHome,
+            "fixed_home": canonicalPath(fixedHome),
+            "application_support": canonicalPath(support.path)
+        ])
+        guard foundationHome == home, canonicalPath(fixedHome) == home else {
             fail("fixture must have a private Foundation home")
         }
-        let support = try FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        guard support.path.hasPrefix(home + "/") else {
+        guard canonicalPath(support.path).hasPrefix(home + "/") else {
             fail("application support escaped the fixture home")
         }
         let directory = support.appendingPathComponent("cmux", isDirectory: true)
@@ -62,9 +71,12 @@ enum IdentityColdStartFixture {
         FileHandle.standardOutput.write(data + Data([0x0a]))
     }
 
+    private static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
     static func fail(_ message: String) -> Never {
         emit(["error": message])
         exit(1)
     }
 }
-
