@@ -6,8 +6,8 @@ import SwiftUI
 ///
 /// Cloud terminal views are AppKit portal views. A SwiftUI overlay mounted in
 /// the workspace content can render behind the terminal and let terminal text
-/// show through the error. The bridge moves one native overlay above the portal
-/// host while keeping all points outside the card pass-through.
+/// show through the error. The bridge keeps a native card above the portal
+/// host while keeping all points outside the card untouched.
 struct CloudPaneCreationFailurePresentation: ViewModifier {
     let failureStore: CloudPaneCreationFailureStore
 
@@ -26,54 +26,113 @@ private struct CloudPaneCreationFailureWindowBridge: NSViewRepresentable {
     let failure: CloudPaneCreationFailure?
     let onDismiss: (UUID) -> Void
 
-    func makeNSView(context: Context) -> CloudPaneCreationFailureOverlayView {
-        let view = CloudPaneCreationFailureOverlayView(frame: .zero)
+    func makeNSView(context: Context) -> CloudPaneCreationFailureOverlayHostView {
+        let view = CloudPaneCreationFailureOverlayHostView(frame: .zero)
         view.update(failure: failure, onDismiss: onDismiss)
         return view
     }
 
-    func updateNSView(_ nsView: CloudPaneCreationFailureOverlayView, context: Context) {
+    func updateNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, context: Context) {
         nsView.update(failure: failure, onDismiss: onDismiss)
     }
 
-    static func dismantleNSView(_ nsView: CloudPaneCreationFailureOverlayView, coordinator: ()) {
-        nsView.removeFromSuperview()
+    static func dismantleNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, coordinator: ()) {
+        nsView.detach()
     }
 }
 
-/// A native card above portal-hosted terminal views.
+/// Owns a card that is inserted above the window's portal views.
+@MainActor
+final class CloudPaneCreationFailureOverlayHostView: NSView {
+    private let card = CloudPaneCreationFailureOverlayView(frame: .zero)
+    private let chromeComposition = AppWindowChromeComposition()
+    private var installConstraints: [NSLayoutConstraint] = []
+    private weak var installedContainer: NSView?
+    private weak var installedReference: NSView?
+    private var pendingFailure: CloudPaneCreationFailure?
+    private var pendingDismiss: ((UUID) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func update(failure: CloudPaneCreationFailure?, onDismiss: @escaping (UUID) -> Void) {
+        pendingFailure = failure
+        pendingDismiss = onDismiss
+        guard let failure else {
+            card.removeFromSuperview()
+            NSLayoutConstraint.deactivate(installConstraints)
+            installConstraints.removeAll()
+            isHidden = true
+            return
+        }
+        card.update(failure: failure, onDismiss: onDismiss)
+        isHidden = false
+        _ = ensureInstalled()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        _ = ensureInstalled()
+    }
+
+    func detach() {
+        card.removeFromSuperview()
+        NSLayoutConstraint.deactivate(installConstraints)
+        installConstraints.removeAll()
+    }
+
+    @discardableResult
+    private func ensureInstalled() -> Bool {
+        guard pendingFailure != nil,
+              let window,
+              let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else { return false }
+        if card.superview !== target.container || installedContainer !== target.container || installedReference !== target.reference {
+            NSLayoutConstraint.deactivate(installConstraints)
+            installConstraints.removeAll()
+            card.removeFromSuperview()
+            target.container.addSubview(card, positioned: .above, relativeTo: nil)
+            installConstraints = [
+                card.centerXAnchor.constraint(equalTo: target.reference.centerXAnchor),
+                card.centerYAnchor.constraint(equalTo: target.reference.centerYAnchor),
+            ]
+            NSLayoutConstraint.activate(installConstraints)
+            installedContainer = target.container
+            installedReference = target.reference
+        }
+        return true
+    }
+}
+
+/// A native, opaque failure card above portal-hosted terminal views.
 @MainActor
 final class CloudPaneCreationFailureOverlayView: NSView {
-    private let cardView = NSView(frame: .zero)
     private let iconView = NSImageView(frame: .zero)
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let recoveryLabel = NSTextField(wrappingLabelWithString: "")
     private let dismissButton = NSButton(frame: .zero)
-    private let chromeComposition = AppWindowChromeComposition()
-    private var installConstraints: [NSLayoutConstraint] = []
-    private weak var installedContainer: NSView?
-    private weak var installedReference: NSView?
     private var currentFailure: CloudPaneCreationFailure?
     private var onDismiss: ((UUID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
         translatesAutoresizingMaskIntoConstraints = false
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.wantsLayer = true
-        cardView.layer?.cornerRadius = 12
-        cardView.layer?.borderWidth = 1
-        cardView.layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.38).cgColor
-        cardView.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.98).cgColor
-        cardView.layer?.shadowColor = NSColor.black.withAlphaComponent(0.22).cgColor
-        cardView.layer?.shadowOpacity = 1
-        cardView.layer?.shadowRadius = 12
-        cardView.layer?.shadowOffset = CGSize(width: 0, height: -4)
-        addSubview(cardView)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.38).cgColor
+        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.98).cgColor
+        layer?.shadowColor = NSColor.black.withAlphaComponent(0.22).cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowRadius = 12
+        layer?.shadowOffset = CGSize(width: 0, height: -4)
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
@@ -105,77 +164,36 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 6
-        cardView.addSubview(iconView)
-        cardView.addSubview(labels)
-        cardView.addSubview(dismissButton)
+        addSubview(iconView)
+        addSubview(labels)
+        addSubview(dismissButton)
 
         NSLayoutConstraint.activate([
-            cardView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            cardView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cardView.widthAnchor.constraint(greaterThanOrEqualToConstant: 320),
-            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 520),
-            iconView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 20),
-            iconView.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 22),
+            widthAnchor.constraint(greaterThanOrEqualToConstant: 320),
+            widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            iconView.topAnchor.constraint(equalTo: topAnchor, constant: 22),
             iconView.widthAnchor.constraint(equalToConstant: 24),
             iconView.heightAnchor.constraint(equalToConstant: 24),
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
-            labels.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 20),
-            labels.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -20),
+            labels.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             labels.bottomAnchor.constraint(equalTo: dismissButton.topAnchor, constant: -14),
-            dismissButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -20),
-            dismissButton.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
+            dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            dismissButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
         ])
         setAccessibilityIdentifier("CloudPaneCreationFailure")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(failure: CloudPaneCreationFailure?, onDismiss: @escaping (UUID) -> Void) {
-        self.onDismiss = onDismiss
+    func update(failure: CloudPaneCreationFailure, onDismiss: @escaping (UUID) -> Void) {
         currentFailure = failure
-        guard let failure else {
-            isHidden = true
-            return
-        }
+        self.onDismiss = onDismiss
         titleLabel.stringValue = failure.title
         detailLabel.stringValue = failure.errorText
         recoveryLabel.stringValue = failure.recoveryText
-        isHidden = false
-        _ = ensureInstalled()
         needsLayout = true
-        layoutSubtreeIfNeeded()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        _ = ensureInstalled()
-    }
-
-    @discardableResult
-    private func ensureInstalled() -> Bool {
-        guard let window,
-              let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else { return false }
-        if superview !== target.container || installedContainer !== target.container || installedReference !== target.reference {
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-            removeFromSuperview()
-            target.container.addSubview(self, positioned: .above, relativeTo: nil)
-            installConstraints = [
-                topAnchor.constraint(equalTo: target.reference.topAnchor),
-                bottomAnchor.constraint(equalTo: target.reference.bottomAnchor),
-                leadingAnchor.constraint(equalTo: target.reference.leadingAnchor),
-                trailingAnchor.constraint(equalTo: target.reference.trailingAnchor),
-            ]
-            NSLayoutConstraint.activate(installConstraints)
-            installedContainer = target.container
-            installedReference = target.reference
-        }
-        return true
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, cardView.frame.contains(point) else { return nil }
-        return super.hitTest(point)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
