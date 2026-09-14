@@ -61,7 +61,7 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: ${{ inputs.job_timeout > 0 && inputs.job_timeout || (inputs.unit_test_suites != '' && 35 || 20) }}
+    timeout-minutes: ${{ fromJSON(format('{0}', inputs.job_timeout > 0 && inputs.job_timeout || (inputs.unit_test_suites != '' && 35 || 20))) }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
