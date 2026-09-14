@@ -1,0 +1,204 @@
+import Foundation
+
+/// Owns overlapping read requests for one VM client. Caller cancellation releases
+/// only that waiter; the last waiter cancels the transport. A cancelled request
+/// keeps its slot until teardown completes, preventing replacement amplification.
+actor CloudReadRequestCoordinator {
+    struct Key: Hashable, Sendable {
+        let path: String
+        let accountID: String?
+        let generation: UInt64?
+        let teamID: String?
+    }
+
+    struct Response: Sendable {
+        let data: Data
+        let http: HTTPURLResponse
+    }
+
+    struct Context: Sendable {
+        weak var owner: CloudReadRequestCoordinator?
+        let key: Key
+    }
+
+    @TaskLocal static var current: Context?
+
+    struct Entry: Sendable {
+        let id: UUID
+        let deadline: Duration
+        var waiters: [UUID: CheckedContinuation<Response, Error>]
+        var work: Task<Void, Never>?
+        var timer: Task<Void, Never>?
+        var terminalError: URLError?
+        var invalidated = false
+        let operation: @Sendable () async throws -> Response
+    }
+
+    private struct Cooldown {
+        let until: Duration
+        let response: Response
+    }
+
+    private let clock: CloudRequestClock
+    private let budget: Duration
+    private(set) var entries: [Key: Entry] = [:]
+    private var networkTask: Task<Void, Never>?
+    private var isOnline: Bool?
+    private var cooldowns: [Key: Cooldown] = [:]
+    private var nextCooldownExpiry: Duration?
+
+    init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30)) {
+        self.clock = clock
+        self.budget = budget
+    }
+
+    func read(_ key: Key, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
+        let waiter = UUID()
+        let response = try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                join(key, waiter: waiter, continuation: continuation, operation: operation)
+            }
+        } onCancel: {
+            Task { await self.cancel(key, waiter: waiter) }
+        }
+        try Task.checkCancellation()
+        return response
+    }
+
+    private func join(
+        _ key: Key, waiter: UUID, continuation: CheckedContinuation<Response, Error>,
+        operation: @escaping @Sendable () async throws -> Response
+    ) {
+        if let entry = entries[key] {
+            if let error = entry.terminalError {
+                continuation.resume(throwing: error)
+            } else if clock.now() >= entry.deadline {
+                expire(key, id: entry.id)
+                continuation.resume(throwing: URLError(.timedOut))
+            } else {
+                entries[key]?.waiters[waiter] = continuation
+            }
+            return
+        }
+        if isOnline == false {
+            continuation.resume(throwing: URLError(.notConnectedToInternet))
+            return
+        }
+        let now = clock.now()
+        if let nextCooldownExpiry, now >= nextCooldownExpiry {
+            cooldowns = cooldowns.filter { $0.value.until > now }
+            self.nextCooldownExpiry = cooldowns.values.map(\.until).min()
+        }
+        if let cooldown = cooldowns[key] {
+            continuation.resume(returning: cooldown.response)
+            return
+        }
+        let id = UUID()
+        let deadline = now + budget
+        entries[key] = Entry(id: id, deadline: deadline, waiters: [waiter: continuation], operation: operation)
+        startWork(key, id: id, operation: operation)
+        entries[key]?.timer = Task { [weak self, clock] in
+            do { try await clock.sleepUntil(deadline) } catch { return }
+            await self?.expire(key, id: id)
+        }
+    }
+
+    private func startWork(_ key: Key, id: UUID, operation: @escaping @Sendable () async throws -> Response) {
+        let context = Context(owner: self, key: key)
+        entries[key]?.work = Task { [weak self] in
+            let result: Result<Response, Error>
+            do {
+                try Task.checkCancellation()
+                result = .success(try await Self.$current.withValue(context, operation: operation))
+            } catch {
+                result = .failure(error)
+            }
+            await self?.finish(key, id: id, result: result)
+        }
+    }
+
+    /// A completed mutation invalidates any read that started before it. Its
+    /// readers share one trailing pass, within the original operation budget.
+    func invalidate() {
+        for key in entries.keys { entries[key]?.invalidated = true }
+    }
+
+    /// Retains the server's minimum retry time across cancellation and later
+    /// polls. When it exceeds this operation's remaining budget, return the
+    /// original 429 now; future reads receive that response until retry is legal.
+    func noteRetryAfter(_ key: Key, seconds: TimeInterval, response: Response) -> Bool {
+        let until = clock.now() + .seconds(seconds)
+        if until > (cooldowns[key]?.until ?? .zero) {
+            cooldowns[key] = Cooldown(until: until, response: response)
+            nextCooldownExpiry = min(nextCooldownExpiry ?? until, until)
+        }
+        guard let entry = entries[key], entry.terminalError == nil else { return false }
+        return until < entry.deadline
+    }
+
+    private func cancel(_ key: Key, waiter: UUID) {
+        guard let continuation = entries[key]?.waiters.removeValue(forKey: waiter) else { return }
+        continuation.resume(throwing: CancellationError())
+        if entries[key]?.waiters.isEmpty == true {
+            entries[key]?.terminalError = URLError(.cancelled)
+            entries[key]?.timer?.cancel()
+            entries[key]?.work?.cancel()
+        }
+    }
+
+    private func expire(_ key: Key, id: UUID, error: URLError = URLError(.timedOut)) {
+        guard let entry = entries[key], entry.id == id, entry.terminalError == nil else { return }
+        entries[key]?.terminalError = error
+        entries[key]?.waiters.removeAll()
+        entry.work?.cancel()
+        entry.timer?.cancel()
+        for continuation in entry.waiters.values { continuation.resume(throwing: error) }
+    }
+
+    private func finish(_ key: Key, id: UUID, result: Result<Response, Error>) {
+        guard let entry = entries[key], entry.id == id else { return }
+        // A response may run before the expired timer after sleep/wake. The
+        // monotonic deadline decides the outcome, not executor delivery order.
+        if clock.now() >= entry.deadline { expire(key, id: id) }
+        if entry.invalidated, entries[key]?.terminalError == nil,
+           case .success(let response) = result, (200...299).contains(response.http.statusCode) {
+            entries[key]?.invalidated = false
+            startWork(key, id: id, operation: entry.operation)
+            return
+        }
+        guard let completed = entries.removeValue(forKey: key) else { return }
+        completed.timer?.cancel()
+        for continuation in completed.waiters.values { continuation.resume(with: result) }
+    }
+
+    func observeNetwork(_ monitor: CloudReadNetworkMonitor) {
+        networkTask?.cancel()
+        networkTask = Task { [weak self, monitor] in
+            for await online in monitor.updates {
+                guard !Task.isCancelled else { return }
+                await self?.networkChanged(isOnline: online)
+            }
+        }
+    }
+
+    func networkChanged(isOnline: Bool) async {
+        let recovered = self.isOnline == false && isOnline
+        self.isOnline = isOnline
+        if !isOnline {
+            for (key, entry) in entries { expire(key, id: entry.id, error: URLError(.notConnectedToInternet)) }
+        }
+        if recovered {
+            await MainActor.run { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
+        }
+    }
+
+    deinit {
+        networkTask?.cancel()
+        for entry in entries.values {
+            entry.work?.cancel()
+            entry.timer?.cancel()
+            for continuation in entry.waiters.values { continuation.resume(throwing: CancellationError()) }
+        }
+    }
+}

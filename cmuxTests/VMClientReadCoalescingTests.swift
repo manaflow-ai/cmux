@@ -42,6 +42,87 @@ struct VMClientReadCoalescingTests {
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.values.reduce(0, +) == 1)
     }
+    @Test("A hidden panel cancels its list and cannot start stats from a late result")
+    func hiddenPanelCancelsFollowupWork() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let model = MachinesPanelViewModel(client: fixture.client)
+        model.startPolling()
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        model.stopPolling()
+        await CloudRefreshURLProtocol.waitUntilStopped()
+        #expect(!model.isLoading)
+        #expect(model.machines.isEmpty)
+        NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil)
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+    }
+
+    @Test("Dropping a view model releases it and cancels its pending list")
+    func viewModelTeardown() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        var model: MachinesPanelViewModel? = MachinesPanelViewModel(client: fixture.client)
+        weak var weakModel = model
+        model?.refresh()
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        model = nil
+        #expect(weakModel == nil)
+        await CloudRefreshURLProtocol.waitUntilStopped()
+    }
+
+    @Test("A failed stats sample clears the last live reading")
+    func failedStatsAreUnavailable() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let model = MachinesPanelViewModel(client: fixture.client)
+        defer { model.stopPolling() }
+        model.refresh()
+        try await eventually { model.machines.first?.stats?.state == .awake }
+        await CloudRefreshURLProtocol.configure(.statsUnavailable)
+        model.refresh()
+        try await eventually { !model.isLoading && model.machines.first?.stats == nil }
+        #expect(model.machines.count == 1)
+        #expect(model.listProblem == nil)
+    }
+
+    @Test("The VM operation budget cancels a slow transport")
+    func totalRequestBudget() async throws {
+        let fixture = try await CloudRefreshFixture.make(readRequests: CloudReadRequestCoordinator(budget: .milliseconds(100)))
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        do { _ = try await fixture.client.stats(id: "fixture-0"); Issue.record("request exceeded its total budget") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        await CloudRefreshURLProtocol.waitUntilStopped()
+    }
+
+    @Test("HTTP Retry-After exceeds the budget without an early automatic retry")
+    func retryAfterAcrossCalls() async throws {
+        let clock = CloudReadManualClock()
+        let reads = CloudReadRequestCoordinator(clock: CloudRequestClock(clock))
+        let fixture = try await CloudRefreshFixture.make(readRequests: reads)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.throttled)
+        for _ in 0..<2 {
+            do { _ = try await fixture.client.stats(id: "fixture-0"); Issue.record("throttle succeeded") }
+            catch VMClientError.httpStatus(429, _) {} catch { Issue.record("\(error)") }
+        }
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+        await CloudRefreshURLProtocol.configure(.normal)
+        clock.advance(by: .seconds(60))
+        #expect(try await fixture.client.stats(id: "fixture-0").state == .awake)
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 2)
+    }
+
+    private func eventually(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        try #require(condition())
+    }
+
 }
 
 @MainActor
@@ -49,7 +130,7 @@ struct CloudRefreshFixture {
     let client: VMClient
     let session: URLSession
 
-    static func make() async throws -> Self {
+    static func make(readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator()) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
             client: CloudRefreshAuthClient(),
@@ -75,7 +156,7 @@ struct CloudRefreshFixture {
         let session = URLSession(configuration: configuration)
         return Self(client: VMClient(
             session: session, auth: auth, checkpointRenames: CloudRenameCoordinator(),
-            machineCache: CloudMachineCache(defaults: defaults)
+            machineCache: CloudMachineCache(defaults: defaults), readRequests: readRequests
         ), session: session)
     }
 }
