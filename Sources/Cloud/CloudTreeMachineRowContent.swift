@@ -34,7 +34,9 @@ struct CloudTreeMachineRowContent: View {
                         )
                         .frame(minHeight: scaled(style.machineResourceHeight))
                     }
-                    CloudTreeMachineDetailView(line: usageSummary, style: style)
+                    if machine.usage == nil {
+                        CloudTreeMachineDetailView(line: usageSummary, style: style)
+                    }
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -67,6 +69,14 @@ struct CloudTreeMachineRowContent: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 0)
+            if let usageLine {
+                Text(usageLine)
+                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         }
         .frame(height: scaled(style.machineNameLineHeight))
     }
