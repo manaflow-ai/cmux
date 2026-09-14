@@ -94,6 +94,7 @@ export function useClientConfigFlag(key: string): ClientConfigFlagValue | undefi
   const [value, setValue] = useState<ClientConfigFlagValue | undefined>(undefined);
 
   useEffect(() => {
+    // getClientConfig owns the shared TTL cache, including full navigations.
     let cancelled = false;
     getClientConfig()
       .then((config) => {
