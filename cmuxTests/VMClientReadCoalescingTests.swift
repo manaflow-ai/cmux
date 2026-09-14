@@ -95,7 +95,9 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.reset()
         do { _ = try await fixture.client.stats(id: "fixture-0"); Issue.record("request exceeded its total budget") }
         catch { #expect((error as? URLError)?.code == .timedOut) }
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        if await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) > 0 {
+            await CloudRefreshURLProtocol.waitUntilStopped()
+        }
     }
 
     @Test("HTTP Retry-After exceeds the budget without an early automatic retry")
@@ -115,6 +117,45 @@ struct VMClientReadCoalescingTests {
         clock.advance(by: .seconds(60))
         #expect(try await fixture.client.stats(id: "fixture-0").state == .awake)
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 2)
+    }
+
+    @Test("A list delayed beyond a polling interval stays owned and stops when hidden")
+    func delayedListAcrossPoll() async throws {
+        let clock = CloudReadManualClock()
+        let reads = CloudReadRequestCoordinator(clock: CloudRequestClock(clock), budget: .seconds(90))
+        let fixture = try await CloudRefreshFixture.make(readRequests: reads)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.holdResponses()
+        let model = MachinesPanelViewModel(client: fixture.client, pollingClock: clock)
+        model.startPolling()
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        try await eventually { clock.pendingSleeperCount == 2 }
+        clock.advance(by: .seconds(45))
+        try await eventually { clock.pendingSleeperCount == 2 }
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+        model.stopPolling()
+        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.releaseResponses()
+        #expect(!model.isLoading)
+        #expect(model.machines.isEmpty)
+    }
+
+    @Test("Visible and hidden panels share the same machines without hidden follow-up work")
+    func visibleAndHiddenOwners() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let models = (0..<4).map { _ in MachinesPanelViewModel(client: fixture.client) }
+        defer { for model in models { model.stopPolling() } }
+        for model in models { model.startPolling() }
+        models[2].stopPolling()
+        models[3].stopPolling()
+        try await eventually { models[0].machines.first?.stats != nil && models[1].machines.first?.stats != nil }
+        let counts = await CloudRefreshURLProtocol.requestCounts()
+        #expect(counts["/api/vm"] == 1)
+        #expect(counts["/api/vm/fixture-0/stats"] == 1)
+        #expect(models[2].machines.isEmpty && models[3].machines.isEmpty)
     }
 
     private func eventually(_ condition: () -> Bool) async throws {

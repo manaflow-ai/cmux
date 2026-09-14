@@ -5,6 +5,8 @@ import Foundation
 final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled }
     private static let responses = Responses()
+    static func holdResponses() async { await responses.hold() }
+    static func releaseResponses() async { await responses.release() }
     static func configure(_ behavior: Behavior) async { await responses.configure(behavior) }
     static func waitUntilStarted(_ count: Int = 1) async { await responses.waitUntilStarted(count) }
     static func waitUntilStopped() async { await responses.waitUntilStopped() }
@@ -19,6 +21,15 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
         private(set) var counts: [String: Int] = [:]
         private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
         private var behavior = Behavior.normal
+        private var held = false
+        private var responseWaiters: [ObjectIdentifier: CheckedContinuation<Void, Never>] = [:]
+        func hold() { held = true }
+        func release() {
+            held = false
+            let pending = responseWaiters
+            responseWaiters.removeAll()
+            for waiter in pending.values { waiter.resume() }
+        }
         private var stopped = false
         private var startWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
         private var stopWaiters: [CheckedContinuation<Void, Never>] = []
@@ -32,6 +43,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             await withCheckedContinuation { stopWaiters.append($0) }
         }
         func reset() {
+            release()
             for task in tasks.values { task.cancel() }
             tasks.removeAll()
             counts.removeAll()
@@ -48,6 +60,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             for (_, waiter) in ready { waiter.resume() }
             let behavior = self.behavior
             tasks[key] = Task {
+                guard !Task.isCancelled else { return }
+                if self.held { await withCheckedContinuation { self.responseWaiters[key] = $0 } }
                 // The fixture models a slow HTTP response, not a wait for test
                 // state to settle. All callers run against that same latency.
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
@@ -63,6 +77,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
         }
         func stop(_ source: CloudRefreshURLProtocol) {
             tasks.removeValue(forKey: ObjectIdentifier(source))?.cancel()
+            responseWaiters.removeValue(forKey: ObjectIdentifier(source))?.resume()
             stopped = true
             let waiters = stopWaiters
             stopWaiters.removeAll()
