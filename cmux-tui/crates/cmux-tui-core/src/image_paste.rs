@@ -233,6 +233,9 @@ impl ImagePasteStore {
         let mut state = self.shared.state.lock().unwrap();
         if let Some(upload) = state.uploads.get_mut(&key) {
             upload.delivery_in_flight = false;
+            if upload.cleanup_pending {
+                upload.deadline = Instant::now();
+            }
         }
         // A terminal close may have requested cleanup while delivery was in
         // flight. Reap now that it is safe to unlink the owned file.

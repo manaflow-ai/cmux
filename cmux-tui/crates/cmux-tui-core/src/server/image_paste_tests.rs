@@ -266,18 +266,26 @@ fn cloud_image_paste_keep_on_exit_cleans_image_without_closing_the_view() {
     let terminal = surface.terminal_public_id().unwrap();
     let (client, writer) = image_paste_client(&mux);
     let (lease, _) = image_paste_view_lease(&mux, client, surface.id, &writer);
-    let (written, input) = std::sync::mpsc::channel();
-    surface.replace_input_writer_for_test(Box::new(PasteInputRecorder(written)));
-    surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?2004h")).unwrap();
     prepare_image_paste(&mux, client, &surface, &lease, UPLOAD_ID, &writer);
-    handle_command(
-        &mux,
+    // This fixture seeds registry lifecycle without a writable PTY. The leased
+    // daemon-path test above covers paste I/O; here commit an owned image before
+    // delivering the real terminal-exit transition to the registry.
+    let owner = crate::image_paste::ImagePasteOwner {
         client,
-        image_paste_request(&surface, &lease, UPLOAD_ID, json!({"op":"commit"})),
-        &writer,
-    )
-    .unwrap();
-    let path = pasted_image_path(&input);
+        surface: surface.id,
+        terminal: terminal.to_string(),
+        workspace: workspace.key.clone(),
+        lease,
+    };
+    let mut quoted_path = String::new();
+    mux.image_pastes
+        .commit(&owner, UPLOAD_ID, |path| {
+            quoted_path = path.to_owned();
+            Ok(())
+        })
+        .unwrap();
+    let path = PathBuf::from(quoted_path.trim_matches('\''));
+    assert_eq!(std::fs::read(&path).unwrap(), PNG);
     assert!(
         mux.persist_terminal_exit_for_test(
             terminal,

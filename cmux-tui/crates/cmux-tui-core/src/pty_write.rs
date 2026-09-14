@@ -111,16 +111,24 @@ mod tests {
     use std::os::unix::net::UnixStream;
 
     #[test]
-    fn cloud_image_paste_pty_write_delivers_exact_bytes_and_restores_flags() {
-        let (sender, mut receiver) = UnixStream::pair().unwrap();
-        let fd = sender.as_raw_fd();
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        let payload = b"\x1b[200~/private/clipboard.png\x1b[201~";
-        write_bounded(fd, payload, Duration::from_secs(1), "test timeout").unwrap();
-        let mut received = vec![0; payload.len()];
-        receiver.read_exact(&mut received).unwrap();
-        assert_eq!(received, payload);
-        assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFL) }, flags);
+    fn cloud_image_paste_pty_write_delivers_exact_bytes_and_restores_blocking_mode() {
+        for initially_nonblocking in [false, true] {
+            let (sender, mut receiver) = UnixStream::pair().unwrap();
+            sender.set_nonblocking(initially_nonblocking).unwrap();
+            let fd = sender.as_raw_fd();
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            let payload = b"\x1b[200~/private/clipboard.png\x1b[201~";
+            write_bounded(fd, payload, Duration::from_secs(1), "test timeout").unwrap();
+            let mut received = vec![0; payload.len()];
+            receiver.read_exact(&mut received).unwrap();
+            assert_eq!(received, payload);
+            // Darwin adds the kernel-owned FWASWRITTEN status bit after I/O.
+            // Assert the descriptor mode this operation actually changes.
+            assert_eq!(
+                unsafe { libc::fcntl(fd, libc::F_GETFL) } & libc::O_NONBLOCK,
+                flags & libc::O_NONBLOCK
+            );
+        }
     }
 
     #[test]
@@ -135,7 +143,12 @@ mod tests {
         assert_eq!(error.error.kind(), io::ErrorKind::TimedOut);
         assert!(error.delivered > 0 && error.delivered < bytes.len());
         assert!(start.elapsed() < Duration::from_secs(2));
-        assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFL) }, flags);
+        // Darwin adds the kernel-owned FWASWRITTEN status bit after I/O.
+        // Assert the descriptor mode this operation actually changes.
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_GETFL) } & libc::O_NONBLOCK,
+            flags & libc::O_NONBLOCK
+        );
     }
 
     #[test]
@@ -146,6 +159,11 @@ mod tests {
         let error = write_bounded(fd, b"input", Duration::ZERO, "test timeout").unwrap_err();
         assert_eq!(error.error.kind(), io::ErrorKind::TimedOut);
         assert_eq!(error.delivered, 0);
-        assert_eq!(unsafe { libc::fcntl(fd, libc::F_GETFL) }, flags);
+        // Darwin adds the kernel-owned FWASWRITTEN status bit after I/O.
+        // Assert the descriptor mode this operation actually changes.
+        assert_eq!(
+            unsafe { libc::fcntl(fd, libc::F_GETFL) } & libc::O_NONBLOCK,
+            flags & libc::O_NONBLOCK
+        );
     }
 }
