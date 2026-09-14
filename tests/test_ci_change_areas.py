@@ -215,7 +215,15 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    first_batch: str = "expected-failures",
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
+    """Run the app-host "Run unit tests" step against a fake console runner.
+
+    ``first_batch`` picks what the first batch reports: ``expected-failures``
+    (exit 65, every failure expected), ``host-died`` (the same summary after the
+    runner restarted a dead app host), or ``empty`` (exit 0, no tests executed).
+    Every later batch crashes before printing a summary.
+    """
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
     script = script.replace("${{ matrix.shard }}", "1")
 
@@ -227,10 +235,11 @@ def run_app_host_unit_test_step(
         runner_temp.mkdir()
         fake_bin.mkdir()
         ci_scripts.mkdir(parents=True)
-        shutil.copy2(
-            ROOT / "scripts/ci/classify-app-host-test-output.py",
-            ci_scripts / "classify-app-host-test-output.py",
-        )
+        for classifier in (
+            "classify-app-host-test-output.py",
+            "classify-app-host-test-result.sh",
+        ):
+            shutil.copy2(ROOT / "scripts/ci" / classifier, ci_scripts / classifier)
 
         # The step snapshots the crash-report directory before the run and lists what appeared
         # after it. The real scan reads this machine's own crash reports, so any cmux crash on
@@ -280,8 +289,21 @@ fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
-  echo "Executed 2 tests, with 2 failures (0 unexpected)"
-  exit 65
+  case "${CMUX_TEST_FIRST_BATCH:?}" in
+    expected-failures)
+      echo "Executed 2 tests, with 2 failures (0 unexpected)"
+      exit 65
+      ;;
+    host-died)
+      echo "Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches."
+      echo "Executed 2 tests, with 2 failures (0 unexpected)"
+      exit 65
+      ;;
+    empty)
+      echo "Executed 0 tests, with 0 failures (0 unexpected)"
+      exit 0
+      ;;
+  esac
 fi
 echo "simulated app-host crash before test summary" >&2
 exit 9
@@ -306,6 +328,7 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_FIRST_BATCH": first_batch,
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -862,6 +885,25 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_batch_whose_host_died_is_never_continued() -> None:
+    # Every failure in the summary is expected, but the runner restarted a dead app host, so the
+    # summary covers only the last launch. The batch has to stop the step there.
+    result, runner_invoked = run_app_host_unit_test_step(first_batch="host-died")
+
+    assert runner_invoked
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "are expected, continuing" not in result.stdout
+    assert "simulated app-host crash before test summary" not in result.stdout
+
+
+def test_app_host_batch_that_executed_no_tests_is_not_a_pass() -> None:
+    result, runner_invoked = run_app_host_unit_test_step(first_batch="empty")
+
+    assert runner_invoked
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "simulated app-host crash before test summary" not in result.stdout
 
 
 def run_focused_app_host_step(

@@ -1447,7 +1447,9 @@ jobs:
               # hiding the actual unit test summary.
               # The app-host wrapper also serializes GUI XCTest ownership per Mac,
               # while still allowing shards on separate Macs to run in parallel.
-              scripts/ci/run-in-console-session.sh \
+              CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING=1 \
+                CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=2700 \
+                scripts/ci/run-in-console-session.sh \
                 scripts/ci/run-app-host-xcodebuild.sh \
                 -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
                 -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
@@ -1495,10 +1497,27 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
+            # classify-app-host-test-result.sh grades every batch, including one
+            # that exited 0. A batch passes only when it executed tests, no app
+            # host died during it, and its status is 0 or an ordinary XCTest
+            # failure status (65/125) whose failures were all expected. Reserved
+            # wrapper statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary. For a nonzero status the output
+            # classifier additionally requires every XCTest summary in the batch
+            # to be clean, so an earlier unexpected failure is not masked by a
+            # later summary.
+            if scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null \
+              && { [ "$batch_status" -eq 0 ] \
+                || python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; }; then
+              if [ "$batch_status" -ne 0 ]; then
                 echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+              fi
+              return 0
+            fi
+            if [ "$batch_status" -eq 0 ]; then
+              echo "App-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} exited 0 without passing its grading"
+              return 1
             fi
             return "$batch_status"
           }
@@ -1525,13 +1544,12 @@ jobs:
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1540,7 +1558,6 @@ jobs:
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
           fi
 
@@ -1623,7 +1640,9 @@ jobs:
           if [ "$EXIT_CODE" -ne 0 ]; then
             # Expected failures are normalized inside run_unit_test_batch. Any
             # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
+            # run with no trustworthy summary and must stay red. Reclassifying the
+            # whole log here would read an earlier batch's clean summary for a
+            # batch that crashed before printing its own.
             echo "App-host unit-test batch failed with status ${EXIT_CODE}"
             exit "$EXIT_CODE"
           fi
