@@ -57,7 +57,9 @@ ALLOW=(
   "Sources/RemoteTmuxControlConnection.swift:detachThenStop|Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
   "Sources/RemoteTmuxSessionMirror+OutputRouting.swift:schedulePaneSeedDeliveryDeadline|Deadline arm on a pane's readiness wait: the task is cancelled when the surface becomes ready, and on expiry the seed is drained or gracefully deferred rather than retried"
   "Sources/RemoteTmuxViewConnection.swift:scheduleBringupRetry|Bounded backoff. The bringup it retries failed WITHOUT producing an edge to wait on, which is the whole reason it exists"
+  "Sources/RemoteTmuxControlConnection.swift:detachAwaitingExit|Deadline arm racing the %exit observer registered beside it; the observer ends the wait and cancels the deadline"
   "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryOutcomeWithTimeout|Deadline arm racing the reply for this command number; the reply removes the completion and the timeout task finds nothing to resume"
+  "Sources/RemoteTmuxViewConnection.swift:wait|The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
 )
 
 fail=0
