@@ -45,7 +45,7 @@ export interface AgentModelCatalog {
 
 export const agentModelCatalog = {
   schemaVersion: 1,
-  updatedAt: "2026-08-09T00:00:00.000Z",
+  updatedAt: "2026-09-14T00:00:00.000Z",
   providers: {
     claude: {
       defaultModel: "claude-sonnet-5",
@@ -104,22 +104,38 @@ export const agentModelCatalog = {
       ],
     },
     codex: {
-      defaultModel: "gpt-5.5",
+      defaultModel: "gpt-6-astra",
       models: [
         {
-          id: "gpt-5.5",
-          label: "GPT-5.5",
-          description: "Frontier model for complex coding, computer use, knowledge work, and research workflows in Codex.",
-          contextWindow: 1050000,
-          supportsOneMillion: true,
+          id: "gpt-6-astra",
+          label: "GPT-6-Astra",
+          description: "Our most capable model for complex, demanding work.",
+          contextWindow: 272000,
           isDefault: true,
         },
         {
-          id: "gpt-5.5-pro",
-          label: "GPT-5.5 Pro",
-          description: "Higher-capability GPT-5.5 model for difficult professional work.",
-          contextWindow: 1050000,
-          supportsOneMillion: true,
+          id: "gpt-5.6-sol",
+          label: "GPT-5.6-Sol",
+          description: "Reliable agentic workhorse for everyday tasks.",
+          contextWindow: 272000,
+        },
+        {
+          id: "gpt-5.6-terra",
+          label: "GPT-5.6-Terra",
+          description: "Balanced agentic coding model for everyday work.",
+          contextWindow: 272000,
+        },
+        {
+          id: "gpt-5.6-luna",
+          label: "GPT-5.6-Luna",
+          description: "Fast and affordable agentic coding model.",
+          contextWindow: 272000,
+        },
+        {
+          id: "gpt-5.5",
+          label: "GPT-5.5",
+          description: "Proven previous-generation model for coding and general work.",
+          contextWindow: 272000,
         },
       ],
     },

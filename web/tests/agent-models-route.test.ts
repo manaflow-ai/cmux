@@ -46,11 +46,20 @@ describe("agent models route", () => {
       ],
     });
 
-    expect(agentModelCatalog.providers.codex.defaultModel).toBe("gpt-5.5");
+    expect(agentModelCatalog.providers.codex.defaultModel).toBe("gpt-6-astra");
     expect(agentModelCatalog.providers.codex.models.map((model) => model.id)).toEqual([
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
-      "gpt-5.5-pro",
     ]);
+    expect(agentModelCatalog.providers.codex.models[0]).toMatchObject({
+      id: "gpt-6-astra",
+      label: "GPT-6-Astra",
+      contextWindow: 272000,
+      isDefault: true,
+    });
     expect(agentModelCatalog.providers.codex.models.every((model) => !("efforts" in model))).toBe(true);
 
     expect(agentModelCatalog.providers.opencode).toEqual({
