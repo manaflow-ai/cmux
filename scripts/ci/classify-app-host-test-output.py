@@ -33,10 +33,13 @@ _APP_HOST_FAILURE_RE = re.compile(
     re.IGNORECASE,
 )
 _APP_HOST_SIGNAL_RE = re.compile(
-    r"(?:\*\*\*[^\n]*|(?:received|terminated|killed|stopped|signal(?:ed)?)[^\n]*)"
+    r"(?:\*\*\*[^\n]*\bSignal\s+\d+\b|"
+    r"(?:received|terminated|killed|stopped|crashed|aborted|exited)[^\n]*"
+    r"\bsignal\s+\d+\b|^\s*signal\s+\d+\b|"
+    r"(?:\*\*\*[^\n]*|(?:received|terminated|killed|stopped|crashed)[^\n]*)"
     r"\bSIG(?:ABRT|ALRM|BUS|CHLD|CONT|FPE|HUP|ILL|INT|IO|IOT|KILL|PIPE|POLL|"
     r"PROF|QUIT|SEGV|STOP|SYS|TERM|TRAP|TSTP|TTIN|TTOU|URG|USR1|USR2|"
-    r"VTALRM|XCPU|XFSZ)\b",
+    r"VTALRM|XCPU|XFSZ)\b)",
     re.IGNORECASE,
 )
 _ASSERTION_RE = re.compile(
