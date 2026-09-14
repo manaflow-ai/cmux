@@ -151,13 +151,16 @@ import Testing
         let content = try #require(window.contentView)
         let root = try #require(content.superview)
         let host = CloudPaneCreationFailureOverlayHostView(frame: content.bounds)
+        host.translatesAutoresizingMaskIntoConstraints = true
+        host.autoresizingMask = [.width, .height]
         content.addSubview(host)
         defer { host.detach() }
         // Like WindowTerminalHostView, this sibling is above SwiftUI content.
         let terminal = NSView(frame: content.frame)
         root.addSubview(terminal, positioned: .above, relativeTo: content)
         let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
-        host.update(failure: failure, onDismiss: { _ in })
+        var dismissedIDs: [UUID] = []
+        host.update(failure: failure, onDismiss: { dismissedIDs.append($0) })
         root.layoutSubtreeIfNeeded()
         let card = try #require(root.subviews.compactMap { $0 as? CloudPaneCreationFailureOverlayView }.first)
         #expect(!card.isDescendant(of: content))
@@ -165,7 +168,12 @@ import Testing
         let terminalIndex = try #require(root.subviews.firstIndex(of: terminal))
         #expect(cardIndex > terminalIndex)
         #expect(card.frame.width > 0 && card.frame.height > 0)
+        #expect(content.convert(card.bounds, from: card).minX >= 0)
+        #expect(content.convert(card.bounds, from: card).maxX <= content.bounds.maxX)
         #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil, "The bridge must not intercept terminal input")
+        let dismiss = try #require(card.subviews.compactMap { $0 as? NSButton }.first)
+        dismiss.performClick(nil)
+        #expect(dismissedIDs == [failure.id])
 
         host.isHidden = true
         host.layoutSubtreeIfNeeded()

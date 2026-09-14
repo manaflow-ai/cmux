@@ -10,11 +10,13 @@ import SwiftUI
 /// host while keeping all points outside the card untouched.
 struct CloudPaneCreationFailurePresentation: ViewModifier {
     let failureStore: CloudPaneCreationFailureStore
+    var isWorkspaceVisible = true
 
     func body(content: Content) -> some View {
         content.background(
             CloudPaneCreationFailureWindowBridge(
                 failure: failureStore.failure,
+                isWorkspaceVisible: isWorkspaceVisible,
                 onDismiss: { [weak failureStore] id in failureStore?.dismiss(id: id) }
             )
         )
@@ -24,15 +26,18 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
 @MainActor
 private struct CloudPaneCreationFailureWindowBridge: NSViewRepresentable {
     let failure: CloudPaneCreationFailure?
+    let isWorkspaceVisible: Bool
     let onDismiss: (UUID) -> Void
 
     func makeNSView(context: Context) -> CloudPaneCreationFailureOverlayHostView {
         let view = CloudPaneCreationFailureOverlayHostView(frame: .zero)
+        view.isHidden = !isWorkspaceVisible
         view.update(failure: failure, onDismiss: onDismiss)
         return view
     }
 
     func updateNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, context: Context) {
+        nsView.isHidden = !isWorkspaceVisible
         nsView.update(failure: failure, onDismiss: onDismiss)
     }
 
@@ -50,31 +55,45 @@ final class CloudPaneCreationFailureOverlayHostView: NSView {
     private weak var installedContainer: NSView?
     private weak var installedReference: NSView?
     private var pendingFailure: CloudPaneCreationFailure?
-    private var pendingDismiss: ((UUID) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-        isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(failure: CloudPaneCreationFailure?, onDismiss: @escaping (UUID) -> Void) {
         pendingFailure = failure
-        pendingDismiss = onDismiss
         guard let failure else {
-            card.removeFromSuperview()
-            NSLayoutConstraint.deactivate(installConstraints)
-            installConstraints.removeAll()
-            isHidden = true
+            removeCard()
             return
         }
         card.update(failure: failure, onDismiss: onDismiss)
-        isHidden = false
         _ = ensureInstalled()
+    }
+
+    override var isHidden: Bool {
+        didSet { _ = ensureInstalled() }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        _ = ensureInstalled()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { removeCard() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview == nil { removeCard() }
+        super.viewWillMove(toSuperview: newSuperview)
     }
 
     override func viewDidMoveToWindow() {
@@ -83,24 +102,35 @@ final class CloudPaneCreationFailureOverlayHostView: NSView {
     }
 
     func detach() {
-        card.removeFromSuperview()
+        pendingFailure = nil
+        removeCard()
+    }
+
+    private func removeCard() {
         NSLayoutConstraint.deactivate(installConstraints)
         installConstraints.removeAll()
+        card.removeFromSuperview()
+        installedContainer = nil
+        installedReference = nil
     }
 
     @discardableResult
     private func ensureInstalled() -> Bool {
-        guard pendingFailure != nil,
+        guard pendingFailure != nil, !isHiddenOrHasHiddenAncestor,
               let window,
-              let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else { return false }
+              let target = chromeComposition.contentOverlayTargetResolver.installationTarget(for: window) else {
+            removeCard()
+            return false
+        }
+        card.fit(width: min(420, max(160, bounds.width - 32)))
         if card.superview !== target.container || installedContainer !== target.container || installedReference !== target.reference {
             NSLayoutConstraint.deactivate(installConstraints)
             installConstraints.removeAll()
             card.removeFromSuperview()
             target.container.addSubview(card, positioned: .above, relativeTo: nil)
             installConstraints = [
-                card.centerXAnchor.constraint(equalTo: target.reference.centerXAnchor),
-                card.centerYAnchor.constraint(equalTo: target.reference.centerYAnchor),
+                card.centerXAnchor.constraint(equalTo: centerXAnchor),
+                card.centerYAnchor.constraint(equalTo: centerYAnchor),
             ]
             NSLayoutConstraint.activate(installConstraints)
             installedContainer = target.container
@@ -120,6 +150,7 @@ final class CloudPaneCreationFailureOverlayView: NSView {
     private let dismissButton = NSButton(frame: .zero)
     private var currentFailure: CloudPaneCreationFailure?
     private var onDismiss: ((UUID) -> Void)?
+    private lazy var cardWidth = widthAnchor.constraint(equalToConstant: 420)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -128,7 +159,7 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         layer?.cornerRadius = 12
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.systemOrange.withAlphaComponent(0.38).cgColor
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.98).cgColor
+        updateBackgroundColor()
         layer?.shadowColor = NSColor.black.withAlphaComponent(0.22).cgColor
         layer?.shadowOpacity = 1
         layer?.shadowRadius = 12
@@ -157,6 +188,8 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         dismissButton.controlSize = .regular
         dismissButton.target = self
         dismissButton.action = #selector(handleDismiss)
+        dismissButton.keyEquivalent = "\u{1b}"
+        dismissButton.keyEquivalentModifierMask = []
         dismissButton.setAccessibilityIdentifier("CloudPaneCreationFailureDismiss")
 
         let labels = NSStackView(views: [titleLabel, detailLabel, recoveryLabel])
@@ -169,8 +202,7 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         addSubview(dismissButton)
 
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 320),
-            widthAnchor.constraint(lessThanOrEqualToConstant: 520),
+            cardWidth,
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
             iconView.topAnchor.constraint(equalTo: topAnchor, constant: 22),
             iconView.widthAnchor.constraint(equalToConstant: 24),
@@ -178,6 +210,9 @@ final class CloudPaneCreationFailureOverlayView: NSView {
             labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12),
             labels.topAnchor.constraint(equalTo: topAnchor, constant: 20),
             labels.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            titleLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            detailLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
+            recoveryLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
             labels.bottomAnchor.constraint(equalTo: dismissButton.topAnchor, constant: -14),
             dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             dismissButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
@@ -186,6 +221,21 @@ final class CloudPaneCreationFailureOverlayView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func fit(width: CGFloat) {
+        if cardWidth.constant != width { cardWidth.constant = width }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateBackgroundColor()
+    }
+
+    private func updateBackgroundColor() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
+    }
 
     func update(failure: CloudPaneCreationFailure, onDismiss: @escaping (UUID) -> Void) {
         currentFailure = failure
