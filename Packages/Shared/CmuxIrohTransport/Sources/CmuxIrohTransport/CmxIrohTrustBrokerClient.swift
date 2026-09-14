@@ -45,15 +45,13 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
 private func isUnsupportedRegistrationScope(
     _ error: CmxIrohTrustBrokerClientError
 ) -> Bool {
-    guard case let .rejected(statusCode, code) = error else { return false }
-    return statusCode == 400 && code == "unknown_field"
+    error.brokerStatusCode == 400 && error.brokerResponseCode == "unknown_field"
 }
 
 private func isMissingScopedDiscoveryRoute(
     _ error: CmxIrohTrustBrokerClientError
 ) -> Bool {
-    guard case let .rejected(statusCode, _) = error else { return false }
-    return statusCode == 404
+    error.brokerStatusCode == 404
 }
 
 /// One authenticated account and credential pair captured atomically.
@@ -760,8 +758,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private static func isStaleDiscoveryCursor(
         _ error: CmxIrohTrustBrokerClientError
     ) -> Bool {
-        guard case let .rejected(statusCode, code) = error else { return false }
-        return statusCode == 409 && code == "discovery_cursor_stale"
+        error.brokerStatusCode == 409
+            && error.brokerResponseCode == "discovery_cursor_stale"
     }
 
     private func sendUngated<Response: Decodable & Sendable, Body: Encodable>(
@@ -859,8 +857,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private static func isUnauthorizedRejection(
         _ error: CmxIrohTrustBrokerClientError
     ) -> Bool {
-        guard case let .rejected(statusCode, _) = error else { return false }
-        return statusCode == 401
+        error.brokerStatusCode == 401
     }
 
     private func performAuthenticatedRequest<Response: Decodable & Sendable>(
@@ -943,10 +940,28 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             let code = body.map { payload in
                 payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
             }
+            // Use the metadata case when the broker supplies a correlation ID;
+            // retain the established error cases for older responses so
+            // callers that match those cases keep their existing behavior.
+            let metadata = body?.requestID.map { requestID in
+                CmxIrohBrokerFailure(
+                    statusCode: http.statusCode,
+                    code: code,
+                    requestID: requestID
+                )
+            }
             if http.statusCode == 429 {
                 let retryAfterSeconds = Self.retryAfterSeconds(
                     http.value(forHTTPHeaderField: "Retry-After")
                 ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                if let metadata {
+                    throw CmxIrohTrustBrokerClientError.rejectedWithMetadata(
+                        statusCode: metadata.statusCode,
+                        code: metadata.code,
+                        requestID: metadata.requestID,
+                        retryAfterSeconds: retryAfterSeconds
+                    )
+                }
                 throw CmxIrohTrustBrokerClientError.rateLimited(
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
@@ -956,10 +971,26 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
+                if let metadata {
+                    throw CmxIrohTrustBrokerClientError.rejectedWithMetadata(
+                        statusCode: metadata.statusCode,
+                        code: metadata.code,
+                        requestID: metadata.requestID,
+                        retryAfterSeconds: retryAfterSeconds
+                    )
+                }
                 throw CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
                     statusCode: http.statusCode,
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
+                )
+            }
+            if let metadata {
+                throw CmxIrohTrustBrokerClientError.rejectedWithMetadata(
+                    statusCode: metadata.statusCode,
+                    code: metadata.code,
+                    requestID: metadata.requestID,
+                    retryAfterSeconds: nil
                 )
             }
             throw CmxIrohTrustBrokerClientError.rejected(

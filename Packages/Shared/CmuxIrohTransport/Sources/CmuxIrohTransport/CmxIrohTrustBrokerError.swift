@@ -5,10 +5,13 @@ struct CmxIrohTrustBrokerError: Decodable {
     let error: String
     /// Which enforcement layer produced a 429.
     let source: CmxIrohTrustBrokerErrorSource?
+    /// Broker-generated correlation identifier for operational failures.
+    let requestID: String?
 
     private enum CodingKeys: String, CodingKey {
         case error
         case source
+        case requestID = "requestId"
     }
 
     init(from decoder: any Decoder) throws {
@@ -18,5 +21,6 @@ struct CmxIrohTrustBrokerError: Decodable {
         // an unknown or malformed source.
         source = (try? container.decode(String.self, forKey: .source))
             .flatMap(CmxIrohTrustBrokerErrorSource.init(rawValue:))
+        requestID = try? container.decode(String.self, forKey: .requestID)
     }
 }

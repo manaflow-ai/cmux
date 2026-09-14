@@ -67,6 +67,12 @@ public enum CmxIrohTrustBrokerClientError:
     case rateLimited(code: String?, retryAfterSeconds: Int)
     case rejected(statusCode: Int, code: String?)
     case rejectedWithRetryAfter(statusCode: Int, code: String?, retryAfterSeconds: Int)
+    case rejectedWithMetadata(
+        statusCode: Int,
+        code: String?,
+        requestID: String?,
+        retryAfterSeconds: Int?
+    )
     case invalidResponse
 
     /// Whether an inconclusive refresh may preserve already-verified state.
@@ -104,6 +110,12 @@ public enum CmxIrohTrustBrokerClientError:
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
+        case let .rejectedWithMetadata(statusCode, _, _, _):
+            return statusCode == 401
+                || statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
@@ -136,6 +148,11 @@ public enum CmxIrohTrustBrokerClientError:
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
+        case let .rejectedWithMetadata(statusCode, _, _, _):
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
@@ -151,8 +168,53 @@ public enum CmxIrohTrustBrokerClientError:
         case let .rateLimited(_, retryAfterSeconds),
              let .rejectedWithRetryAfter(_, _, retryAfterSeconds):
             return retryAfterSeconds
+        case let .rejectedWithMetadata(_, _, _, retryAfterSeconds):
+            return retryAfterSeconds
         default:
             return nil
+        }
+    }
+
+    /// HTTP status from a broker response, when this is an HTTP rejection.
+    public var brokerStatusCode: Int? {
+        switch self {
+        case .rateLimited:
+            429
+        case let .rejected(statusCode, _),
+             let .rejectedWithRetryAfter(statusCode, _, _),
+             let .rejectedWithMetadata(statusCode, _, _, _):
+            statusCode
+        default:
+            nil
+        }
+    }
+
+    /// Bounded broker error code, when this is an HTTP rejection.
+    public var brokerResponseCode: String? {
+        switch self {
+        case let .rateLimited(code, _),
+             let .rejected(_, code),
+             let .rejectedWithRetryAfter(_, code, _),
+             let .rejectedWithMetadata(_, code, _, _):
+            code
+        default:
+            nil
+        }
+    }
+
+    /// Safe response metadata for relay policy diagnostics.
+    public var brokerFailure: CmxIrohBrokerFailure? {
+        switch self {
+        case let .rateLimited(code, _):
+            CmxIrohBrokerFailure(statusCode: 429, code: code, requestID: nil)
+        case let .rejected(statusCode, code):
+            CmxIrohBrokerFailure(statusCode: statusCode, code: code, requestID: nil)
+        case let .rejectedWithRetryAfter(statusCode, code, _):
+            CmxIrohBrokerFailure(statusCode: statusCode, code: code, requestID: nil)
+        case let .rejectedWithMetadata(statusCode, code, requestID, _):
+            CmxIrohBrokerFailure(statusCode: statusCode, code: code, requestID: requestID)
+        default:
+            nil
         }
     }
 
@@ -193,6 +255,10 @@ extension CmxIrohTrustBrokerClientError: CustomStringConvertible {
         case let .rejectedWithRetryAfter(statusCode, code, retryAfterSeconds):
             "rejected(statusCode: \(statusCode), code: \(String(describing: code)), "
                 + "retryAfterSeconds: \(retryAfterSeconds))"
+        case let .rejectedWithMetadata(statusCode, code, requestID, retryAfterSeconds):
+            "rejected(statusCode: \(statusCode), code: \(String(describing: code)), "
+                + "requestID: \(String(describing: requestID)), "
+                + "retryAfterSeconds: \(String(describing: retryAfterSeconds)))"
         case .invalidResponse:
             "invalidResponse"
         }

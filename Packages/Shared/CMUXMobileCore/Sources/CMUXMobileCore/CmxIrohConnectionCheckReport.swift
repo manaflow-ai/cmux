@@ -60,6 +60,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
     public let recommendation: Recommendation
     public let failureKind: DiagnosticFailureKind?
     public let selectedPath: CmxIrohSelectedTransportPath
+    public let brokerFailure: CmxIrohBrokerFailure?
 
     public var isReady: Bool {
         !stages.contains { $0.status == .failed }
@@ -75,6 +76,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         self.role = role
         failureKind = diagnostics.lastFailureKind
         selectedPath = snapshot.selectedTransportPath
+        brokerFailure = snapshot.brokerFailure
 
         let transportStatus: StageStatus = switch snapshot.runtimeStatus {
         case .inactive, .degraded: .failed

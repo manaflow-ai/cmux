@@ -14,8 +14,11 @@ import {
   signRelayPolicy,
 } from "../services/relay/catalog";
 import {
+  RelayConfigurationError,
   RelayCatalogIntegrityError,
   RelayDatabaseError,
+  RelayRateLimitError,
+  RelaySigningError,
   relayDatabaseFailureMetadata,
 } from "../services/relay/errors";
 import { relayErrorResponse } from "../services/relay/http";
@@ -81,13 +84,17 @@ describe("signed relay policy", () => {
     try {
       const response = relayErrorResponse(new RelayCatalogIntegrityError({
         reason: "persisted_catalog_digest_mismatch",
-      }));
+      }), { requestId: "req-catalog" });
 
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "relay_policy_unavailable" });
+      expect(response.headers.get("x-cmux-request-id")).toBe("req-catalog");
+      expect(await response.json()).toEqual({
+        error: "relay_policy_unavailable",
+        requestId: "req-catalog",
+      });
       expect(calls).toEqual([[
         "relay.policy.catalog_integrity",
-        { reason: "persisted_catalog_digest_mismatch" },
+        { reason: "persisted_catalog_digest_mismatch", requestId: "req-catalog" },
       ]]);
     } finally {
       console.error = originalConsoleError;
@@ -101,16 +108,42 @@ describe("signed relay policy", () => {
     try {
       const response = relayErrorResponse(new Error(
         "token=secret-token url=https://private-relay.example database=postgres://secret",
-      ));
+      ), { requestId: "req-unexpected" });
 
       expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ error: "internal_error" });
+      expect(response.headers.get("x-cmux-request-id")).toBe("req-unexpected");
+      expect(await response.json()).toEqual({
+        error: "internal_error",
+        requestId: "req-unexpected",
+      });
       expect(calls).toEqual([[
         "relay.policy.unexpected",
-        { failure: "unexpected" },
+        { failure: "unexpected", requestId: "req-unexpected" },
       ]]);
     } finally {
       console.error = originalConsoleError;
+    }
+  });
+
+  test("correlates every broker-side policy outage without exposing internal tags", async () => {
+    const failures = [
+      new RelayConfigurationError({ code: "catalog_invalid" }),
+      new RelaySigningError({ cause: "private signing key" }),
+      new RelayRateLimitError({ code: "rate_limit_unavailable" }),
+    ];
+
+    for (const [index, failure] of failures.entries()) {
+      const requestId = `req-outage-${index}`;
+      const response = relayErrorResponse(failure, { requestId });
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("x-cmux-request-id")).toBe(requestId);
+      expect(await response.json()).toEqual({
+        error: failure instanceof RelayRateLimitError
+          ? "rate_limit_unavailable"
+          : "relay_policy_unavailable",
+        requestId,
+      });
     }
   });
 

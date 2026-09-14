@@ -23,6 +23,27 @@ extension CmxIrohTrustBrokerClientTests {
     }
 
     @Test
+    func unavailableResponseExposesSafeBrokerFailureMetadata() async throws {
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 503,
+                body: #"{"error":"relay_policy_unavailable","requestId":"req-broker-503"}"#,
+                headers: ["Retry-After": "600"]
+            ),
+        ])
+        let client = try makeNetworkClient(transport: transport)
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.rejectedWithMetadata(
+            statusCode: 503,
+            code: "relay_policy_unavailable",
+            requestID: "req-broker-503",
+            retryAfterSeconds: 600
+        )) {
+            _ = try await client.discover()
+        }
+    }
+
+    @Test
     func rateLimitRetainsEveryValidRetryAfterFloor() async throws {
         for (header, expected) in [
             ("600", CmxIrohTrustBrokerClientError.rateLimited(

@@ -312,9 +312,9 @@ describe("POST /api/relay/token", () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: "relay_token_not_configured",
-    });
+    const payload = await response.json();
+    expect(payload.error).toBe("relay_token_not_configured");
+    expect(payload.requestId).toBe(response.headers.get("x-cmux-request-id"));
   });
 
   test("preserves distinct URL-token associations without ambiguous legacy fields", async () => {
@@ -442,7 +442,9 @@ describe("POST /api/relay/token", () => {
         deps({ issueCredentials }),
       );
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "relay_policy_unavailable" });
+      const payload = await response.json();
+      expect(payload.error).toBe("relay_policy_unavailable");
+      expect(payload.requestId).toBe(response.headers.get("x-cmux-request-id"));
     }
   });
 
@@ -475,10 +477,14 @@ describe("POST /api/relay/token", () => {
 
     expect(response.status).toBe(429);
     expect(response.headers.get("retry-after")).toBe("60");
-    expect(await response.json()).toEqual({
+    const rateLimitedPayload = await response.json();
+    expect(rateLimitedPayload).toMatchObject({
       error: "rate_limited",
       source: "auth_provider",
     });
+    expect(rateLimitedPayload.requestId).toBe(
+      response.headers.get("x-cmux-request-id"),
+    );
 
     const statusLimited = await handleRelayTokenRequest(
       request({ endpointId: ENDPOINT_ID }),
@@ -500,9 +506,9 @@ describe("POST /api/relay/token", () => {
     );
     expect(unavailable.status).toBe(503);
     expect(unavailable.headers.get("retry-after")).toBeNull();
-    expect(await unavailable.json()).toEqual({
-      error: "authentication_unavailable",
-    });
+    const payload = await unavailable.json();
+    expect(payload.error).toBe("authentication_unavailable");
+    expect(payload.requestId).toBe(unavailable.headers.get("x-cmux-request-id"));
   });
 
   test("never lets an IP-wide ingress bucket reject an authenticated endpoint", async () => {

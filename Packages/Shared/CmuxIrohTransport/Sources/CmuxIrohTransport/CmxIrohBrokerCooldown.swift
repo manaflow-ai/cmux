@@ -68,8 +68,8 @@ public extension CmxIrohBrokerCooldown {
             .retryAfterSeconds {
             return retryAfterSeconds
         }
-        if case let .rejected(statusCode, _)? = error as? CmxIrohTrustBrokerClientError,
-           statusCode == 429 {
+        if let brokerError = error as? CmxIrohTrustBrokerClientError,
+           brokerError.brokerStatusCode == 429 {
             return defaultRateLimitedSeconds
         }
         return nil

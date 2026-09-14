@@ -59,6 +59,44 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func connectionReportCarriesBrokerFailureMetadata() {
+        let brokerFailure = CmxIrohBrokerFailure(
+            statusCode: 503,
+            code: "relay_policy_unavailable",
+            requestID: "req-broker-503"
+        )
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot(
+                runtimeStatus: .degraded,
+                brokerFailure: brokerFailure
+            ),
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.brokerFailure == brokerFailure)
+    }
+
+    @Test
+    func brokerFailureRedactsProviderSpecificCodes() {
+        let failure = CmxIrohBrokerFailure(
+            statusCode: 429,
+            code: "rate_limited:auth_provider",
+            requestID: "req-safe"
+        )
+
+        #expect(failure.code == "rate_limited")
+        #expect(
+            CmxIrohBrokerFailure(
+                statusCode: 503,
+                code: "signing_key_invalid",
+                requestID: "req-safe"
+            ).code == nil
+        )
+    }
+
+    @Test
     func missingMacIsDistinguishedFromAReachableRelay() {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,
@@ -165,7 +203,8 @@ struct CmxIrohConnectionCheckReportTests {
     private func snapshot(
         runtimeStatus: CmxIrohSettingsSnapshot.RuntimeStatus,
         selectedPath: CmxIrohSelectedTransportPath = .unavailable,
-        hasMac: Bool = false
+        hasMac: Bool = false,
+        brokerFailure: CmxIrohBrokerFailure? = nil
     ) -> CmxIrohSettingsSnapshot {
         CmxIrohSettingsSnapshot(
             runtimeStatus: runtimeStatus,
@@ -176,7 +215,8 @@ struct CmxIrohConnectionCheckReportTests {
             privateNetworkMacs: hasMac
                 ? [.init(macDeviceID: "mac", displayName: "Mac")]
                 : [],
-            policySource: .server
+            policySource: .server,
+            brokerFailure: brokerFailure
         )
     }
 

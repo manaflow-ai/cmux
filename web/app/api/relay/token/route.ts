@@ -11,6 +11,7 @@ import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
   enforceRelayRateLimit,
   jsonResponse,
+  relayOperationalErrorResponse,
   relayErrorResponse,
   runRelayEffect,
   type RelayRateLimitCheck,
@@ -180,7 +181,11 @@ export async function handleRelayTokenRequest(
     }
 
     if (!key && deps.credentialSigningRequired()) {
-      return jsonResponse({ error: "relay_token_not_configured" }, 503);
+      return relayOperationalErrorResponse(
+        { error: "relay_token_not_configured" },
+        503,
+        errorContext,
+      );
     }
     // A fresh endpoint must fetch policy before registration, then fetch its
     // bound credential immediately after registration. Keep bootstrap and
