@@ -28,6 +28,7 @@ enum CloudTreeIconPalette {
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var showsCloudVPNWarning = false
 
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
