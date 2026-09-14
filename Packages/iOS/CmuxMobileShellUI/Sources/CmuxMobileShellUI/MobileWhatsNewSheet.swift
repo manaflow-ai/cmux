@@ -152,10 +152,12 @@ private struct MobileWhatsNewPresentationSizing: ViewModifier {
         if usesFullHeight {
             content
                 .presentationDetents([.large])
-        } else {
+        } else if #available(iOS 18.0, *) {
             content
                 .presentationSizing(.fitted)
                 .presentationDetents([.height(contentHeight)])
+        } else {
+            content.presentationDetents([.height(contentHeight)])
         }
     }
 }
