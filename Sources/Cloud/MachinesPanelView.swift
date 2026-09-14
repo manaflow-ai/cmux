@@ -762,6 +762,7 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    let setDefault: @MainActor (String) -> Void
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 
@@ -803,6 +804,9 @@ struct MachineRowActions {
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
+            },
+            setDefault: { id in
+                AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore?.machineID = id
             }
         )
     }
