@@ -95,6 +95,52 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         #expect(aliasSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
     }
 
+    @Test
+    func reporterTerminalIDAliasCannotTargetAnUnownedSurface() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+
+        // This is the reported wire shape: an owned decoy workspace selector
+        // accompanies terminal_id, which the dispatcher accepts as a surface
+        // alias. The method-specific schema must reject the decoy before the
+        // request can reach the local socket.
+        let authorization = try fixture.authorize(method: "surface.send_text", params: [
+            "preferred_workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": UUID().uuidString,
+            "text": "touch /tmp/pwned\n",
+        ])
+        #expect(authorization.errorResponse?.contains("remote_relay") == true)
+    }
+
+    @Test
+    func unknownMethodWithOwnedSelectorsRemainsDenied() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+
+        let authorization = try fixture.authorize(method: "future.execute", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+        ])
+        #expect(authorization.errorResponse?.contains("remote_relay_method_denied") == true)
+    }
+
+    @Test
+    func liveOwnershipRevocationInvalidatesAnAlreadyKnownSurface() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let params: [String: Any] = [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+            "text": "echo scoped\n",
+        ]
+
+        let admitted = try fixture.authorize(method: "surface.send_text", params: params)
+        #expect(admitted.errorResponse == nil)
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        let revoked = try fixture.authorize(method: "surface.send_text", params: params)
+        #expect(revoked.errorResponse?.contains("remote_relay_surface_denied") == true)
+    }
+
     @MainActor
     private struct Fixture {
         let appDelegate: AppDelegate
