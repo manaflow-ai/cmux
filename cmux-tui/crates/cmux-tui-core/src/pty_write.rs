@@ -111,7 +111,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
 
     #[test]
-    fn pty_write_delivers_exact_bytes_and_restores_flags() {
+    fn cloud_image_paste_pty_write_delivers_exact_bytes_and_restores_flags() {
         let (sender, mut receiver) = UnixStream::pair().unwrap();
         let fd = sender.as_raw_fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -124,7 +124,7 @@ mod tests {
     }
 
     #[test]
-    fn pty_write_backpressure_times_out_and_records_partial_delivery() {
+    fn cloud_image_paste_pty_write_backpressure_times_out_and_records_partial_delivery() {
         let (sender, _receiver) = UnixStream::pair().unwrap();
         let fd = sender.as_raw_fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -139,7 +139,7 @@ mod tests {
     }
 
     #[test]
-    fn pty_write_expired_deadline_never_delivers_input() {
+    fn cloud_image_paste_pty_write_expired_deadline_never_delivers_input() {
         let (sender, _receiver) = UnixStream::pair().unwrap();
         let fd = sender.as_raw_fd();
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
