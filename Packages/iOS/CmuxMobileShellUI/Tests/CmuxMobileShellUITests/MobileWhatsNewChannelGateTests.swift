@@ -68,16 +68,12 @@ import Testing
         }
     }
 
-    @Test func consolidatedPageCarriesPairingRequirementAndReleasedConnectionNotes() throws {
+    @Test func consolidatedPageFocusesOnPairingRequirement() throws {
         guard case .pairingSetup(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
             Issue.record("connections.v2 should render the custom pairing page")
             return
         }
-        let titles = features.map(\.title)
-        #expect(titles.contains("Tailscale, on your terms"))
-        #expect(features.last?.symbol == "qrcode.viewfinder")
-        #expect(features.last?.detail.contains("Choosing Tailscale Only") == true)
-        #expect(features.allSatisfy { !$0.detail.contains("Enable iOS pairing") })
+        #expect(features.isEmpty)
         #expect(MobileWhatsNewCatalog.connectionsUpdate.title == "Pairing begins on your Mac")
         #expect(MobileWhatsNewCatalog.entry(withID: "pairing-opt-in.v1") == nil)
     }
