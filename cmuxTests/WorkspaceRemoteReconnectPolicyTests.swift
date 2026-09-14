@@ -106,6 +106,22 @@ struct WorkspaceRemoteReconnectPolicyTests {
 
 @Suite("Cloud terminal reconnect overlay policy")
 struct CloudTerminalReconnectOverlayPolicyTests {
+    @Test @MainActor
+    func nativeCloudAttachmentOwnsPresentationWhenCatalogProjectionIsMissing() throws {
+        let workspace = Workspace()
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "machine",
+            isBase: false
+        )
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let status = CloudTerminalAttachmentStatus(machineID: "machine")
+        panel.cloudAttachment = status
+        workspace.remoteConnectionState = .reconnecting
+        workspace.remoteConnectionDetail = nil
+        #expect(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID) == nil)
+    }
+
     @Test("Cloud terminal surfaces show reconnect UI when disconnected")
     func cloudTerminalShowsReconnectWhenDisconnected() {
         let presentation = CloudTerminalReconnectOverlayPolicy.presentation(
