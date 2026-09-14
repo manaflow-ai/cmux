@@ -3,6 +3,9 @@ public import Foundation
 
 /// Reads and validates a materialized clipboard image off the main actor.
 public actor CloudClipboardImageReader {
+    /// Creates a reader for bounded clipboard image files.
+    public init() {}
+
     /// Reads one regular file without following symlinks.
     ///
     /// - Parameter url: A file URL produced by the clipboard materialization
