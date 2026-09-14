@@ -10,6 +10,40 @@ import Testing
 @Suite("Cloud terminal creation")
 struct CloudTerminalCreationCoordinatorTests {
     @Test @MainActor
+    func retryDuringCreationDoesNotStartAnotherRemoteTerminal() async {
+        let panel = CloudTerminalPendingPanel(workspaceId: UUID(), machine: .cloud("machine"))
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let completed = CloudLinkFirstValue<Bool>()
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: .cloud("machine"), kind: .terminal, key: "term_created"),
+            title: "", detail: nil, lifecycle: .launching, agent: nil,
+            remoteWorkspace: nil, remoteViews: [], port: nil, url: nil
+        )
+        var createCount = 0
+        let coordinator = CloudTerminalCreationCoordinator(
+            panel: panel,
+            create: {
+                createCount += 1
+                started.resolve(true)
+                // The remote mutation can commit even after local cancellation.
+                _ = await release.result
+                return resource
+            },
+            project: { resource in
+                (SurfaceProjection(resource: resource.id, workspaceID: panel.workspaceId, panelID: UUID()), false)
+            },
+            onSuccess: { completed.resolve(true) }
+        )
+        coordinator.start()
+        _ = await started.result
+        coordinator.retry()
+        release.resolve(true)
+        _ = await completed.result
+        #expect(createCount == 1)
+    }
+
+    @Test @MainActor
     func materializationFailureKeepsTheCreatedTerminalForRetry() async {
         let panel = CloudTerminalPendingPanel(
             workspaceId: UUID(),
