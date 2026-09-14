@@ -4,8 +4,8 @@ import SwiftUI
 /// Hosts SwiftUI row content inside an `NSOutlineView` cell while leaving every
 /// pointer event to the outline: the display host never hit-tests, so click,
 /// double-click, drag, and the context menu are handled natively. Machine rows
-/// add a second, hit-testable host for their hover buttons. The outline owns
-/// hover visibility; buttons stay laid out so hovering never reflows.
+/// add a second, hit-testable host for their hover buttons, faded in by a
+/// tracking area (the buttons are always laid out so hovering never reflows).
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
 
@@ -14,9 +14,7 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var vpnHelp: CloudVPNSetupButton?
     private var vpnCallout: CloudPortsVPNEmptyStateContent?
-    private var vpnHelpConstraint: NSLayoutConstraint?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
@@ -71,10 +69,14 @@ final class CloudTreeCellView: NSTableCellView {
         }
         #endif
         let showsCallout = showsCloudVPNWarning && node.isPortsEmptyPlaceholder
-        let showsHelp = showsCloudVPNWarning && node.isPortsGroup
         displayHost.isHidden = showsCallout
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(
+                kind: node.kind,
+                style: style,
+                showsCloudVPNWarning: showsCloudVPNWarning,
+                cloudVPNSetup: showsCloudVPNWarning ? machineActions.setupVPN : nil
+            )
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
@@ -83,14 +85,6 @@ final class CloudTreeCellView: NSTableCellView {
             callout.isHidden = false
             callout.configure(style: style, setup: machineActions.setupVPN)
         } else { vpnCallout?.isHidden = true }
-        if showsHelp {
-            let help = vpnHelp ?? makeVPNHelp()
-            help.isHidden = false
-            help.setup = machineActions.setupVPN
-        } else {
-            vpnHelp?.isHidden = true
-        }
-        vpnHelpConstraint?.isActive = showsHelp
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
@@ -152,21 +146,6 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    private func makeVPNHelp() -> CloudVPNSetupButton {
-        let help = CloudVPNSetupButton(frame: .zero, presentation: .helpIcon)
-        help.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(help)
-        NSLayoutConstraint.activate([
-            help.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
-            help.centerYAnchor.constraint(equalTo: centerYAnchor),
-            help.heightAnchor.constraint(equalToConstant: 24),
-            help.widthAnchor.constraint(greaterThanOrEqualToConstant: 28)
-        ])
-        vpnHelpConstraint = displayHost.trailingAnchor.constraint(lessThanOrEqualTo: help.leadingAnchor, constant: -4)
-        vpnHelp = help
-        return help
-    }
-
     private func makeVPNCallout() -> CloudPortsVPNEmptyStateContent {
         let callout = CloudPortsVPNEmptyStateContent(frame: .zero)
         callout.translatesAutoresizingMaskIntoConstraints = false
@@ -196,7 +175,15 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard let hit = super.hitTest(point) else { return nil }
+        var candidate: NSView? = hit
+        while let view = candidate {
+            if view is CloudVPNSetupButton { return view }
+            candidate = view.superview
+        }
+        // The outline owns all ordinary row interaction. Returning nil here is
+        // what keeps a header click from being swallowed by the SwiftUI host.
+        return nil
     }
 }
 
