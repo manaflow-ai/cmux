@@ -13,7 +13,8 @@ extension CmuxTuiSurfaceProvider {
         _ resource: SurfaceResource,
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        restoringPanelID: UUID? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
@@ -25,7 +26,7 @@ extension CmuxTuiSurfaceProvider {
         let resolved = try await resolveSurfaceIDForMaterialization(
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
-            link: link,
+            commandRunner: link,
             remoteTabID: remoteTabID,
             correlationID: correlationID,
             // A newly-created terminal carries the workspace selected by the
@@ -35,8 +36,16 @@ extension CmuxTuiSurfaceProvider {
             preferredWorkspaceID: resource.remoteWorkspace?.id
                 ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
                     forLocalWorkspace: destination.workspaceID, on: machine
-                )
-        )
+                ),
+            restoringPanelID: restoringPanelID
+        ) { preferredWorkspaceID in
+            try await self.ensureRemoteTerminalView(
+                terminalID: resource.id.key,
+                socketPath: connected.socketPath,
+                link: link,
+                preferredWorkspaceID: preferredWorkspaceID
+            )
+        }
 
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
@@ -98,15 +107,17 @@ extension CmuxTuiSurfaceProvider {
     /// does not answer in time is retried on the bounded materialize schedule
     /// and then reported as "did not answer", never as "not created": the
     /// terminal keeps running on the machine either way.
-    private func resolveSurfaceIDForMaterialization(
+    func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink,
+        commandRunner: any CloudTuiCommandRunning,
         remoteTabID: String?,
         correlationID: String,
-        preferredWorkspaceID: String? = nil
+        preferredWorkspaceID: String? = nil,
+        restoringPanelID: UUID? = nil,
+        ensureRemoteView: @escaping @MainActor (String?) async throws -> SurfaceRemotePlacement
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
-        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath, correlationID: correlationID)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: commandRunner, socketPath: socketPath, correlationID: correlationID)
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
@@ -116,19 +127,14 @@ extension CmuxTuiSurfaceProvider {
             try Task.checkCancellation()
             let resolution: CloudTuiSurfaceIDResolution
             if let targetTabID {
-                resolution = await CloudTerminalViewResolver(commandRunner: link, socketPath: socketPath)
+                resolution = await CloudTerminalViewResolver(commandRunner: commandRunner, socketPath: socketPath)
                     .resolve(terminalByTab: [targetTabID: terminalID])[targetTabID] ?? .retryable("no view resolution")
             } else {
                 resolution = await resolver.resolve(terminalID: terminalID)
             }
             attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
             if resolution == .noPlacement, targetTabID == nil {
-                let projected = try await ensureRemoteTerminalView(
-                    terminalID: terminalID,
-                    socketPath: socketPath,
-                    link: link,
-                    preferredWorkspaceID: preferredWorkspaceID
-                )
+                let projected = try await ensureRemoteView(preferredWorkspaceID)
                 projectedPlacement = projected
                 targetTabID = projected.tabID
                 attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
@@ -259,7 +265,8 @@ extension CmuxTuiSurfaceProvider {
                 resource,
                 remoteTabID: projection.remoteTabID,
                 at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
-                focus: false
+                focus: false,
+                restoringPanelID: projection.panelID
             )
             guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog(),
                   let currentProjection = catalog.projection(forPanel: projection.panelID),
