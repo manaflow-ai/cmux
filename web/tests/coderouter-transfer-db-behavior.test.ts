@@ -17,7 +17,8 @@ const keys: CredentialKeyService = {
   async generateDataKey() { return { plaintext: Buffer.alloc(32, 7), encrypted: Buffer.alloc(32, 7) }; },
   async decryptDataKey() { return Buffer.alloc(32, 7); },
 };
-const credential: CodexCredential = { provider: "codex", accessToken: "test-access", idToken: "test-id", refreshToken: "test-refresh", accountId: "workspace", userId: "provider-user", email: "transfer@example.test", expiresAt: Date.now() + 3_600_000 };
+const idToken = `h.${Buffer.from(JSON.stringify({ email: "transfer@example.test", "https://api.openai.com/auth": { chatgpt_user_id: "provider-user", chatgpt_account_id: "workspace" } })).toString("base64url")}.s`;
+const credential: CodexCredential = { provider: "codex", accessToken: "test-access", idToken, refreshToken: "test-refresh", accountId: "workspace", userId: "provider-user", email: "transfer@example.test", expiresAt: Date.now() + 3_600_000 };
 
 beforeAll(() => {
   if (!enabled) return;

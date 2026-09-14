@@ -1,6 +1,8 @@
 name: CodeRouter transfer tests
 
 on:
+  push:
+    branches: [feat-restore-web-build]
   pull_request:
     paths:
       - web/services/coderouter/accounts.ts
