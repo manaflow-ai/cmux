@@ -290,7 +290,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The pane container view hosting this surface (concrete view injected
     /// through ``TerminalSurfaceViewProviding``).
     public let paneHost: any TerminalSurfacePaneHosting
-    let surfaceView: any TerminalSurfaceNativeViewing
+    let surfaceView: any TerminalSurfaceNativeViewing; var surfaceSizeUpdatesDeferred = false
     var lastPixelWidth: UInt32 = 0
     var lastPixelHeight: UInt32 = 0
     var lastUncappedPixelWidth: UInt32 = 0

@@ -5,6 +5,9 @@ public import GhosttyKit
 // MARK: - Surface sizing and scale
 
 extension TerminalSurface {
+    /// Holds renderer and PTY writes during a portal-owned resize phase.
+    @MainActor public func setSurfaceSizeUpdatesDeferred(_ deferred: Bool) { surfaceSizeUpdatesDeferred = deferred }
+    @MainActor private var shouldDeferSurfaceSizeUpdates: Bool { surfaceSizeUpdatesDeferred }
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
     /// from backing-space points and truncated (never rounded up).
     func pixelDimension(from value: CGFloat) -> UInt32 {
@@ -15,7 +18,6 @@ extension TerminalSurface {
         }
         return UInt32(floored)
     }
-
     @MainActor
     func scaleFactors(for view: any TerminalSurfaceNativeViewing) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
         let scale = max(
@@ -27,7 +29,6 @@ extension TerminalSurface {
         )
         return (scale, scale, scale)
     }
-
     func scaleApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
         abs(lhs - rhs) <= epsilon
     }
@@ -164,8 +165,7 @@ extension TerminalSurface {
     /// surface needs an explicit nudge back onto the pinned grid.
     @MainActor
     public func reapplyAssignedGrid() {
-        guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
-              lastXScale > 0, lastYScale > 0 else { return }
+        guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0, lastXScale > 0, lastYScale > 0, !shouldDeferSurfaceSizeUpdates else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
             height: CGFloat(lastUncappedPixelHeight) / lastYScale,
@@ -205,7 +205,7 @@ extension TerminalSurface {
         suppressAssignedGridPin: Bool = false,
         caller: StaticString = #function
     ) -> Bool {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
+        guard !shouldDeferSurfaceSizeUpdates, let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
         let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
