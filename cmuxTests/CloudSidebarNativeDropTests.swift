@@ -10,6 +10,92 @@ import Testing
 @MainActor
 @Suite("Cloud folder native drops")
 struct CloudSidebarNativeDropTests {
+    @Test("Cloud reorder draws the left sidebar line and clears rejected and exited destinations")
+    func sidebarIndicatorLifecycle() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([try #require(coordinator.outlineView(outline, pasteboardWriterForItem: parent.children[1]))]))
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(outline.draggingDestinationFeedbackStyle == .none)
+        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        #expect(!line.isHidden)
+        #expect(line.frame.height == 2)
+        #expect(line.frame.minX == outline.visibleRect.minX + 8)
+        #expect(line.frame.maxX == outline.visibleRect.maxX - 8)
+        try fixture.attachScreenshot(named: "cloud-sidebar-reorder-line")
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: nil, proposedChildIndex: 0).isEmpty)
+        #expect(line.isHidden)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        outline.draggingExited(info)
+        #expect(line.isHidden)
+    }
+
+    @Test("Destination completion releases a Cloud source even when its source callback is lost", arguments: [false, true])
+    func destinationCompletionDrainsFrozenTree(accepted: Bool) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let source = parent.children[1]
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let writer = try #require(coordinator.outlineView(outline, pasteboardWriterForItem: source) as? CloudTreeSurfaceDragPasteboardWriter)
+        #expect(board.writeObjects([writer]))
+        let session = CloudSidebarDraggingSession(pasteboard: board)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: session.draggingSequenceNumber)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        coordinator.apply(nodes: fixture.nodes(titles: ["fresh-1", "fresh-2"]))
+        if accepted {
+            #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
+        }
+        // NSDraggingDestination receives this terminal boundary for a completed
+        // drop or Escape, independently of the data source's endedAt forwarding.
+        outline.draggingEnded(info)
+        #expect(!coordinator.isDragging)
+        #expect(outline.activeNativeDragSession == nil)
+        #expect(outline.activeNativeDragCoordinator == nil)
+        #expect(writer.sourceViewForDrag == nil)
+        #expect(coordinator.deferredNodes == nil)
+        let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
+        #expect(current.children.map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
+        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.allSatisfy { $0.isHidden })
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
+    }
+
+    @Test("Late destination exit cannot erase a newer drag and view removal clears its line")
+    func destinationGenerationAndRemoval() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: fixture.folderID("ws_1")))
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        #expect(board.writeObjects([try #require(coordinator.outlineView(outline, pasteboardWriterForItem: parent.children[1]))]))
+        let old = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 1)
+        let current = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero, sequenceNumber: 2)
+        #expect(coordinator.outlineView(outline, validateDrop: old, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(coordinator.outlineView(outline, validateDrop: current, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let line = try #require(outline.subviews.first { $0.identifier?.rawValue == "sidebarReorderIndicator" })
+        outline.draggingExited(old)
+        #expect(!line.isHidden)
+        outline.draggingEnded(old)
+        #expect(!line.isHidden)
+        fixture.window.contentView = nil
+        #expect(line.isHidden)
+    }
+
     @Test("Folder writers do not depend on projected resources or a pane registry")
     func emptyFolderSource() throws {
         let fixture = CloudSidebarOrderingFixture()
