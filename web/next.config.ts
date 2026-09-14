@@ -196,6 +196,14 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   outputFileTracingIncludes: {
+    // Cloud VM lifecycle routes load these templates at runtime when building
+    // the guest prompt command. Keep the source assets in every traced server
+    // function; static analysis cannot follow the URL-relative fs reads after
+    // Turbopack bundles the module.
+    "/*": [
+      "./services/vms/images/devbox/cmux-bashrc",
+      "./services/vms/images/devbox/cmux-prompt.bash",
+    ],
     "**/opengraph-image": [
       "./app/lib/open-graph-fonts/**/*",
       "./app/**/assets/landing-image.png",
