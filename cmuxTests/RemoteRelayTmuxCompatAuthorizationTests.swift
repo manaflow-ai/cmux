@@ -34,7 +34,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             ("workspace.equalize_splits", ["workspace_id": workspaceID, "orientation": "vertical"]),
             ("surface.send_text", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID, "text": "ls\n"]),
             ("surface.close", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID]),
-            ("pane.list", ["workspace_id": workspaceID]),
+            ("surface.list", ["workspace_id": workspaceID]),
         ]
         for (method, params) in admitted {
             let authorization = try fixture.authorize(method: method, params: params)
@@ -82,7 +82,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         // Selector aliases satisfy the generic requirement checks but are
         // ignored by the tmux-compat handlers, which would fall back to the
         // selected workspace / focused surface. Exact keys are mandatory.
-        let aliasWorkspace = try fixture.authorize(method: "pane.list", params: [
+        let aliasWorkspace = try fixture.authorize(method: "workspace.current", params: [
             "preferred_workspace_id": fixture.workspace.id.uuidString,
         ])
         #expect(aliasWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)

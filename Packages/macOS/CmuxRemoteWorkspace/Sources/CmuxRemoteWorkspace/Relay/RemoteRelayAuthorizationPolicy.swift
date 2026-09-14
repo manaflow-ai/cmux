@@ -282,6 +282,12 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
                 )
             }
         }
+        if let key = RemoteRelayRoutingSchema().unsupportedKey(in: parameters, method: method) {
+            return .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay parameter '\(key)' is not permitted"
+            )
+        }
         return .allowed
     }
 

@@ -112,6 +112,9 @@ public struct RemoteRelayCommandPolicy: Sendable {
         if let malformedSelector = malformedSelector(in: params, key: nil) {
             return .deny(reason: "selector '\(malformedSelector)' is invalid")
         }
+        if let key = RemoteRelayRoutingSchema().unsupportedKey(in: params, method: method) {
+            return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
+        }
         return .allow
     }
 

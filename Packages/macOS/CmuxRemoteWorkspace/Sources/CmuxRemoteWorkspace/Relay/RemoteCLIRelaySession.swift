@@ -14,17 +14,9 @@ extension RemoteCLIRelayServer {
     }
 
     /// One authenticated relay connection: sends the HMAC challenge, awaits
-    /// the MAC line, then authorizes and forwards exactly one command line to
-    /// the local cmux unix socket and returns the response (faithful lift of
-    /// the legacy nested `WorkspaceRemoteCLIRelayServer.Session`).
-    ///
-    /// Authorization (GHSA-9vmv-3hjw-j28c): the command line first passes
-    /// through `RemoteRelayCommandPolicy` (applied by the server), which
-    /// denies methods outside the remote CLI surface, command-bearing
-    /// parameters, and workspace/surface targets the remote session does not
-    /// own. A denied command is answered with a
-    /// `{"id":...,"ok":false,"error":{"code":"remote_relay_denied",...}}` line
-    /// and the connection closes; the local socket is never contacted.
+    /// the MAC line, then forwards exactly one rewritten command line to the
+    /// local cmux unix socket and returns the response (faithful lift of the
+    /// legacy nested `WorkspaceRemoteCLIRelayServer.Session`).
     ///
     /// Isolation design: all mutable state is confined to the server's
     /// serial `queue` (Network callbacks hop onto it; the blocking unix
@@ -32,12 +24,48 @@ extension RemoteCLIRelayServer {
     /// `@unchecked Sendable` because `@Sendable` Network/Task callbacks
     /// capture `self`; queue confinement is the safety argument.
     final class Session: @unchecked Sendable {
-        private enum Phase {
+        /// Longer than the CLI's 20-second `agent.hook.barrier` response
+        /// budget so remote decision hooks can observe completion of a
+        /// preceding bounded lifecycle delivery.
+        static let localSocketRoundTripTimeoutSeconds = 25
+
+        /// Returns the local socket response timeout required by one rewritten
+        /// relay request.
+        ///
+        /// Actionable Feed requests carry their remaining user-decision budget
+        /// on the wire. The relay must outlive that wait plus the CLI's five
+        /// seconds of response headroom; unrelated commands keep the shorter
+        /// bounded default.
+        static func localSocketRoundTripTimeoutSeconds(for request: Data) -> Int {
+            guard let object = try? JSONSerialization.jsonObject(with: request)
+                    as? [String: Any],
+                  object["method"] as? String == "feed.push",
+                  let params = object["params"] as? [String: Any],
+                  let waitTimeoutNumber = params["wait_timeout_seconds"] as? NSNumber
+            else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let waitTimeout = waitTimeoutNumber.doubleValue
+            guard waitTimeout.isFinite, waitTimeout > 0 else {
+                return localSocketRoundTripTimeoutSeconds
+            }
+            let maximumFeedWaitSeconds = 120.0
+            let responseHeadroomSeconds = 5
+            return max(
+                localSocketRoundTripTimeoutSeconds,
+                Int(ceil(min(waitTimeout, maximumFeedWaitSeconds)))
+                    + responseHeadroomSeconds
+            )
+        }
+
+        private enum Phase: Equatable, Sendable {
             case awaitingAuth
             case awaitingCommand
             case forwarding
             case closed
         }
+
+        private static let handshakeTimeoutMilliseconds = 10_000
 
         private let connection: NWConnection
         private let localSocketPath: String
@@ -52,14 +80,15 @@ extension RemoteCLIRelayServer {
         private let minimumFailureDelay: TimeInterval = 0.05
         private let maximumFrameBytes = 16 * 1024
         private let maximumResponseBytes = 1024 * 1024
-        private let maximumSessionMilliseconds = 30_000
+        private var deadlineTask: Task<Void, Never>?
 
         private var buffer = Data()
         private var phase: Phase = .awaitingAuth
         private var challengeNonce = ""
         private var challengeSentAt = Date()
         private var isClosed = false
-        private var deadlineTask: Task<Void, Never>?
+        private var forwardingSocketDescriptor: Int32?
+        private var phaseTimeoutTask: Task<Void, Never>?
 
         init(
             connection: NWConnection,
@@ -83,14 +112,11 @@ extension RemoteCLIRelayServer {
 
         func start() {
             deadlineTask = Task { [weak self, clock] in
-                guard (try? await clock.sleep(forMilliseconds: self?.maximumSessionMilliseconds ?? 30_000)) != nil else {
-                    return
-                }
+                guard (try? await clock.sleep(forMilliseconds: 30_000)) != nil else { return }
                 guard let self else { return }
-                self.queue.async {
-                    self.close()
-                }
+                self.queue.async { self.close() }
             }
+            armPhaseTimeout(for: .awaitingAuth)
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 self.queue.async {
@@ -198,6 +224,7 @@ extension RemoteCLIRelayServer {
             }
 
             phase = .awaitingCommand
+            armPhaseTimeout(for: .awaitingCommand)
             sendJSONLine(["ok": true]) { [weak self] _ in
                 guard let self else { return }
                 self.queue.async {
@@ -212,6 +239,8 @@ extension RemoteCLIRelayServer {
                 return
             }
             phase = .forwarding
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             switch commandEvaluator(commandLine) {
             case .deny(let reason):
                 sendDenialAndClose(reason: reason, commandLine: commandLine)
@@ -220,19 +249,37 @@ extension RemoteCLIRelayServer {
             }
         }
 
-    private func forwardCommandLine(_ forwardedCommandLine: Data) {
-            let maximumResponseBytes = self.maximumResponseBytes
+        private func forwardCommandLine(_ forwardedCommandLine: Data) {
+            let socketDescriptor: Int32
+            do {
+                socketDescriptor = try Self.makeLocalSocketDescriptor()
+            } catch {
+                sendFailureAndClose()
+                return
+            }
+            forwardingSocketDescriptor = socketDescriptor
             DispatchQueue.global(qos: .utility).async {
-                [localSocketPath, forwardedCommandLine, queue, maximumResponseBytes] in
+                [self, localSocketPath, forwardedCommandLine, queue] in
                 let result = Result {
                     try Self.roundTripUnixSocket(
+                        socketDescriptor: socketDescriptor,
                         socketPath: localSocketPath,
                         request: forwardedCommandLine,
-                        maximumResponseBytes: maximumResponseBytes
+                        maximumResponseBytes: maximumResponseBytes,
+                        shouldContinue: {
+                            queue.sync {
+                                !isClosed
+                                    && forwardingSocketDescriptor == socketDescriptor
+                            }
+                        }
                     )
                 }
-                queue.async { [weak self] in
-                    guard let self else { return }
+                queue.async { [self] in
+                    if forwardingSocketDescriptor == socketDescriptor {
+                        forwardingSocketDescriptor = nil
+                    }
+                    Darwin.close(socketDescriptor)
+                    guard !isClosed else { return }
                     switch result {
                     case .success(let response):
                         self.connection.send(content: response, completion: .contentProcessed { [weak self] _ in
@@ -248,9 +295,6 @@ extension RemoteCLIRelayServer {
             }
         }
 
-        /// Answers a policy-denied command with a well-formed v2 error frame
-        /// (echoing the request id when it parses) and closes. The local
-        /// socket is never contacted for denied commands.
         private func sendDenialAndClose(reason: String, commandLine: Data) {
             phase = .closed
             var requestID: Any = NSNull()
@@ -281,6 +325,8 @@ extension RemoteCLIRelayServer {
             let elapsed = Date().timeIntervalSince(challengeSentAt)
             let delay = max(0, minimumFailureDelay - elapsed)
             phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
             // Anti-timing-oracle minimum delay via the injected clock (legacy
             // used queue.asyncAfter); ceil keeps the floor a true minimum.
             let delayMilliseconds = Int((delay * 1000).rounded(.up))
@@ -300,6 +346,24 @@ extension RemoteCLIRelayServer {
             }
         }
 
+        private func armPhaseTimeout(for expectedPhase: Phase) {
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = Task { [weak self, clock] in
+                guard (try? await clock.sleep(
+                    forMilliseconds: Self.handshakeTimeoutMilliseconds
+                )) != nil else {
+                    return
+                }
+                guard let self else { return }
+                self.queue.async {
+                    guard !self.isClosed, self.phase == expectedPhase else {
+                        return
+                    }
+                    self.close()
+                }
+            }
+        }
+
         private func sendJSONLine(_ object: [String: Any], completion: @escaping @Sendable (NWError?) -> Void) {
             guard !isClosed else {
                 completion(nil)
@@ -315,9 +379,16 @@ extension RemoteCLIRelayServer {
         private func close() {
             guard !isClosed else { return }
             isClosed = true
-            phase = .closed
             deadlineTask?.cancel()
             deadlineTask = nil
+            phase = .closed
+            phaseTimeoutTask?.cancel()
+            phaseTimeoutTask = nil
+            if let forwardingSocketDescriptor {
+                // `shutdown` interrupts a blocking local read without racing
+                // descriptor reuse; the forwarding completion owns `close`.
+                _ = Darwin.shutdown(forwardingSocketDescriptor, SHUT_RDWR)
+            }
             connection.stateUpdateHandler = nil
             connection.cancel()
             onClose()
@@ -364,100 +435,5 @@ extension RemoteCLIRelayServer {
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
 
-        private static func roundTripUnixSocket(
-            socketPath: String,
-            request: Data,
-            maximumResponseBytes: Int
-        ) throws -> Data {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else {
-                throw NSError(domain: "cmux.remote.relay", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "failed to create local relay socket",
-                ])
-            }
-            defer { Darwin.close(fd) }
-
-            var timeout = timeval(tv_sec: 15, tv_usec: 0)
-            withUnsafePointer(to: &timeout) { pointer in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
-                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
-            }
-
-            var address = sockaddr_un()
-            address.sun_family = sa_family_t(AF_UNIX)
-            let pathBytes = Array(socketPath.utf8CString)
-            guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-                throw NSError(domain: "cmux.remote.relay", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "local relay socket path is too long",
-                ])
-            }
-            let sunPathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            withUnsafeMutableBytes(of: &address) { rawBuffer in
-                let destination = rawBuffer.baseAddress!.advanced(by: sunPathOffset)
-                pathBytes.withUnsafeBytes { pathBuffer in
-                    destination.copyMemory(from: pathBuffer.baseAddress!, byteCount: pathBytes.count)
-                }
-            }
-
-            let addressLength = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
-            let connectResult = withUnsafePointer(to: &address) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    Darwin.connect(fd, $0, addressLength)
-                }
-            }
-            guard connectResult == 0 else {
-                throw NSError(domain: "cmux.remote.relay", code: 3, userInfo: [
-                    NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
-                ])
-            }
-
-            try request.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
-                var bytesRemaining = rawBuffer.count
-                var pointer = baseAddress
-                while bytesRemaining > 0 {
-                    let written = Darwin.write(fd, pointer, bytesRemaining)
-                    if written <= 0 {
-                        throw NSError(domain: "cmux.remote.relay", code: 4, userInfo: [
-                            NSLocalizedDescriptionKey: "failed to write relay request",
-                        ])
-                    }
-                    bytesRemaining -= written
-                    pointer = pointer.advanced(by: written)
-                }
-            }
-            _ = shutdown(fd, SHUT_WR)
-
-            var response = Data()
-            var scratch = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let count = Darwin.read(fd, &scratch, scratch.count)
-                if count > 0 {
-                    guard response.count <= maximumResponseBytes - count else {
-                        throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
-                            NSLocalizedDescriptionKey: "local cmux response is too large",
-                        ])
-                    }
-                    response.append(scratch, count: count)
-                    continue
-                }
-                if count == 0 {
-                    break
-                }
-
-                if errno == EAGAIN || errno == EWOULDBLOCK {
-                    if !response.isEmpty {
-                        break
-                    }
-                    throw NSError(domain: "cmux.remote.relay", code: 5, userInfo: [
-                        NSLocalizedDescriptionKey: "timed out waiting for local cmux response",
-                    ])
-                }
-                throw NSError(domain: "cmux.remote.relay", code: 6, userInfo: [
-                    NSLocalizedDescriptionKey: "failed to read local cmux response",
-                ])
-            }
-            return response
-        }
     }
 }

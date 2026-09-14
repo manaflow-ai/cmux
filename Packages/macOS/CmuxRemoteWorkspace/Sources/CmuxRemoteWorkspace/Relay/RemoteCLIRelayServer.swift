@@ -50,7 +50,6 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private var localPort: Int?
     private var workspaceAliases: [UUID: UUID] = [:]
     private var surfaceAliases: [UUID: UUID] = [:]
-    private let maximumSessions = 64
     /// Creates a relay for one remote connection.
     ///
     /// - Parameters:
@@ -185,13 +184,6 @@ public final class RemoteCLIRelayServer: @unchecked Sendable {
     private func acceptConnectionLocked(_ connection: NWConnection) {
         guard !isStopped,
               sessions.count < Self.maximumConcurrentSessions else {
-            connection.cancel()
-            return
-        }
-        guard sessions.count < maximumSessions else {
-            // A relay is reachable from the remote host and must not let an
-            // unauthenticated connection flood exhaust app memory or worker
-            // slots. The peer receives the normal connection close.
             connection.cancel()
             return
         }

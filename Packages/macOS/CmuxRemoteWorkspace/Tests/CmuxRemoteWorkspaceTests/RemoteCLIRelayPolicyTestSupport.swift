@@ -154,7 +154,7 @@ func runPolicyRelayExchange(
         using: .tcp
     )
     connection.start(queue: queue)
-    func receiveLoop(_ connection: NWConnection, _ state: State) {
+    @Sendable func receiveLoop(_ connection: NWConnection, _ state: State) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
             state.lock.lock()
             if let data { state.received.append(data) }

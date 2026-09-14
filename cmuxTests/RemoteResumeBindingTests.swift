@@ -557,6 +557,7 @@ struct RemoteResumeBindingTests {
         let surfaceID = try #require(workspace.focusedPanelId)
         let remoteSurfaceID = UUID()
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        workspace.trackRemoteTerminalSurface(surfaceID)
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let rewriter = WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: workspace.id,
@@ -609,7 +610,7 @@ struct RemoteResumeBindingTests {
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-forbidden",
-                "method": "surface.send_text",
+                "method": "surface.respawn",
                 "params": [
                     "workspace_id": workspace.id.uuidString,
                     "surface_id": surfaceID.uuidString,
