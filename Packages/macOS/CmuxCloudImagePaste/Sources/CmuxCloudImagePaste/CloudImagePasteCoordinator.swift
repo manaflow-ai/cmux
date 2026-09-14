@@ -5,9 +5,9 @@ public import Foundation
 @MainActor
 public final class CloudImagePasteCoordinator {
     /// The daemon capability required for Cloud image paste.
-    public static let capability = "terminal-image-paste-v1"
+    public nonisolated static let capability = "terminal-image-paste-v1"
     /// The maximum acknowledged payload sent in one control request.
-    public static let chunkBytes = 48 * 1024
+    public nonisolated static let chunkBytes = 48 * 1024
     /// Sends an authenticated control command and returns its request ID.
     public typealias Send = @MainActor ([String: Any]) throws -> UInt64
 
@@ -33,15 +33,19 @@ public final class CloudImagePasteCoordinator {
     private var preparing = false
     private var terminalError: (token: UUID, error: any Error)?
     private let deadline: Duration
+    private let clock: any Clock<Duration>
     private var deadlineTimer: CloudImagePasteDeadline?
     /// The number of image bytes acknowledged by the daemon for the active upload.
-    public private(set) var transferredBytes = 0
+    private var transferredBytes = 0
 
     /// Creates a coordinator with an injected, cancellation-aware deadline.
     ///
-    /// - Parameter deadline: Maximum time allowed for one upload transaction.
-    public init(deadline: Duration = .seconds(120)) {
+    /// - Parameters:
+    ///   - deadline: Maximum time allowed for one upload transaction.
+    ///   - clock: Clock used to enforce the upload deadline.
+    public init(deadline: Duration = .seconds(120), clock: any Clock<Duration> = ContinuousClock()) {
         self.deadline = deadline
+        self.clock = clock
     }
 
     /// Binds the coordinator to the current authenticated terminal attachment.
@@ -117,7 +121,7 @@ public final class CloudImagePasteCoordinator {
         committing = false
         transferredBytes = 0
         terminalError = nil
-        let deadlineTimer = CloudImagePasteDeadline(duration: deadline) { [weak self] in
+        let deadlineTimer = CloudImagePasteDeadline(duration: deadline, clock: clock) { [weak self] in
             self?.cancel(token: token, error: CloudImagePasteError.timedOut)
         }
         self.deadlineTimer = deadlineTimer

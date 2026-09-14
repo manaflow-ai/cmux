@@ -1,8 +1,8 @@
 import CmuxCloudImagePaste
 import Foundation
 
-extension CloudImagePasteError: LocalizedError {
-    public var errorDescription: String? {
+extension CloudImagePasteError {
+    var localizedMessage: String {
         switch self {
         case .unavailable:
             return String(localized: "cloud.imagePaste.unavailable", defaultValue: "The Cloud terminal link is unavailable. Reconnect the terminal, then paste the image again.")

@@ -148718,15 +148718,71 @@
     "command.openCloudPane.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open Cloud as Pane" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Cloudをペインで開く" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将 Cloud 作为窗格打开" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Cloud als Teilfenster öffnen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir Cloud en tant que volet" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "فتح Cloud كلوحة" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Abrir Cloud como panel" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟 Cloud 為窗格" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "Cloud를 분할 창으로 열기" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Cloud as Pane"
+          }
+        },
+        "bs": { "stringUnit": { "state": "translated", "value": "Otvori Cloud kao okno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Åbn Cloud som rude" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Apri Cloud come pannello" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើក Cloud ជាផ្ទាំង" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Åpne Cloud som rute" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Otwórz Cloud jako panel" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Abrir o Cloud como painel" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Открыть Cloud как панель" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เปิด Cloud เป็นบานหน้าต่าง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cloud'u bölme olarak aç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Відкрити Cloud як панель" } },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudをペインで開く"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Cloud 作为窗格打开"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud als Teilfenster öffnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Cloud en tant que volet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح Cloud كجزء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Cloud como panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟 Cloud 為窗格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud를 분할 창으로 열기"
+          }
+        }
       }
     },
     "command.openWorkspacePRLinks.title": {

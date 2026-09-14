@@ -616,7 +616,7 @@ final class CloudTuiManualMirrorSession {
         accepted: Bool?,
         error: String?
     ) {
-        guard let kind = pendingRequests.removeValue(forKey: requestID) else { return }
+        guard !imagePaste.receive(requestID: requestID, ok: ok, accepted: accepted, error: error), let kind = pendingRequests.removeValue(forKey: requestID) else { return }
         manualMirrorLogger.info("answer terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) request=\(String(describing: kind), privacy: .public) ok=\(ok) outcome=\(outcome ?? "none", privacy: .private) error=\(error ?? "none", privacy: .private)")
         switch kind {
         case .identify:

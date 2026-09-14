@@ -6,7 +6,7 @@ extension TextBoxInputContainer {
     func refuseCloudComposerImage() {
         let alert = NSAlert()
         alert.messageText = String(localized: "cloud.imagePaste.failed", defaultValue: "Image could not be pasted")
-        alert.informativeText = CloudImagePasteError.useTerminal.localizedDescription
+        alert.informativeText = CloudImagePasteError.useTerminal.localizedMessage
         if let window = surface.hostedView.window { alert.beginSheetModal(for: window) }
         else { NSSound.beep() }
     }

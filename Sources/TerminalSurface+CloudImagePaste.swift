@@ -54,7 +54,7 @@ extension TerminalSurface {
         }
         let alert = NSAlert()
         alert.messageText = String(localized: "cloud.imagePaste.failed", defaultValue: "Image could not be pasted")
-        alert.informativeText = (error as? CloudImagePasteError ?? .unavailable).localizedDescription
+        alert.informativeText = (error as? CloudImagePasteError ?? .unavailable).localizedMessage
         if let window = hostedView.window { alert.beginSheetModal(for: window) }
         else { NSSound.beep() }
     }

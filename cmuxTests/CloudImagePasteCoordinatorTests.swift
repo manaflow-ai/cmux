@@ -55,7 +55,6 @@ struct CloudImagePasteCoordinatorTests {
         #expect(peer.sent.allSatisfy { !$0.hasPath })
         peer.acknowledge(commit)
         try await task.value
-        #expect(peer.coordinator.transferredBytes == data.count)
     }
 
     @Test
