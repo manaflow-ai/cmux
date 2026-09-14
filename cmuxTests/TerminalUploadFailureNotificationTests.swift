@@ -233,3 +233,45 @@ import Foundation
         #expect(TerminalUploadFailureNotification.truncated(short) == short)
     }
 }
+
+/// An upload's text belongs to the surface the upload started on. The view can be
+/// reattached to a different surface while the upload runs, and the result must not
+/// be typed into whichever surface happens to be mounted when it finishes.
+@MainActor
+@Suite("Upload result delivery follows the origin surface")
+struct UploadResultDeliveryOriginTests {
+    @Test func textIsNotTypedIntoASurfaceTheViewWasReattachedTo() {
+        let origin = TerminalPanel(workspaceId: UUID())
+        let reattached = TerminalPanel(workspaceId: UUID())
+        origin.surface.releaseSurfaceForTesting()
+        reattached.surface.releaseSurfaceForTesting()
+        let view = origin.surface.hostedView.surfaceView
+        view.terminalSurface = reattached.surface
+
+        var completions = 0
+        let delivered = view.deliverUploadResultText(
+            "/remote/upload.png",
+            originSurfaceId: origin.surface.id,
+            onCompleted: { completions += 1 }
+        )
+
+        #expect(!delivered)
+        #expect(completions == 1)
+        #expect(reattached.surface.debugPendingSocketInputForTesting().pasteTextItems == 0)
+    }
+
+    @Test func textIsTypedIntoTheOriginSurfaceWhileItIsStillMounted() {
+        let origin = TerminalPanel(workspaceId: UUID())
+        origin.surface.releaseSurfaceForTesting()
+        let view = origin.surface.hostedView.surfaceView
+        #expect(view.terminalSurface === origin.surface)
+
+        let delivered = view.deliverUploadResultText(
+            "/remote/upload.png",
+            originSurfaceId: origin.surface.id
+        )
+
+        #expect(delivered)
+        #expect(origin.surface.debugPendingSocketInputForTesting().pasteTextItems == 1)
+    }
+}
