@@ -313,6 +313,16 @@ final class NewMachineModel {
         memoryUpgradePlanId.map(Self.planDisplayName)
     }
 
+    /// All plans represented by the locked rows, in ladder order.
+    private var lockedMemoryUpgradePlanNames: String? {
+        let planIDs = lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
+            .reduce(into: [String]()) { result, planID in
+                if !result.contains(planID) { result.append(planID) }
+            }
+        guard !planIDs.isEmpty else { return nil }
+        return ListFormatter.localizedString(byJoining: planIDs.map(Self.planDisplayName))
+    }
+
     /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
     func lockedSizeMenuTitle(_ size: MachineSizeOption) -> String {
         guard let target = upgradePlan(for: size.memoryMb) else { return size.menuTitle }
@@ -324,18 +334,18 @@ final class NewMachineModel {
     /// "32 GB and 64 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
-        guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanName else { return nil }
-        let sizes = lockedMemoryOptions.filter { upgradePlan(for: $0) == memoryUpgradePlanId }.map { Self.memoryLabel(mb: $0) }
+        guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
+        let sizes = lockedMemoryOptions.compactMap { upgradePlan(for: $0) == nil ? nil : Self.memoryLabel(mb: $0) }
         let joined = ListFormatter.localizedString(byJoining: sizes)
         let format = String(localized: "machines.new.size.locked.note", defaultValue: "%1$@ machines need cmux %2$@.")
-        return String(format: format, joined, memoryUpgradePlanName)
+        return String(format: format, joined, memoryUpgradePlanNames)
     }
 
     /// "Upgrade to Max"; nil when nothing is locked.
     var memoryUpgradeButtonTitle: String? {
-        guard lockedSizesNoteText != nil, let memoryUpgradePlanName else { return nil }
+        guard lockedSizesNoteText != nil, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
         let format = String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@")
-        return String(format: format, memoryUpgradePlanName)
+        return String(format: format, memoryUpgradePlanNames)
     }
 
     /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
