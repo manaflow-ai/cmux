@@ -216,6 +216,7 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
