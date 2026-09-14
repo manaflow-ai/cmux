@@ -8,7 +8,7 @@ extension CloudTunnelBanner {
 }
 
 extension MachinePlanSnapshot.FreeAccessBanner {
-    /// A stable identity that changes when the countdown or lock state changes.
+    /// Keeps dismissal across countdown ticks; a new warning stage resurfaces the banner.
     var dismissalSignature: String {
         switch self {
         case .none: return "none"
