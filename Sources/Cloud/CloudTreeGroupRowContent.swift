@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 /// Renders one Cloud tree section header and its optional contextual action.
-@MainActor
 struct CloudTreeGroupRowContent: View {
     let title: String
     let count: Int?
