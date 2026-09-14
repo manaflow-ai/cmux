@@ -170,6 +170,32 @@ struct CloudTreeMachineResourcesTests {
     }
 
     /// The outline reserves enough height for normal and wrapped resource text.
+    @Test @MainActor func missingTokenUsageIsVisibleInsteadOfSilentlyOmitted() {
+        let row = CloudTreeMachineRowContent(machine: machine(), style: .compact, now: Self.sampleTime)
+        #expect(row.accessibilityLabel.contains("Token usage unavailable"))
+        #expect(row.toolTip.contains("Token usage unavailable"))
+    }
+
+    @Test @MainActor func zeroTokenUsageRemainsARealSummary() throws {
+        var snapshot = machine()
+        snapshot.usage = MachineUsageSnapshot(
+            vmID: snapshot.id, providerVmID: nil, displayName: nil, periodDays: 30, asOf: Self.sampleTime,
+            totals: MachineUsageTotals(inputTokens: 0, cachedInputTokens: 0, outputTokens: 0,
+                                       totalTokens: 0, apiEquivalentUsd: 0)
+        )
+        let line = try #require(CloudTreeMachineRowContent(machine: snapshot).usageLine)
+        #expect(line.contains("0 tokens"))
+        #expect(line.contains("$0.00"))
+        #expect(line.contains("30d"))
+    }
+
+    @Test @MainActor func everyPresetReservesSpaceForTheFullUsageSummary() {
+        for style in CloudTreeStyle.presets {
+            #expect(style.machineRowHeight(hasStats: true, hasUsage: true)
+                > style.machineRowHeight(hasStats: true, hasUsage: false), "\(style.id) must reserve the usage line")
+        }
+    }
+
     @Test @MainActor func resourceSummaryUsesOneCompactLine() {
         let resources = CloudMachineResourcePresentation(
             availability: .awake, cpuPercent: 100,

@@ -1379,7 +1379,7 @@ struct MachineUsageReadoutTests {
         }
     }
 
-    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    @Test("The row line reads cost, compact tokens, and the window, including measured zero")
     func rowLine() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
         let byID = usage.byMachineID
@@ -1393,7 +1393,7 @@ struct MachineUsageReadoutTests {
         let owl = try #require(byID["idle-owl"])
         var idle = machine("idle-owl")
         idle.usage = owl
-        #expect(CloudTreeMachineRowContent(machine: idle).usageLine == nil)
+        #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
 
         let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
         #expect(fact == nil, "spend belongs in the tooltip, leaving row space for resources")
