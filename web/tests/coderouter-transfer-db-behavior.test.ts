@@ -45,7 +45,7 @@ async function assertOwner(accountId: string, teamId: string, revision: number) 
   const envelope = await encryptedCredentialForAccount(teamId, accountId);
   expect(envelope?.credentialRevision).toBe(revision);
   expect(await decryptCredential(envelope!, keys)).toEqual(credential);
-  const [row] = await sql`select team_id, vault_revision from coderouter_accounts where id = ${accountId}`;
+  const [row] = await sql`select team_id, vault_revision::int as vault_revision from coderouter_accounts where id = ${accountId}`;
   expect(row).toMatchObject({ team_id: teamId, vault_revision: revision });
 }
 
@@ -86,7 +86,7 @@ dbTest("an active refresh finishes before a transfer can move its credential", a
   const envelope = await encryptedCredentialForAccount(destination, id);
   expect(envelope?.credentialRevision).toBe(3);
   expect(await decryptCredential(envelope!, keys)).toEqual(refreshed);
-  const [row] = await sql`select state, vault_revision, refresh_lease_id from coderouter_accounts where id = ${id}`;
+  const [row] = await sql`select state, vault_revision::int as vault_revision, refresh_lease_id from coderouter_accounts where id = ${id}`;
   expect(row).toMatchObject({ state: "active", vault_revision: 3, refresh_lease_id: null });
 });
 
