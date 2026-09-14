@@ -131,7 +131,7 @@ private enum RemoteResumeHookSocketServer {
 /// Holds an ephemeral loopback port open for the lifetime of one relay fixture.
 /// Keeping the descriptor alive makes the allocation collision-safe across test
 /// suites that may be running in parallel.
-private final class RemoteResumeRelayPortReservation {
+final class RemoteResumeRelayPortReservation {
     let port: Int
     private let fileDescriptor: Int32
 
@@ -1109,7 +1109,7 @@ struct RemoteResumeBindingTests {
         }
     }
 
-    private func makeRelayedFixture() throws -> (
+    func makeRelayedFixture() throws -> (
         snapshot: SessionWorkspaceSnapshot,
         workspaceID: UUID,
         surfaceID: UUID,
@@ -1249,7 +1249,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    private func remoteConfiguration(
+    func remoteConfiguration(
         transport: WorkspaceRemoteTransport = .ssh,
         terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
         preserveAfterTerminalExit: Bool = true,
@@ -1595,13 +1595,13 @@ struct RemoteResumeBindingTests {
         return (process.terminationStatus, stderr, timedOut)
     }
 
-    private func reserveRemoteRestoreSocket() -> String {
+    func reserveRemoteRestoreSocket() -> String {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
         return TerminalController.shared.reserveStartupSocketPath(requestedPath)
     }
 
-    private func cleanupRemoteRestoreSocket(_ path: String) {
+    func cleanupRemoteRestoreSocket(_ path: String) {
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: path + ".lock")
