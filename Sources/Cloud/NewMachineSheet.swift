@@ -113,7 +113,7 @@ struct NewMachineSheet: View {
                         .accessibilityIdentifier("NewMachineSheet.size.lockedNote")
                     Spacer(minLength: 0)
                     Button(upgradeTitle) {
-                        model.selectedUpgradePlanId = model.memoryUpgradePlanId ?? "max"
+                        model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
                         model.showsMaxUpgrade = true
                     }
                     .controlSize(.small)
