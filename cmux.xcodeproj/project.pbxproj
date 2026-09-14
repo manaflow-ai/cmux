@@ -859,6 +859,7 @@
 		E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */; };
 		EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */; };
 		D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12406000000000000000001 /* CloudTreeResizeMenu.swift */; };
+		46F2C3821C7B197D61B0E792 /* CloudTreeRowContentView+ResourceRows.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BB4D4B48265DE3C584B3D11 /* CloudTreeRowContentView+ResourceRows.swift */; };
 		CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */; };
 		46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */; };
 		A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481200000000000000002 /* CloudTreeRowUpdate.swift */; };
@@ -4690,6 +4691,7 @@
 		FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreePlaceholderContent.swift"; sourceTree = "<group>"; };
 		952C5F710BB34A9AA8652CEF /* CloudTreeRemoteWorkspaces.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRemoteWorkspaces.swift; sourceTree = "<group>"; };
 		D12406000000000000000001 /* CloudTreeResizeMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeResizeMenu.swift; sourceTree = "<group>"; };
+		7BB4D4B48265DE3C584B3D11 /* CloudTreeRowContentView+ResourceRows.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeRowContentView+ResourceRows.swift"; sourceTree = "<group>"; };
 		53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowContentView.swift; sourceTree = "<group>"; };
 		333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeRowHeight.swift"; sourceTree = "<group>"; };
 		A12481200000000000000002 /* CloudTreeRowUpdate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowUpdate.swift; sourceTree = "<group>"; };
@@ -8108,6 +8110,7 @@
 				47E286761D314959F64AA002 /* CloudTreeCellView.swift */,
 				A12501000000000000000001 /* CloudTreeLayoutMetrics.swift */,
 				53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */,
+				7BB4D4B48265DE3C584B3D11 /* CloudTreeRowContentView+ResourceRows.swift */,
 				DA855590AA614A2C853C96A2 /* NSPasteboard+CloudSidebar.swift */,
 				57A155D59AD4461DB7A522CC /* CloudSidebarOrganizationAction.swift */,
 				416A0034B497423CA6914F49 /* CloudSidebarOrganizationState.swift */,
@@ -12499,6 +12502,7 @@
 				E70630CCBD97DD2200F5D4B0 /* CloudTreePlaceholderContent.swift in Sources */,
 				EEF4BF6D13124E43BC712704 /* CloudTreeRemoteWorkspaces.swift in Sources */,
 				D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */,
+				46F2C3821C7B197D61B0E792 /* CloudTreeRowContentView+ResourceRows.swift in Sources */,
 				CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */,
 				46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */,
 				A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */,

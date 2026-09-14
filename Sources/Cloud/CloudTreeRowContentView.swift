@@ -31,12 +31,6 @@ struct CloudTreeRowContentView: View {
     var showsCloudVPNWarning = false
     var cloudVPNSetup: (@MainActor (NSWindow?) -> Void)? = nil
 
-    private static func nonEmptyTrimmed(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -56,6 +50,7 @@ struct CloudTreeRowContentView: View {
         }
     }
 
+    @MainActor
     @ViewBuilder
     private var row: some View {
         switch kind {
@@ -92,24 +87,11 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
-            CloudTreeLeafRow(
-                style: style,
-                icon: "display",
-                tint: CloudTreeIconPalette.display,
-                title: Self.nonEmptyTrimmed(remoteView?.name)
-                    ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title),
-                detail: CloudTreeRowContentView.text(for: resource)
-            )
+            displayRow(resource: resource, remoteView: remoteView)
         case .browsersGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
         case .browser(let row):
-            CloudTreeLeafRow(
-                style: style,
-                icon: "globe",
-                tint: CloudTreeIconPalette.browser,
-                title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
-                detail: CloudTreeBrowserDetail.text(for: row)
-            )
+            browserRow(row)
         case .portsGroup:
             CloudTreeGroupRowContent(
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
@@ -118,16 +100,7 @@ struct CloudTreeRowContentView: View {
                 helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
             )
         case .port(let resource, let url, _):
-            CloudTreeLeafRow(
-                style: style,
-                icon: "network",
-                tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText)
-                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
-                    ?? resource.title,
-                titleIsLink: url != nil,
-                detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
-            )
+            portRow(resource: resource, url: url)
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
