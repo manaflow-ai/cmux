@@ -221,6 +221,48 @@ class AppHostTestOutputTests(unittest.TestCase):
 
         self.assertNotEqual(completed.returncode, 0)
 
+    def test_selected_suite_requires_positive_summary_and_keeps_log_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            fake_ci = root / "scripts/ci"
+            fake_ci.mkdir(parents=True)
+            shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os\n"
+                "if os.environ.get('FAKE_TEST_MODE') == 'compile':\n"
+                "    print('Sources/Foo.swift:1:1: error: cannot find Missing in scope')\n"
+                "    raise SystemExit(65)\n"
+                "print('Test run with 2 tests in 1 suite passed after 0.01 seconds.')\n",
+                encoding="utf-8",
+            )
+            fake_runner.chmod(0o755)
+
+            for mode, expected_success in (("pass", True), ("compile", False)):
+                results = root / f"results-{mode}"
+                environment = {
+                    **os.environ,
+                    "UNIT_TEST_SUITES": "Foo",
+                    "TEST_RESULTS_ROOT": str(results),
+                    "FAKE_TEST_MODE": mode,
+                }
+                completed = subprocess.run(
+                    ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                    cwd=root,
+                    env=environment,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode == 0, expected_success)
+                self.assertTrue((results / "Foo.log").is_file())
+                self.assertTrue((results / "all-suites.log").is_file())
+                if expected_success:
+                    self.assertIn("category=tests passed", completed.stdout)
+                else:
+                    self.assertIn("category=pre-test build/setup failure", completed.stdout)
+
     def test_singular_summary_is_supported(self) -> None:
         passed, _ = MODULE.classify("Executed 1 test, with 0 failures (0 unexpected)\n")
 
