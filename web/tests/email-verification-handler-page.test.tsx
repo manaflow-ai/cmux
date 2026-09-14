@@ -4,6 +4,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 const pendingStackRender = new Promise<never>(() => {});
 
+mock.module("../app/handler/cli-auth-confirmation", () => ({
+  CliAuthConfirmation: () => {
+    throw pendingStackRender;
+  },
+}));
+
 mock.module("@stackframe/stack", () => ({
   MagicLinkSignIn: () => React.createElement("div"),
   StackHandler: () => {
@@ -34,6 +40,14 @@ const { default: StackHandlerPage } = await import(
 );
 
 describe("Stack handler page", () => {
+  test("renders a loading state while CLI authorization resolves the account", async () => {
+    const page = await StackHandlerPage({
+      params: Promise.resolve({ stack: ["cli-auth-confirm"] }),
+    });
+
+    expect(renderToStaticMarkup(page)).toContain('aria-busy="true"');
+  });
+
   test("renders a loading state while Stack's client component suspends", async () => {
     const page = await StackHandlerPage({
       params: Promise.resolve({ stack: ["email-verification"] }),
