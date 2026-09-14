@@ -18,8 +18,9 @@ struct MachinesPanelBanners: View {
                     SystemExtensionSettingsLink.open()
                 },
                 onDismiss: {
-                bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
-            }
+                    bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
+                }
+            )
         }
         if let plan = plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText,
            !bannerDismissals.isDismissed(id: "machines.free-access", signature: plan.freeAccessBanner.dismissalSignature) {
