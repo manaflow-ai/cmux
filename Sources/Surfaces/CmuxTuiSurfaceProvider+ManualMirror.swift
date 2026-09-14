@@ -19,6 +19,7 @@ extension CmuxTuiSurfaceProvider {
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
+        let correlationID = UUID().uuidString.lowercased()
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
         let resolved = try await resolveSurfaceIDForMaterialization(
@@ -26,6 +27,7 @@ extension CmuxTuiSurfaceProvider {
             socketPath: connected.socketPath,
             link: link,
             requiresExistingView: remoteTabID != nil,
+            correlationID: correlationID,
             // A newly-created terminal carries the workspace selected by the
             // creation request even before its first tab receipt arrives. Keep
             // that identity ahead of the local binding or daemon focus so a
@@ -41,6 +43,7 @@ extension CmuxTuiSurfaceProvider {
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
+            correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
             }
@@ -100,9 +103,10 @@ extension CmuxTuiSurfaceProvider {
         socketPath: String,
         link: CloudMachineLink,
         requiresExistingView: Bool,
+        correlationID: String,
         preferredWorkspaceID: String? = nil
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
-        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath, correlationID: correlationID)
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
