@@ -144,6 +144,7 @@ extension Workspace {
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
+        if isManagedCloudVMWorkspace, !CloudMachinesFeature.offMainIsEnabled() { return false }
         if let surfaceId,
            let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
@@ -216,7 +217,7 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
-        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections), CloudMachinesFeature.offMainIsEnabled() else { return false }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
@@ -233,6 +234,20 @@ extension Workspace {
             return false
         }
         return reconnectRemoteConnection(surfaceId: surfaceId)
+    }
+
+    func suspendCloudRemoteConfiguration(_ configuration: WorkspaceRemoteConfiguration) -> Bool {
+        disconnectRemoteConnection(clearConfiguration: false, disconnectedDetail: CloudMachinesFeature.disabledMessage)
+        remoteConfiguration = configuration.scopedToOwnerWorkspace(id)
+        remoteControllerConnectionState = .disconnected
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = String(
+            localized: "cloud.feature.disabled",
+            defaultValue: "Cloud Machines are temporarily unavailable."
+        )
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
+        return true
     }
 
     private func remoteReconnectTerminalSurfaceId(requestedSurfaceId: UUID?) -> UUID? {

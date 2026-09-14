@@ -12,7 +12,7 @@ extension AppDelegate {
         preferredWindow: NSWindow? = nil,
         focus: Bool = true
     ) -> Workspace? {
-        guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
+        guard !ManagedDevicePolicy().isEnforced(.disableCloud), CloudMachinesFeature.isEnabled else { return nil }
         guard let manager = preferredTabManager
             ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow) else { return nil }
         return CloudVPNSetupNavigation(coordinator: cloudTunnelCoordinator).open(in: manager, focus: focus)

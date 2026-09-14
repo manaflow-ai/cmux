@@ -527729,6 +527729,93 @@
           }
         }
       }
+    },
+    "featureFlags.cloudMachines.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud Machines" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Maschinen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Machines Cloud" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "أجهزة Cloud" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Máquinas Cloud" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシン" } }
+      }
+    },
+    "featureFlags.cloudMachines.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。" } }
+      }
+    },
+    "cloud.feature.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines are temporarily unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen sind vorübergehend nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud sont temporairement indisponibles."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Cloud غير متاحة مؤقتًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas Cloud no están disponibles temporalmente."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器暫時無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器暂时不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신을 일시적으로 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシンは一時的に利用できません。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
