@@ -173,6 +173,33 @@ struct VMClientReadCoalescingTests {
         #expect(models[2].machines.isEmpty && models[3].machines.isEmpty)
     }
 
+    @Test("Team usage shares offline state with list and stats while keeping its shorter budget")
+    func teamUsageNetworkState() async throws {
+        let clock = CloudReadManualClock()
+        let reads = CloudReadRequestCoordinator(clock: CloudRequestClock(clock))
+        let fixture = try await CloudRefreshFixture.make(readRequests: reads)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.holdResponses()
+        let usage = MachineUsageClient(session: fixture.session, auth: fixture.auth, readRequests: reads)
+        let request = Task { try await usage.teamUsage() }
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        await reads.networkChanged(isOnline: false)
+        do { _ = try await request.value; Issue.record("usage survived offline") }
+        catch { #expect((error as? URLError)?.code == .notConnectedToInternet) }
+        await CloudRefreshURLProtocol.waitUntilStopped()
+        do { _ = try await usage.teamUsage(); Issue.record("usage started offline") }
+        catch { #expect((error as? URLError)?.code == .notConnectedToInternet) }
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+        await reads.networkChanged(isOnline: true)
+        let recovery = Task { try await usage.teamUsage() }
+        await CloudRefreshURLProtocol.waitUntilStarted(2)
+        clock.advance(by: .seconds(16))
+        do { _ = try await recovery.value; Issue.record("usage exceeded its 15 second budget") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        await CloudRefreshURLProtocol.releaseResponses()
+    }
+
     private func eventually(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
@@ -184,6 +211,7 @@ struct VMClientReadCoalescingTests {
 @MainActor
 struct CloudRefreshFixture {
     let client: VMClient
+    let auth: AuthCoordinator
     let session: URLSession
 
     static func make(readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator()) async throws -> Self {
@@ -213,7 +241,7 @@ struct CloudRefreshFixture {
         return Self(client: VMClient(
             session: session, auth: auth, checkpointRenames: CloudRenameCoordinator(),
             machineCache: CloudMachineCache(defaults: defaults), readRequests: readRequests
-        ), session: session)
+        ), auth: auth, session: session)
     }
 }
 

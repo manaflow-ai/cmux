@@ -64,7 +64,9 @@ actor CloudReadRequestCoordinator {
         self.onNetworkChange = onNetworkChange
     }
 
-    nonisolated func makeDeadline(elapsed: Duration = .zero) -> Duration { clock.now() + budget - elapsed }
+    nonisolated func makeDeadline(elapsed: Duration = .zero, limit: Duration? = nil) -> Duration {
+        clock.now() + min(budget, limit ?? budget) - elapsed
+    }
 
     func read(_ key: Key, deadline: Duration? = nil, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
         let waiter = UUID()

@@ -2061,6 +2061,8 @@
 		E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08610D114C8CF23877176D7E /* MachinesPanelView.swift */; };
 		D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */; };
 		7A0CE1000000000000000724 /* MachinesTunnelBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000723 /* MachinesTunnelBanner.swift */; };
+		C12625D00000000000000004 /* MachineUsageSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625D00000000000000003 /* MachineUsageSnapshot.swift */; };
+		C12625D00000000000000002 /* MachineUsageTotals.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625D00000000000000001 /* MachineUsageTotals.swift */; };
 		D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */; };
 		D1F0A00700000000000000C1 /* MacPairedMacBackupOpWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00700000000000000C2 /* MacPairedMacBackupOpWire.swift */; };
 		D1F0A00100000000000000C1 /* MacPairedMacBackupPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */; };
@@ -3222,6 +3224,7 @@
 		C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A502000000000000000001 /* TaskManagerWindowController.swift */; };
 		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
 		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
+		C12625C00000000000000002 /* TeamMachineUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625C00000000000000001 /* TeamMachineUsage.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
 		46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
@@ -5936,6 +5939,8 @@
 		08610D114C8CF23877176D7E /* MachinesPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelView.swift; sourceTree = "<group>"; };
 		68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelViewModel.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000723 /* MachinesTunnelBanner.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesTunnelBanner.swift; sourceTree = "<group>"; };
+		C12625D00000000000000003 /* MachineUsageSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineUsageSnapshot.swift; sourceTree = "<group>"; };
+		C12625D00000000000000001 /* MachineUsageTotals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineUsageTotals.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000C2 /* MacPairedMacBackupBody.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupBody.swift; sourceTree = "<group>"; };
 		D1F0A00700000000000000C2 /* MacPairedMacBackupOpWire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupOpWire.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000C2 /* MacPairedMacBackupPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MacPairedMacBackupPublisher.swift; sourceTree = "<group>"; };
@@ -7082,6 +7087,7 @@
 		C7A502000000000000000001 /* TaskManagerWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowController.swift; sourceTree = "<group>"; };
 		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
 		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
+		C12625C00000000000000001 /* TeamMachineUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMachineUsage.swift; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
 		02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
@@ -8426,7 +8432,11 @@
 		C12625A00000000000000001 /* CloudRequestClock.swift */,
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */,
 		C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */,
+		C12625C00000000000000001 /* TeamMachineUsage.swift */,
+		C12625D00000000000000001 /* MachineUsageTotals.swift */,
+		C12625D00000000000000003 /* MachineUsageSnapshot.swift */,
 		97A32F9E792A4C9BB3DABC70 /* MachineSnapshotBuilder.swift */,
+		C12625A00000000000000007 /* VMCapabilities.swift */,
 				C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */,
 				874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */,
 				9A141BCA857942FE946A3730 /* CloudMachineLinkManager+PrivateRoute.swift */,
@@ -13589,6 +13599,8 @@
 				E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */,
 				D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */,
 				7A0CE1000000000000000724 /* MachinesTunnelBanner.swift in Sources */,
+				C12625D00000000000000004 /* MachineUsageSnapshot.swift in Sources */,
+				C12625D00000000000000002 /* MachineUsageTotals.swift in Sources */,
 				D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */,
 				D1F0A00700000000000000C1 /* MacPairedMacBackupOpWire.swift in Sources */,
 				D1F0A00100000000000000C1 /* MacPairedMacBackupPublisher.swift in Sources */,
@@ -14382,6 +14394,7 @@
 				C7A506000000000000000002 /* TaskManagerView.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
+				C12625C00000000000000002 /* TeamMachineUsage.swift in Sources */,
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
 				8362A0010000000000000001 /* TerminalCallerTTYResolver.swift in Sources */,
