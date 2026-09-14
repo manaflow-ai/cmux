@@ -34,7 +34,7 @@ struct CloudTreeMachineRowContent: View {
                         )
                         .frame(minHeight: scaled(style.machineResourceHeight))
                     }
-                    if machine.usage == nil {
+                    if style.machineRowLayout == .twoLine {
                         CloudTreeMachineDetailView(line: usageSummary, style: style)
                     }
                 }
@@ -69,8 +69,8 @@ struct CloudTreeMachineRowContent: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 0)
-            if let usageLine {
-                Text(usageLine)
+            if style.machineRowLayout == .singleLine || usageLine != nil {
+                Text(style.machineRowLayout == .singleLine ? usageSummary : usageLine!)
                     .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
