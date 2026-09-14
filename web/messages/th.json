@@ -3873,5 +3873,11 @@
         "action": "จัดการแพ็กเกจ"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "อีเมล",
+    "emailUnavailable": "ไม่พบอีเมล",
+    "organization": "องค์กร",
+    "personalAccount": "บัญชีส่วนตัว"
   }
 }

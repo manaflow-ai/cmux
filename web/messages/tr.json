@@ -3866,5 +3866,11 @@
         "action": "Planı yönet"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-posta",
+    "emailUnavailable": "e-posta kullanılamıyor",
+    "organization": "Kuruluş",
+    "personalAccount": "kişisel hesap"
   }
 }

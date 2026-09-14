@@ -3867,5 +3867,11 @@
         "action": "管理方案"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "電子郵件",
+    "emailUnavailable": "無法取得電子郵件地址",
+    "organization": "組織",
+    "personalAccount": "個人帳戶"
   }
 }
