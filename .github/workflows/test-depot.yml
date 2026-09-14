@@ -250,7 +250,6 @@ jobs:
             exit "$EXIT_CODE"
           fi
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(grep "Executed.*tests.*with.*failures" "$TEST_OUTPUT" | tail -1)
             DIAGNOSIS=$(python3 scripts/ci/classify-app-host-test-output.py \
               "$TEST_OUTPUT" --exit-code "$EXIT_CODE" --diagnose)
             echo "$DIAGNOSIS"
