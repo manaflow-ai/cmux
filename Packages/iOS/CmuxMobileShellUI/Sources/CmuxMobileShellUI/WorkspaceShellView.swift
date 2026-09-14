@@ -450,7 +450,7 @@ struct WorkspaceShellView: View {
                             createWorkspace: createWorkspaceInCompactStack,
                             canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                         )
-                        .toolbarVisibility(.hidden, for: .tabBar)
+                        .mobileToolbarVisibility(.hidden, for: .tabBar)
                 }
             }
             .onAppear {
@@ -792,7 +792,7 @@ struct WorkspaceShellView: View {
                     )
                 )
                     #if os(iOS)
-                    .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                    .mobileToolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
                     // Only on the pushed compact stack (where a back button
                     // exists): replace the system back button with a custom one
@@ -996,7 +996,7 @@ struct WorkspaceShellView: View {
         // Keep the sidebar's navigation container opaque through the status
         // bar. A plain view background only paints the list's content bounds,
         // leaving the top safe area to the split view's default system color.
-        .containerBackground(Color(uiColor: .systemGroupedBackground), for: .navigation)
+        .mobileNavigationContainerBackground(Color(uiColor: .systemGroupedBackground))
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { width in
