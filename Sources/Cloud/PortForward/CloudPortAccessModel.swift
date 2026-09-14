@@ -46,8 +46,13 @@ final class CloudPortAccessModel {
     }
 
     var failureMessage: String? {
-        if case .failed(let message) = phase { return message }
-        return nil
+        switch phase {
+        case .failed(let message): return message
+        case .needsVPN where route == .privateNetwork:
+            return String(localized: "cloud.portAccess.privateNetworkRequired", defaultValue: "This HTTPS service requires a private network connection. Run cmux vpn up, then reload.")
+        case .closed: return String(localized: "cloud.ports.closed", defaultValue: "Closed")
+        default: return nil
+        }
     }
 
     var isReady: Bool {

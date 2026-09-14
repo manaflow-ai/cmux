@@ -48,6 +48,12 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return
         }
+        // Check the VM origin before rewriting it to localhost. Otherwise the
+        // implicit localhost allowance could bypass a private-origin deny rule.
+        guard browserPolicy().allowsTrustedInternalURL(privateURL) else {
+            browser.cloudAccess.showUnavailable(String(localized: "browser.error.urlAllowlist.userMessage", defaultValue: "This URL is not allowed by the embedded-browser URL policy."))
+            return
+        }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
@@ -65,11 +71,10 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    // A sleeping machine must be resumed before its private
-                    // service can accept the authenticated hub connection. Do
-                    // not create a control-plane preview lease for a machine
-                    // that is already awake; its private route stays private.
-                    if !self.isAwake {
+                    // Freestyle openPort only returns a private address and a
+                    // ledger token; it never publishes a port. For Desktop it
+                    // starts/heals noVNC even when cached status says running.
+                    if !self.isAwake || (self.providerID == "freestyle" && port == CmuxTuiSnapshotParser.desktopPort) {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
                         _ = try await client.openPort(id: self.machineID, port: target.port)
                     }
