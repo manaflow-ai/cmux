@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +34,18 @@ function bash(directory: string, command: string) {
 }
 
 describe("Cloud Bash prompt", () => {
+  test("emits the exact checked-in prompt and bashrc asset bytes", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const digest = (name: string) => createHash("sha256")
+      .update(readFileSync(path.join(directory, name), "utf8").replaceAll(directory, "/etc/cmux"))
+      .digest("hex");
+    expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
+      bashrc: "bd10a566dba17a1ad7c519badfa2587df2dc4b2cb0e9ca9c380fe9fc15fbe89f",
+      prompt: "499ea91eb393055483918b1de75329ec94d77c58ffab4396f72fe2c8719441d1",
+    });
+  });
+
   test("attaches the line editor after user Bash settings have loaded", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);

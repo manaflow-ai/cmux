@@ -11,6 +11,15 @@ import Testing
 @Suite("Cloud notification persistence")
 struct CloudNotificationSyncStoreTests {
     @Test
+    func persistedStateFromBeforeReadLedgerStillLoads() throws {
+        let oldState = Data(#"{"delivered":["n1"],"pendingAcks":[{"key":"k1","ids":["n1"]}]}"#.utf8)
+        let restored = try JSONDecoder().decode(CloudNotificationSyncState.self, from: oldState)
+        #expect(restored.delivered == ["n1"])
+        #expect(restored.pendingAcks == [.init(key: "k1", ids: ["n1"])])
+        #expect(restored.read.isEmpty)
+    }
+
+    @Test
     func providerReplacementReadsQueuedDeliveryAndForgetCannotResurrectIt() async throws {
         let suite = "CloudNotificationSyncStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -89,7 +98,7 @@ struct CloudNotificationSyncStoreTests {
     }
 
     @Test
-    func readByOnlyChangeStillRefreshesUnreadWithoutChangingSyncState() async throws {
+    func readByOnlyChangeRefreshesUnreadAndRecordsTheObservedRead() async throws {
         let suite = "CloudNotificationSyncStoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -110,7 +119,8 @@ struct CloudNotificationSyncStoreTests {
         row.readBy = ["mac"]
         sync.apply(rows: [row])
         await store.flush()
-        #expect(sync.state == state)
+        #expect(sync.state != state)
+        #expect(sync.state.read == [row.id])
         #expect(unreadChanges == [["t1"], []])
     }
 }

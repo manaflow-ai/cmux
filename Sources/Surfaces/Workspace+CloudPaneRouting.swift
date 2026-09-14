@@ -140,6 +140,21 @@ final class CloudWorkspaceRenameService {
         return (found.0, found.1)
     }
 
+    /// Converts a local title into the daemon name, removing only the generated
+    /// machine prefix used by legacy unbound Cloud workspaces.
+    func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
+    }
+
     /// Resolves the daemon tab represented by one local projection. An explicit
     /// tab id is authoritative. A legacy projection may infer a tab only when
     /// its workspace id agrees with the resource's sole current view. A stale
@@ -293,6 +308,7 @@ final class CloudWorkspaceRenameService {
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
+        isBase: Bool? = nil,
         generatedTitle: String? = nil
     ) {
         guard let vmID = machine.cloudMachineID,
@@ -302,7 +318,7 @@ final class CloudWorkspaceRenameService {
         let sameMachine = previousBinding?.vmID == vmID
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
-            isBase: sameMachine ? (previousBinding?.isBase ?? false) : false,
+            isBase: isBase ?? (sameMachine ? (previousBinding?.isBase ?? false) : false),
             remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         )
         // Local workspace creation historically records its creation title as

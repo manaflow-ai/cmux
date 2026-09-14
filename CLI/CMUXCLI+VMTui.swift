@@ -33,7 +33,7 @@ extension CMUXCLI {
     /// How an entrypoint wants the machine's workspace shaped; the session itself is
     /// the same cmux-tui link in every case.
     struct VMTuiOpenOptions {
-        /// Sidebar title; nil means `vm:<id>`.
+        /// Explicit title; nil uses the localized Cloud VM placeholder.
         var workspaceName: String? = nil
         /// A workspace the app pre-created with a Cloud VM loading pane (`--workspace`):
         /// the link replaces that pane instead of opening a new workspace.
@@ -53,7 +53,6 @@ extension CMUXCLI {
         /// can type straight away.
         var focus: Bool = true
     }
-
     struct VMTuiDeviceRecord: Codable {
         let deviceFingerprint: String
         let updatedAtUnix: Int
@@ -397,6 +396,7 @@ extension CMUXCLI {
         let paneFocus = options.focus || requestedTarget.map {
             !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
         } ?? false
+        let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
             // The app pre-created this workspace with a loading pane; the link takes
             // that pane's place (no new workspace, no title change).
@@ -418,10 +418,9 @@ extension CMUXCLI {
             terminalSurfaceId = ready["surface_id"] as? String
             didCreateWorkspace = false
         } else {
-            let requestedTitle = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             var params: [String: Any] = [
                 "initial_command": initialCommand,
-                "title": requestedTitle.isEmpty ? "vm:\(vmId)" : requestedTitle,
+                "title": workspaceTitle.value,
             ]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
             let created = try client.sendV2(method: "workspace.create", params: params)
@@ -439,7 +438,7 @@ extension CMUXCLI {
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
             _ = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
-                params: ["workspace_id": workspaceId, "vm_id": vmId, "base": options.pinAsBase]
+                params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )
             if options.pinAsBase {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
@@ -492,12 +491,13 @@ extension CMUXCLI {
                 if let remoteWorkspaceId, !remoteWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     _ = try client.sendV2(
                         method: "workspace.cloud_vm_bind",
-                        params: [
-                            "workspace_id": workspaceId,
-                            "vm_id": vmId,
-                            "base": options.pinAsBase,
-                            "remote_workspace_id": remoteWorkspaceId,
-                        ]
+                        params: Self.cloudWorkspaceBindingParameters(
+                            workspaceID: workspaceId,
+                            vmID: vmId,
+                            base: options.pinAsBase,
+                            remoteWorkspaceID: remoteWorkspaceId,
+                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil
+                        )
                     )
                 }
             } catch {
