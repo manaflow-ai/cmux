@@ -33,6 +33,10 @@ struct CloudTreeMachineResourceView: View {
             with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         ).height
-        return max(ceil(measured), GlobalFontMagnification.scaledSize(style.machineResourceHeight, percent: magnification))
+        // SwiftUI rounds ascenders and descenders per line; rounding only the
+        // final bounding box can leave wrapped lines a few points too short.
+        let lines = max(1, (measured / (font.ascender - font.descender + font.leading)).rounded())
+        let lineHeight = ceil(font.ascender) - floor(font.descender) + ceil(font.leading)
+        return max(lines * lineHeight, GlobalFontMagnification.scaledSize(style.machineResourceHeight, percent: magnification))
     }
 }

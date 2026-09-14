@@ -103,6 +103,34 @@ struct CloudTreeMachineResourcesTests {
         #expect(future.availability == .unavailable)
     }
 
+    /// Existing stats and resize replies can carry real gauges with only sampledAt.
+    @Test func legacyRepliesPreserveMeasuredValues() {
+        let json: [String: Any] = [
+            "state": "awake", "sampledAt": Self.sampleTime.timeIntervalSince1970 * 1000,
+            "cpuPercent": 9.4, "memoryUsedMb": 2048, "memoryTotalMb": 4096,
+            "diskUsedMb": 3072, "diskTotalMb": 4096
+        ]
+        var snapshot = machine()
+        snapshot.stats = VMStats(json: json, now: Self.sampleTime)
+        let resources = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
+        #expect(resources.availability == .awake)
+        #expect(resources.cpu.percent == 9.4)
+        #expect(resources.memory.percent == 50)
+        #expect(resources.disk.percent == 75)
+    }
+
+    /// Provider dimensions or an absent sample time never become live usage.
+    @Test func decodingRequiresMeasuredGaugesAndTheirTimestamp() {
+        let dimensions = VMStats(json: ["state": "awake", "sampledAt": 1_780_000_000_000,
+                                       "memoryTotalMb": 4096, "diskTotalMb": 4096], now: Self.sampleTime)
+        #expect(dimensions.resourceSampledAt == nil)
+        let unstamped = VMStats(json: ["state": "awake", "cpuPercent": 9.4], now: Self.sampleTime)
+        #expect(unstamped.resourceSampledAt == nil)
+        let stale = VMStats(json: ["state": "awake", "sampledAt": 1_780_000_100_000,
+                                  "resourceSampledAt": 1_780_000_000_000], now: Self.sampleTime)
+        #expect(stale.resourceSampledAt == Self.sampleTime)
+    }
+
     @Test @MainActor func refreshedSnapshotsUpdateReadingsWithoutReplacingRows() throws {
         var first = machine()
         first.stats = nil
