@@ -10482,7 +10482,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         teardownRemoteConnection()
         owningTabManager = nil
     }
-
     /// Tears down all panels while keeping the workspace-owned Dock reusable.
     ///
     /// A workspace can remain as a manager's final tab during account cleanup,
@@ -10494,11 +10493,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
-
     private func teardownPanelResources(retireDock: Bool) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
+        TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
         hideAllBrowserPortalViews()
         if retireDock {
             // Retire the right-sidebar Dock before closing any main-area panel
@@ -11597,6 +11596,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             clearLayoutFollowUp()
             hideAllTerminalPortalViews()
+            TerminalWindowPortalRegistry.parkHostedViews(forWorkspaceID: id)
             hideAllBrowserPortalViews()
             TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: id)
             BrowserWindowPortalRegistry.hideWebViews(forWorkspaceID: id)
