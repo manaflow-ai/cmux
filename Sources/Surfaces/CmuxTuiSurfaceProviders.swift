@@ -97,7 +97,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
     /// only source of remote values.
-    private enum PendingRemoteRenameKey: Hashable {
+    enum PendingRemoteRenameKey: Hashable {
         case workspace(String)
         case tab(String)
     }

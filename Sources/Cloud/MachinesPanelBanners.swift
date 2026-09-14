@@ -11,9 +11,13 @@ struct MachinesPanelBanners: View {
     var body: some View {
         if let banner = tunnelBanner, banner.showsInMachinesPanel,
            !bannerDismissals.isDismissed(id: "machines.tunnel", signature: banner.dismissalSignature) {
-            MachinesTunnelBanner(banner: banner, backgroundColor: chromeBackgroundColor) {
-                SystemExtensionSettingsLink.open()
-            } onDismiss: {
+            MachinesTunnelBanner(
+                banner: banner,
+                backgroundColor: chromeBackgroundColor,
+                openSystemSettings: {
+                    SystemExtensionSettingsLink.open()
+                },
+                onDismiss: {
                 bannerDismissals.dismiss(id: "machines.tunnel", signature: banner.dismissalSignature)
             }
         }
