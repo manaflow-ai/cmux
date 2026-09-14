@@ -47,8 +47,8 @@ extension CMUXCLI {
                cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]...
                cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 
-        Copy a local file or directory onto a cloud machine over the exec channel
-        (no SSH needed). Directories travel as tarballs; by default \(vmPushDefaultExcludes.joined(separator: ", "))
+        Copy a local file or directory onto a cloud machine over its short-lived
+        SSH/SCP gateway. Directories travel as tarballs; by default \(vmPushDefaultExcludes.joined(separator: ", "))
         are skipped. The remote path defaults to the local basename in the exec
         working directory (the machine user's home).
 
@@ -309,7 +309,7 @@ extension CMUXCLI {
         }
     }
 
-    /// One push over the exec channel: pack (directories), upload in base64 chunks,
+    /// One push over the short-lived SSH/SCP gateway: pack (directories), upload raw bytes,
     /// verify the digest, extract. Shared by the one-shot command, `--watch`, and the
     /// `vm run` / `vm agent` `--sync` paths.
     func performVMPush(
@@ -364,14 +364,20 @@ extension CMUXCLI {
             extractDestination = nil
         }
 
-        try uploadData(
-            payloadData,
-            to: remoteStaging,
-            finalDestination: extractDestination == nil ? remotePath : nil,
-            vmID: vmID,
-            expectedDigest: localDigest,
-            client: client
-        )
+        let endpoint = try vmSCPTransferEndpoint(vmID: vmID, client: client)
+        try scpUpload(payloadData, to: remoteStaging, endpoint: endpoint)
+
+        let quotedStaging = shellQuote(remoteStaging)
+        let quotedDigest = shellQuote(localDigest)
+        let quotedDestination = shellQuote(remotePath)
+        let verifyAndFinalize: String
+        if let extractDestination {
+            let quotedExtract = shellQuote(extractDestination)
+            verifyAndFinalize = "set -eu; actual=$(sha256sum \(quotedStaging) | awk '{print $1}'); test \"$actual\" = \(quotedDigest); mkdir -p \(quotedExtract); tar -xzf \(quotedStaging) -C \(quotedExtract); rm -f \(quotedStaging)"
+        } else {
+            verifyAndFinalize = "set -eu; actual=$(sha256sum \(quotedStaging) | awk '{print $1}'); test \"$actual\" = \(quotedDigest); mv -f \(quotedStaging) \(quotedDestination)"
+        }
+        try runSCPSSHCommand(verifyAndFinalize, endpoint: endpoint)
 
         if let extractDestination {
             let quotedTar = shellQuote(remoteStaging)
@@ -391,6 +397,96 @@ extension CMUXCLI {
             seconds: Int(Date().timeIntervalSince(started).rounded()),
             appliedExcludes: excludes
         )
+    }
+
+    private struct VMSCPTransferEndpoint {
+        let host: String
+        let port: Int
+        let username: String
+        let password: String
+    }
+
+    private func vmSCPTransferEndpoint(vmID: String, client: SocketClient) throws -> VMSCPTransferEndpoint {
+        let response = try client.sendV2(method: "vm.ssh_info", params: ["id": vmID], responseTimeout: 60)
+        guard let host = response["host"] as? String,
+              let port = response["port"] as? Int,
+              let username = response["username"] as? String,
+              let credential = response["credential"] as? [String: Any],
+              credential["kind"] as? String == "password",
+              let password = credential["value"] as? String,
+              !password.isEmpty else {
+            throw CLIError(message: "Cloud VM SSH transfer did not return a usable short-lived credential. Retry `cmux vm push <id> <path>`.")
+        }
+        return VMSCPTransferEndpoint(host: host, port: port, username: username, password: password)
+    }
+
+    private func scpUpload(_ data: Data, to remotePath: String, endpoint: VMSCPTransferEndpoint) throws {
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-scp-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let askpass = temporaryDirectory.appendingPathComponent("askpass", isDirectory: false)
+        try sshAskpassExecShellScript(passwordCredential: endpoint.password)
+            .write(to: askpass, atomically: true, encoding: .utf8)
+        _ = chmod(askpass.path, S_IRWXU)
+        let localFile = temporaryDirectory.appendingPathComponent("payload", isDirectory: false)
+        try data.write(to: localFile, options: .atomic)
+        let options = [
+            "-q", "-P", String(endpoint.port),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "IdentityFile=/dev/null",
+            "-o", "PreferredAuthentications=none,password",
+            "-o", "NumberOfPasswordPrompts=1",
+            "-o", "ControlMaster=no",
+            localFile.path,
+            "\(endpoint.username)@\(endpoint.host):\(shellQuote(remotePath))",
+        ]
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [askpass.path] + ["/usr/bin/scp"] + options,
+            timeout: 15 * 60
+        )
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIError(message: "Cloud VM SCP upload failed\(detail.isEmpty ? "." : ": \(detail)")")
+        }
+    }
+
+    private func runSCPSSHCommand(_ command: String, endpoint: VMSCPTransferEndpoint) throws {
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-scp-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let askpass = temporaryDirectory.appendingPathComponent("askpass", isDirectory: false)
+        try sshAskpassExecShellScript(passwordCredential: endpoint.password)
+            .write(to: askpass, atomically: true, encoding: .utf8)
+        _ = chmod(askpass.path, S_IRWXU)
+        let options = [
+            "-p", String(endpoint.port),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "LogLevel=ERROR",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "IdentityFile=/dev/null",
+            "-o", "PreferredAuthentications=none,password",
+            "-o", "NumberOfPasswordPrompts=1",
+            "-o", "ControlMaster=no",
+            "\(endpoint.username)@\(endpoint.host)",
+            "--",
+            command,
+        ]
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/bin/sh",
+            arguments: [askpass.path] + ["/usr/bin/ssh"] + options,
+            timeout: 15 * 60
+        )
+        guard result.status == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIError(message: "Cloud VM SSH finalize failed\(detail.isEmpty ? "." : ": \(detail)")")
+        }
     }
 
     // MARK: - push --secret (over the link, never the exec channel)

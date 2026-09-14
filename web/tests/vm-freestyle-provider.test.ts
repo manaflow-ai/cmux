@@ -100,14 +100,13 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("openAttach/openSSH are structurally absent, not throwing stubs", () => {
-    // Capability derivation reads method presence; the gateway maps an absent
-    // method to VmOperationUnsupportedError (501), so a throwing stub would
-    // only turn an honest 501 into a retryable-looking 502.
+  test("openAttach stays absent while explicit SSH minting is available", () => {
+    // SSH is an explicit legacy attach verb. It must not become the default
+    // transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
-    expect(provider.openSSH).toBeUndefined();
-    expect(provider.revokeSSHIdentity).toBeUndefined();
+    expect(typeof provider.openSSH).toBe("function");
+    expect(typeof provider.revokeSSHIdentity).toBe("function");
   });
 
   test("fork is not implemented, so the capability resolves false", () => {

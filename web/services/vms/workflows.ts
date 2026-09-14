@@ -3429,6 +3429,46 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   });
 }
 
+export function openSshEndpoint(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh", {
+      forceProviderProbe: true,
+    });
+    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "ssh",
+      providers.openSSH(vm.provider, input.providerVmId),
+    );
+    yield* storeEndpointLeases(vm, endpoint).pipe(
+      Effect.catchAll((error) => revokeEndpointIdentity(vm.provider, endpoint).pipe(Effect.andThen(Effect.fail(error)))),
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.ssh_endpoint",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { credentialKind: endpoint.credential.kind },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
 export function openVmSession(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;

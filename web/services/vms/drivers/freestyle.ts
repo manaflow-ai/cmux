@@ -46,6 +46,7 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { isProviderIdentityNotFoundError } from "../providerErrors";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
@@ -143,6 +144,9 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
+const FREESTYLE_SSH_HOST = "beta-ssh.freestyle.sh";
+const FREESTYLE_SSH_PORT = 22;
+const CMUX_LINUX_USER = "cmux";
 
 /**
  * Every guest command the driver runs is administrative — systemd, sudoers, the
@@ -197,8 +201,8 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch: typeof fetch = (input, init) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
+  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
+    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -891,7 +895,7 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
-  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
@@ -907,6 +911,49 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+  }
+
+  async openSSH(vmId: string): Promise<import("./types").SSHEndpoint> {
+    return withVmSpan(
+      "cmux.vm.provider.open_ssh",
+      "provider",
+      spanAttributes(vmId, "open_ssh"),
+      async (span) => {
+        const fs = this.deps.client();
+        let identityId = "";
+        try {
+          const { identity, identityId: createdIdentityId } = await fs.identities.create({});
+          identityId = createdIdentityId;
+          setSpanAttributes(span, { "cmux.ssh.identity_created": true });
+          await identity.permissions.vm.grant({ vmId, allowedLinuxUsers: [CMUX_LINUX_USER] });
+          const { token } = await identity.tokens.create();
+          return {
+            transport: "ssh" as const,
+            host: FREESTYLE_SSH_HOST,
+            port: FREESTYLE_SSH_PORT,
+            username: `${vmId}+${CMUX_LINUX_USER}`,
+            publicKeyFingerprint: null,
+            credential: { kind: "password" as const, value: token },
+            identityHandle: identityId,
+          };
+        } catch (error) {
+          if (identityId) {
+            await fs.identities.delete(identityId).catch((cleanupError) => recordSpanError(span, cleanupError));
+          }
+          throw new ProviderError("freestyle", `openSSH(${vmId})`, error);
+        }
+      },
+    );
+  }
+
+  async revokeSSHIdentity(identityHandle: string): Promise<void> {
+    if (!identityHandle) return;
+    try {
+      await this.deps.client().identities.delete(identityHandle);
+    } catch (error) {
+      if (isProviderIdentityNotFoundError(error)) return;
+      throw new ProviderError("freestyle", `revokeSSHIdentity(${identityHandle})`, error);
+    }
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {
