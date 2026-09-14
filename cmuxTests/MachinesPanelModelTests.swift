@@ -988,7 +988,6 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
         XCTAssertNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
-
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
@@ -1164,7 +1163,6 @@ struct CloudTreeMachineInlineFactTests {
         machine.stats = stats
         return machine
     }
-
     @Test("Resource readings do not compete with the machine name")
     func awakeReadingHasDedicatedSpace() {
         let stats = VMStats(

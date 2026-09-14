@@ -17,8 +17,11 @@ extension CloudMachineResourcePresentation {
             case .unknown:
                 availability = .unavailable
             case .awake:
-                if let sampledAt = stats!.resourceSampledAt,
-                   now.timeIntervalSince(sampledAt) > Self.staleSampleAge {
+                guard let sampledAt = stats!.resourceSampledAt else {
+                    availability = .unavailable
+                    break
+                }
+                if now.timeIntervalSince(sampledAt) > Self.staleSampleAge {
                     availability = .stale
                 } else {
                     availability = .awake

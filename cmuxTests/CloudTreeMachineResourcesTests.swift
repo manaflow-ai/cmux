@@ -15,7 +15,8 @@ struct CloudTreeMachineResourcesTests {
         memoryUsed: Int? = 2048,
         memoryTotal: Int? = 4096,
         diskUsed: Int? = 3072,
-        diskTotal: Int? = 4096
+        diskTotal: Int? = 4096,
+        resourceSampledAt: Date? = Date()
     ) -> MachineSnapshot {
         var result = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "resource-test", provider: "freestyle", status: "running",
@@ -23,7 +24,7 @@ struct CloudTreeMachineResourcesTests {
         ))
         result.capabilities.stats = true
         result.stats = VMStats(
-            state: state, sampledAt: Date(timeIntervalSince1970: 1_780_000_000),
+            state: state, sampledAt: Date(), resourceSampledAt: resourceSampledAt,
             cpus: 4, cpuPercent: cpu, loadAverage1m: nil,
             memoryTotalMb: memoryTotal, memoryUsedMb: memoryUsed,
             diskTotalMb: diskTotal, diskUsedMb: diskUsed
@@ -62,13 +63,16 @@ struct CloudTreeMachineResourcesTests {
         #expect(unsupported.cpu.percent == nil)
         #expect(unsupported.memory.percent == nil)
         #expect(unsupported.disk.percent == nil)
+        snapshot = machine(resourceSampledAt: nil)
+        let missingTimestamp = CloudMachineResourcePresentation(machine: snapshot)
+        #expect(missingTimestamp.availability == .unavailable)
+        #expect(missingTimestamp.cpu.percent == nil)
     }
 
     @Test func machineSnapshotsDistinguishLoadingAndStaleTelemetry() {
         var snapshot = machine()
         snapshot.stats = nil
         #expect(CloudMachineResourcePresentation(machine: snapshot).availability == .loading)
-
         snapshot.stats = VMStats(
             state: .awake,
             sampledAt: Date(timeIntervalSince1970: 1_780_000_000),
