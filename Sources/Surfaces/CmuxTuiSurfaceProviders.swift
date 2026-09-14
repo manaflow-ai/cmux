@@ -97,15 +97,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// daemon identity, not by a local title or projection, because one remote
     /// tab can be shown in several windows. The canonical graph remains the
     /// only source of remote values.
-    private enum PendingRemoteRenameKey: Hashable {
+    enum PendingRemoteRenameKey: Hashable {
         case workspace(String)
         case tab(String)
     }
-    private struct PendingRemoteRename {
+    struct PendingRemoteRename {
         var name: String
         var receipt: CloudVMCursor
     }
-    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
+    var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
@@ -681,7 +681,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
+    static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
