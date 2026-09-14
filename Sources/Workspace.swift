@@ -7527,7 +7527,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
         if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
-        if let startup = cloudStartupPresentation(forSurfaceId: surfaceId) { return startup }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
@@ -9514,7 +9513,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             hasCustomTitle: false,
             isDirty: replacementPanel.isDirty,
             showsNotificationBadge: false,
-            isLoading: true,
+            isLoading: false,
             isPinned: false
         )
         publishCmuxSurfaceCreated(pair.key, paneId: paneId, kind: SurfaceKind.terminal.rawValue, origin: "cloud_vm_ready", focused: focus)
@@ -9534,9 +9533,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
-        beginCloudTerminalStartupLoading(panel: replacementPanel, tabID: tabId)
         return replacementPanel
     }
+
     private func remoteTerminalStartupCommand() -> String? {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
