@@ -988,6 +988,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
         XCTAssertNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
+
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
@@ -1003,16 +1004,14 @@ final class MachinesPanelModelTests: XCTestCase {
         for preset in presets {
             XCTAssertEqual(CloudTreeStyle.preset(id: preset.id), preset)
             XCTAssertGreaterThan(preset.rowHeight, 0)
-            // This legacy XCTest suite owns the complete preset contract; keep
-            // its row-height assertion with the surrounding model coverage.
-            XCTAssertGreaterThan(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
+            XCTAssertGreaterThanOrEqual(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
             XCTAssertGreaterThan(preset.machineRowHeight(hasStats: false), 0)
         }
         XCTAssertEqual(CloudTreeStyle.defaultStyle, .compact, "the default is the compact variant")
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Every cloud style reserves one compact resource line below the name.
+        // Every cloud style reserves a dedicated resource strip.
         XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
         XCTAssertGreaterThan(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
@@ -1153,7 +1152,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Resource readings have one secondary line; only Locked is an identity fact.
+/// Resource readings have their own strip, leaving only Locked beside the name.
 @Suite("Cloud tree machine inline fact")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
@@ -1163,6 +1162,7 @@ struct CloudTreeMachineInlineFactTests {
         machine.stats = stats
         return machine
     }
+
     @Test("Resource readings do not compete with the machine name")
     func awakeReadingHasDedicatedSpace() {
         let stats = VMStats(
@@ -1396,8 +1396,8 @@ struct MachineUsageReadoutTests {
         #expect(CloudTreeMachineRowContent(machine: idle).usageLine == nil)
 
         let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
-        #expect(fact == nil, "usage has its own trailing summary")
-        #expect(CloudTreeMachineRowContent(machine: withUsage).accessibilityLabel.contains(line), "visible usage remains accessible")
+        #expect(fact == nil, "spend belongs in the tooltip, leaving row space for resources")
+        #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
 

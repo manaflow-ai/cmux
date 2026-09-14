@@ -21,6 +21,12 @@ extension CloudTreeOutlineView.Coordinator {
     func outlineViewColumnDidResize(_ notification: Notification) {
         guard let outlineView else { return }
         updateCloudVPNRowHeights(in: outlineView)
+        let machineRows = IndexSet(nodes.compactMap { node -> Int? in
+            guard case .machine = node.kind else { return nil }
+            let row = outlineView.row(forItem: node)
+            return row >= 0 ? row : nil
+        })
+        if !machineRows.isEmpty { outlineView.noteHeightOfRows(withIndexesChanged: machineRows) }
     }
 
     /// Re-measures wrapping Ports guidance for the resized outline.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxFoundation
 
 @MainActor
@@ -17,8 +18,18 @@ struct CloudTreeRowHeight {
             return CloudPortsVPNEmptyStateContent.height(width: width, style: style)
         }
         switch node.kind {
-        case .machine:
-            return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
+        case .machine(let machine, _):
+            let base = GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
+            guard style.showsMachineStats else { return base }
+            let indentation = CGFloat(max(0, outline.level(forItem: node)) + 1) * outline.indentationPerLevel
+            // Mirror the cell's stable hover slot, row decoration, band, and icon insets.
+            let width = (outline.tableColumns.first?.width ?? outline.bounds.width) - indentation
+                - CloudTreeRowGrid.disclosureGap - CloudTreeRowGrid.dotSlot - CloudTreeRowGrid.dotGap
+                - CloudTreeRowGrid.trailingPadding * 2 - CloudTreeRowGrid.trailingGap - 22
+                - (node.isPinned ? 13 : 0) - (style.machineBand ? 4 : 0)
+            let resource = CloudTreeMachineResourceView(metrics: CloudMachineResourcePresentation(machine: machine), style: style)
+            return base + resource.height(width: width, magnification: GlobalFontMagnification.storedPercent)
+                - GlobalFontMagnification.scaledSize(style.machineResourceHeight)
         case .localMachine, .pendingMachine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:

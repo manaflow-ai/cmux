@@ -123,16 +123,35 @@ struct CloudTreeMachineResourcesTests {
         #expect(CloudTreeMachineRowContent(machine: snapshot, now: Self.sampleTime).toolTip.contains("83"))
     }
 
-    /// The hosted view fits its single-line height even for maximum readings.
+    /// Visible usage remains part of the machine's accessible identity.
+    @Test @MainActor func machineUsageRemainsAccessible() throws {
+        var snapshot = machine()
+        snapshot.usage = MachineUsageSnapshot(
+            vmID: snapshot.id, providerVmID: nil, displayName: nil, periodDays: 30, asOf: Self.sampleTime,
+            totals: MachineUsageTotals(inputTokens: 31000, cachedInputTokens: 0, outputTokens: 10000,
+                                       totalTokens: 41000, apiEquivalentUsd: 1.23)
+        )
+        let row = CloudTreeMachineRowContent(machine: snapshot, now: Self.sampleTime)
+        let usage = try #require(row.usageLine)
+        #expect(row.accessibilityLabel.contains(usage))
+        #expect(row.toolTip.contains(usage))
+    }
+
+    /// The outline reserves enough height for normal and wrapped resource text.
     @Test @MainActor func resourceSummaryUsesOneCompactLine() {
         let resources = CloudMachineResourcePresentation(
             availability: .awake, cpuPercent: 100,
             memoryUsedMb: 4096, memoryTotalMb: 4096, diskUsedMb: 4096, diskTotalMb: 4096
         )
         for style in CloudTreeStyle.presets {
-            let host = NSHostingView(rootView: CloudTreeMachineResourceView(metrics: resources, style: style)
-                .environment(\.cmuxGlobalFontMagnificationPercent, 100).frame(width: 160))
-            #expect(host.fittingSize.height <= style.machineResourceHeight)
+            let view = CloudTreeMachineResourceView(metrics: resources, style: style)
+            for width in [CGFloat(160), 280] {
+                for scale in [100, 150] {
+                    let host = NSHostingView(rootView: view
+                        .environment(\.cmuxGlobalFontMagnificationPercent, scale).frame(width: width))
+                    #expect(host.fittingSize.height <= view.height(width: width, magnification: scale) + 1)
+                }
+            }
             #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
             let lines = style.machineNameLineHeight + 1 + style.machineResourceHeight
                 + (style.machineRowLayout == .twoLine ? 1 + style.machineSubtitleLineHeight : 0)

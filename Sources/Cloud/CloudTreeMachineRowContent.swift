@@ -32,7 +32,7 @@ struct CloudTreeMachineRowContent: View {
                             metrics: CloudMachineResourcePresentation(machine: machine, now: now),
                             style: style
                         )
-                        .frame(height: scaled(style.machineResourceHeight))
+                        .frame(minHeight: scaled(style.machineResourceHeight))
                     }
                 }
             }
