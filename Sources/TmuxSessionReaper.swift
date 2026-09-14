@@ -103,6 +103,71 @@ enum TmuxSessionReaper {
         return agent.sessionPrefix + indexed
     }
 
+    /// Lowercase ASCII letters and digits, every other run folded to one hyphen, trimmed.
+    ///
+    /// Mirrors `slugify()` in `cmux-lane-session` (`sed -E 's/[^a-z0-9]+/-/g'`).
+    static func laneSlug(_ value: String) -> String {
+        var out = ""
+        var pendingHyphen = false
+        for scalar in value.lowercased().unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                if pendingHyphen && !out.isEmpty { out.append("-") }
+                pendingHyphen = false
+                out.unicodeScalars.append(scalar)
+            } else {
+                pendingHyphen = true
+            }
+        }
+        return out
+    }
+
+    /// The name the wrappers pick today, from the workspace title.
+    ///
+    /// The instance index is a per-host counter, so a name built on it differs between
+    /// Macs for the same workspace. `cmux-lane-session name` is the source of truth; this
+    /// must agree with it exactly:
+    ///
+    /// - no title: the legacy basename-and-instance name;
+    /// - a title that names the repo (`rodchristiansen · cmux`, `Personal - Nutrition`,
+    ///   optionally ending in a duplicate's ` (N)`): the legacy name, unchanged;
+    /// - any other title: the slugified title, duplicate suffix included.
+    static func sessionName(
+        directory: String,
+        title: String,
+        instanceIndex: Int,
+        agent: WorkspaceAgent
+    ) -> String {
+        let legacy = sessionName(directory: directory, instanceIndex: instanceIndex, agent: agent)
+        let titled = laneSlug(title)
+        guard !titled.isEmpty else { return legacy }
+        let core = laneSlug(title.replacingOccurrences(
+            of: #" \([0-9]+\)$"#, with: "", options: .regularExpression
+        ))
+        let base = laneSlug((directory as NSString).lastPathComponent)
+        if !base.isEmpty, core == base || core.hasSuffix("-" + base) {
+            return legacy
+        }
+        return agent.sessionPrefix + titled
+    }
+
+    /// Every name a live session of this workspace may carry, current rule first.
+    ///
+    /// Sessions started before the title rule keep their legacy name until they end, so
+    /// both spellings belong to the workspace for reattach and the orphan check.
+    static func sessionNames(
+        directory: String,
+        title: String,
+        instanceIndex: Int,
+        agent: WorkspaceAgent
+    ) -> [String] {
+        let current = sessionName(directory: directory, title: title,
+                                  instanceIndex: instanceIndex, agent: agent)
+        let legacy = sessionName(directory: directory, instanceIndex: instanceIndex, agent: agent)
+        return [current, legacy].reduce(into: [String]()) { names, name in
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
+        }
+    }
+
     /// tmux arguments for killing exactly one session.
     ///
     /// The `=` prefix forces an exact match. A bare `-t name` falls back to prefix and

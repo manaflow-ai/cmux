@@ -148,6 +148,21 @@ enum ActiveLaneSnapshot {
         for candidate in candidates {
             var resolved: String?
             resolved = take(candidate.registered.sorted().first { names.contains($0) && !claimed.contains($0) })
+            // A title-derived name identifies one workspace even when a dozen share its
+            // directory, so it is tried before the directory, which cannot tell them apart.
+            if resolved == nil {
+                let titled = TmuxSessionReaper.sessionName(
+                    directory: candidate.directory,
+                    title: candidate.title,
+                    instanceIndex: candidate.instanceIndex,
+                    agent: .claude
+                )
+                let legacy = TmuxSessionReaper.sessionName(
+                    directory: candidate.directory,
+                    instanceIndex: candidate.instanceIndex
+                )
+                if titled != legacy, names.contains(titled) { resolved = take(titled) }
+            }
             if resolved == nil {
                 let directory = canonical(candidate.directory)
                 resolved = take(byDirectory[directory]?.first { !claimed.contains($0) })

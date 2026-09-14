@@ -5301,12 +5301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // workspace's as the bare Claude one, and omitting it would offer a live
                 // Codex conversation up to the orphan reaper.
                 for agent in WorkspaceAgent.allCases {
-                    let name = TmuxSessionReaper.sessionName(
+                    derived.formUnion(TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
+                        title: workspace.title,
                         instanceIndex: workspace.instanceIndex,
                         agent: agent
-                    )
-                    if !name.isEmpty { derived.insert(name) }
+                    ))
                 }
             }
         }
@@ -5338,9 +5338,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Agents in declaration order, Claude first: a workspace has one agent
                 // pane, so if both a Claude and a Codex session are live on this
                 // directory only one can be rebuilt onto, and the template's default wins.
-                for agent in WorkspaceAgent.allCases {
-                    let name = TmuxSessionReaper.sessionName(
+                agents: for agent in WorkspaceAgent.allCases {
+                    let names = TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
+                        title: workspace.title,
                         instanceIndex: workspace.instanceIndex,
                         agent: agent
                     )
@@ -5349,14 +5350,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // is exactly what makes it a usable "not yet reattached" signal. Skipping
                     // these keeps the command idempotent and safe to invoke at any time, not
                     // only after a crash.
-                    if workspace.ownedTmuxSessions.contains(name) { break }
+                    if names.contains(where: workspace.ownedTmuxSessions.contains) { break }
                     // One workspace per session: two workspaces on the same directory and
                     // instance would otherwise both rebuild onto the same session, and the
                     // second would steal the pane from the first.
-                    guard live.contains(name), !claimed.contains(name) else { continue }
-                    claimed.insert(name)
-                    matches.append((workspace, name, agent))
-                    break
+                    for name in names where live.contains(name) && !claimed.contains(name) {
+                        claimed.insert(name)
+                        matches.append((workspace, name, agent))
+                        break agents
+                    }
                 }
             }
         }
