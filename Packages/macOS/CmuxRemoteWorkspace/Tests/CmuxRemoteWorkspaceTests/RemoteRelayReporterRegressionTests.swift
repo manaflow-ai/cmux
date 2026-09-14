@@ -56,6 +56,15 @@ struct RemoteRelayReporterRegressionTests {
             workspaceAliases: [:], surfaceAliases: [:]) != .allow)
     }
 
+    @Test("container values cannot masquerade as exact terminal selectors")
+    func malformedSelectorContainers() {
+        let values: [Any] = [["id": remoteSurface.uuidString], [remoteSurface.uuidString], 17, NSNull()]
+        for value in values {
+            let params: [String: Any] = ["workspace_id": owner.uuidString, "terminal_id": value]
+            #expect(decision("surface.read_selection", params) != .allowed)
+        }
+    }
+
     @Test("removing live ownership invalidates a previously authorized selector")
     func revokedOwnership() {
         let policy = RemoteRelayAuthorizationPolicy()

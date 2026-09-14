@@ -4571,6 +4571,8 @@ class TerminalController {
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
         if let owner = routing.remoteRelayOwnerWorkspaceID {
             guard routing.workspaceID == nil || routing.workspaceID == owner else { return nil }
+            guard let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else { return nil }
             return AppDelegate.shared?.tabManagerFor(tabId: owner)
         }
         if routing.hasWindowIDParam {
@@ -6128,7 +6130,8 @@ class TerminalController {
                 remoteRelayOwnerWorkspaceID: self.v2UUID(
                     params,
                     WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
-                )
+                ),
+                remoteRelayConnectionID: self.v2UUID(params, WorkspaceRemoteRelayCommandRewriter.connectionIDKey)
             )
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
@@ -6136,10 +6139,9 @@ class TerminalController {
             if let lineLimit, lineLimit <= 0 {
                 return .finished(.err(code: "invalid_params", message: "lines must be greater than 0", data: nil))
             }
-            // The former witness resolved the explicit `surface_id` param only
-            // (no terminal_id/tab_id aliases) for target selection.
-            let explicitSurfaceID = self.v2UUID(params, "surface_id")
-            let hasSurfaceIDParam = params["surface_id"] != nil
+            // Consume the same terminal alias that the relay policy validates.
+            let explicitSurfaceID = self.v2UUID(params, "surface_id") ?? self.v2UUID(params, "terminal_id")
+            let hasSurfaceIDParam = params["surface_id"] != nil || params["terminal_id"] != nil
             let workspaceID: UUID
             let surfaceId: UUID
             let terminalSurface: TerminalSurface

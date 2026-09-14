@@ -11,8 +11,8 @@ import Testing
 #endif
 
 /// The remote tmux shim (`cmux claude-teams` on the SSH host) drives teammate
-/// panes through relayed `surface.split` / `surface.respawn` requests. The
-/// relay ingress gate must admit those workspace-scoped pane mutations while
+/// panes through relayed `surface.split` requests. The relay ingress gate
+/// must admit those workspace-scoped pane mutations while
 /// still refusing cross-workspace methods and foreign surface selectors.
 @MainActor
 @Suite(.serialized)
@@ -100,16 +100,23 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
 
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
         // This is the reported wire shape: an owned decoy workspace selector
         // accompanies terminal_id, which the dispatcher accepts as a surface
         // alias. The method-specific schema must reject the decoy before the
         // request can reach the local socket.
         let authorization = try fixture.authorize(method: "surface.send_text", params: [
             "preferred_workspace_id": fixture.workspace.id.uuidString,
-            "terminal_id": UUID().uuidString,
+            "terminal_id": fixture.panelID.uuidString,
             "text": "touch /tmp/pwned\n",
         ])
         #expect(authorization.errorResponse?.contains("remote_relay") == true)
+        let enter = try fixture.authorize(method: "surface.send_key", params: [
+            "preferred_workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": fixture.panelID.uuidString,
+            "key": "Enter",
+        ])
+        #expect(enter.errorResponse?.contains("remote_relay_method_denied") == true)
     }
 
     @Test
@@ -164,6 +171,21 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         }
     }
 
+    @Test
+    func retiredConnectionIsDeniedByAsyncIngress() async throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let request = try fixture.signedRequest(method: "surface.read_selection", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": fixture.panelID.uuidString,
+        ])
+        let admitted = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        try #require(admitted.errorResponse == nil)
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        let retired = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        #expect(retired.errorResponse?.contains("remote_relay_authentication_failed") == true)
+    }
+
     @MainActor
     private struct Fixture {
         let appDelegate: AppDelegate
@@ -207,6 +229,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                     resolvedWorkspace.configureRemoteConnection(configuration, autoConnect: false)
                 )
                 resolvedWorkspace.trackRemoteTerminalSurface(resolvedPanelID)
+                resolvedWorkspace.activeRemoteSessionControllerID = UUID()
             } catch {
                 // A throwing `#require` must not leak the shared-state
                 // mutations above into later tests: roll them back before
@@ -225,6 +248,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         }
 
         func authorize(method: String, params: [String: Any]) throws -> TerminalController.RemoteRelayAuthorizationResult {
+            TerminalController.shared.authorizeRemoteRelayRequest(try signedRequest(method: method, params: params))
+        }
+
+        func signedRequest(method: String, params: [String: Any]) throws -> ControlRequest {
             let request: [String: Any] = [
                 "id": "relay-\(method)",
                 "method": method,
@@ -234,7 +261,8 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             data.append(0x0A)
             let rewritten = WorkspaceRemoteRelayCommandRewriter(
                 remoteWorkspaceID: workspace.id,
-                remoteRelayTokenHex: RemoteRelayTmuxCompatAuthorizationTests.relayToken
+                remoteRelayTokenHex: RemoteRelayTmuxCompatAuthorizationTests.relayToken,
+                remoteSessionControllerID: workspace.activeRemoteSessionControllerID
             ).rewriteRemoteRelayCommandLine(data, workspaceAliases: [:], surfaceAliases: [:])
             let line = try #require(String(data: rewritten, encoding: .utf8))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -243,7 +271,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                     NSLocalizedDescriptionKey: "relay request did not parse: \(line.prefix(200))",
                 ])
             }
-            return TerminalController.shared.authorizeRemoteRelayRequest(parsed)
+            return parsed
         }
 
         func tearDown() {

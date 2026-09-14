@@ -1,26 +1,65 @@
 import Foundation
 
-/// Restricts routing to the selectors consumed by each allowed relay handler.
+/// Closed parameter contracts for the methods intentionally exposed to a relay.
+/// Adding a handler parameter does not expose it remotely until it is reviewed here.
 struct RemoteRelayRoutingSchema {
-    func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
-        let keys: Set<String>
+    func parameters(for method: String) -> Set<String>? {
+        let workspace: Set<String> = ["workspace_id"]
+        let surface = workspace.union(["surface_id"])
+        let terminal = surface.union(["terminal_id"])
         switch method {
-        case "surface.read_text", "surface.read_selection",
-             "surface.resume.set", "surface.resume.get", "surface.resume.clear":
-            keys = ["workspace_id", "surface_id", "terminal_id"]
-        case "surface.split", "surface.close", "surface.send_text",
-             "surface.report_tty", "surface.report_pwd", "surface.report_git_branch",
-             "surface.clear_git_branch", "surface.report_shell_state", "surface.ports_kick",
-             "workspace.remote.terminal_session_launching", "workspace.remote.terminal_session_connected",
-             "workspace.remote.terminal_session_end", "agent.restore.admit", "agent.restore.release",
-             "notification.create", "notification.create_for_target":
-            keys = ["workspace_id", "surface_id"]
-        default:
-            keys = ["workspace_id"]
+        case "system.ping", "system.capabilities": return []
+        case "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
+            return workspace
+        case "workspace.remote.reconnect": return surface
+        case "workspace.equalize_splits": return workspace.union(["orientation"])
+        case "surface.read_text": return terminal.union(["scrollback", "lines"])
+        case "surface.read_selection": return terminal
+        case "surface.close", "surface.clear_git_branch": return surface
+        case "surface.send_text": return surface.union(["text"])
+        case "surface.split":
+            return surface.union(["direction", "type", "focus", "initial_divider_position", "remote_tmux_unsupported_options"])
+        case "surface.report_tty":
+            return surface.union(["tty_name", "terminal_lifecycle_id", "attempt_id"])
+        case "surface.report_pwd": return surface.union(["path", "directory"])
+        case "surface.report_git_branch": return surface.union(["branch", "is_dirty", "status"])
+        case "surface.report_shell_state":
+            return surface.union(["terminal_lifecycle_id", "state", "shell_state", "activity"])
+        case "surface.ports_kick": return surface.union(["reason"])
+        case "workspace.remote.terminal_session_launching":
+            return surface.union(["terminal_lifecycle_id", "attempt_id"])
+        case "workspace.remote.terminal_session_connected":
+            return surface.union(["terminal_lifecycle_id", "attempt_id", "relay_port", "session_id", "lifecycle_id"])
+        case "workspace.remote.terminal_session_end":
+            return surface.union(["terminal_lifecycle_id", "relay_port", "session_id", "lifecycle_id", "lifecycle_only"])
+        case "surface.resume.set":
+            return terminal.union(["command", "name", "kind", "cwd", "checkpoint_id", "checkpointId",
+                "source", "environment", "launch_command", "permission_mode", "auto_resume", "resume_evidence_provenance"])
+        case "surface.resume.get":
+            return terminal.union(["claim_checkpoint_id", "claim_source", "claim_updated_at"])
+        case "surface.resume.clear":
+            return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
+        case "agent.restore.admit": return surface.union(["kind", "session_id", "record_session_id"])
+        case "agent.restore.release": return surface.union(["kind", "session_id", "claim_id"])
+        case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
+        case "notification.create", "notification.create_for_target":
+            return surface.union(["title", "subtitle", "body", "reply_shape"])
+        default: return nil
         }
-        return unsupportedKey(in: parameters, allowed: keys.union([
-            RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey
-        ]))
+    }
+
+    func unsupportedKey(in parameters: [String: Any], method: String) -> String? {
+        let provenance: Set<String> = [
+            RemoteRelayAuthorizationPolicy.remoteWorkspaceIDKey,
+            "_cmux_remote_connection_id", "_cmux_remote_relay_authentication_code",
+            "_cmux_remote_relay_request_authentication_code"
+        ]
+        guard let contract = self.parameters(for: method) else { return "method" }
+        let allowed = contract.union(provenance)
+        if let unknown = parameters.keys.sorted().first(where: { !allowed.contains($0) }) {
+            return unknown
+        }
+        return unsupportedKey(in: parameters, allowed: allowed)
     }
 
     private func unsupportedKey(in value: Any, allowed: Set<String>) -> String? {

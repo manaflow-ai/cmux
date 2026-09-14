@@ -7434,7 +7434,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
         WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: id,
-            remoteRelayTokenHex: remoteConfiguration?.relayToken ?? ""
+            remoteRelayTokenHex: remoteConfiguration?.relayToken ?? "",
+            remoteSessionControllerID: activeRemoteSessionControllerID
         ).rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: remoteRelayWorkspaceIDAliases,

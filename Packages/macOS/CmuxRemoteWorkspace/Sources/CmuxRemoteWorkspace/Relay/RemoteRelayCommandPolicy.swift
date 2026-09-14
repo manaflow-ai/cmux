@@ -31,22 +31,6 @@ public struct RemoteRelayCommandPolicy: Sendable {
     public static let surfaceIDArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
     public static let ambiguousIDArrayKeys: Set<String> = ["tab_ids", "tab_id_groups"]
 
-    private static let allowedMethods: Set<String> = [
-        "system.ping", "system.capabilities",
-        "workspace.current", "workspace.remote.status", "workspace.remote.reconnect",
-        "workspace.remote.terminal_session_launching",
-        "workspace.remote.terminal_session_connected",
-        "workspace.remote.terminal_session_end",
-        "surface.list", "surface.current", "surface.read_text", "surface.read_selection",
-        "surface.split", "surface.close", "surface.send_text",
-        "surface.resume.set", "surface.resume.get", "surface.resume.clear",
-        "surface.report_tty", "surface.report_pwd", "surface.report_git_branch",
-        "surface.clear_git_branch", "surface.report_shell_state", "surface.ports_kick",
-        "agent.restore.admit", "agent.restore.release", "agent.resolve_delivery_target",
-        "notification.create", "notification.create_for_target",
-        "workspace.equalize_splits",
-    ]
-
     private static let commandKeys: Set<String> = [
         "command", "initial_command", "initial_input", "tmux_start_command",
         "pane_start_command", "working_directory", "startup_environment",
@@ -81,7 +65,7 @@ public struct RemoteRelayCommandPolicy: Sendable {
             return .deny(reason: "remote relay commands must be v2 JSON-RPC requests")
         }
         let method = rawMethod.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !method.isEmpty, Self.allowedMethods.contains(method) else {
+        guard !method.isEmpty, RemoteRelayRoutingSchema().parameters(for: method) != nil else {
             return .deny(reason: "method '\(rawMethod)' is not permitted through a remote relay")
         }
 
@@ -135,6 +119,8 @@ public struct RemoteRelayCommandPolicy: Sendable {
     }
 
     private func malformedSelector(in value: Any, key: String?) -> String? {
+        if let key, Self.workspaceIDKeys.union(Self.surfaceIDKeys).union(Self.ambiguousIDKeys).contains(key),
+           !(value is String) { return key }
         if let dictionary = value as? [String: Any] {
             for (childKey, childValue) in dictionary {
                 if let failure = malformedSelector(in: childValue, key: childKey) {

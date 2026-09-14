@@ -32,35 +32,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "workspace.equalize_splits",
     ]
 
-    private static let allowedMethods: Set<String> = Set([
-        "system.ping",
-        "system.capabilities",
-        "workspace.current",
-        "workspace.remote.status",
-        "workspace.remote.reconnect",
-        "workspace.remote.terminal_session_launching",
-        "workspace.remote.terminal_session_connected",
-        "workspace.remote.terminal_session_end",
-        "surface.list",
-        "surface.current",
-        "surface.read_text",
-        "surface.read_selection",
-        "surface.resume.set",
-        "surface.resume.get",
-        "surface.resume.clear",
-        "agent.restore.admit",
-        "agent.restore.release",
-        "surface.report_tty",
-        "surface.report_pwd",
-        "surface.report_git_branch",
-        "surface.clear_git_branch",
-        "surface.report_shell_state",
-        "surface.ports_kick",
-        "agent.resolve_delivery_target",
-        "notification.create",
-        "notification.create_for_target",
-    ]).union(tmuxCompatibleMethods)
-
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
@@ -168,7 +139,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         ownerWorkspaceID: UUID,
         surfaceIDs: Set<UUID>
     ) -> Decision {
-        guard Self.allowedMethods.contains(method) else {
+        guard RemoteRelayRoutingSchema().parameters(for: method) != nil else {
             return .denied(
                 code: "remote_relay_method_denied",
                 message: "Relay method is not permitted"
@@ -343,6 +314,10 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         ownerWorkspaceID: UUID,
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
+        if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
+           !(value is NSNull), !(value is String) {
+            return SelectorFailure(code: "remote_relay_surface_denied", message: "Relay selector is invalid")
+        }
         if let dictionary = value as? [String: Any] {
             for (childKey, childValue) in dictionary {
                 if let failure = validateSelectorValue(
