@@ -845,6 +845,21 @@ private func waitForReplayRequestCount(
     #expect(!consumed)
 }
 
+@Test func terminalOutputQueueBoundsNonreplaceableBacklog() {
+    var queue = TerminalOutputDeliveryQueue()
+    #expect(queue.enqueue(TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)) != nil)
+
+    for index in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        #expect(queue.enqueue(
+            TerminalOutputDelivery(bytes: Data("raw-\(index)".utf8), replaceable: false)
+        ) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+}
+
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

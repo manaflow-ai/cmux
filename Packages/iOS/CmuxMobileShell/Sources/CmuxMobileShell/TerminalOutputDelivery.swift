@@ -157,6 +157,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
         guard let replacementScope = delivery.replacementScope else {
+            guard pendingCount < Self.maxPendingDeliveries else {
+                overflowed = true
+                pending.removeAll(keepingCapacity: false)
+                pendingHeadIndex = 0
+                return
+            }
             pending.append(delivery)
             return
         }
