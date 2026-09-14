@@ -11,54 +11,10 @@ import Testing
 @Suite("Cloud manual mirror presentation")
 struct CloudManualMirrorPresentationTests {
     @Test
-    func readinessGateKeepsLoadingAcrossOutOfOrderReplayAndFrameEvents() {
-        var gate = CloudTerminalReadinessGate()
-        gate.begin(baselineFrame: 10)
-
-        // A replay may arrive before the native renderer is presented.
-        let replayBeforePresentation = gate.check(attachmentReady: true, rendererPresented: false, frameSequence: 11)
-        #expect(!replayBeforePresentation)
-        #expect(gate.firstPresentedFrame == nil)
-        // A frame from the old generation cannot dismiss the loader.
-        let staleFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 10)
-        #expect(!staleFrame)
-        #expect(gate.firstPresentedFrame == nil)
-        let firstPresentedFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 11)
-        #expect(firstPresentedFrame)
-        #expect(gate.firstPresentedFrame == 11)
-        let laterFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 12)
-        #expect(!laterFrame)
-
-        // Reconnect establishes a new generation baseline and requires a new frame.
-        gate.begin(baselineFrame: 20)
-        let reconnectBaseline = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 20)
-        #expect(!reconnectBaseline)
-        let reconnectFrame = gate.check(attachmentReady: true, rendererPresented: true, frameSequence: 21)
-        #expect(reconnectFrame)
-    }
-
-    @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connecting)
-        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true, firstFramePresented: true).connectionState == .connected)
+        #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connected)
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
-    }
-
-    @Test
-    func firstPresentedFrameDismissesTheReconnectPresentation() {
-        let state = CloudManualMirrorPresentation(
-            phase: .attached,
-            replayReceived: true,
-            firstFramePresented: true
-        ).connectionState
-        #expect(state == .connected)
-        #expect(CloudTerminalReconnectOverlayPolicy.presentation(
-            isManagedCloudWorkspace: true,
-            isRemoteTerminalSurface: true,
-            connectionState: .connected,
-            detail: nil
-        ) == nil)
     }
 
     @Test @MainActor
@@ -91,7 +47,7 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
-    func replayAloneKeepsTheCardUntilAVisibleFrame() async throws {
+    func usableAttachmentClearsTheCardWithoutRendererObservations() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
         defer { fixture.close() }
         let session = CloudTuiManualMirrorSession(
@@ -131,20 +87,24 @@ struct CloudManualMirrorPresentationTests {
             "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
             "data": Data("cmux@cloud> ".utf8).base64EncodedString()
         ])
-        #expect(session.connectionPresentation?.showsProgress == true)
+        deadline = ContinuousClock.now + .seconds(5)
+        while session.connectionPresentation != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(session.connectionPresentation == nil)
         session.inputRouter.send(.bytes(Data("pwd\n".utf8)))
         let input = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(input.cmd == "send")
         #expect(input.surface == 17)
-        // Renderer observations are absent, as during a portal handoff. The
-        // healthy byte attachment remains visibly loading until a frame lands.
+        // Renderer observations are absent, as during a portal handoff. A
+        // healthy byte attachment must not become a connection failure.
         #expect(hosted.surfaceView.renderedFrameSequence == 0)
         synchronize()
-        #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+        #expect(owner.overlay == nil)
         for visible in [false, true] {
             owner.updateAnchor(anchor, visible: visible, ownershipGeneration: 1)
             synchronize()
-            #expect(owner.overlay?.currentPresentation?.showsProgress == true)
+            #expect(owner.overlay == nil)
         }
 
         // A real transport failure must still be shown after successful use.
