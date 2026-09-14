@@ -291,7 +291,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         in words: [ShellWordRange],
         workingDirectory: String
     ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
+        let valueOptions = AgentLaunchSanitizer.workingDirectoryValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0

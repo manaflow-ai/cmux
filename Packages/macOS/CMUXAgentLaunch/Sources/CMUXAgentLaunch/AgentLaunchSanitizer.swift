@@ -1,6 +1,13 @@
 import Foundation
 
 public enum AgentLaunchSanitizer {
+    /// Options whose value names a working directory, in split (`--cwd dir`) or `=` form.
+    /// The app's binding-command canonicalization reads this same set, so a cwd flag added
+    /// here is recognized in both places.
+    public static let workingDirectoryValueOptions: Set<String> = [
+        "--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w",
+    ]
+
     // Runtime/interpreter flags may appear in captured process argv, but they
     // are not portable agent session options to replay after a resume command.
     // Values are token widths, including the option token itself.
@@ -259,7 +266,7 @@ public enum AgentLaunchSanitizer {
                 workingDirectoryValue(value, matches: $0)
             } == true
         }
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
+        let valueOptions = workingDirectoryValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
         let attachedShortValueOptions: Set<String> = ["-C", "-w"]
         var result: [String] = []
