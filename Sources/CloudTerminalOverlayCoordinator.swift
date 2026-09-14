@@ -82,10 +82,15 @@ final class CloudTerminalOverlayCoordinator {
         let dismissalID = hostedView.surfaceView.terminalSurface.map {
             "cloud.remote-reconnect.\($0.id.uuidString)"
         }
-        let effectiveCancel = onCancel ?? { [weak hostedView] in
-            guard let terminalSurface = hostedView?.surfaceView.terminalSurface,
-                  let panel = terminalSurface.owningWorkspace()?.panels[terminalSurface.id] as? TerminalPanel else { return }
-            panel.cloudStartupReadiness.end()
+        let effectiveCancel = { [weak self, weak hostedView] in
+            if let onCancel {
+                onCancel()
+            } else if let session = self?.session {
+                session.cancelConnectionAttempt()
+            } else if let terminalSurface = hostedView?.surfaceView.terminalSurface,
+                      let panel = terminalSurface.owningWorkspace()?.panels[terminalSurface.id] as? TerminalPanel {
+                panel.cloudStartupReadiness.end()
+            }
         }
         apply(
             visible ? presentation : nil,

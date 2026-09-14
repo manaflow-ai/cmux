@@ -143,6 +143,7 @@ extension Workspace {
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         if let surfaceId,
            let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
@@ -154,7 +155,6 @@ extension Workspace {
         // refused by `configureRemoteConnection`, and the enforcement observer
         // disconnects live ones; this covers the reconnect affordances in
         // between (sidebar, placeholder pane, socket `reconnect`).
-        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
         // Persistent SSH wrappers must not be launched while the management
