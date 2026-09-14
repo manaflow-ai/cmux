@@ -140,6 +140,22 @@ final class CloudWorkspaceRenameService {
         return (found.0, found.1)
     }
 
+    /// Converts a local workspace title into the daemon name used by the
+    /// legacy projection path, stripping the generated machine prefix when
+    /// requested while preserving explicit user text.
+    func remoteName(
+        fromLocalTitle title: String,
+        machine: SurfaceMachineID,
+        stripGeneratedPrefix: Bool = true
+    ) -> String? {
+        var name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "\(machine.rawValue): "
+        if stripGeneratedPrefix, name.hasPrefix(prefix) {
+            name = String(name.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return name.isEmpty ? nil : name
+    }
+
     /// Resolves the daemon tab represented by one local projection. An explicit
     /// tab id is authoritative. A legacy projection may infer a tab only when
     /// its workspace id agrees with the resource's sole current view. A stale
