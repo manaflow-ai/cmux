@@ -105,7 +105,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var name: String
         var receipt: CloudVMCursor
     }
-    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
+    var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
         links: CloudMachineLinkManager,
@@ -681,7 +681,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
+    static func remoteWorkspaces(_ state: CloudVMState) -> [SurfaceRemoteWorkspace] {
         state.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
