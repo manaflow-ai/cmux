@@ -21,7 +21,7 @@ extension CmuxTuiSurfaceProvider {
         // trails it. The receipt's revision is a CAS fence, not a timing guess.
         let refreshEstablishedCurrentGraph = await refreshCurrentGraph(force: true)
         try Task.checkCancellation()
-        let pendingCreation = pendingCreation(forTabID: id)
+        let pendingCreation: PendingRemoteCreation? = nil
         let pendingRename = pendingRemoteRename(for: .tab(id))
         let observed = cloudState
         let previous = observed?.tabs.first(where: { $0.id == id })
@@ -58,7 +58,6 @@ extension CmuxTuiSurfaceProvider {
                 )
                 let validated = try validatedReceipt(receipt, against: observedCursor)
                 recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
             } catch {
                 guard Self.isRevisionConflict(error),
                       await refreshCurrentGraph(force: true),
@@ -73,7 +72,6 @@ extension CmuxTuiSurfaceProvider {
                 )
                 let validated = try validatedReceipt(receipt, against: latestCursor)
                 recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
             }
         case .pendingReceipt:
             guard let receipt = pendingReceipt else {
@@ -86,7 +84,6 @@ extension CmuxTuiSurfaceProvider {
             )
             let validated = try validatedReceipt(committed, against: receipt)
             recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
-            recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
         case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
         case .unavailable:
