@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxWorkspaces
 import Foundation
 
 /// The shared local mutation for Cloud terminal tabs, splits, and sidebar creation.
