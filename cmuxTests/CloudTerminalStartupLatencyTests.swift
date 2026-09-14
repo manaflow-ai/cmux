@@ -43,6 +43,25 @@ struct CloudTerminalStartupLatencyTests {
         ))
     }
 
+    @Test
+    func revealRequiresAFrameNewerThanTheHiddenEpisode() {
+        var readiness = CloudTerminalStartupReadiness()
+        readiness.begin(baselineFrame: 7)
+        readiness.markAttached()
+        readiness.markReplayApplied()
+        readiness.beginVisiblePresentation(baselineFrame: 8)
+        #expect(!readiness.markFramePresented(
+            sequence: 8,
+            rendererPresented: true,
+            effectivelyVisible: true
+        ))
+        #expect(readiness.markFramePresented(
+            sequence: 9,
+            rendererPresented: true,
+            effectivelyVisible: true
+        ))
+    }
+
     @Test @MainActor
     func unresolvedSurfaceCannotStartAnAttachStream() async throws {
         let fixture = try CloudManualMirrorSocketFixture()

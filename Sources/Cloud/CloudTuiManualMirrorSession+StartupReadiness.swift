@@ -41,8 +41,10 @@ extension CloudTuiManualMirrorSession {
 
     func updateStartupVisibility(_ visible: Bool) {
         if visible {
+            startupReadiness.beginVisiblePresentation(
+                baselineFrame: surface?.hostedView.surfaceView.renderedFrameSequence ?? startupReadiness.baselineFrame
+            )
             armStartupDeadline()
-            updateStartupFrame()
             refreshSurfaceAfterStartupReplayIfNeeded()
         } else {
             startupDeadlineTask?.cancel()
