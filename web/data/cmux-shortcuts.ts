@@ -83,6 +83,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "toggleFileExplorer", combos: [["⌘", "⌥", "B"]], description: { en: "Toggle right sidebar", ja: "右サイドバーを切り替え" } },
       { id: "newTab", combos: [["⌘", "N"]], description: { en: "New workspace", ja: "新規ワークスペース" } },
       {
+        id: "newLocalWorkspace",
+        combos: [["⌃", "⌘", "N"]],
+        description: { en: "New local workspace", ja: "新規ローカルワークスペース" },
+        note: {
+          en: "opens a local workspace while a remote tmux mirror workspace is active, where New Workspace would start a session on that workspace's host instead",
+          ja: "リモート tmux ミラーワークスペースがアクティブなときでも、ローカルワークスペースを開きます（通常の新規ワークスペースはそのワークスペースのホスト上でセッションを開始します）",
+        },
+      },
+      {
         id: "newBrowserWorkspace",
         combos: [["⌥", "⌘", "N"]],
         description: { en: "New browser workspace", ja: "新規ブラウザワークスペース" },
