@@ -104,9 +104,9 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                 })
             }
         )
-        model.refreshPlan = { [weak model] in
-            guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
-            model?.applyPage(page)
+        model.refreshPlan = {
+            guard let client = VMClient.shared else { return nil }
+            return try? await client.listPage()
         }
         present(model: model, preferredWindow: preferredWindow)
     }
@@ -154,9 +154,9 @@ final class NewMachineSheetPresenter: NewMachineSheetPresenting {
                         return true
                     }
                 )
-                model.refreshPlan = { [weak model] in
-                    guard let client = VMClient.shared, let page = try? await client.listPage() else { return }
-                    model?.applyPage(page)
+                model.refreshPlan = {
+                    guard let client = VMClient.shared else { return nil }
+                    return try? await client.listPage()
                 }
                 model.onFinished = { [weak self] outcome in
                     if case .cancelled = outcome {

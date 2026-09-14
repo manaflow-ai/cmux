@@ -44,7 +44,7 @@ struct NewMachineSheet: View {
             + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await model.refreshPlan?() }
+            model.refreshPlanNow()
         }
 
     }
