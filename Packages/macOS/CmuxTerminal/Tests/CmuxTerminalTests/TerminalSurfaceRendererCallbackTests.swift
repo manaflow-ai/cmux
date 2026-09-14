@@ -11,10 +11,10 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
+        let context = fixture.callbackContext
 
         #expect(ghostty_surface_set_render_presented_callback(
             fixture.runtimeSurface,
@@ -35,10 +35,10 @@ import Testing
     }
 
     @Test func registeredFailureCallbackForwardsTokenAndTriggersOneRecoveryProbe() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
+        let context = fixture.callbackContext
         #expect(ghostty_surface_set_render_presented_callback(
             fixture.runtimeSurface,
             terminalRendererPresentedCallback,
@@ -64,10 +64,10 @@ import Testing
     }
 
     @Test func shellExitHealthSurvivesRendererRebuildAndPresentation() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = installCallbackContext(on: surface)
+        let context = fixture.callbackContext
         #expect(ghostty_surface_set_render_presented_callback(
             fixture.runtimeSurface,
             terminalRendererPresentedCallback,
@@ -102,27 +102,4 @@ import Testing
         #expect(surface.renderHealth == .shellExited)
     }
 
-    private func installCallbackContext(
-        on surface: TerminalSurface
-    ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        let callbackTarget = TerminalSurfaceCallbackTarget(surface: surface)
-        let context = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
-            surfaceHost: surface.surfaceView,
-            surfaceController: surface,
-            terminalLifecycleID: surface.terminalLifecycleId,
-            rendererFramePresented: { _, token in
-                MainActor.assumeIsolated {
-                    callbackTarget.surface?.rendererFrameDidPresent(token: token)
-                }
-            },
-            rendererFrameFailed: { _, token, status in
-                MainActor.assumeIsolated {
-                    callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
-                }
-            }
-        ))
-        surface.surfaceCallbackContext?.release()
-        surface.surfaceCallbackContext = context
-        return context
-    }
 }
