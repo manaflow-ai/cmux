@@ -41,6 +41,13 @@ final class CloudTuiManualIOAdmission: Sendable {
     /// Permanently rejects new callbacks, including from an already-queued bind.
     func invalidate() { state.withLock { $0.phase = .invalidated } }
 
+    /// Fences new callbacks when the downstream pending buffer is full.
+    func saturate() {
+        state.withLock { state in
+            if state.phase == .open { state.phase = .saturated }
+        }
+    }
+
     /// Rebinding opens admission without erasing outstanding reservations.
     @discardableResult
     func reopen() -> Bool {

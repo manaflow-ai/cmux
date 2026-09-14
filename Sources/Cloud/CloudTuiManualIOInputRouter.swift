@@ -67,10 +67,16 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             if connection != nil, !admission.reopen() { return }
             flushInputBytes()
             self.connection = connection
-            guard let connection else { return }
-            for line in pendingLines { connection.sendInput(line: line) }
-            pendingLines.removeAll(keepingCapacity: true)
-            pendingByteCount = 0
+            guard connection != nil else { return }
+            var handedOff = 0
+            for line in pendingLines {
+                guard handOff(line) else { break }
+                handedOff += 1
+                pendingByteCount -= line.count
+            }
+            // Only false is known not to have been retained. Replaying a true
+            // handoff after a transport failure could duplicate remote input.
+            pendingLines.removeFirst(handedOff)
         }
     }
 
@@ -164,17 +170,23 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
 
     private func sendCommand(_ command: [String: Any]) {
         guard let line = commandBuilder.line(command) else { return }
-        if let connection {
-            connection.sendInput(line: line)
-            return
-        }
+        if handOff(line) { return }
         guard pendingByteCount + line.count <= pendingByteLimit else {
-            pendingLines.removeAll(keepingCapacity: true)
-            pendingByteCount = 0
+            // Keep earlier known-unsent input intact when this buffer fills.
+            // Stop admitting callbacks until a ready connection can drain it.
+            admission.saturate()
             return
         }
         pendingLines.append(line)
         pendingByteCount += line.count
+    }
+
+    /// Direct input and pending replay share the same known-unsent decision.
+    private func handOff(_ line: Data) -> Bool {
+        guard let connection else { return false }
+        if connection.sendInput(line: line) { return true }
+        self.connection = nil
+        return false
     }
 
     private static func protocolKeyName(for name: String) -> String? {
