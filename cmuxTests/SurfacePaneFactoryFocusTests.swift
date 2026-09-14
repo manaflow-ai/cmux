@@ -157,7 +157,7 @@ import Testing
 
     @Test("Cloud pane failure retry invokes the original action")
     @MainActor
-    func cloudPaneFailureRetryInvokesAction() {
+    func cloudPaneFailureRetryInvokesAction() throws {
         let store = CloudPaneCreationFailureStore()
         let request = store.beginRequest()
         var retries = 0
@@ -169,7 +169,7 @@ import Testing
             requestID: request,
             retry: { retries += 1 }
         )
-        store.retry()
+        store.retry(id: try #require(store.failure?.id))
 
         #expect(retries == 1)
         #expect(store.failure == nil)
