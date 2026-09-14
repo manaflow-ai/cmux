@@ -151,6 +151,9 @@ final class NewMachineModel {
     /// The plan that sells the locked sizes; nil when nothing is locked.
     private(set) var memoryUpgradePlanId: String?
     private(set) var memoryUpgradePlansByMb: [String: String]?
+    /// The server advertised a ladder, but every size is locked for this plan.
+    /// Creation must stay disabled until the server returns an allowed size.
+    private(set) var hasNoAllowedMemoryOptions = false
     var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
     var refreshPlan: (@MainActor () async -> Void)?
@@ -213,6 +216,7 @@ final class NewMachineModel {
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
         memoryUpgradePlanId = updated.memoryUpgradePlanId
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
+        hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
     }
 
@@ -248,6 +252,7 @@ final class NewMachineModel {
         let allowed = serverOptions.filter { !locked.contains($0) }
         self.availableMemoryOptionsMb = allowed
         self.lockedMemoryOptionsMb = locked
+        self.hasNoAllowedMemoryOptions = mode == .newMachine && !serverOptions.isEmpty && allowed.isEmpty
         if locked.isEmpty {
             self.memoryUpgradePlanId = nil
         } else if let memoryUpgradePlanId, !Self.normalizedPlanId(memoryUpgradePlanId).isEmpty {

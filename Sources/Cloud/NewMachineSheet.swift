@@ -15,6 +15,13 @@ struct NewMachineSheet: View {
             if model.supportsSize {
                 sizeSection
             }
+            if model.hasNoAllowedMemoryOptions {
+                Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Refresh your plan, or upgrade before creating a machine."))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("NewMachineSheet.size.noneAllowed")
+            }
             planSection
             if let errorText = model.errorText {
                 errorBox(errorText)
@@ -185,6 +192,7 @@ struct NewMachineSheet: View {
                 Button(createTitle) {
                     model.create()
                 }
+                .disabled(model.hasNoAllowedMemoryOptions)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("NewMachineSheet.create")
