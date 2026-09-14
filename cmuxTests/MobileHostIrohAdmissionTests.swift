@@ -231,7 +231,6 @@ struct IrohTailscaleVersionSkewMacGateTests {
             id: UUID(),
             transport: transport,
             firstFrameTimeoutNanoseconds: 0,
-            idleTimeoutNanoseconds: 0,
             authorizeRequest: { request in
                 await MobileHostService.connectionAuthorizationError(
                     for: request,
@@ -292,7 +291,6 @@ struct IrohTailscaleVersionSkewMacGateTests {
             id: UUID(),
             transport: transport,
             firstFrameTimeoutNanoseconds: 0,
-            idleTimeoutNanoseconds: 0,
             authorizeRequest: { request in
                 await MobileHostService.connectionAuthorizationError(
                     for: request,

@@ -355,14 +355,19 @@ extension MobileShellComposite {
                       self.connectionRecoveryOwner.transitionToRedialing(attempt) else { return }
                 if let expectedClient {
                     guard self.remoteClient === expectedClient else { return }
-                    // Detach the stale shell synchronously on the main actor
-                    // before awaiting its transport teardown. This cancels every
-                    // tracked producer and makes untracked producers fail their
-                    // identity guard, so they cannot reopen the old endpoint
-                    // while the fresh stored-Mac dial starts.
-                    self.connectionState = .disconnected
-                    self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
+                    // Retire the stale client before the replacement dial, but
+                    // keep the foreground identity and last-known workspace
+                    // presentation while the replacement is being validated.
+                    // A path handoff is an implementation detail until the new
+                    // session fails; clearing connectionState here creates a
+                    // false disconnected flash and deactivates every terminal
+                    // lane even when replacement succeeds immediately.
+                    self.connectionGeneration = UUID()
+                    self.cancelRemoteOperationTasks()
+                    self.rawTerminalInputBuffer.clear()
+                    self.terminalInputRPCPipeline.clear()
+                    self.resumeRawTerminalInputDrainWaiters()
+                    await self.releaseRemoteClientForReplacement()
                     self.applyConnectionRecoveryOwnerState()
                     MobileDebugLog.anchormux(
                         "connection.recovery waiting for physical transport drain "
@@ -390,11 +395,6 @@ extension MobileShellComposite {
                                 + "attempt=\(attempt.id.uuidString)"
                     )
                 }
-                if self.connectionState == .connected {
-                    self.connectionState = .disconnected
-                    self.macConnectionStatus = .unavailable
-                    self.clearRemoteConnectionContext()
-                }
                 self.applyConnectionRecoveryOwnerState()
 
                 // Recovery uses authenticated local Iroh state first. A stuck
@@ -414,6 +414,12 @@ extension MobileShellComposite {
                     outcome: reconnectOutcome,
                     connectionGeneration: self.connectionGeneration
                 ) else { return }
+                if !reconnectOutcome.didConnect,
+                   self.connectionState == .connected {
+                    self.connectionState = .disconnected
+                    self.macConnectionStatus = .unavailable
+                    self.clearRemoteConnectionContext()
+                }
                 self.applyConnectionRecoveryOwnerState()
             } onCancel: {
                 MobileDebugLog.anchormux(
@@ -447,15 +453,16 @@ extension MobileShellComposite {
             try? await ContinuousClock().sleep(for: .seconds(seconds))
             guard let self, !Task.isCancelled else { return }
             guard self.connectionRecoveryOwner.isCurrent(attempt),
-                  self.connectionRecoveryOwner.isRedialingOrValidating,
-                  self.connectionState != .connected else { return }
+                  self.connectionRecoveryOwner.isRedialingOrValidating else { return }
             MobileDebugLog.anchormux(
                 "connection.recovery attempt deadline forced failure "
                     + "trigger=\(attempt.trigger) attempt=\(attempt.id.uuidString)"
             )
             guard self.connectionRecoveryOwner.failReplacement() != nil else { return }
             self.recordConnectionRecoveryFailed(attempt, failure: .timedOut)
+            self.connectionState = .disconnected
             self.macConnectionStatus = .unavailable
+            self.clearRemoteConnectionContext()
             self.applyConnectionRecoveryOwnerState()
             self.armAutomaticReconnectRetryAfterFailedAttempt(
                 failure: .timedOut,

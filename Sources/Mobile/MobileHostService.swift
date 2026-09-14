@@ -1367,7 +1367,6 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
-        idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
@@ -1398,8 +1397,6 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
-            idleTimeoutNanoseconds: idleTimeoutNanoseconds
-                ?? MobileHostConnection.defaultIdleTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
@@ -2039,7 +2036,6 @@ extension MobileHostService {
 
 actor MobileHostConnection {
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
-    fileprivate static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     private struct EventSubscription: Sendable {
         let topics: Set<String>
         let transport: MobileHostEventTransport
@@ -2079,7 +2075,6 @@ actor MobileHostConnection {
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
-    private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
@@ -2093,7 +2088,6 @@ actor MobileHostConnection {
     nonisolated let eventQueue: MobileHostConnectionEventQueue
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
-    private var idleTimeoutTask: Task<Void, Never>?
     private var responseTasks: [UUID: ResponseTask] = [:]
     /// PTY-writing requests are ordered PER SURFACE: ordering is only a
     /// property of one terminal, and a connection-wide FIFO would let one
@@ -2122,7 +2116,6 @@ actor MobileHostConnection {
         connection: NWConnection,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
-        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -2137,7 +2130,6 @@ actor MobileHostConnection {
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
-        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
@@ -2152,7 +2144,6 @@ actor MobileHostConnection {
         transport: any CmxByteTransport,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
-        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
@@ -2166,7 +2157,6 @@ actor MobileHostConnection {
         self.writer = MobileHostSerializedTransportWriter(transport: transport)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
-        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
@@ -2243,8 +2233,6 @@ actor MobileHostConnection {
         self.exit = exit
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
-        idleTimeoutTask?.cancel()
-        idleTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         // Rejects all future admissions and releases every queued payload; the
@@ -2278,8 +2266,6 @@ actor MobileHostConnection {
 
     private func handleReceive(data: Data) async {
         if !data.isEmpty {
-            idleTimeoutTask?.cancel()
-            idleTimeoutTask = nil
             // Message limits belong to individual frames. A receive chunk may
             // contain the tail of a maximum-size frame followed by another.
             receiveBuffer.append(data)
@@ -2314,7 +2300,6 @@ actor MobileHostConnection {
                 guard !isClosed else {
                     return
                 }
-                startIdleTimeout()
             } catch {
                 _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
@@ -2410,9 +2395,6 @@ actor MobileHostConnection {
             startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
         } else {
             orderedRequestQueuesBySurfaceKey[surfaceKey] = nil
-            if !hasActiveResponseWork {
-                startIdleTimeout()
-            }
         }
     }
 
@@ -2434,18 +2416,8 @@ actor MobileHostConnection {
         )
     }
 
-    private var hasActiveResponseWork: Bool {
-        !responseTasks.isEmpty
-            || !orderedRequestWorkerTasksBySurfaceKey.isEmpty
-            || !orderedRequestRunningFrameByteCountsBySurfaceKey.isEmpty
-            || orderedRequestQueuesBySurfaceKey.values.contains { !$0.isEmpty }
-    }
-
     private func finishResponseTask(_ taskID: UUID) {
         responseTasks[taskID] = nil
-        if !hasActiveResponseWork {
-            startIdleTimeout()
-        }
     }
 
     private func startFirstFrameTimeout() {
@@ -2468,37 +2440,6 @@ actor MobileHostConnection {
         }
         await close(
             reason: "first frame timed out",
-            exit: CmxIrohAdmittedConnectionExit(
-                lifecycle: .controlReadFailed,
-                failure: .timedOut
-            )
-        )
-    }
-
-    private func startIdleTimeout() {
-        guard idleTimeoutNanoseconds > 0,
-              didDecodeFirstFrame,
-              !isClosed,
-              subscriptions.isEmpty,
-              !hasActiveResponseWork else {
-            return
-        }
-        idleTimeoutTask?.cancel()
-        let timeoutNanoseconds = idleTimeoutNanoseconds
-        idleTimeoutTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                await self?.closeIfIdleAfterFrame()
-            } catch {}
-        }
-    }
-
-    private func closeIfIdleAfterFrame() async {
-        guard didDecodeFirstFrame, subscriptions.isEmpty, !hasActiveResponseWork else {
-            return
-        }
-        await close(
-            reason: "idle after frame timed out",
             exit: CmxIrohAdmittedConnectionExit(
                 lifecycle: .controlReadFailed,
                 failure: .timedOut
@@ -2814,8 +2755,6 @@ actor MobileHostConnection {
             previousTopics: previousTopics,
             nextTopics: topics
         )
-        idleTimeoutTask?.cancel()
-        idleTimeoutTask = nil
         if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
             await dispatchPendingSimulatorFrameReplay()
         }
@@ -2840,9 +2779,6 @@ actor MobileHostConnection {
             $0.transport == .irohServerEvents
         }) {
             await resetIndependentEventWriter()
-        }
-        if subscriptions.isEmpty {
-            startIdleTimeout()
         }
         return removed
     }
@@ -3130,11 +3066,6 @@ actor MobileHostConnection {
 extension MobileHostConnection {
     func debugStartFirstFrameTimeoutForTesting() {
         startFirstFrameTimeout()
-    }
-
-    func debugStartIdleTimeoutAfterFrameForTesting() {
-        didDecodeFirstFrame = true
-        startIdleTimeout()
     }
 
     func debugHandleReceiveDataForTesting(_ data: Data) async {

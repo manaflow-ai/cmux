@@ -11915,7 +11915,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionReconnecting() {
-        guard connectionState == .connected, remoteClient != nil else {
+        // Recovery retires the old RPC client before dialing its replacement,
+        // while the logical session remains presented as connected. Keep the
+        // reconnecting status visible during that ownership gap.
+        guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
         }

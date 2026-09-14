@@ -16,14 +16,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionClosesWhenFirstFrameTimesOut() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            transport: transport,
             firstFrameTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -46,14 +42,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionStaysOpenWhenIdleAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let connection = NWConnection(
-            host: NWEndpoint.Host("127.0.0.1"),
-            port: NWEndpoint.Port(rawValue: 9)!,
-            using: .tcp
-        )
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            transport: transport,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -69,7 +61,7 @@ extension MobileHostAuthorizationTests {
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
-    @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
+    @Test func testMobileHostConnectionKeepsSubscribedEventStreamIdle() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -88,12 +80,8 @@ extension MobileHostAuthorizationTests {
             }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        // An active subscription suppresses the idle-after-frame timeout: the
-        // arm path early-returns without scheduling any close. Awaiting an
-        // actor-isolated round-trip on the connection guarantees the arm call
-        // was fully processed and that the connection is still alive and
-        // subscribed, so the recorder reflects the final state with no
-        // wall-clock window to race.
+        // Subscriptions remain usable without requiring synthetic traffic. The
+        // host has no application-level idle deadline after admission.
         #expect(await session.isSubscribed(to: "terminal.updated"))
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
