@@ -15730,7 +15730,7 @@
 		A5001083 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"OTHER_SWIFT_FLAGS[arch=x86_64]" = "$(inherited) -save-temps";
+				"OTHER_SWIFT_FLAGS[arch=x86_64]" = "$(inherited) -save-temps -D CMUX_BUILD_PROFILE";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CMUX_AUTH_CALLBACK_SCHEME = cmux;
 				CMUX_IROH_RELAY_POLICY_KEY_ID = "cmux-production-relay-policy-2026-07";
