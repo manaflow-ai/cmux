@@ -74,7 +74,7 @@ struct CloudTreeRowContentView: View {
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
-            CloudTreeLeafRow(
+            CloudTreeLeafRow<EmptyView>(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
@@ -82,7 +82,7 @@ struct CloudTreeRowContentView: View {
                 titleWeight: workspace.focused ? .medium : .regular
             )
         case .localWorkspace(let row):
-            CloudTreeLeafRow(
+            CloudTreeLeafRow<EmptyView>(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
@@ -92,7 +92,7 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
-            CloudTreeLeafRow(
+            CloudTreeLeafRow<EmptyView>(
                 style: style,
                 icon: "display",
                 tint: CloudTreeIconPalette.display,
@@ -103,7 +103,7 @@ struct CloudTreeRowContentView: View {
         case .browsersGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil)
         case .browser(let row):
-            CloudTreeLeafRow(
+            CloudTreeLeafRow<EmptyView>(
                 style: style,
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
@@ -118,12 +118,12 @@ struct CloudTreeRowContentView: View {
                 helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
             )
         case .port(let resource, let url, _):
-            CloudTreeLeafRow(
+            CloudTreeLeafRow<EmptyView>(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText)
-                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
+                title: url.map { CloudTreePortLinkText.displayText(forURL: $0) }
+                    ?? (resource.id.forwardedPort ?? resource.port).map { String($0) }
                     ?? resource.title,
                 titleIsLink: url != nil,
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
