@@ -178,7 +178,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// Closes only this attachment connection. The remote terminal session stays
     /// owned by cmux-tui and can be attached again later.
     func close() {
-        admission.close()
+        admission.invalidate()
         queue.async { [self] in
             closeLocked()
         }
@@ -401,7 +401,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
-        admission.close()
+        admission.invalidate()
         inputWindow = CloudTuiManualIOInputWindow()
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)

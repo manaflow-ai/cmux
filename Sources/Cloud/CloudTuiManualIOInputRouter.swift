@@ -51,10 +51,10 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Rebinds pending input to a newly connected transport.
     func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
+            if connection != nil, !admission.reopen() { return }
             flushInputBytes()
             self.connection = connection
             guard let connection else { return }
-            admission.reopen()
             for line in pendingLines { connection.sendInput(line: line) }
             pendingLines.removeAll(keepingCapacity: true)
             pendingByteCount = 0
@@ -63,7 +63,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     func invalidate() {
-        admission.close()
+        admission.invalidate()
         queue.async { [self] in
             connection = nil
             inputBytes.removeAll(keepingCapacity: false)

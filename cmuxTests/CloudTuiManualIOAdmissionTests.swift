@@ -9,7 +9,7 @@ import Testing
     @Test func reopeningPreservesOutstandingReservations() {
         let admission = CloudTuiManualIOAdmission(maximumBytes: 10, maximumItems: 2)
         #expect(admission.reserve(4) == .reserved)
-        admission.close()
+        #expect(admission.reserve(7) == .rejected)
         #expect(admission.reserve(1) == .closed)
         admission.reopen()
         #expect(admission.reserve(6) == .reserved)
@@ -27,6 +27,17 @@ import Testing
         #expect(admission.reserve(0) == .reserved)
         #expect(admission.reserve(0) == .reserved)
         #expect(admission.reserve(0) == .rejected)
+    }
+
+    @Test func terminalInvalidationCannotReopenAfterReservationsDrain() {
+        let admission = CloudTuiManualIOAdmission()
+        #expect(admission.reserve(1) == .reserved)
+        admission.invalidate()
+        #expect(!admission.reopen())
+        #expect(admission.reserve(1) == .closed)
+        admission.release(1)
+        #expect(!admission.reopen())
+        #expect(admission.reserve(0) == .closed)
     }
 
     @Test func concurrentCallbacksCannotOverbookOrRepeatTheRejection() async {
