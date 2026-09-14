@@ -78,7 +78,10 @@ extension ReconnectRouteSelectionTests {
         )
 
         #expect(await closeGate.waitUntilCloseStarted())
-        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.store.connectionState == .disconnected)
+        #expect(fixture.store.remoteClient == nil)
+        #expect(fixture.store.foregroundMacDeviceID == "test-mac")
+        #expect(!fixture.store.workspaces.isEmpty)
         #expect(fixture.store.macConnectionStatus == .reconnecting)
         #expect(fixture.store.isRecoveringConnection)
         #expect(fixture.factory.attemptedKinds() == [.iroh])
