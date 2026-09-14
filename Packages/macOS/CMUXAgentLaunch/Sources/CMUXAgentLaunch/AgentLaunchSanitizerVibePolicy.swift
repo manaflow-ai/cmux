@@ -13,10 +13,14 @@ extension AgentLaunchSanitizer {
             "--max-price",
             "--max-tokens",
             "--output",
+            "--enabled-tools",
+            "--disabled-tools",
+            "--worktree",
         ],
         optionalValueOptions: [
             "--resume",
             "--prompt", "-p",
+            "--worktree",
         ],
         booleanOptions: [
             "--auto-approve", "--yolo",
