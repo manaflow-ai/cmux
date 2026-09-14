@@ -48,6 +48,21 @@ import Testing
         #expect(!features.contains { $0.symbol == "exclamationmark.triangle.fill" })
     }
 
+    @Test func whatsNewExplainsIosPairingAndUsesTheNewReleaseID() {
+        let page = MobileWhatsNewCatalog.connectionsUpdate
+        #expect(page.id == "connections.1.0.5")
+        guard case .features(let features) = page.body else {
+            Issue.record("connections update page lost its feature rows")
+            return
+        }
+        #expect(features.contains { feature in
+            feature.symbol == "iphone.gen3"
+                && feature.title == "Enable iOS pairing"
+                && feature.detail.contains("enable iOS Pairing")
+        })
+        #expect(page.footnote?.contains("Requires cmux") == true)
+    }
+
     @Test func presenceFooterIsNeutralOnOfficialBuilds() {
         let official = MacComputerDetailView.presenceFooter(buildType: .prod)
         #expect(!official.contains("DEV"))

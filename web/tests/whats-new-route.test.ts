@@ -14,7 +14,7 @@ const { GET, validateList } = await import("../app/api/whats-new/route");
  */
 describe("whats-new route channel targeting", () => {
   const base: WhatsNewList = {
-    visibleEntryIds: ["connections.v1"],
+    visibleEntryIds: ["connections.1.0.5"],
     announcements: [],
   };
   const announcement = {
@@ -50,7 +50,7 @@ describe("whats-new route channel targeting", () => {
   test("accepts a valid per-entry channel override including prod", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": ["dev", "beta", "internal", "prod"] },
+      entryChannels: { "connections.1.0.5": ["dev", "beta", "internal", "prod"] },
     };
     expect(validateList(list)).toEqual(list);
   });
@@ -76,7 +76,7 @@ describe("whats-new route channel targeting", () => {
   test("rejects unknown channel tokens (they fail closed on device)", () => {
     const list = {
       ...base,
-      entryChannels: { "connections.v1": ["official"] },
+      entryChannels: { "connections.1.0.5": ["official"] },
     } as unknown as WhatsNewList;
     expect(() => validateList(list)).toThrow(/must be one of dev, beta, internal, demo, prod/);
   });
@@ -84,10 +84,10 @@ describe("whats-new route channel targeting", () => {
   test("rejects an empty channel list (hidden everywhere is a retraction, not targeting)", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": [] },
+      entryChannels: { "connections.1.0.5": [] },
     };
     expect(() => validateList(list)).toThrow(
-      "entryChannels[connections.v1] must list at least one channel",
+      "entryChannels[connections.1.0.5] must list at least one channel",
     );
     const announcementList: WhatsNewList = {
       ...base,
@@ -101,10 +101,10 @@ describe("whats-new route channel targeting", () => {
   test("rejects duplicate channels", () => {
     const list: WhatsNewList = {
       ...base,
-      entryChannels: { "connections.v1": ["beta", "beta"] },
+      entryChannels: { "connections.1.0.5": ["beta", "beta"] },
     };
     expect(() => validateList(list)).toThrow(
-      "entryChannels[connections.v1] contains duplicate channel beta",
+      "entryChannels[connections.1.0.5] contains duplicate channel beta",
     );
   });
 

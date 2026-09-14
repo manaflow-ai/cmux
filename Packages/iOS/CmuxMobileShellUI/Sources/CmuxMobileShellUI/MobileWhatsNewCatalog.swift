@@ -92,12 +92,21 @@ enum MobileWhatsNewCatalog {
     /// positions in the FULL catalog so remotely hiding one entry cannot
     /// shift how other entries compare against the marker.
     static func index(ofID id: String) -> Int? {
-        entries.firstIndex { $0.id == id }
+        if let index = entries.firstIndex(where: { $0.id == id }) {
+            return index
+        }
+        // 1.0.4 acknowledged this page under its original id. Treat that
+        // marker as older than the replacement page so an upgrade still
+        // presents the new release notes instead of going quiet.
+        if id == "connections.v1" {
+            return entries.count
+        }
+        return nil
     }
 
     static var connectionsUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
-            id: "connections.v1",
+            id: "connections.1.0.5",
             releaseLabel: L10n.string(
                 "mobile.connectionsUpdate.releaseLabel",
                 defaultValue: "1.0.5 · August 2026"
@@ -149,6 +158,17 @@ enum MobileWhatsNewCatalog {
                     detail: L10n.string(
                         "mobile.connectionsUpdate.tailscale.detail",
                         defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
+                    )
+                ),
+                .init(
+                    symbol: "iphone.gen3",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.pairing.title",
+                        defaultValue: "Enable iOS pairing"
+                    ),
+                    detail: L10n.string(
+                        "mobile.connectionsUpdate.pairing.detail",
+                        defaultValue: "If this iPhone is not paired yet, enable iOS Pairing in cmux on your Mac before connecting."
                     )
                 ),
             ]),

@@ -152,7 +152,7 @@ public final class MobileWhatsNewCenter {
             )
         }
         let withCompatibilityCopy = channelAllowed.map { page -> MobileWhatsNewPage in
-            guard page.id == "connections.v1" else { return page }
+            guard page.id == "connections.1.0.5" else { return page }
             var updated = page
             updated.footnote = MobileWhatsNewCatalog.macUpdateFootnote(
                 buildType: buildType,

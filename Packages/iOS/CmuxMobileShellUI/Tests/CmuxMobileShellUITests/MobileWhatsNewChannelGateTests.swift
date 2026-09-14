@@ -53,13 +53,27 @@ import Testing
         }
     }
 
+    @Test func acknowledgedPreOnePointZeroFiveEntryStillShowsReplacementPage() {
+        let suiteName = "MobileWhatsNewChannelGateTests-legacy-marker-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set("connections.v1", forKey: MobileWhatsNewCenter.markerKey)
+        let center = MobileWhatsNewCenter(
+            apiBaseURL: nil,
+            appVersion: "1.0.5",
+            buildType: .beta,
+            defaults: defaults
+        )
+        #expect(center.unseenPages.map(\.id) == ["connections.1.0.5"])
+    }
+
     @Test func legacyPayloadWithoutChannelFieldsKeepsTeamBehavior() async {
         // The pre-channel server payload shape must keep decoding and must
         // keep meaning "team lanes only" (not "everyone").
-        let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
+        let payload = #"{"visibleEntryIds":["connections.1.0.5"],"announcements":[]}"#
         let team = makeCenter(buildType: .beta, payload: payload)
         await team.refresh()
-        #expect(team.visibleBinaryEntries.map(\.id) == ["connections.v1"])
+        #expect(team.visibleBinaryEntries.map(\.id) == ["connections.1.0.5"])
 
         let official = makeCenter(buildType: .prod, payload: payload)
         await official.refresh()
@@ -70,15 +84,15 @@ import Testing
     @Test func remoteEntryChannelsOptABinaryEntryIntoOfficial() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v1"],
-          "entryChannels": { "connections.v1": ["dev", "beta", "internal", "prod"] },
+          "visibleEntryIds": ["connections.1.0.5"],
+          "entryChannels": { "connections.1.0.5": ["dev", "beta", "internal", "prod"] },
           "announcements": []
         }
         """#
         let center = makeCenter(buildType: .prod, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v1"])
-        #expect(center.unseenPages.map(\.id) == ["connections.v1"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.1.0.5"])
+        #expect(center.unseenPages.map(\.id) == ["connections.1.0.5"])
     }
 
     @Test func remoteEntryChannelsCanAlsoNarrowTeamBuilds() async {
@@ -86,8 +100,8 @@ import Testing
         // operator can retract an entry from a single lane remotely.
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v1"],
-          "entryChannels": { "connections.v1": ["prod"] },
+          "visibleEntryIds": ["connections.1.0.5"],
+          "entryChannels": { "connections.1.0.5": ["prod"] },
           "announcements": []
         }
         """#
