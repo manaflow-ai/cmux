@@ -104,9 +104,18 @@ actor CloudMachineLink {
         case exited(status: Int32, output: String)
         case timedOut
         case inputTooLarge
+        case commandTimedOut
+        case commandOutputFailed(Int32)
+        case commandCleanupFailed
 
         var errorDescription: String? {
             switch self {
+            case .commandTimedOut:
+                return String(localized: "cloud.command.timedOut", defaultValue: "The Cloud command did not complete before its deadline. Try again.")
+            case .commandOutputFailed:
+                return String(localized: "cloud.command.outputFailed", defaultValue: "The Cloud command output could not be read. Try again.")
+            case .commandCleanupFailed:
+                return String(localized: "cloud.command.cleanupFailed", defaultValue: "The local Cloud command could not finish stopping. Try again after it exits.")
             case .inputTooLarge:
                 return String(localized: "cloud.link.inputTooLarge", defaultValue: "The machine input chunk is too large. Split it into smaller chunks and retry.")
             case .clientMissing:
@@ -125,6 +134,7 @@ actor CloudMachineLink {
     let machineID: String
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let commandClock: any Clock<Duration>
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
@@ -175,12 +185,14 @@ actor CloudMachineLink {
         machineID: String,
         clientURL: URL,
         paths: CloudTuiClientPaths,
+        commandClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
     ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.commandClock = commandClock
         self.eventsRecoveryClock = eventsRecoveryClock
         self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -429,83 +441,16 @@ actor CloudMachineLink {
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
     func run(arguments: [String], input: Data? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
         try await CloudOperationContext.phase(.process) {
-            try await self.runMeasured(arguments: arguments, input: input, timeout: timeout)
+            try await self.runMeasured(arguments: arguments, input: input, timeout: timeout, clock: self.commandClock)
         }
     }
 
-    private func runMeasured(arguments: [String], input: Data?, timeout: Duration) async throws -> Data {
-        let process = Process()
-        process.executableURL = clientURL
-        process.arguments = arguments
-        // Secret delivery writes at most 1 KiB per command. Prefill a bounded pipe
-        // before launch (below Darwin's 4 KiB pipe capacity), then close the writer;
-        // this needs no blocking writer task and cancellation cannot strand one.
-        let stdin = input.map { _ in Pipe() }
-        if let input, let stdin {
-            guard input.count <= 1_024 else { throw LinkError.inputTooLarge }
-            try stdin.fileHandleForWriting.write(contentsOf: input)
-            try stdin.fileHandleForWriting.close()
-            process.standardInput = stdin
-        } else {
-            process.standardInput = FileHandle.nullDevice
-        }
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        // Pipes drain on GCD (``CloudLinkPipe``) so a chatty command cannot deadlock on a
-        // full pipe and no cooperative thread sits in read(2) or waitpid(2); the exit
-        // arrives through the termination handler. A deadline terminates the child,
-        // which ends both drains with a non-zero status.
-        let exit = CloudLinkFirstValue<Int32>()
-        process.terminationHandler = { exited in exit.resolve(exited.terminationStatus) }
-        try process.run()
-        async let outData = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
-        async let errData = CloudLinkPipe.readToEnd(stderr.fileHandleForReading)
-        // `CloudLinkFirstValue.result` is cancellation-aware. Wait for it from a detached
-        // task so cancellation cannot release a still-running Foundation `Process`.
-        // `NSConcreteTask` aborts the whole app when that happens. Every return path below
-        // first terminates, then observes the real child exit.
-        let exitTask = Task.detached { await exit.result }
-        let outcome = await withTaskCancellationHandler {
-            await withTaskGroup(of: CloudLinkCommandOutcome.self) { group in
-                group.addTask {
-                    .exited(await exitTask.value ?? -1)
-                }
-                group.addTask {
-                    do {
-                        try await Task.sleep(for: timeout)
-                        return .timedOut
-                    } catch {
-                        return .cancelled
-                    }
-                }
-                let first = await group.next() ?? .cancelled
-                switch first {
-                case .exited:
-                    break
-                case .timedOut, .cancelled:
-                    if process.isRunning { process.terminate() }
-                }
-                group.cancelAll()
-                return first
-            }
-        } onCancel: {
-            if process.isRunning { process.terminate() }
-        }
-        // The task group does not return until its exit waiter observes termination.
-        // Reading terminationStatus is now safe on every path.
-        let status = process.terminationStatus
-        let out = await outData
-        let err = await errData
-        if Task.isCancelled || outcome == .cancelled { throw CancellationError() }
-        if outcome == .timedOut { throw LinkError.timedOut }
-        guard status == 0 else {
-            let text = String(data: err, encoding: .utf8) ?? ""
-            let fallback = String(data: out, encoding: .utf8) ?? ""
-            throw LinkError.exited(status: status, output: text.isEmpty ? fallback : text)
-        }
-        return out
+    private func runMeasured<CommandClock: Clock>(
+        arguments: [String], input: Data?, timeout: Duration, clock: CommandClock
+    ) async throws -> Data where CommandClock.Duration == Duration {
+        try await CloudCommandProcess(clock: clock).run(
+            executable: clientURL, arguments: arguments, input: input, timeout: timeout
+        )
     }
 
     // MARK: - internals
@@ -833,12 +778,6 @@ actor CloudMachineLink {
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
-}
-
-private enum CloudLinkCommandOutcome: Sendable, Equatable {
-    case exited(Int32)
-    case timedOut
-    case cancelled
 }
 
 /// GCD-driven reading of the link's child-process pipes. `FileHandle.bytes.lines` and

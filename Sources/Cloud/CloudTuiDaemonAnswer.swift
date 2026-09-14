@@ -25,9 +25,9 @@ enum CloudTuiDaemonAnswer: Equatable, Sendable {
             return
         }
         switch linkError {
-        case .timedOut:
+        case .timedOut, .commandTimedOut:
             self = .transportFailure("link deadline")
-        case .clientMissing, .spawnFailed:
+        case .clientMissing, .spawnFailed, .commandOutputFailed, .commandCleanupFailed:
             self = .transportFailure(CloudMachineLink.errorText(linkError))
         case .inputTooLarge:
             self = .unrecognized(CloudMachineLink.errorText(linkError))

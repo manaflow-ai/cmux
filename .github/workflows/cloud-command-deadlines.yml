@@ -1,0 +1,23 @@
+name: Cloud command deadlines
+on:
+  pull_request:
+    paths:
+      - Sources/Cloud/CloudMachineLink.swift
+      - Sources/Cloud/CloudCommand*.swift
+      - cmuxTests/CloudCommandDeadline*.swift
+      - tests/fixtures/cloud-command-deadlines/**
+      - tests/run_cloud_command_deadline_tests.sh
+      - .github/workflows/cloud-command-deadlines.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  process-regressions:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Exercise the real Cloud command runner in isolation
+        run: tests/run_cloud_command_deadline_tests.sh "$RUNNER_TEMP/issue-11008-${{ github.run_id }}"
