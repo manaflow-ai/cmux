@@ -6701,7 +6701,7 @@
 		66CA02CE5FE3E9DC871AD810 /* SurfaceCatalogModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogModel.swift; sourceTree = "<group>"; };
 		D01100800000000000000001 /* SurfaceCatalogQueryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryService.swift; sourceTree = "<group>"; };
 		D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogQueryServiceTests.swift; sourceTree = "<group>"; };
-				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Surfaces/SurfaceCatalogSnapshot+DeviceVisibility.swift"; sourceTree = "<group>"; };
+				3E14A2CEDB3FA23862A733F6 /* SurfaceCatalogSnapshot+DeviceVisibility.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Sources/Surfaces/SurfaceCatalogSnapshot+DeviceVisibility.swift"; sourceTree = "<group>"; };
 		877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalogTests.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000039 /* SurfaceDeviceInstanceID.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceDeviceInstanceID.swift; sourceTree = "<group>"; };
 				DEC1CE00000000000000003B /* SurfaceDevicePresence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceDevicePresence.swift; sourceTree = "<group>"; };
