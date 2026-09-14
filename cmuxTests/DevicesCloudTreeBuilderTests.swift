@@ -81,30 +81,39 @@ struct DevicesCloudTreeBuilderTests {
     }
 
     @MainActor
-    @Test("An online device row with workspace or terminal counts is taller than a two-line row")
-    func deviceRowHeightGrowsWithResourceSummary() throws {
+    @Test("Device rows keep This Mac's single-line height whatever their presence or counts")
+    func deviceRowsShareLocalMachineHeight() throws {
         let suite = "DeviceRowHeight-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let coordinator = makeCoordinator(defaults: defaults)
         let container = CloudTreeContainerView(coordinator: coordinator)
         let outline = try #require(coordinator.outlineView)
-        func node(linkState: SurfaceLinkState, workspaces: Int, terminals: Int) -> CloudTreeNode {
+        func node(_ instance: SurfaceDeviceInstanceID, linkState: SurfaceLinkState, workspaces: Int, terminals: Int) -> CloudTreeNode {
             let row = CloudTreeDeviceRow(
-                instance: studio, name: "Studio", presence: nil,
+                instance: instance, name: "Studio", presence: nil,
                 linkState: linkState, linkError: nil, workspaceCount: workspaces, terminalCount: terminals
             )
             return CloudTreeNode(id: CloudTreeNodeBuilder.nodeID(machine: row.machine), kind: .device(row))
         }
-        let idle = node(linkState: .connected, workspaces: 0, terminals: 0)
-        let busy = node(linkState: .connected, workspaces: 2, terminals: 3)
-        let offline = node(linkState: .offline, workspaces: 2, terminals: 3)
-        coordinator.apply(nodes: [idle, busy, offline])
-        let idleHeight = coordinator.outlineView(outline, heightOfRowByItem: idle)
-        let busyHeight = coordinator.outlineView(outline, heightOfRowByItem: busy)
-        let offlineHeight = coordinator.outlineView(outline, heightOfRowByItem: offline)
-        #expect(busyHeight > idleHeight, "the third resource line needs room instead of clipping")
-        #expect(offlineHeight == idleHeight, "offline Macs hide their counts and keep the two-line row")
+        let idle = node(studio, linkState: .connected, workspaces: 0, terminals: 0)
+        let busy = node(laptop, linkState: .connected, workspaces: 2, terminals: 3)
+        let offline = node(
+            SurfaceDeviceInstanceID(deviceID: "44444444-4444-4444-4444-444444444444", tag: "nightly"),
+            linkState: .offline, workspaces: 2, terminals: 3
+        )
+        let thisMac = CloudTreeNode(
+            id: CloudTreeNodeBuilder.nodeID(machine: .local),
+            kind: .localMachine(CloudTreeLocalMachineRow(name: "This Mac", terminalCount: 4, browserCount: 1))
+        )
+        coordinator.apply(nodes: [thisMac, idle, busy, offline])
+        let localHeight = coordinator.outlineView(outline, heightOfRowByItem: thisMac)
+        for device in [idle, busy, offline] {
+            #expect(
+                coordinator.outlineView(outline, heightOfRowByItem: device) == localHeight,
+                "counts and presence are an inline fact and a tooltip, never an extra line"
+            )
+        }
         _ = container
     }
 
@@ -475,6 +484,65 @@ struct DevicesCloudTreeBuilderTests {
         #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop", instance: laptop) == "Laptop (issue-8001)")
         #expect(CloudTreeDeviceRow.displayName(baseName: "Laptop (issue-8001)", instance: laptop) == "Laptop (issue-8001)", "a host already reports its instance name with the tag; qualifying it again must not double it")
         #expect(CloudTreeDeviceRow.displayName(baseName: "  ", instance: studio) == "22222222")
+        #expect(CloudTreeDeviceRow.baseName(from: "Laptop (issue-8001)", instance: laptop) == "Laptop")
+        #expect(CloudTreeDeviceRow.baseName(from: "Laptop (issue-8001) (issue-8001)", instance: laptop) == "Laptop", "a merged name can carry the suffix more than once")
+        #expect(CloudTreeDeviceRow.baseName(from: "Laptop (other)", instance: laptop) == "Laptop (other)", "only this instance's tag is a qualifier")
+        #expect(CloudTreeDeviceRow.baseName(from: "Studio (default)", instance: studio) == "Studio (default)", "stable names are never rewritten")
+        #expect(CloudTreeDeviceRow.baseName(from: "  ", instance: laptop) == "33333333")
+    }
+
+    @Test("The row shows a tag only for non-stable builds, and search matches name and tag")
+    func rowTagAndSearchTitle() {
+        func row(_ instance: SurfaceDeviceInstanceID, name: String) -> CloudTreeDeviceRow {
+            CloudTreeDeviceRow(
+                instance: instance, name: name, presence: nil, linkState: .connected,
+                linkError: nil, workspaceCount: 0, terminalCount: 0
+            )
+        }
+        let nightly = SurfaceDeviceInstanceID(deviceID: "44444444-4444-4444-4444-444444444444", tag: "nightly")
+        #expect(row(studio, name: "Studio").tagLabel == nil, "a stable Mac needs no qualifier")
+        #expect(row(laptop, name: "Laptop").tagLabel == "issue-8001")
+        #expect(row(nightly, name: "Mini").tagLabel == "nightly")
+        #expect(row(studio, name: "Studio").searchableTitle == "Studio")
+        #expect(row(laptop, name: "Laptop").searchableTitle == "Laptop issue-8001")
+
+        // The catalog name stays tag-qualified for CLI readers; the row strips it
+        // so the tag reads once, after the name, instead of three times.
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [
+                info(laptop, name: "Laptop (issue-8001)", online: true, linkState: .connected),
+                info(studio, name: "Studio", online: true, linkState: .connected),
+            ],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, source: .devices)
+        let byName = Dictionary(uniqueKeysWithValues: nodes.compactMap { node -> (String, CloudTreeNode)? in
+            guard case .device(let row) = node.kind else { return nil }
+            return (row.name, node)
+        })
+        #expect(byName.keys.sorted() == ["Laptop", "Studio"])
+        #expect(byName["Laptop"]?.searchableTitle == "Laptop issue-8001")
+        #expect(byName["Studio"]?.searchableTitle == "Studio")
+    }
+
+    @Test("Only a Mac that is not plainly online earns an inline status")
+    func inlineStatus() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func row(
+            online: Bool, link: SurfaceLinkState,
+            trust: SurfaceDevicePresence.AccountTrust = .sameAccount, error: String? = nil
+        ) -> CloudTreeDeviceRow {
+            CloudTreeDeviceRow(
+                instance: studio, name: "Studio", presence: presence(online: online, tag: "default", trust: trust),
+                linkState: link, linkError: error, workspaceCount: 0, terminalCount: 0
+            )
+        }
+        #expect(row(online: true, link: .connected).inlineStatus(now: now) == nil, "the undimmed row already says online")
+        #expect(row(online: false, link: .connected).inlineStatus(now: now) == nil, "a live link is online whatever presence says")
+        #expect(row(online: false, link: .offline).inlineStatus(now: now) == String(localized: "cloudTree.device.status.offline", defaultValue: "Offline"))
+        #expect(row(online: true, link: .connecting).inlineStatus(now: now) == String(localized: "cloudTree.device.status.connecting", defaultValue: "Connecting\u{2026}"))
+        #expect(row(online: true, link: .error, error: "Handshake failed").inlineStatus(now: now) == "Handshake failed")
+        #expect(row(online: true, link: .connected, trust: .otherAccount).inlineStatus(now: now) == String(localized: "cloudTree.device.status.otherAccount", defaultValue: "Another account"))
     }
 
     @Test(

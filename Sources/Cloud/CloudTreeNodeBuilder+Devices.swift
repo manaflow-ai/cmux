@@ -62,7 +62,9 @@ extension CloudTreeNodeBuilder {
         }
         let row = CloudTreeDeviceRow(
             instance: instance,
-            name: info.name,
+            // The catalog name is tag-qualified for CLI readers; the row shows
+            // the tag on its own, so the name goes back to the Mac's own.
+            name: CloudTreeDeviceRow.baseName(from: info.name, instance: instance),
             presence: info.presence,
             linkState: info.linkState,
             linkError: info.linkError,

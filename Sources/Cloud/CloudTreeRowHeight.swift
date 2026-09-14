@@ -19,11 +19,11 @@ struct CloudTreeRowHeight {
         switch node.kind {
         case .devicesEmpty(let section):
             return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section))
-        case .device(let row):
-            return GlobalFontMagnification.scaledSize(CloudTreeDeviceRowContent.rowHeight(for: row))
         case .machine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
-        case .localMachine, .pendingMachine:
+        // Devices sit on This Mac's single line: presence and counts are a dim
+        // inline fact and a tooltip, never extra lines.
+        case .localMachine, .pendingMachine, .device:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:
             return GlobalFontMagnification.scaledSize(style.rowHeight)

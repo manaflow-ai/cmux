@@ -1,12 +1,11 @@
 import SwiftUI
 
-/// Another Mac's row in the shared tree.
-///
-/// Devices follow the same information hierarchy as the iOS Computers list:
-/// a small platform avatar, the computer name, a primary connection line, and
-/// one quiet diagnostic line. The row deliberately has one presentation on
-/// macOS instead of inheriting all of the Cloud tree's visual presets; a
-/// computer is a destination, not a VM status card.
+/// Another Mac's header row, on the same grid as This Mac's row and the cloud
+/// machine rows: the desktop glyph in the leading slot, the name, a dim
+/// instance tag for non-stable builds (a nightly or a dev tag; a stable Mac
+/// shows none), and a dim status fact only when the Mac is not simply online.
+/// Single- or two-line per the style, like ``CloudTreeLocalMachineRowContent``;
+/// an offline Mac dims the way an exited terminal does.
 struct CloudTreeDeviceRowContent: View {
     let row: CloudTreeDeviceRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -14,108 +13,122 @@ struct CloudTreeDeviceRowContent: View {
     var now: Date = Date()
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            avatar
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(row.name)
-                        .cmuxFont(size: 13, weight: .medium)
-                        .foregroundStyle(row.isOnline ? .primary : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if let buildLabel = row.presence?.buildLabel {
-                        Text(buildLabel)
-                            .cmuxFont(size: 9, weight: .medium)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.07), in: Capsule())
+        switch style.machineRowLayout {
+        case .singleLine:
+            CloudTreeMachineBand(style: style) {
+                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
+                    glyph(size: max(style.iconSize, 9))
+                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                        name(weight: style.machineBand ? .semibold : .medium)
+                        tag
+                        if let status = row.inlineStatus(now: now) {
+                            statusText(status)
+                        }
                     }
-                }
-                Text(Self.subtitle(row, now: now))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if Self.showsResourceSummary(row) {
-                    Text(Self.resourceSummary(row))
-                        .cmuxFont(size: 10)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
                 }
             }
-            Spacer(minLength: 8)
-            presenceGlyph
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+        case .twoLine:
+            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
+                glyph(size: 9)
+                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                        name(weight: .medium)
+                        tag
+                        Spacer(minLength: 0)
+                    }
+                    .frame(height: style.machineNameLineHeight)
+                    Text(Self.subtitle(row, now: now))
+                        .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(height: style.machineSubtitleLineHeight)
+                }
+                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+            }
+            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
         }
-        .padding(.vertical, 5)
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel)
     }
 
-    private var avatar: some View {
+    private func glyph(size: CGFloat) -> some View {
         Image(systemName: "desktopcomputer")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-            .frame(width: CloudTreeRowGrid.dotSlot, height: 20, alignment: .center)
-        .accessibilityHidden(true)
+            .font(.system(size: size, weight: .regular))
+            .foregroundStyle(glyphStyle)
+            .accessibilityHidden(true)
     }
 
-    private var accessibilityLabel: String {
-        "\(row.name), \(Self.subtitle(row, now: now))"
+    private var glyphStyle: AnyShapeStyle {
+        if !row.isOnline { return AnyShapeStyle(.tertiary) }
+        return style.iconTreatment == .monochrome ? AnyShapeStyle(.secondary) : AnyShapeStyle(CloudTreeIconPalette.machine)
     }
 
-    /// A filled dot for a live device, a hollow one while its link is being
-    /// made, a dim dot when offline, and the warning color when the link failed.
+    private func name(weight: Font.Weight) -> some View {
+        Text(row.name)
+            .cmuxFont(size: style.machineNameSize, weight: weight, design: style.fontDesign)
+            .foregroundStyle(row.isOnline ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(1)
+    }
+
     @ViewBuilder
-    private var presenceGlyph: some View {
-        switch row.indicator {
-        case .online:
-            Circle()
-                .fill(Color.green)
-                .frame(width: 7, height: 7)
-                .help(String(localized: "cloudTree.device.presence.online", defaultValue: "Online"))
-        case .connecting:
-            Circle()
-                .strokeBorder(Color.green, lineWidth: 1.5)
-                .frame(width: 7, height: 7)
-                .help(String(localized: "cloudTree.device.presence.connecting", defaultValue: "Connecting"))
-        case .attention:
-            Circle()
-                .fill(Color.orange)
-                .frame(width: 7, height: 7)
-                .help(String(localized: "cloudTree.device.presence.attention", defaultValue: "Needs attention"))
-        case .offline:
-            Circle()
-                .fill(Color.secondary.opacity(0.35))
-                .frame(width: 7, height: 7)
-                .help(String(localized: "cloudTree.device.presence.offline", defaultValue: "Offline"))
+    private var tag: some View {
+        if let tagLabel = row.tagLabel {
+            Text(tagLabel)
+                .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
     }
 
-    /// Outline height for the two-line row (avatar, name, status) and for the
-    /// three-line row that adds the resource summary. Both rules live next to
-    /// the row body so the view and `heightOfRowByItem` cannot drift apart.
-    static let rowHeight: CGFloat = 48
-    static let rowHeightWithResourceSummary: CGFloat = 60
-
-    /// Only an online Mac with something to open shows the third line.
-    static func showsResourceSummary(_ row: CloudTreeDeviceRow) -> Bool {
-        row.isOnline && (row.workspaceCount > 0 || row.terminalCount > 0)
+    /// The failure color a failed create uses; every other status stays tertiary.
+    private func statusText(_ status: String) -> some View {
+        Text(status)
+            .cmuxFont(size: style.detailSize, design: style.fontDesign)
+            .foregroundStyle(row.indicator == .attention ? AnyShapeStyle(Color.orange.opacity(0.9)) : AnyShapeStyle(.tertiary))
+            .lineLimit(1)
+            .truncationMode(.tail)
     }
 
-    static func rowHeight(for row: CloudTreeDeviceRow) -> CGFloat {
-        showsResourceSummary(row) ? rowHeightWithResourceSummary : rowHeight
+    /// "Studio, issue-8001, Online, 2 workspaces · 3 terminals" for assistive technology.
+    var accessibilityLabel: String {
+        var parts = [row.name]
+        if let tagLabel = row.tagLabel { parts.append(tagLabel) }
+        parts.append(row.statusLabel(now: now))
+        let resources = Self.resourceSummary(row)
+        if !resources.isEmpty { parts.append(resources) }
+        return parts.joined(separator: ", ")
     }
 
-    /// The primary connection/presence line. Resource counts are rendered on a
-    /// separate line so the status remains easy to scan, matching iOS.
+    /// Name and tag over the full status and counts, for the row's tooltip:
+    /// the inline fact truncates in a narrow sidebar and an online Mac shows none.
+    var toolTip: String {
+        var lines = [row.searchableTitle, row.statusLabel(now: now)]
+        let resources = Self.resourceSummary(row)
+        if !resources.isEmpty { lines.append(resources) }
+        return lines.joined(separator: "\n")
+    }
+
+    /// The two-line layout's second line: status, then counts on an online Mac,
+    /// the shape This Mac's summary line takes.
     static func subtitle(_ row: CloudTreeDeviceRow, now: Date) -> String {
-        row.statusLabel(now: now)
+        let resources = resourceSummary(row)
+        guard !resources.isEmpty else { return row.statusLabel(now: now) }
+        return [row.statusLabel(now: now), resources].joined(separator: " · ")
     }
 
+    /// "2 workspaces · 3 terminals"; empty unless the Mac is online with something to open.
     static func resourceSummary(_ row: CloudTreeDeviceRow) -> String {
+        guard row.isOnline else { return "" }
         var parts: [String] = []
         if row.workspaceCount > 0 {
             parts.append(

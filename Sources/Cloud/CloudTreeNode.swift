@@ -186,7 +186,7 @@ final class CloudTreeNode: NSObject {
         case .port(let resource, let url, _):
             return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
-        case .device(let row): return row.name
+        case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")

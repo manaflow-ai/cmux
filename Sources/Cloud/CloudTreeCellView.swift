@@ -115,6 +115,9 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
+        } else if case .device(let row) = node.kind {
+            // Full status and counts: the row itself carries only a dim fact.
+            toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
         } else if showsCloudVPNWarning, case .portsGroup = node.kind {
             toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
         } else {
@@ -122,6 +125,8 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .device(let row) = node.kind {
+            setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
         } else {
             setAccessibilityLabel(showsCallout ? CloudPortsVPNWarning().setupTitle : node.searchableTitle)
         }

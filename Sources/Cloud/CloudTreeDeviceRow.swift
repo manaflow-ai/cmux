@@ -4,8 +4,8 @@ import Foundation
 /// machine row occupies, with account presence instead of a fleet status.
 struct CloudTreeDeviceRow: Equatable {
     let instance: SurfaceDeviceInstanceID
-    /// The device's display name, tag-qualified for non-default app instances
-    /// ("Studio (issue-8001)"), so two dev builds on one Mac stay distinguishable.
+    /// The device's own name, without any instance-tag suffix; the row shows
+    /// the tag separately (``tagLabel``) so a name is never qualified twice.
     let name: String
     let presence: SurfaceDevicePresence?
     let linkState: SurfaceLinkState
@@ -14,6 +14,17 @@ struct CloudTreeDeviceRow: Equatable {
     let terminalCount: Int
 
     var machine: SurfaceMachineID { .device(instance) }
+
+    /// The instance tag a non-stable build shows after its name ("nightly",
+    /// "issue-8001"); nil for the stable channel, whose name needs no qualifier.
+    var tagLabel: String? { instance.isDefaultTag ? nil : instance.tag }
+
+    /// What quick-search (`/`) and assistive technology match: the name plus
+    /// the tag, so a dev build is found by either.
+    var searchableTitle: String {
+        guard let tagLabel else { return name }
+        return "\(name) \(tagLabel)"
+    }
 
     /// Online means presence says so or the link is live (a Mac that answers
     /// is online whatever presence knows).
@@ -86,6 +97,15 @@ struct CloudTreeDeviceRow: Equatable {
         }
     }
 
+    /// The status worth a word on the row itself. A plainly online Mac shows
+    /// none (an undimmed row already says so, the way This Mac's row does);
+    /// everything else — offline, connecting, a failed link, another
+    /// account — earns the dim fact after the name.
+    func inlineStatus(now: Date = Date()) -> String? {
+        if indicator == .online, presence?.accountTrust != .otherAccount { return nil }
+        return statusLabel(now: now)
+    }
+
     /// "2m ago" / "3h ago" / "5d ago" for the offline fact.
     static func relativeAge(from date: Date, now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
@@ -103,12 +123,32 @@ struct CloudTreeDeviceRow: Equatable {
         return String(format: String(localized: "cloudTree.device.age.days", defaultValue: "%dd ago"), hours / 24)
     }
 
-    /// The tag-qualified display name the row and every progress label use.
+    /// The tag-qualified display name for text-only contexts (`surface.catalog`,
+    /// progress and error labels): "Studio (issue-8001)" for a dev build, the
+    /// bare name for stable. Idempotent — a host already reports its instance
+    /// name with this suffix (`MobileHostIdentity.instanceDisplayName`), and
+    /// qualifying it again must not read "Studio (issue-8001) (issue-8001)".
     static func displayName(baseName: String, instance: SurfaceDeviceInstanceID) -> String {
-        let trimmed = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = trimmed.isEmpty ? String(instance.deviceID.prefix(8)) : trimmed
+        let base = self.baseName(from: baseName, instance: instance)
         guard !instance.isDefaultTag else { return base }
-        let suffix = " (\(instance.tag))"
-        return base + suffix
+        return base + tagSuffix(for: instance)
+    }
+
+    /// The name without its instance-tag suffix, however many times a merge of
+    /// host, pairing, and registry names has applied it; an empty name falls
+    /// back to the device id's first eight characters.
+    static func baseName(from name: String, instance: SurfaceDeviceInstanceID) -> String {
+        var trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !instance.isDefaultTag {
+            let suffix = tagSuffix(for: instance)
+            while trimmed.hasSuffix(suffix) {
+                trimmed = String(trimmed.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return trimmed.isEmpty ? String(instance.deviceID.prefix(8)) : trimmed
+    }
+
+    private static func tagSuffix(for instance: SurfaceDeviceInstanceID) -> String {
+        " (\(instance.tag))"
     }
 }
