@@ -58,6 +58,11 @@ final class CloudPortAccessModel: Identifiable {
         return nil
     }
 
+    private var isFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+
     var isReady: Bool {
         switch phase { case .direct, .forwarded: return true; default: return false }
     }
@@ -98,7 +103,7 @@ final class CloudPortAccessModel: Identifiable {
         tunnelState = state
         guard !prefersForwarding, phase != .stopping else { return }
         if state == .up {
-            if phase == .needsVPN || (!prefersForwarding && phase == .failed) { connectDirect() }
+            if phase == .needsVPN || (!prefersForwarding && isFailed) { connectDirect() }
         } else {
             let wasUsingDirectRoute = phase == .direct
             generation += 1
