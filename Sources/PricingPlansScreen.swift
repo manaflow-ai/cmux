@@ -569,7 +569,7 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.free.feature.community", defaultValue: "Community support on Discord and GitHub"),
                 ]
             )
-            if CmuxFeatureFlags.shared.isGoPlanEnabled || snapshot.isGo {
+            if snapshot.isGo || (CmuxFeatureFlags.shared.isGoPlanEnabled && !snapshot.isPro) {
                 NativePricingPlanCard(
                     name: String(localized: "pricing.native.plan.go", defaultValue: "Go"),
                     price: String(localized: "pricing.native.go.price", defaultValue: "$10"),

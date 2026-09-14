@@ -209,7 +209,7 @@ export default async function PricingPage({
               <FeatureList items={freeFeatures} />
             </PlanCard>
 
-            {goPlanEnabled || isGo ? <>
+            {(isGo || (goPlanEnabled && !snapshot.isPro)) ? <>
             {/* Go: one small, capped Cloud VM for focused work. */}
             <PlanCard
               name={t("go.name")}
