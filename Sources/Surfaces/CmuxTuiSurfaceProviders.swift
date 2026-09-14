@@ -712,7 +712,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         publishPendingMutationMetadata()
     }
 
-    func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
+    private func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
         pendingRemoteRenames[key]
     }
 
