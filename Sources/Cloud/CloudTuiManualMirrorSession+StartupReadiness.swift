@@ -1,114 +1,86 @@
 import CmuxTerminal
 import Foundation
 
-/// First-frame readiness for one manual Cloud mirror attachment.
+/// Startup readiness driven by parser completion and native presentation receipts.
 @MainActor
 extension CloudTuiManualMirrorSession {
-    func beginStartupReadiness(on surface: TerminalSurface) {
+    func beginStartupReadiness() {
         endStartupReadiness()
-        startupReadiness.begin(baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence)
-        releaseStartupFrameDemand = surface.hostedView.surfaceView.retainLocalRenderedFrameNotifications()
-        startupFrameObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidRenderFrame,
-            object: surface.hostedView.surfaceView,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateStartupFrame() }
-        }
+        startupReadiness.begin(baselineFrame: 0)
         armStartupDeadline()
     }
 
     func resetStartupReadiness() {
-        startupReplayTask?.cancel()
-        startupReplayTask = nil
-        startupDeadlineTask?.cancel()
-        startupDeadlineTask = nil
-        startupReadiness.begin(baselineFrame: surface?.hostedView.surfaceView.renderedFrameSequence ?? 0)
-        if let surface, startupFrameObserver == nil {
-            beginStartupReadiness(on: surface)
-        }
+        endStartupReadiness()
+        startupReadiness.begin(baselineFrame: 0)
     }
 
     func updateStartupAttachment() {
         armStartupDeadline()
         recordStartupStage("attached")
-        _ = startupReadiness.markAttached()
-        publishStartupReadinessIfNeeded()
-        refreshSurfaceAfterStartupReplayIfNeeded()
+        startupReadiness.markAttached()
+        requestStartupPresentationIfNeeded()
     }
 
     func updateStartupReplay() {
-        guard !startupReadiness.replayApplied, startupReplayTask == nil, let surface else { return }
+        if startupReadiness.replayApplied { requestStartupPresentationIfNeeded(); return }
+        guard startupReplayTask == nil, let surface else { return }
         recordStartupStage("replay-received")
         startupReplayTask = Task { @MainActor [weak self, weak surface] in
             guard let self, let surface else { return }
             defer { if !Task.isCancelled { self.startupReplayTask = nil } }
             guard await surface.waitForRemoteOutput(), !Task.isCancelled,
                   self.surface === surface else { return }
-            self.startupReadiness.beginVisiblePresentation(
-                baselineFrame: surface.hostedView.surfaceView.renderedFrameSequence
-            )
             self.startupReadiness.markReplayApplied()
             self.recordStartupStage("replay-parsed")
-            self.refreshSurfaceAfterStartupReplayIfNeeded()
+            self.requestStartupPresentationIfNeeded()
         }
     }
 
     func updateStartupVisibility(_ visible: Bool) {
+        startupPresentationTask?.cancel()
+        startupPresentationTask = nil
         if visible {
             startupReadiness.beginVisiblePresentation(
-                baselineFrame: surface?.hostedView.surfaceView.renderedFrameSequence ?? startupReadiness.baselineFrame
+                baselineFrame: startupReadiness.presentedFrame ?? startupReadiness.baselineFrame
             )
             armStartupDeadline()
-            refreshSurfaceAfterStartupReplayIfNeeded()
+            requestStartupPresentationIfNeeded()
         } else {
             startupDeadlineTask?.cancel()
             startupDeadlineTask = nil
         }
     }
 
-    func updateStartupFrame() {
-        guard let surface else { return }
-        if startupReadiness.markFramePresented(
-            sequence: surface.hostedView.surfaceView.renderedFrameSequence,
-            rendererPresented: surface.isRendererPresented,
-            effectivelyVisible: surface.isRendererEffectivelyVisible
-        ) {
-            startupDeadlineTask?.cancel()
-            startupDeadlineTask = nil
-            publishStartupReadinessIfNeeded()
-        }
-    }
-
     func endStartupReadiness() {
         startupReplayTask?.cancel()
         startupReplayTask = nil
+        startupPresentationTask?.cancel()
+        startupPresentationTask = nil
         startupDeadlineTask?.cancel()
         startupDeadlineTask = nil
-        if let startupFrameObserver {
-            NotificationCenter.default.removeObserver(startupFrameObserver)
-            self.startupFrameObserver = nil
-        }
-        releaseStartupFrameDemand?()
-        releaseStartupFrameDemand = nil
     }
 
-    private func publishStartupReadinessIfNeeded() {
-        guard startupReadiness.isReady else { return }
-        startupDeadlineTask?.cancel()
-        startupDeadlineTask = nil
-        recordStartupStage("usable-frame")
-        surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
-        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
-    }
-
-    private func refreshSurfaceAfterStartupReplayIfNeeded() {
-        guard startupReadiness.replayApplied,
-              phase == .attached,
-              let surface,
-              surface.isNativeViewInRealWindow,
+    private func requestStartupPresentationIfNeeded() {
+        guard startupPresentationTask == nil, !startupReadiness.isReady,
+              startupReadiness.replayApplied, phase == .attached,
+              let surface, surface.isNativeViewInRealWindow,
               surface.isRendererEffectivelyVisible else { return }
-        surface.hostedView.refreshSurfaceNow(reason: "cloud.manualMirror.replay")
+        startupPresentationTask = Task { @MainActor [weak self, weak surface] in
+            guard let self, let surface else { return }
+            defer { if !Task.isCancelled { self.startupPresentationTask = nil } }
+            guard let token = await surface.waitForPresentedFrame(), !Task.isCancelled,
+                  self.surface === surface,
+                  self.startupReadiness.markFramePresented(
+                    sequence: token, rendererPresented: surface.isRendererPresented,
+                    effectivelyVisible: surface.isRendererEffectivelyVisible
+                  ) else { return }
+            self.startupDeadlineTask?.cancel()
+            self.startupDeadlineTask = nil
+            self.recordStartupStage("usable-frame")
+            surface.hostedView.synchronizeCloudTerminalReconnectOverlay()
+            surface.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }
     }
 
     func recordStartupStage(_ stage: String) {

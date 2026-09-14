@@ -188,6 +188,7 @@ extension TerminalSurface {
                 }
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
+            rendererPresentationState.completeFrameWaiters(nil)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
@@ -289,10 +290,7 @@ extension TerminalSurface {
         )
 #endif
     }
-
-    /// Explicitly retire this model and free its Ghostty runtime surface.
-    /// Idempotent — safe to call before deinit; deinit will skip the work if
-    /// already torn down.
+    /// Idempotently retires this model and frees its Ghostty runtime before deinit.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
@@ -314,6 +312,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        rendererPresentationState.completeFrameWaiters(nil)
         surface = nil
         guard let surfaceToFree else {
             callbackContext?.release()
@@ -409,6 +408,7 @@ extension TerminalSurface {
         if let surfaceToFree {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
+        rendererPresentationState.completeFrameWaiters(nil)
         surface = nil
         activePortalHostLease = nil
         portalHostAuthority = nil

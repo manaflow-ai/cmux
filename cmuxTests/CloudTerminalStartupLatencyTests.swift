@@ -146,7 +146,7 @@ struct CloudTerminalStartupLatencyTests {
         session.bind(surface: created.surface)
         let frames = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let observer = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidRenderFrame, object: created.surface.hostedView.surfaceView, queue: .main
+            forName: .workspaceRemoteConnectionPresentationDidChange, object: workspace, queue: .main
         ) { _ in frames.continuation.yield(()) }
         defer {
             NotificationCenter.default.removeObserver(observer)
@@ -178,7 +178,7 @@ struct CloudTerminalStartupLatencyTests {
             group.cancelAll()
             return result
         }
-        try #require(ready, "signals=\(session.startupReadiness), frame=\(created.surface.hostedView.surfaceView.renderedFrameSequence), visible=\(created.surface.isRendererEffectivelyVisible), presented=\(created.surface.isRendererPresented), window=\(created.surface.hostedView.window?.isVisible == true), demand=\(created.surface.hostedView.surfaceView.localRenderedFrameNotificationDemandIsActive)")
+        try #require(ready, "signals=\(session.startupReadiness), visible=\(created.surface.isRendererEffectivelyVisible), presented=\(created.surface.isRendererPresented), window=\(created.surface.hostedView.window?.isVisible == true)")
         #expect(created.surface.readText(region: .viewport)?.contains("Cloud startup ready") == true)
         #expect(session.connectionPresentation == nil)
         router.send(.bytes(Data("pwd\n".utf8)))

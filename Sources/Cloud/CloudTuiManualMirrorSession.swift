@@ -27,9 +27,7 @@ final class CloudTuiManualMirrorSession {
     var startupReplayTask: Task<Void, Never>?
     let startupStartedAt = ContinuousClock.now
     var startupStages: Set<String> = []
-    // MainActor owns observer/token mutation; unsafe only covers nonisolated ARC deinit.
-    nonisolated(unsafe) var startupFrameObserver: NSObjectProtocol?
-    nonisolated(unsafe) var releaseStartupFrameDemand: (() -> Void)?
+    var startupPresentationTask: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
     private(set) var surfaceResolutionPending: Bool
@@ -88,8 +86,7 @@ final class CloudTuiManualMirrorSession {
     private var interruption: CloudTerminalAttachmentInterruption?
     private var automaticReconnectSuppressed = false
     deinit {
-        if let startupFrameObserver { NotificationCenter.default.removeObserver(startupFrameObserver) }
-        startupDeadlineTask?.cancel(); startupReplayTask?.cancel(); releaseStartupFrameDemand?()
+        startupDeadlineTask?.cancel(); startupReplayTask?.cancel(); startupPresentationTask?.cancel()
     }
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
@@ -203,7 +200,7 @@ final class CloudTuiManualMirrorSession {
         surface.onManualVisibilityChanged = { [weak self] visible in
             self?.visibilityChanged(visible)
         }
-        beginStartupReadiness(on: surface)
+        beginStartupReadiness()
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
     }
