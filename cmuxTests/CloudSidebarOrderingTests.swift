@@ -118,7 +118,7 @@ struct CloudSidebarOrderingTests {
         #expect(pasteboard.writeObjects([try #require(writer)]))
         #expect(pasteboard.string(forType: .cloudSidebarRow) == folder.id)
         #expect(fixture.transferRegistry.resolve(from: pasteboard) == nil)
-        #expect(SurfaceResourceDragRegistry.shared.group(id: id) != nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
         writer = nil
         #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
     }

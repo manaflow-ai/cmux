@@ -265,8 +265,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     /// How far `frameOfCell` moves content past AppKit's default; the cell adds the
-    /// rest of `CloudTreeRowGrid.disclosureGap` so every row's content starts 6pt
-    /// after the 16pt disclosure slot (`indentationPerLevel`).
+    /// rest of `CloudTreeRowGrid.disclosureGap` for the hosted identity content.
     static let cellShift: CGFloat = leadingMargin - 6
 
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
