@@ -14,6 +14,8 @@ struct CloudInitialWorkspaceNamingTests {
     @Test("A creation-time rename survives delayed binding and the old remote snapshot")
     func creationRenameIsPreservedAcrossBinding() async throws {
         let fixture = try CloudNameAuthorityFixture()
+        let originalService = fixture.catalog.cloudWorkspaceRenameService
+        fixture.catalog.installCloudWorkspaceRenameService(fixture.renameService)
         do {
             fixture.workspace.cloudVMBinding = nil
             #expect(fixture.workspace.setCustomTitle("Chosen during creation", source: .user))
@@ -30,12 +32,15 @@ struct CloudInitialWorkspaceNamingTests {
             // The remote graph still has its older default name. Binding must
             // submit the local intent before that snapshot can overwrite it.
             try await fixture.settle()
-            #expect(fixture.provider.writes == [("a", "Chosen during creation")])
+            #expect(fixture.provider.writes.map { $0.0 } == ["a"])
+            #expect(fixture.provider.writes.map { $0.1 } == ["Chosen during creation"])
             #expect(fixture.workspace.title == "Chosen during creation")
         } catch {
+            fixture.catalog.installCloudWorkspaceRenameService(originalService)
             await fixture.close()
             throw error
         }
+        fixture.catalog.installCloudWorkspaceRenameService(originalService)
         await fixture.close()
     }
 }

@@ -293,6 +293,7 @@ final class CloudWorkspaceRenameService {
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
+        isBase: Bool? = nil,
         generatedTitle: String? = nil
     ) {
         guard let vmID = machine.cloudMachineID,
@@ -302,7 +303,7 @@ final class CloudWorkspaceRenameService {
         let sameMachine = previousBinding?.vmID == vmID
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: vmID,
-            isBase: sameMachine ? (previousBinding?.isBase ?? false) : false,
+            isBase: isBase ?? (sameMachine ? (previousBinding?.isBase ?? false) : false),
             remoteWorkspaceID: remoteWorkspaceID ?? (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         )
         // Local workspace creation historically records its creation title as
