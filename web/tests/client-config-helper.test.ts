@@ -136,6 +136,13 @@ describe("getClientConfig", () => {
       config: first,
     });
     expect(typeof stored.expiresAt).toBe("number");
+
+    // A fresh module after a full navigation can hydrate from localStorage.
+    const persisted = storage.getItem("cmux.client-config.v1");
+    await getClientConfig({ distinctId: "other-cache-id", context: {} });
+    storage.setItem("cmux.client-config.v1", persisted ?? "");
+    expect(await getClientConfig({ distinctId: "cache-id", context: {} })).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   test("deduplicates concurrent requests for the same evaluation", async () => {
