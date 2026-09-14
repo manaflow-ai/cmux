@@ -125,9 +125,6 @@ struct TerminalPanelView: View {
             .overlay(alignment: .top) {
                 CloudTerminalAttachmentBanner(status: panel.cloudAttachment)
             }
-            .overlay {
-                CloudTerminalStartupLoadingView(readiness: panel.cloudStartupReadiness)
-            }
 #if DEBUG
             .reportTerminalViewportGeometryForUITest(panel: panel)
 #endif

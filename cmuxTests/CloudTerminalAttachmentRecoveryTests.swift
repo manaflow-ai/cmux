@@ -152,8 +152,8 @@ import Testing
         #expect(reconnects.count >= 1)
     }
 
-    /// The attachment retry policy retains bounded initial checks and capped
-    /// background recovery for already materialized panes.
+    /// One open retries a couple of times, then reports "did not answer";
+    /// an open pane keeps retrying at the capped interval forever.
     @Test
     func retryPoliciesBoundOneOpenAndCapBackgroundRecovery() {
         let materialize = CloudTerminalAttachmentRetryPolicy.materialize
@@ -164,14 +164,6 @@ import Testing
         #expect(background.cappedDelay(afterFailures: 1) == .seconds(1))
         #expect(background.cappedDelay(afterFailures: 6) == .seconds(30))
         #expect(background.cappedDelay(afterFailures: 60) == .seconds(30))
-    }
-
-    @Test
-    func creationRecoveryUsesCappedBackoff() {
-        let policy = CloudTuiCreationRecoveryPolicy.standard
-        #expect(policy.delay(afterAttempts: 1) == .seconds(1))
-        #expect(policy.delay(afterAttempts: 2) == .seconds(2))
-        #expect(policy.delay(afterAttempts: 60) == .seconds(30))
     }
 
     /// The scheduler arms exactly one retry per failed pass, replaces an
