@@ -5,8 +5,9 @@ import { authorizedSubrouterTeams } from "../../../../../../services/subrouter/r
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request, context: { params: Promise<{ accountId: string }> }): Promise<Response> {
-  const resolved = await resolveCodeRouterRequestContext(request, "manage");
+  const resolved = await resolveCodeRouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
+  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const { accountId } = await context.params;
   if (!UUID.test(accountId)) return Response.json({ error: "invalid_request" }, { status: 400 });
   let body: unknown;
