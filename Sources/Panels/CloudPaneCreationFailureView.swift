@@ -6,13 +6,15 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
 
     /// Adds the failure card above the workspace content when a failure exists.
     func body(content: Content) -> some View {
-        content.overlay(alignment: .topTrailing) {
+        // Keep the failure attached to the workspace viewport. A top-trailing
+        // overlay can look like a second, detached terminal below the pane's
+        // title bar, especially after a split is rejected.
+        content.overlay(alignment: .center) {
             if let failure = failureStore.failure {
                 CloudPaneCreationFailureView(failure: failure) {
                     failureStore.dismiss(id: failure.id)
                 }
-                .padding(.top, 12)
-                .padding(.trailing, 16)
+                .padding(24)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }

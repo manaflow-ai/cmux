@@ -82,6 +82,45 @@ import Testing
         #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
     }
 
+    @Test("Cloud shortcut recovers a sole remote view when projection placement is temporarily absent")
+    func cloudShortcutRecoversSoleRemoteViewPlacement() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("placement-(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: "/remote/project")
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-placement", name: "placement", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-placement"),
+            title: "shell", detail: "/remote/home", lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-placement", workspace: remoteWorkspace)],
+            port: nil, url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        // Simulate a restored projection while the explicit placement fields are
+        // being refilled from the current resource snapshot.
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: nil,
+            remoteTabID: nil
+        ))
+
+        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        for _ in 0..<20 where provider.createdRemoteWorkspaceID == nil {
+            await Task.yield()
+        }
+        #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
+    }
+
     /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
     @Test("Failed cloud pane creation does not enter a process-modal run loop")
     func failedCloudPaneCreationStaysInWorkspaceState() async throws {
@@ -133,6 +172,13 @@ import Testing
 
         workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+    }
+
+    @Test("Cloud placement errors have a specific diagnostic")
+    func cloudPlacementErrorHasSpecificDiagnostic() {
+        let error = CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("vm-placement")
+        #expect(CloudDiagnosticFailure.classify(error) == .placement)
+        #expect(CloudDiagnosticFailure.classify(error).label.contains("placement"))
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
