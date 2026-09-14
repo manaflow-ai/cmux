@@ -344,8 +344,18 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
-        networkObserver = NotificationCenter.default.addObserver(forName: .cmuxCloudReadNetworkRecovered, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if self?.isVisible == true { self?.refresh() } }
+        networkObserver = NotificationCenter.default.addObserver(forName: .cmuxCloudReadNetworkChanged, object: nil, queue: .main) { [weak self] notification in
+            guard let online = notification.userInfo?["isOnline"] as? Bool else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if online {
+                    if self.isVisible { self.refresh() }
+                } else {
+                    self.clearUnavailableMetrics()
+                    self.lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
+                    self.listProblem = .unreachable
+                }
+            }
         }
     }
 
@@ -687,7 +697,7 @@ final class MachinesPanelViewModel: ObservableObject {
             listProblem = Self.classifyListFailure(error)
         } catch {
             clearUnavailableMetrics()
-            lastErrorDescription = String(describing: error)
+            lastErrorDescription = (error as? URLError)?.localizedDescription ?? String(describing: error)
             listProblem = .unreachable
         }
         isLoading = false

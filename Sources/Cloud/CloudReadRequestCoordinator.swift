@@ -25,13 +25,22 @@ actor CloudReadRequestCoordinator {
 
     struct Entry: Sendable {
         let id: UUID
-        let deadline: Duration
+        var deadline: Duration
         var waiters: [UUID: CheckedContinuation<Response, Error>]
         var work: Task<Void, Never>?
         var timer: Task<Void, Never>?
         var terminalError: URLError?
         var invalidated = false
         let operation: @Sendable () async throws -> Response
+        var pending: Pending?
+    }
+
+    struct Pending: Sendable {
+        let id: UUID
+        var deadline: Duration
+        var waiters: [UUID: CheckedContinuation<Response, Error>]
+        let operation: @Sendable () async throws -> Response
+        var timer: Task<Void, Never>?
     }
 
     private struct Cooldown {
@@ -39,25 +48,30 @@ actor CloudReadRequestCoordinator {
         let response: Response
     }
 
-    private let clock: CloudRequestClock
-    private let budget: Duration
+    private nonisolated let clock: CloudRequestClock
+    private nonisolated let budget: Duration
+    private let onNetworkChange: @Sendable (Bool) async -> Void
     private(set) var entries: [Key: Entry] = [:]
     private var networkTask: Task<Void, Never>?
     private var isOnline: Bool?
     private var cooldowns: [Key: Cooldown] = [:]
     private var nextCooldownExpiry: Duration?
 
-    init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30)) {
+    init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30),
+         onNetworkChange: @escaping @Sendable (Bool) async -> Void = { _ in }) {
         self.clock = clock
         self.budget = budget
+        self.onNetworkChange = onNetworkChange
     }
 
-    func read(_ key: Key, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
+    nonisolated func makeDeadline(elapsed: Duration = .zero) -> Duration { clock.now() + budget - elapsed }
+
+    func read(_ key: Key, deadline: Duration? = nil, operation: @escaping @Sendable () async throws -> Response) async throws -> Response {
         let waiter = UUID()
         let response = try await withTaskCancellationHandler {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
-                join(key, waiter: waiter, continuation: continuation, operation: operation)
+                join(key, waiter: waiter, deadline: deadline ?? makeDeadline(), continuation: continuation, operation: operation)
             }
         } onCancel: {
             Task { await self.cancel(key, waiter: waiter) }
@@ -67,22 +81,31 @@ actor CloudReadRequestCoordinator {
     }
 
     private func join(
-        _ key: Key, waiter: UUID, continuation: CheckedContinuation<Response, Error>,
+        _ key: Key, waiter: UUID, deadline: Duration, continuation: CheckedContinuation<Response, Error>,
         operation: @escaping @Sendable () async throws -> Response
     ) {
-        if let entry = entries[key] {
-            if let error = entry.terminalError {
-                continuation.resume(throwing: error)
-            } else if clock.now() >= entry.deadline {
-                expire(key, id: entry.id)
-                continuation.resume(throwing: URLError(.timedOut))
-            } else {
-                entries[key]?.waiters[waiter] = continuation
-            }
+        if clock.now() >= deadline {
+            continuation.resume(throwing: URLError(.timedOut))
             return
         }
         if isOnline == false {
             continuation.resume(throwing: URLError(.notConnectedToInternet))
+            return
+        }
+        if let entry = entries[key] {
+            if entry.terminalError != nil {
+                queueAfterTeardown(key, waiter: waiter, deadline: deadline, continuation: continuation, operation: operation)
+            } else if clock.now() >= entry.deadline {
+                expire(key, id: entry.id)
+                queueAfterTeardown(key, waiter: waiter, deadline: deadline, continuation: continuation, operation: operation)
+            } else {
+                entries[key]?.waiters[waiter] = continuation
+                if deadline < entry.deadline {
+                    entries[key]?.deadline = deadline
+                    entries[key]?.timer?.cancel()
+                    armTimer(key, id: entry.id, deadline: deadline)
+                }
+            }
             return
         }
         let now = clock.now()
@@ -94,14 +117,67 @@ actor CloudReadRequestCoordinator {
             continuation.resume(returning: cooldown.response)
             return
         }
-        let id = UUID()
-        let deadline = now + budget
-        entries[key] = Entry(id: id, deadline: deadline, waiters: [waiter: continuation], operation: operation)
+        startEntry(key, id: UUID(), deadline: deadline, waiters: [waiter: continuation], operation: operation)
+    }
+
+    private func startEntry(
+        _ key: Key, id: UUID, deadline: Duration, waiters: [UUID: CheckedContinuation<Response, Error>],
+        operation: @escaping @Sendable () async throws -> Response
+    ) {
+        if clock.now() >= deadline || isOnline == false {
+            let error = URLError(isOnline == false ? .notConnectedToInternet : .timedOut)
+            for waiter in waiters.values { waiter.resume(throwing: error) }
+            return
+        }
+        if let cooldown = cooldowns[key], cooldown.until > clock.now() {
+            for waiter in waiters.values { waiter.resume(returning: cooldown.response) }
+            return
+        }
+        entries[key] = Entry(id: id, deadline: deadline, waiters: waiters, operation: operation)
         startWork(key, id: id, operation: operation)
+        armTimer(key, id: id, deadline: deadline)
+    }
+
+    private func armTimer(_ key: Key, id: UUID, deadline: Duration) {
         entries[key]?.timer = Task { [weak self, clock] in
             do { try await clock.sleepUntil(deadline) } catch { return }
             await self?.expire(key, id: id)
         }
+    }
+
+    private func queueAfterTeardown(
+        _ key: Key, waiter: UUID, deadline: Duration, continuation: CheckedContinuation<Response, Error>,
+        operation: @escaping @Sendable () async throws -> Response
+    ) {
+        if let pending = entries[key]?.pending, clock.now() >= pending.deadline {
+            expirePending(key, id: pending.id)
+        }
+        if let pending = entries[key]?.pending {
+            entries[key]?.pending?.waiters[waiter] = continuation
+            if deadline < pending.deadline {
+                entries[key]?.pending?.deadline = deadline
+                entries[key]?.pending?.timer?.cancel()
+                armPendingTimer(key, id: pending.id, deadline: deadline)
+            }
+            return
+        }
+        let id = UUID()
+        entries[key]?.pending = Pending(id: id, deadline: deadline, waiters: [waiter: continuation], operation: operation)
+        armPendingTimer(key, id: id, deadline: deadline)
+    }
+
+    private func armPendingTimer(_ key: Key, id: UUID, deadline: Duration) {
+        entries[key]?.pending?.timer = Task { [weak self, clock] in
+            do { try await clock.sleepUntil(deadline) } catch { return }
+            await self?.expirePending(key, id: id)
+        }
+    }
+
+    private func expirePending(_ key: Key, id: UUID, error: URLError = URLError(.timedOut)) {
+        guard let pending = entries[key]?.pending, pending.id == id else { return }
+        entries[key]?.pending = nil
+        pending.timer?.cancel()
+        for waiter in pending.waiters.values { waiter.resume(throwing: error) }
     }
 
     private func startWork(_ key: Key, id: UUID, operation: @escaping @Sendable () async throws -> Response) {
@@ -138,7 +214,16 @@ actor CloudReadRequestCoordinator {
     }
 
     private func cancel(_ key: Key, waiter: UUID) {
-        guard let continuation = entries[key]?.waiters.removeValue(forKey: waiter) else { return }
+        guard let continuation = entries[key]?.waiters.removeValue(forKey: waiter) else {
+            if let continuation = entries[key]?.pending?.waiters.removeValue(forKey: waiter) {
+                continuation.resume(throwing: CancellationError())
+                if entries[key]?.pending?.waiters.isEmpty == true {
+                    entries[key]?.pending?.timer?.cancel()
+                    entries[key]?.pending = nil
+                }
+            }
+            return
+        }
         continuation.resume(throwing: CancellationError())
         if entries[key]?.waiters.isEmpty == true {
             entries[key]?.terminalError = URLError(.cancelled)
@@ -170,6 +255,10 @@ actor CloudReadRequestCoordinator {
         guard let completed = entries.removeValue(forKey: key) else { return }
         completed.timer?.cancel()
         for continuation in completed.waiters.values { continuation.resume(with: result) }
+        if let pending = completed.pending {
+            pending.timer?.cancel()
+            startEntry(key, id: pending.id, deadline: pending.deadline, waiters: pending.waiters, operation: pending.operation)
+        }
     }
 
     func observeNetwork(_ monitor: CloudReadNetworkMonitor) {
@@ -183,14 +272,15 @@ actor CloudReadRequestCoordinator {
     }
 
     func networkChanged(isOnline: Bool) async {
-        let recovered = self.isOnline == false && isOnline
+        let changed = self.isOnline != isOnline && (self.isOnline != nil || !isOnline)
         self.isOnline = isOnline
         if !isOnline {
-            for (key, entry) in entries { expire(key, id: entry.id, error: URLError(.notConnectedToInternet)) }
+            for (key, entry) in entries {
+                expire(key, id: entry.id, error: URLError(.notConnectedToInternet))
+                if let pending = entry.pending { expirePending(key, id: pending.id, error: URLError(.notConnectedToInternet)) }
+            }
         }
-        if recovered {
-            await MainActor.run { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
-        }
+        if changed { await onNetworkChange(isOnline) }
     }
 
     deinit {
@@ -199,6 +289,10 @@ actor CloudReadRequestCoordinator {
             entry.work?.cancel()
             entry.timer?.cancel()
             for continuation in entry.waiters.values { continuation.resume(throwing: CancellationError()) }
+            if let pending = entry.pending {
+                pending.timer?.cancel()
+                for waiter in pending.waiters.values { waiter.resume(throwing: CancellationError()) }
+            }
         }
     }
 }

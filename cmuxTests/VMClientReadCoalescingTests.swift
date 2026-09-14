@@ -54,7 +54,7 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.waitUntilStopped()
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)
-        NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil)
+        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": true])
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
     }
 
@@ -86,6 +86,21 @@ struct VMClientReadCoalescingTests {
         try await eventually { !model.isLoading && model.machines.first?.stats == nil }
         #expect(model.machines.count == 1)
         #expect(model.listProblem == nil)
+    }
+
+    @Test("Known offline state clears live samples without waiting for the next poll")
+    func offlinePresentation() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let model = MachinesPanelViewModel(client: fixture.client)
+        defer { model.stopPolling() }
+        model.refresh()
+        try await eventually { model.machines.first?.stats?.state == .awake }
+        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
+        #expect(model.machines.first?.stats == nil)
+        #expect(model.listProblem == .unreachable)
+        #expect(model.lastErrorDescription == URLError(.notConnectedToInternet).localizedDescription)
     }
 
     @Test("The VM operation budget cancels a slow transport")
