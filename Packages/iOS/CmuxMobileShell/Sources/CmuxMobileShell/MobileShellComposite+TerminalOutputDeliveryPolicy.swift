@@ -2,6 +2,13 @@ import CMUXMobileCore
 import Foundation
 
 extension MobileShellComposite {
+    /// Unclassified output cannot prove that it is a safe primary-screen
+    /// delta, so verified render-grid mode keeps it behind replay.
+    func requiresVerifiedReplayForUnclassifiedDelivery() -> Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+    }
+
     /// Whether a chunk must apply through the verified freeze/replay/verify/
     /// reveal pipeline. Full render-grid replacements and alternate-screen
     /// deltas use this path because they establish or patch a baseline that

@@ -45,12 +45,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
-    init(theme frame: MobileTerminalRenderGridFrame) {
+    init(
+        theme frame: MobileTerminalRenderGridFrame,
+        requiresVerifiedReplay: Bool = false
+    ) {
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
         self.endSequence = nil
-        self.requiresVerifiedReplay = false
+        self.requiresVerifiedReplay = requiresVerifiedReplay
     }
 
     init(

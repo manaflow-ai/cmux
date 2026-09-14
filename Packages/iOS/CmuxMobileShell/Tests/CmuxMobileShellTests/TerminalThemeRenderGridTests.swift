@@ -107,6 +107,7 @@ import Testing
     let themeChunk = try #require(await outputIterator.next())
     let themeBytes = try #require(String(data: themeChunk.data, encoding: .utf8))
     #expect(themeChunk.terminalConfigTheme == light)
+    #expect(themeChunk.requiresVerifiedReplay)
     #expect(themeBytes.contains("\u{1B}]11;rgb:f4/f0/df\u{1B}\\"))
     #expect(!themeBytes.contains("\u{1B}[2J"))
 

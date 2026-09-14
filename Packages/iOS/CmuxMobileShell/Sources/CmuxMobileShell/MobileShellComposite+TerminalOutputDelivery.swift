@@ -391,7 +391,8 @@ extension MobileShellComposite {
                 bytes: bytes,
                 replaceable: false,
                 viewportPolicy: .natural,
-                endSequence: endSequence
+                endSequence: endSequence,
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -440,7 +441,10 @@ extension MobileShellComposite {
         bypassReplayBarrier: Bool = false
     ) -> Bool {
         deliverTerminalOutput(
-            TerminalOutputDelivery(theme: frame),
+            TerminalOutputDelivery(
+                theme: frame,
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+            ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
         )
@@ -452,7 +456,8 @@ extension MobileShellComposite {
                 bytes: Data(),
                 replaceable: true,
                 replacementScope: .viewportPolicy,
-                viewportPolicy: policy
+                viewportPolicy: policy,
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
             ),
             surfaceID: surfaceID
         )
