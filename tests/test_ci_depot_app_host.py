@@ -19,6 +19,7 @@ JOB = yaml.safe_load((ROOT / ".github/workflows/test-depot.yml").read_text())["j
 
 class DepotAppHostTests(unittest.TestCase):
     def setUp(self):
+        """Sandbox the real launcher; simulate only Xcode and the OS session hop."""
         self.temporary = tempfile.TemporaryDirectory(prefix="cmux-depot-contract-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
@@ -95,15 +96,17 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
         })
 
     def write_executable(self, path, text):
+        """Install an executable fixture inside this test's temporary checkout."""
         path.write_text(text)
         path.chmod(0o755)
 
     def step(self, name):
+        """Execute a checked-in workflow step and carry its published environment."""
         step = next((step for step in JOB["steps"] if step.get("name") == name), None)
         self.assertIsNotNone(step, name)
         result = subprocess.run(
             ["bash", "-c", step["run"]], cwd=self.root, env=self.environment,
-            capture_output=True, text=True, timeout=40,
+            capture_output=True, text=True,
         )
         env_path = self.root / "github-env"
         if env_path.exists():
@@ -113,31 +116,44 @@ print('Test run with 2 tests in 1 suite passed after 0.001 seconds.')
         return result
 
     def prepare(self):
+        """Create the same scoped build and configuration roots as the hosted job."""
         for name in ("Prepare isolated DerivedData", "Prepare isolated app-host home"):
             result = self.step(name)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.addCleanup(self.teardown_host)
 
     def teardown_host(self):
+        """Verify all setup-owned paths are reclaimed through normal teardown."""
         result = self.step("Clean up isolated app-host home")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertFalse(Path(self.environment["CMUX_APP_HOST_HOME"]).exists())
+        for key in ("CMUX_APP_HOST_HOME", "CMUX_APP_HOST_RECEIPT_DIR", "CMUX_APP_HOST_CONFIRMATION_FILE"):
+            self.assertFalse(Path(self.environment[key]).exists(), key)
+
+    def assert_selected_suites(self):
+        """Require one invocation for each selector, including on a failing run."""
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        self.assertEqual(len(calls), 2)
+        self.assertCountEqual(
+            ["-only-testing:cmuxTests/ClaudeFixture", "-only-testing:cmuxTests/CodexFixture"],
+            [arg for call in calls for arg in call["args"] if arg.startswith("-only-testing:")],
+        )
 
     def test_selected_suites_use_shared_isolated_console_launch(self):
+        """The real launch wrapper supplies isolation, CI identity, and locking."""
         self.prepare()
         result = self.step("Run unit tests")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
-        self.assertEqual(len(calls), 2)
+        self.assert_selected_suites()
         self.assertEqual(result.stdout.count("category=tests passed"), 2)
         self.assertEqual(len(list((self.root / "results").glob("suite.*/result.xcresult"))), 2)
 
     def test_assertions_stay_red_without_retrying_or_dropping_later_suites(self):
+        """A first-suite failure neither retries nor prevents the second suite."""
         self.prepare()
         self.environment["CMUX_FIXTURE_OUTCOME"] = "assertion"
         result = self.step("Run unit tests")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(len((self.root / "calls.jsonl").read_text().splitlines()), 2)
+        self.assert_selected_suites()
         self.assertEqual(result.stdout.count("category=test assertion failure"), 2)
 
 
