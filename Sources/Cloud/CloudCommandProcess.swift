@@ -51,11 +51,11 @@ actor CloudCommandProcess<DeadlineClock: Clock> where DeadlineClock.Duration == 
         // kqueue observes exit without reaping. The zombie leader reserves its PID/PGID
         // until all group signals have been sent; no late signal can target a reused PID.
         let source = DispatchSource.makeProcessSource(identifier: child.pid, eventMask: .exit, queue: .global())
-        source.setEventHandler { [self] in Task { await didExit() } }
+        source.setEventHandler { @Sendable [self] in Task { await didExit() } }
         exitSource = source
         source.activate()
-        Task { await didDrain(await stdout.read(), standardError: false) }
-        Task { await didDrain(await stderr.read(), standardError: true) }
+        Task { didDrain(await stdout.read(), standardError: false) }
+        Task { didDrain(await stderr.read(), standardError: true) }
         if let deadline {
             deadlineTask = Task {
                 do { try await clock.sleep(until: deadline, tolerance: nil) } catch { return }
