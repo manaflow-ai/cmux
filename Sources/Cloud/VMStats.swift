@@ -4,11 +4,6 @@ import Foundation
 /// Sleeping machines are never woken for a reading: they come back `asleep` with
 /// only their provisioned memory.
 struct VMStats: Equatable {
-    enum State: String, Equatable {
-        case awake
-        case asleep
-        case unknown
-    }
     let state: State
     let sampledAt: Date
     var resourceSampledAt: Date? = nil
