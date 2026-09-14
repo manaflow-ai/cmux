@@ -236,9 +236,6 @@ enum ClaudeHookLiveDeliveryHarness {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exitSignal.signal() }
-
         do {
             try process.run()
         } catch {
@@ -258,7 +255,7 @@ enum ClaudeHookLiveDeliveryHarness {
         }
         exitWaiter.name = "cmux-claude-hook-test-process-waiter"
         exitWaiter.stackSize = 1 << 20
-        exitWaiter.qualityOfService = .userInteractive
+        exitWaiter.qualityOfService = QualityOfService.userInteractive
         exitWaiter.start()
         let timedOut = exitSignal.wait(timeout: .now() + processWallBound) == .timedOut
         if timedOut {
