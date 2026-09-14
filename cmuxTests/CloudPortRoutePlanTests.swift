@@ -84,6 +84,30 @@ struct CloudPortRoutePlanTests {
         #expect(model.phase == .closed && store.models.isEmpty)
     }
 
+    @Test("Desktop can use the authenticated loopback forward while VPN is off")
+    func desktopForwardWorksWithoutVPN() async throws {
+        var wakes = 0
+        var starts = 0
+        let model = makeModel(port: CmuxTuiSnapshotParser.desktopPort, wake: { wakes += 1 }, forward: { _ in
+            starts += 1
+            return 46_901
+        })
+        let page = CloudBrowserAccessState()
+        let remote = URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.0.0.7"))!
+        page.configure(model: model, url: remote)
+        model.forward()
+
+        #expect(await wait { model.phase == .forwarded(46_901) })
+        #expect(wakes == 1 && starts == 1)
+        let local = try #require(page.nextURL())
+        #expect(local.host == "127.0.0.1")
+        #expect(local.port == 46_901)
+        #expect(local.path == "/vnc.html")
+        #expect(local.query?.contains("path=websockify") == true)
+        #expect(local.query?.contains("reconnect_delay=2000") == true)
+        await model.retire()
+    }
+
     @Test("A failed load returns to native connection UI")
     func failedLoadShowsControls() async {
         let model = makeModel()
@@ -111,18 +135,21 @@ struct CloudPortRoutePlanTests {
         })
         model.forward()
         _ = await started.result
-        await model.stop()
+        let stopping = Task { await model.stop() }
+        #expect(await wait { model.phase == .stopping })
         resume.resolve(true)
+        await stopping.value
         #expect(model.phase == .needsVPN && model.localAddress == nil)
         await model.retire()
     }
 
     private func makeModel(
+        port: Int = 3000,
         wake: @escaping @MainActor () async throws -> Void = {},
         forward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16 = { _ in 41000 },
         stop: @escaping @MainActor () async -> Void = {}
     ) -> CloudPortAccessModel {
-        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: 3000), coordinator: nil, wake: wake, startForward: forward, stopForward: stop)
+        CloudPortAccessModel(machineID: "vm-1", target: CloudPortForwardTarget(host: "10.0.0.7", port: port), coordinator: nil, wake: wake, startForward: forward, stopForward: stop)
     }
 
     private func wait(_ condition: @MainActor () -> Bool) async -> Bool {

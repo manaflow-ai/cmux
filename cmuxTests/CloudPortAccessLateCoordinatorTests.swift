@@ -106,4 +106,30 @@ struct CloudPortAccessLateCoordinatorTests {
         #expect(await Self.holds { model.phase == .direct })
         await connected.requestDown()
     }
+
+    @Test("a browser pane follows VPN approval without reopening its setup panel")
+    func browserVPNStateStaysLive() async {
+        let controller = FakeTunnelController()
+        controller.holdInstallForApproval = true
+        let coordinator = CloudTunnelCoordinator(
+            backend: .networkExtension(extensionBundleIdentifier: "com.cmuxterm.app.tests.browser"),
+            controller: controller,
+            enroller: FakeTunnelEnroller(),
+            consumers: FakeTunnelConsumers()
+        )
+        let model = CloudPortAccessModel(
+            machineID: use.machineID,
+            target: CloudPortForwardTarget(host: "10.40.0.10", port: 3000),
+            coordinator: coordinator,
+            wake: {},
+            startForward: { _ in 10_001 },
+            stopForward: {}
+        )
+        model.observe()
+        await model.vpn.connect()
+        #expect(await Self.holds { model.vpn.state == .awaitingApproval })
+        #expect(!model.vpn.canConnect)
+        await coordinator.requestDown()
+        await model.retire()
+    }
 }
