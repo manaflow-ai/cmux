@@ -229,6 +229,14 @@ struct CloudNotificationSyncTests {
         let parsed = try #require(CloudNotificationCorrelation.parse(key))
         #expect(parsed.machineID == "vm-1")
         #expect(parsed.notificationID == "notification_0000000000000000000000000000000a")
+        let escaped = try #require(CloudNotificationCorrelation.parse(
+            CloudNotificationCorrelation.key(machineID: "m:1", notificationID: "notification:n:2")
+        ))
+        #expect(escaped.machineID == "m:1")
+        #expect(escaped.notificationID == "notification:n:2")
+        let legacy = try #require(CloudNotificationCorrelation.parse("cloud-notification:vm-1:notification-a"))
+        #expect(legacy.machineID == "vm-1")
+        #expect(legacy.notificationID == "notification-a")
         #expect(CloudNotificationCorrelation.parse("cursor-approval:1") == nil)
         #expect(CloudNotificationCorrelation.parse("cloud-notification:") == nil)
 

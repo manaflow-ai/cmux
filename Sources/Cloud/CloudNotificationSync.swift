@@ -98,21 +98,21 @@ enum CloudNotificationSyncReducer {
         var next = state
         let removed = next.delivered.filter { !retained.contains($0) }
         next.delivered.removeAll { !retained.contains($0) }
-        appendReadIDs(
-            rows.compactMap { $0.isRead(by: clientID) ? $0.id : nil },
-            to: &next
-        )
         // Pending acks are never pruned here: the daemon answers an evicted
         // id with `unknown`, which completes the batch, and dropping a batch
         // locally would lose a read that was recorded before the rows arrived.
         let delivered = Set(next.delivered)
         let pending = next.pendingIDs
-        let read = next.readIDs
+        var read = next.readIDs
         var deliver: [CloudVMNotificationRow] = []
-        for row in rows where !row.isRead(by: clientID)
-            && !read.contains(row.id)
-            && !delivered.contains(row.id)
-            && !pending.contains(row.id) {
+        for row in rows {
+            if row.isRead(by: clientID) {
+                appendReadID(row.id, to: &next, ids: &read)
+                continue
+            }
+            guard !read.contains(row.id),
+                  !delivered.contains(row.id),
+                  !pending.contains(row.id) else { continue }
             deliver.append(row)
             next.delivered.append(row.id)
         }
@@ -153,25 +153,36 @@ enum CloudNotificationSyncReducer {
 
     static func ackCompleted(key: String, state: CloudNotificationSyncState) -> CloudNotificationSyncState {
         var next = state
-        let acknowledged = next.pendingAcks
-            .filter { $0.key == key }
-            .flatMap(\.ids)
+        var acknowledged: [String] = []
+        var remaining: [CloudNotificationSyncState.PendingAck] = []
+        for batch in next.pendingAcks {
+            if batch.key == key {
+                acknowledged.append(contentsOf: batch.ids)
+            } else {
+                remaining.append(batch)
+            }
+        }
         guard !acknowledged.isEmpty else { return state }
-        next.pendingAcks.removeAll { $0.key == key }
-        appendReadIDs(acknowledged, to: &next)
+        next.pendingAcks = remaining
+        var read = next.readIDs
+        for id in acknowledged {
+            appendReadID(id, to: &next, ids: &read)
+        }
         return next
     }
 
-    private static func appendReadIDs(
-        _ ids: [String],
-        to state: inout CloudNotificationSyncState
+    private static func appendReadID(
+        _ id: String,
+        to state: inout CloudNotificationSyncState,
+        ids: inout Set<String>
     ) {
-        for id in ids where !state.read.contains(id) {
-            state.read.append(id)
+        guard ids.insert(id).inserted else { return }
+        if state.read.count >= CloudNotificationSyncState.deliveredLimit,
+           let evicted = state.read.first {
+            state.read.removeFirst()
+            ids.remove(evicted)
         }
-        if state.read.count > CloudNotificationSyncState.deliveredLimit {
-            state.read.removeFirst(state.read.count - CloudNotificationSyncState.deliveredLimit)
-        }
+        state.read.append(id)
     }
 
     /// Read-your-write overlay: after the daemon confirmed a batch, the rows
