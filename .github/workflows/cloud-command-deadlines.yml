@@ -7,6 +7,10 @@ on:
       - cmuxTests/CloudCommandDeadline*.swift
       - tests/fixtures/cloud-command-deadlines/**
       - tests/run_cloud_command_deadline_tests.sh
+      - Sources/Mobile/MobileHostIdentity.swift
+      - tests/fixtures/mobile-host-identity-cold-start/**
+      - tests/run_mobile_host_identity_cold_start_tests.sh
+      - tests/test_mobile_host_identity_cold_start.py
       - .github/workflows/cloud-command-deadlines.yml
   workflow_dispatch:
 permissions:
@@ -21,3 +25,5 @@ jobs:
           persist-credentials: false
       - name: Exercise the real Cloud command runner in isolation
         run: tests/run_cloud_command_deadline_tests.sh "$RUNNER_TEMP/issue-11008-${{ github.run_id }}"
+      - name: Prove cold identity publication before defaults notification
+        run: tests/run_mobile_host_identity_cold_start_tests.sh "$RUNNER_TEMP/issue-11008-identity-${{ github.run_id }}"
