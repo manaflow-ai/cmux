@@ -164,4 +164,23 @@ struct CloudTerminalOptimisticCreationTests {
         #expect(harness.provider.directions == [.down])
         #expect(harness.workspace.bonsplitController.allPaneIds.count == 2)
     }
+
+    @Test
+    func sidebarNewTerminalUsesTheSamePendingTabOperation() async throws {
+        let harness = try CloudTerminalOptimisticHarness()
+        defer { harness.close() }
+        let actions = CloudTreeNodeActions.bound(
+            catalog: { .shared }, selectedWorkspaceID: { harness.workspace.id },
+            selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
+            onDidMutate: {}, onFailure: { _ in Issue.record("Sidebar creation failed") }, refresh: {}
+        )
+        actions.newTerminal(harness.provider.machine, "ws")
+        let pending = try #require(harness.pending.first)
+        #expect(harness.workspace.paneId(forPanelId: pending.id) == harness.sourcePaneID)
+        var arrivals = harness.provider.arrivals.stream.makeAsyncIterator()
+        _ = await arrivals.next()
+        harness.provider.acceptNext()
+        #expect(await harness.waitUntil { harness.pending.isEmpty })
+        #expect(harness.provider.anchors == ["sidebar"])
+    }
 }
