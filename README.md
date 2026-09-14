@@ -341,7 +341,7 @@ Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and 
 
 ### What coding agents does cmux work with?
 
-All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.
+All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, [MiniMax Code](https://agent.minimax.io), and anything else you can launch from the command line.
 
 ### Can cmux orchestrate multiple agents and subagents?
 
