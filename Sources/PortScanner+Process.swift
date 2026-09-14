@@ -339,7 +339,8 @@ extension PortScanner {
         workspaceIds: Set<UUID>
     ) async -> (
         ownershipByPID: [Int: Set<UUID>],
-        completenessByWorkspace: [UUID: PortScanCompleteness]
+        completenessByWorkspace: [UUID: PortScanCompleteness],
+        rootPIDs: Set<Int>
     ) {
         guard !capturedOwnershipByPID.isEmpty else {
             let rootValidation = validateAgentRoots(rootsByWorkspace)
@@ -349,7 +350,8 @@ extension PortScanner {
                     rootValidation.completenessByWorkspace,
                     [:],
                     workspaceIds: workspaceIds
-                )
+                ),
+                Self.agentRootPIDs(in: rootValidation.values)
             )
         }
         let currentProcessScan = await runAllProcesses()
@@ -379,7 +381,20 @@ extension PortScanner {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }
-        return (identityValidation.ownershipByPID, completenessByWorkspace)
+        // Identity-validated roots, for callers that must not badge an agent
+        // root's own listeners while still tracking its general PID ownership
+        // above (e.g. completeness evidence). A stale root PID recycled by an
+        // unrelated process is excluded from this set.
+        return (identityValidation.ownershipByPID, completenessByWorkspace, Self.agentRootPIDs(in: finalRootValidation.values))
+    }
+
+    /// The union of tracked agent root PIDs across all scanned workspaces.
+    static func agentRootPIDs(in rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]) -> Set<Int> {
+        rootsByWorkspace.values.reduce(into: Set<Int>()) { result, roots in
+            for root in roots {
+                result.insert(root.pid)
+            }
+        }
     }
 
     func combineAgentCompleteness(
