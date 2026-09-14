@@ -79,13 +79,18 @@ extension AppDelegate {
     private func recoverableMainWindowRouteSnapshot(
         for route: RecoverableMainWindowRoute
     ) -> MainWindowRouteSnapshot? {
-        let cachedWindow = route.window ?? windowForMainWindowId(route.windowId)
+        // Check the manager before resolving the window. Resolving the window
+        // retires a route whose manager cannot own it, and retirement looks up
+        // workspace owners through this snapshot again.
         guard let manager = route.tabManager,
-              tabManagerCanOwnRecoverableMainWindowRoute(manager),
-              let window = liveRecoverableMainWindow(
-                  windowId: route.windowId,
-                  cachedWindow: cachedWindow
-              ) else {
+              tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+            return nil
+        }
+        let cachedWindow = route.window ?? windowForMainWindowId(route.windowId)
+        guard let window = liveRecoverableMainWindow(
+            windowId: route.windowId,
+            cachedWindow: cachedWindow
+        ) else {
             return nil
         }
         route.window = window
