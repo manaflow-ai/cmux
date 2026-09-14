@@ -189,10 +189,33 @@ struct CloudTreeMachineResourcesTests {
         #expect(line.contains("30d"))
     }
 
-    @Test @MainActor func everyPresetReservesSpaceForTheFullUsageSummary() {
-        for style in CloudTreeStyle.presets {
+    @Test @MainActor func compactPresetsKeepResourcesAndUsageOnTheHeaderBaseline() throws {
+        var snapshot = machine()
+        snapshot.usage = MachineUsageSnapshot(
+            vmID: snapshot.id, providerVmID: nil, displayName: nil, periodDays: 30, asOf: Self.sampleTime,
+            totals: MachineUsageTotals(inputTokens: 31000, cachedInputTokens: 0, outputTokens: 10000,
+                                       totalTokens: 41000, apiEquivalentUsd: 1.23)
+        )
+        for style in CloudTreeStyle.presets where style.machineRowLayout == .singleLine {
+            let row = CloudTreeMachineRowContent(machine: snapshot, style: style, now: Self.sampleTime)
+            let fact = try #require(row.inlineFact)
+            #expect(fact.contains("CPU"))
+            #expect(fact.contains("2/4"))
+            #expect(fact.contains("3/4"))
+            #expect(fact.contains("41K"))
+            #expect(fact.contains("30d"))
             #expect(style.machineRowHeight(hasStats: true, hasUsage: true)
-                > style.machineRowHeight(hasStats: true, hasUsage: false), "\(style.id) must reserve the usage line")
+                == style.machineRowHeight(hasStats: false, hasUsage: false))
+            for width in [CGFloat(240), 800] {
+                for scale in [100, 150] {
+                    let host = NSHostingView(rootView: row
+                        .environment(\.cmuxGlobalFontMagnificationPercent, scale).frame(width: width))
+                    #expect(host.fittingSize.width <= width + 1)
+                    #expect(host.fittingSize.height <= GlobalFontMagnification.scaledSize(
+                        style.machineRowHeight(hasStats: true, hasUsage: true), percent: scale
+                    ) + 1)
+                }
+            }
         }
     }
 
@@ -225,10 +248,11 @@ struct CloudTreeMachineResourcesTests {
                     #expect(host.fittingSize.height <= view.height(width: width, magnification: scale) + 1)
                 }
             }
-            #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
-            let lines = style.machineNameLineHeight + 1 + style.machineResourceHeight
-                + (style.machineRowLayout == .twoLine ? 1 + style.machineSubtitleLineHeight : 0)
-            #expect(style.machineRowHeight(hasStats: true) == lines + style.machineVerticalPadding * 2 + (style.machineBand ? 8 : 0))
+            if style.machineRowLayout == .twoLine {
+                #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
+            } else {
+                #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
+            }
         }
     }
 }
