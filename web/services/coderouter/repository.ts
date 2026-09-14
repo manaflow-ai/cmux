@@ -462,17 +462,53 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  const expectedRevision = input.credential.credentialRevision - 1;
+  if (
+    input.credential.accountId !== input.accountId ||
+    input.credential.teamId !== input.destinationTeamId ||
+    !Number.isSafeInteger(expectedRevision) || expectedRevision < 1
+  ) throw new CodeRouterCredentialRace("invalid transfer envelope identity");
+
   return await cloudDb().transaction(async (tx) => {
-    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
-    await lockHandoffTeam(tx, input.destinationTeamId);
+    // Share deletion's team lock. A stable order also serializes opposing
+    // transfers without a source/destination lock inversion.
+    for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`,
+      );
+    }
+    const now = new Date();
+    // Match refresh/replacement's credential-then-account write order and
+    // revision guards. A conflict rolls back the entire move.
+    const [updatedCredential] = await tx.update(coderouterCredentials)
+      .set({ ...encryptedValues(input.credential), updatedAt: now })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.credentialRevision, expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
+
     const [updated] = await tx.update(coderouterAccounts)
-      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
-      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .set({
+        teamId: input.destinationTeamId,
+        vaultRevision: input.credential.credentialRevision,
+        state: sql`case when ${coderouterAccounts.state} = 'refreshing' then 'active' else ${coderouterAccounts.state} end`,
+        refreshLeaseId: null,
+        refreshLeaseExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+        // An active refresh may rotate the provider token. Wait for its
+        // result instead of moving a snapshot which is about to expire.
+        or(isNull(coderouterAccounts.refreshLeaseExpiresAt), lte(coderouterAccounts.refreshLeaseExpiresAt, now)),
+      ))
       .returning({ id: coderouterAccounts.id });
-    if (!updated) return false;
-    await tx.update(coderouterCredentials)
-      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
-      .where(eq(coderouterCredentials.accountId, input.accountId));
+    if (!updated) throw new CodeRouterCredentialRace("transfer account revision changed or refresh is active");
     return true;
   });
 }
