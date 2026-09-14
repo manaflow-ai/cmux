@@ -527729,6 +527729,183 @@
           }
         }
       }
+    },
+    "cloudPane.newTerminalFailed.invalidResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine did not return the new terminal. Refresh the machine before trying again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine hat das neue Terminal nicht zurückgegeben. Aktualisiere die Maschine, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n’a pas renvoyé le nouveau terminal. Actualisez la machine avant de réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرجع الجهاز الطرفية الجديدة. حدّث الجهاز قبل المحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina no devolvió la nueva terminal. Actualiza la máquina antes de volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器未傳回新的終端機。請先重新整理機器再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器未返回新的终端。请先刷新机器再重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 새 터미널을 반환하지 않았습니다. 다시 시도하기 전에 머신을 새로 고치세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンから新しいターミナルが返されませんでした。マシンを更新してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine has no available workspace. Refresh the machine and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dieser Maschine ist kein Arbeitsbereich verfügbar. Aktualisiere die Maschine und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail n’est disponible sur cette machine. Actualisez la machine et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل متاحة على هذا الجهاز. حدّث الجهاز وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina no tiene un espacio de trabajo disponible. Actualiza la máquina e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器沒有可用的工作區。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器没有可用的工作区。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에 사용 가능한 작업 공간이 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンには利用可能なワークスペースがありません。マシンを更新して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.stateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine’s current state could not be loaded. Reconnect and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktuelle Zustand der Maschine konnte nicht geladen werden. Stelle die Verbindung erneut her und versuche es noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger l’état actuel de la machine. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل الحالة الحالية للجهاز. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el estado actual de la máquina. Vuelve a conectarte e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入機器的目前狀態。請重新連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载机器的当前状态。请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 현재 상태를 불러올 수 없습니다. 다시 연결한 후 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの現在の状態を読み込めませんでした。再接続して、もう一度お試しください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

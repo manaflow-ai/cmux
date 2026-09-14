@@ -94,13 +94,15 @@ extension Workspace {
         let machine = resource.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
+        let onFailure: CloudTerminalCreationCoordinator.Failure = { [weak self] error, context in
+            self?.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID, context: context)
+        }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
-                self.presentCloudPaneCreationFailure(
-                    machine: machine,
-                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""),
-                    requestID: requestID
-                )
+                // The failure callback presents the error; perform records it.
+                try? await CloudTerminalCreationCoordinator.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: onFailure) {
+                    throw SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
+                }
             }
             return true
         }
@@ -184,7 +186,8 @@ extension Workspace {
                 },
                 discardProjection: { projection in
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-                }
+                },
+                onFailure: onFailure
             )
             pendingPanel.onCancel = {
                 coordinator.cancel()
@@ -195,11 +198,9 @@ extension Workspace {
         } else {
             Task { @MainActor in
                 defer { endProjectionMutation() }
-                do {
-                    let created = try await create()
-                    _ = try await project(created)
-                } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
+                try? await CloudTerminalCreationCoordinator.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: onFailure) {
+                    let created = try await CloudOperationContext.phase(.provider, create)
+                    _ = try await CloudOperationContext.phase(.materialize) { try await project(created) }
                 }
             }
         }
@@ -208,11 +209,11 @@ extension Workspace {
 
     /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID) {
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID, context: context)
     }
 
 }
