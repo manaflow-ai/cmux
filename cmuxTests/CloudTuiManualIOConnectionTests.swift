@@ -631,4 +631,35 @@ import Testing
     }
 
     private static func socketError() -> NSError { NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+    @Test func acceptedPasteSurvivesFramingAndReceiptBackpressure() async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-admission-lifetime")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            defer { router.invalidate() }
+            let block = Data(repeating: 0xFF, count: 128 * 1024)
+            queue.suspend()
+            #expect(router.send(.bytes(block)))
+            #expect(router.send(.bytes(block)))
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            #expect(!router.send(.bytes(Data([0x61]))))
+            router.setConnection(connection)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            let actual = try await Self.blocking {
+                var bytes = Data()
+                while bytes.count < block.count * 2 {
+                    let line = try Self.readLine(peer)
+                    try #require(!line.isEmpty)
+                    let command = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+                    let encoded = try #require(command["bytes"] as? String)
+                    bytes.append(try #require(Data(base64Encoded: encoded)))
+                    try Self.write(peer, Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8))
+                }
+                return bytes
+            }
+            #expect(actual == block + block)
+        }
+    }
+
 }
