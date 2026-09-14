@@ -274,7 +274,7 @@ fn cloud_image_paste_keep_on_exit_cleans_image_without_closing_the_view() {
         client,
         surface: surface.id,
         terminal: terminal.to_string(),
-        workspace: workspace.key.clone(),
+        workspace: workspace.key,
         lease,
     };
     let mut quoted_path = String::new();
