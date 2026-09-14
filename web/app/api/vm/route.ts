@@ -54,6 +54,7 @@ import {
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
+  vmRequiresProResponse,
   vmMemoryRequiresPlanResponse,
   vmMemoryUnavailableResponse,
   resolveVmProvisioningAccountScope,

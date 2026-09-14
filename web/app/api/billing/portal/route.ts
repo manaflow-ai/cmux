@@ -24,6 +24,7 @@ import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 type GetStackServerApp = typeof StackLib.getStackServerApp;
 
+// oxlint-disable-next-line complexity -- Portal routing keeps auth, App Store policy, team scope, recovery, and plan-switch decisions in one billing boundary.
 export async function GET(request: NextRequest) {
   if (
     isAppStoreDistributionMode({
