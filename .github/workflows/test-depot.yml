@@ -251,11 +251,18 @@ jobs:
           fi
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(grep "Executed.*tests.*with.*failures" "$TEST_OUTPUT" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            DIAGNOSIS=$(python3 scripts/ci/classify-app-host-test-output.py \
+              "$TEST_OUTPUT" --exit-code "$EXIT_CODE" --diagnose)
+            echo "$DIAGNOSIS"
+            # The expected-failure exception applies only to a run that both
+            # executed tests and recorded an actual XCTest failure. A clean
+            # summary cannot override a nonzero app-host/build exit.
+            if echo "$DIAGNOSIS" | grep -q "category=test assertion failure" \
+              && grep -Eq 'Executed [1-9][0-9]* tests?,[[:space:]]+with[[:space:]]+[1-9][0-9]* failures?[[:space:]]+\(0 unexpected\)' "$TEST_OUTPUT"; then
               echo "All failures are expected, treating as pass"
             else
               echo "Unexpected test failures detected"
-              exit 1
+              exit "$EXIT_CODE"
             fi
           fi
 

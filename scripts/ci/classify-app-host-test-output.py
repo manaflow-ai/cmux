@@ -39,6 +39,7 @@ _ASSERTION_RE = re.compile(
 
 
 def _clean_line(line: str) -> str:
+    """Remove terminal formatting and bound one causal log line."""
     return " ".join(_ANSI_RE.sub("", line).split())[:500]
 
 
@@ -115,6 +116,7 @@ def diagnose(output: str, exit_code: int | None = None) -> dict[str, object]:
 
 
 def classify(output: str) -> tuple[bool, str]:
+    """Apply the existing expected-XCTest-failure gate to app-host output."""
     summaries = list(SUMMARY_RE.finditer(output))
     if not summaries:
         diagnosis = diagnose(output)
@@ -133,6 +135,7 @@ def classify(output: str) -> tuple[bool, str]:
 
 
 def main() -> int:
+    """Print either the gate result or an explicit non-gating diagnosis."""
     if len(sys.argv) < 2 or len(sys.argv) > 7:
         print(
             f"usage: {Path(sys.argv[0]).name} <xcodebuild-output> "
@@ -155,6 +158,8 @@ def main() -> int:
     for argument in arguments:
         if argument == "--suite":
             suite = next(arguments, "")
+            if not suite or suite.startswith("--"):
+                return 2
         elif argument == "--exit-code":
             try:
                 exit_code = int(next(arguments))
