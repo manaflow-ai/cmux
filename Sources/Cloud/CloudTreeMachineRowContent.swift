@@ -34,6 +34,14 @@ struct CloudTreeMachineRowContent: View {
                         )
                         .frame(minHeight: scaled(style.machineResourceHeight))
                     }
+                    if style.machineRowLayout == .twoLine, let usageLine {
+                        Text(usageLine)
+                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(height: scaled(style.machineResourceHeight))
+                    }
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))

@@ -163,6 +163,10 @@ struct CloudTreeMachineResourcesTests {
         let usage = try #require(row.usageLine)
         #expect(row.accessibilityLabel.contains(usage))
         #expect(row.toolTip.contains(usage))
+        #expect(
+            CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: true)
+                > CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: false)
+        )
     }
 
     /// The outline reserves enough height for normal and wrapped resource text.

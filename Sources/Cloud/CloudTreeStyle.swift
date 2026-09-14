@@ -85,10 +85,15 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineResourceHeight: CGFloat { detailSize + 3.5 }
 
     /// Reserve exactly one resource line, including before the first sample.
-    func machineRowHeight(hasStats: Bool) -> CGFloat {
+    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
+        if machineRowLayout == .twoLine {
+            let statsLine = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
+            let usageLine = hasUsage ? 1 + machineResourceHeight : 0
+            return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
+                + statsLine + usageLine + (machineBand ? 8 : 0)
+        }
         if hasStats && showsMachineStats {
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineResourceHeight
-                + (machineRowLayout == .twoLine ? 1 + machineSubtitleLineHeight : 0)
                 + (machineBand ? 8 : 0)
         }
         switch machineRowLayout {
