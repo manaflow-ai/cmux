@@ -9,6 +9,8 @@ on:
       - web/services/vms/workflows.ts
       - web/services/vms/repository.ts
       - web/services/vms/routeHelpers.ts
+      - web/services/vms/vmErrorMessages.ts
+      - web/messages/**
       - web/tests/vm-guest-*.test.ts
       - web/tests/fixtures/freestyleGuest.ts
       - web/tests/vm-workflows.test.ts
@@ -52,7 +54,7 @@ jobs:
           bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: SDK and guest filesystem regressions
-        run: bun test tests/vm-guest-install.test.ts tests/vm-guest-install-runtime.test.ts
+        run: bun test tests/vm-guest-install.test.ts tests/vm-guest-install-runtime.test.ts tests/vm-guest-install-deadline.test.ts tests/vm-guest-create-response.test.ts
       - name: Migrate isolated database
         env:
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test

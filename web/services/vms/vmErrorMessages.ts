@@ -102,6 +102,15 @@ export async function vmArtifactUnavailableCopy(locale: Locale): Promise<VmRequi
   };
 }
 
+export async function vmCreateCleanupPendingCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.createCleanupPending",
+  }) as unknown as (key: string) => string;
+  return { title: translator("title"), message: translator("message"), action: translator("action") };
+}
+
 /** Load and translate the `vm_requires_pro` response copy for the request locale. */
 export async function vmRequiresProCopy(
   locale: Locale,

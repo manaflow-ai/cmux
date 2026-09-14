@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Oprydning af Cloud VM afventer",
+      "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
+      "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",

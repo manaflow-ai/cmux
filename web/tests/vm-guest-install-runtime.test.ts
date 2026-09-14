@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
@@ -30,7 +30,7 @@ function guest(options: { corruptUpload?: boolean } = {}) {
 
 describe("guest CLI publication in an isolated filesystem", () => {
   test("successful create installs the complete executable CLI and answers help", async () => {
-    const { fixture, target } = guest();
+    const { fixture, target, root } = guest();
     const handle = await fixture.provider.create(guestCreateOptions);
     expect(handle.status).toBe("running");
     expect(readFileSync(target, "utf8")).toBe(GUEST_CMUX_SHIM);
@@ -38,6 +38,17 @@ describe("guest CLI publication in an isolated filesystem", () => {
     const result = spawnSync(target, ["--help"], { encoding: "utf8", timeout: 5_000 });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("cmux");
+    const daemon = join(root, "cmux-tui");
+    writeFileSync(daemon, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/daemon-args"\nprintf \'%s\\n\' \'{"session":"cloud","workspaces":[]}\'\n', { mode: 0o755 });
+    const tree = spawnSync(target, ["tree", "--json"], {
+      encoding: "utf8", timeout: 5_000,
+      env: { PATH: process.env.PATH, HOME: root, CMUX_TUI_BIN: daemon },
+    });
+    expect(tree.status).toBe(0);
+    expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
+    expect(readFileSync(join(root, "daemon-args"), "utf8").trim().split("\n"))
+      .toEqual(["--session", "cloud", "--json", "session", "current", "snapshot"]);
+    expect(readdirSync(join(root, "bin"))).toEqual(["cmux"]);
   });
 
   test("replaces a target symlink without modifying its referent", async () => {

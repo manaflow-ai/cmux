@@ -331,6 +331,7 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly code: string;
     readonly message: string;
+    readonly cleanupProviderVmId?: string;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly activeLimitCandidates: (input: {
     readonly userId: string;
@@ -450,6 +451,8 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly code: string;
     readonly message: string;
+    /** Keeps the allocation reserved and unready until an operator confirms cleanup. */
+    readonly cleanupProviderVmId?: string;
   }) => Effect.Effect<void, VmDatabaseError>;
   /** Durable deletion intents not yet finalized, scoped to their source machine. */
   readonly pendingSnapshotDeletions: (input: {
@@ -649,6 +652,8 @@ export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
  * provider failure).
  */
 export const PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE = "provider_create_unavailable";
+/** Provider allocation remains owned by the failed row until cleanup is confirmed. */
+export const PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE = "provider_create_cleanup_pending";
 
 const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
@@ -1960,12 +1965,18 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         await tx
           .update(cloudVms)
           .set({
-            status: "failed",
+            status: input.cleanupProviderVmId ? "provisioning" : "failed",
             failureCode: input.code,
             failureMessage: input.message,
+            ...(input.cleanupProviderVmId ? {
+              providerMetadata: sql`${cloudVms.providerMetadata} || jsonb_build_object('createCleanupProviderVmId', ${input.cleanupProviderVmId}::text)`,
+            } : {}),
             updatedAt: now,
           })
           .where(eq(cloudVms.id, input.vmId));
+        // Leave the Base generation reserved too; reset/open must not allocate
+        // a replacement while its failed guest still exists at the provider.
+        if (input.cleanupProviderVmId) return;
         await tx
           .update(cloudVmBaseGenerations)
           .set({ state: "failed", updatedAt: now })
@@ -2682,9 +2693,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       await db
         .update(cloudVms)
         .set({
-          status: "failed",
+          status: input.cleanupProviderVmId ? "provisioning" : "failed",
           failureCode: input.code,
           failureMessage: input.message,
+          ...(input.cleanupProviderVmId ? {
+            providerMetadata: sql`${cloudVms.providerMetadata} || jsonb_build_object('createCleanupProviderVmId', ${input.cleanupProviderVmId}::text)`,
+          } : {}),
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));

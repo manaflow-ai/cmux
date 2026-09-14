@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Cloud-VM-Bereinigung ausstehend",
+      "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
+      "action": "Wenden Sie sich mit der Trace-ID an den Support, bevor Sie eine weitere Maschine erstellen."
+    },
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",
       "reason": "Dieser Maschinentyp stellt diesen Vorgang nicht bereit.",

@@ -13,6 +13,8 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { installFreestyleGuestCli, type FreestyleClientFactory } from "./freestyleGuestCli";
+import { rollbackFreestyleCreate } from "./providerCreateCleanup";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
@@ -174,7 +176,7 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * Production uses the env-configured client and the live manifest.
  */
 export type FreestyleProviderDependencies = {
-  readonly client: (timeoutMs?: number) => Freestyle;
+  readonly client: FreestyleClientFactory;
   readonly resolveDaemonSource: typeof resolveCmuxTuiSource;
 };
 
@@ -196,9 +198,12 @@ export function preconnectFreestyle(): void {
 }
 
 /** Exported for the publication provider, which shares this account-wide client. */
-export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
+  const longFetch: typeof fetch = (input, init) =>
+    fetch(input as Request, {
+      ...(init ?? {}),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...[signal, init?.signal].filter((value): value is AbortSignal => !!value)]),
+    });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -990,9 +995,8 @@ export class FreestyleProvider implements VMProvider {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
+            const rollback = await Effect.runPromise(Effect.either(rollbackFreestyleCreate(this.deps.client, vmId, err)));
+            if (rollback._tag === "Left") throw rollback.left;
             throw err;
           }
           return {
@@ -1352,9 +1356,8 @@ export class FreestyleProvider implements VMProvider {
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
+            const rollback = await Effect.runPromise(Effect.either(rollbackFreestyleCreate(this.deps.client, vmId, err)));
+            if (rollback._tag === "Left") throw rollback.left;
             throw err;
           }
           return {
@@ -1674,23 +1677,20 @@ export class FreestyleProvider implements VMProvider {
    * as a failed heal.
    */
   private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
-    const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
-    try {
-      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
-      const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
-          + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
-        timeoutMs: 30_000,
-        linuxUser: GUEST_LINUX_USER,
-      });
-      const exitCode = result.statusCode ?? 124;
-      if (exitCode !== 0) {
-        throw new Error(`guest cmux shim install exited ${exitCode}`);
+    await withVmSpan("cmux.vm.guest_cli.install", "provider", {}, async (span) => {
+      const result = await Effect.runPromise(Effect.either(installFreestyleGuestCli(this.deps.client, vmId, promptIdentity)));
+      if (result._tag === "Left") {
+        setSpanAttributes(span, {
+          "cmux.vm.guest_install.outcome": result.left.outcome,
+          "cmux.vm.guest_install.stage": result.left.stage,
+          "cmux.vm.guest_install.exit_code": result.left.exitCode,
+          "cmux.duration_ms": result.left.elapsedMs,
+          "cmux.vm.guest_install.cleanup_failed": result.left.cleanupCause !== undefined,
+        });
+        throw result.left;
       }
-    } catch (error) {
-      await vm.fs.remove(temporaryPath).catch(() => undefined);
-      throw error;
-    }
+      setSpanAttributes(span, { "cmux.vm.guest_install.outcome": "success", "cmux.duration_ms": result.right.elapsedMs });
+    });
     await this.ensureResourceReporter(vm, vmId);
   }
 

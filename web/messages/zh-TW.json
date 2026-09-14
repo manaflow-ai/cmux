@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Cloud VM 清理待完成",
+      "message": "Cloud VM 設定失敗，清理仍未完成。",
+      "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",

@@ -10,8 +10,8 @@ export type GuestExecRequest = {
 /** Real pinned SDK, synthetic HTTP only. No provider credentials or network. */
 export function freestyleGuestFixture(options: {
   exec?: (request: GuestExecRequest, signal?: AbortSignal | null) => Promise<Response>;
-  write?: (path: string, bytes: Uint8Array) => void;
-  remove?: (path: string) => void;
+  write?: (path: string, bytes: Uint8Array, signal?: AbortSignal | null) => void | Promise<void>;
+  remove?: (path: string, signal?: AbortSignal | null) => void | Promise<void>;
   deleteFailure?: boolean;
 } = {}) {
   const requests: Array<{ method: string; path: string }> = [];
@@ -35,14 +35,14 @@ export function freestyleGuestFixture(options: {
       if (url.pathname.endsWith("/fs/write")) {
         const path = url.searchParams.get("path")!;
         writes.push(path);
-        options.write?.(path, new Uint8Array(await new Response(init?.body).arrayBuffer()));
+        await options.write?.(path, new Uint8Array(await new Response(init?.body).arrayBuffer()), signal ?? init?.signal);
         installPending = true;
         return Response.json({});
       }
       if (url.pathname.endsWith("/fs/remove")) {
         const path = url.searchParams.get("path")!;
         removals.push(path);
-        options.remove?.(path);
+        await options.remove?.(path, signal ?? init?.signal);
         return Response.json({});
       }
       if (url.pathname.endsWith("/exec-await")) {
@@ -52,6 +52,9 @@ export function freestyleGuestFixture(options: {
           return options.exec?.(request, signal ?? init?.signal) ?? Response.json({ statusCode: 0 });
         }
         return Response.json({ statusCode: 0, stdout: "", stderr: "" });
+      }
+      if (url.pathname.endsWith("/resize")) {
+        return Response.json({ id: url.pathname.split("/").at(-2), state: "running", resources: JSON.parse(String(init?.body)) });
       }
       if (method === "DELETE" && /^\/v5\/vms\/vm-fixture-\d+$/.test(url.pathname)) {
         if (options.deleteFailure) return Response.json({ code: "UNAVAILABLE", message: "synthetic delete failure" }, { status: 503 });

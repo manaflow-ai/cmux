@@ -14,17 +14,20 @@ describe("Freestyle guest install result contract (SDK 0.2.10)", () => {
   // synthetic candidate responses, not invented copies of the lost body.
   test.each([
     [{ stdout: "", stderr: "" }, "missing_status", undefined],
+    [{ exitCode: 0 }, "missing_status", undefined],
     [{ statusCode: null, stdout: "", stderr: "" }, "provider_timeout", null],
     [{ statusCode: 124, stderr: "synthetic guest exit" }, "guest_exit", 124],
     [{ statusCode: 1, stderr: "synthetic rename failure" }, "guest_exit", 1],
     [{ statusCode: "0" }, "invalid_status", undefined],
-  ])("preserves outcome %s without a false ready result", async (body, outcome, statusCode) => {
+  ] as Array<[Record<string, unknown>, string, number | null | undefined]>)
+  ("preserves outcome %s without a false ready result", async (body, outcome, statusCode) => {
     const fixture = freestyleGuestFixture({ exec: async () => Response.json(body) });
     const error = await fixture.provider.create(guestCreateOptions).catch((error: unknown) => error);
-    expect(error).toMatchObject({
-      name: "ProviderError",
-      cause: { name: "GuestCliInstallError", outcome, statusCode },
-    });
+    expect(error).toBeInstanceOf(Error);
+    const installError = (error as { cause: { name: string; outcome: string; exitCode?: number | null } }).cause;
+    expect(installError.name).toBe("GuestCliInstallError");
+    expect(installError.outcome).toBe(outcome);
+    expect(installError.exitCode).toBe(statusCode);
     expect(fixture.allocations()).toBe(1);
     expect(fixture.liveVms.size).toBe(0);
     expect(fixture.removals).toEqual(fixture.writes);
@@ -37,7 +40,7 @@ describe("Freestyle guest install result contract (SDK 0.2.10)", () => {
     const cause = new DOMException("synthetic transport interruption", name);
     const fixture = freestyleGuestFixture({ exec: async () => { throw cause; } });
     const error = await fixture.provider.create(guestCreateOptions).catch((error: unknown) => error);
-    expect(error).toMatchObject({ cause: { name: "GuestCliInstallError", outcome, cause } });
+    expect((error as { cause?: unknown }).cause).toMatchObject({ name: "GuestCliInstallError", outcome, cause });
     expect(fixture.liveVms.size).toBe(0);
     expect(fixture.removals).toEqual(fixture.writes);
   });
@@ -51,7 +54,7 @@ describe("Freestyle guest install result contract (SDK 0.2.10)", () => {
     expect(error).toMatchObject({
       name: "ProviderCreateCleanupError",
       providerVmId: "vm-fixture-1",
-      cause: { name: "GuestCliInstallError", outcome: "guest_exit", statusCode: 1 },
+      cause: { name: "GuestCliInstallError", outcome: "guest_exit", exitCode: 1 },
       cleanupCause: { name: "FreestyleApiError", status: 503 },
     });
     expect(fixture.liveVms.size).toBe(1);

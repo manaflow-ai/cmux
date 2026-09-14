@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Opprydding av Cloud VM venter",
+      "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
