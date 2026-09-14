@@ -668,4 +668,74 @@ if [ "$unexpected_classifier_status" -ne 1 ]; then
   exit 1
 fi
 
+# A dead app host loses the verdicts pending in that launch, and the summary
+# printed afterwards covers only the last launch. No exit status and no clean
+# summary may turn that into a pass.
+HOST_DIED_OUTPUT="$TMP_DIR/host-died-output.log"
+printf '%s\n' \
+  'Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.' \
+  'Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds' \
+  >"$HOST_DIED_OUTPUT"
+for host_died_status in 0 65 125; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$host_died_status" "$HOST_DIED_OUTPUT" \
+    >"$TMP_DIR/host-died-$host_died_status-output.log" 2>&1
+  host_died_classifier_status=$?
+  set -e
+  if [ "$host_died_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/host-died-$host_died_status-output.log"
+    echo "FAIL: a batch whose app host died must not pass with status $host_died_status"
+    exit 1
+  fi
+done
+
+NO_TESTS_OUTPUT="$TMP_DIR/no-tests-output.log"
+printf '%s\n' \
+  'Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds' \
+  'Test run with 0 tests in 0 suites passed after 0.001 seconds.' \
+  >"$NO_TESTS_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  0 "$NO_TESTS_OUTPUT" \
+  >"$TMP_DIR/no-tests-classifier-output.log" 2>&1
+no_tests_classifier_status=$?
+set -e
+if [ "$no_tests_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/no-tests-classifier-output.log"
+  echo "FAIL: a batch that executed no tests must not pass"
+  exit 1
+fi
+
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  0 "$TMP_DIR/output-that-was-never-written.log" \
+  >"$TMP_DIR/missing-output-classifier-output.log" 2>&1
+missing_output_classifier_status=$?
+set -e
+if [ "$missing_output_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/missing-output-classifier-output.log"
+  echo "FAIL: a batch with no captured output must not pass"
+  exit 1
+fi
+
+PASSING_XCTEST_OUTPUT="$TMP_DIR/passing-xctest-output.log"
+printf '%s\n' \
+  'Executed 3 tests, with 0 failures (0 unexpected) in 0.003 seconds' \
+  >"$PASSING_XCTEST_OUTPUT"
+PASSING_SWIFT_TESTING_OUTPUT="$TMP_DIR/passing-swift-testing-output.log"
+printf '%s\n' \
+  'Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds' \
+  '✔ Test notificationArrives() passed after 0.001 seconds.' \
+  'Test run with 1 test in 1 suite passed after 0.001 seconds.' \
+  >"$PASSING_SWIFT_TESTING_OUTPUT"
+for passing_output in "$PASSING_XCTEST_OUTPUT" "$PASSING_SWIFT_TESTING_OUTPUT"; do
+  if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    0 "$passing_output"; then
+    cat "$passing_output"
+    echo "FAIL: a clean batch that executed tests must pass"
+    exit 1
+  fi
+done
+
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
