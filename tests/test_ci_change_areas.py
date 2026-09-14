@@ -232,6 +232,22 @@ def run_app_host_unit_test_step(
             ci_scripts / "classify-app-host-test-output.py",
         )
 
+        # The step snapshots the crash-report directory before the run and lists what appeared
+        # after it. The real scan reads this machine's own crash reports, so any cmux crash on
+        # the machine running this test would decide its outcome. The scan has its own
+        # self-test; here a stub records an empty snapshot and reports no new crashes.
+        crash_scan = root / "scripts" / "crash-reports-since.py"
+        crash_scan.write_text(
+            """
+import sys
+from pathlib import Path
+
+if "--snapshot" in sys.argv:
+    Path(sys.argv[sys.argv.index("--snapshot") + 1]).write_text("", encoding="utf-8")
+""".lstrip(),
+            encoding="utf-8",
+        )
+
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
             """
