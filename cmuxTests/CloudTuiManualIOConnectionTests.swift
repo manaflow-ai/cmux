@@ -68,6 +68,38 @@ import Testing
         }
     }
 
+    @Test func byteBatchPreservesNamedKeyAndConnectionBoundaries() async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-input-order")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            router.send(.bytes(Data("before".utf8)))
+            router.send(.namedKey("Enter"))
+            router.send(.bytes(Data("after".utf8)))
+            router.setConnection(nil)
+            router.send(.bytes(Data("rebound".utf8)))
+            router.setConnection(connection)
+            queue.resume()
+
+            let commands = try await Self.blocking {
+                try (0..<4).map { _ in
+                    try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                }.map { command in
+                    // Only immutable Sendable values cross out of peer I/O.
+                    (command["cmd"] as? String, command["bytes"] as? String,
+                     command["keys"] as? [String], command["id"] as? Int)
+                }
+            }
+            #expect(commands.map { $0.0 } == ["send", "send-key", "send", "send"])
+            #expect(commands[0].1 == Data("before".utf8).base64EncodedString())
+            #expect(commands[1].2 == ["enter"])
+            #expect(commands[2].1 == Data("after".utf8).base64EncodedString())
+            #expect(commands[3].1 == Data("rebound".utf8).base64EncodedString())
+            #expect(commands.allSatisfy { $0.3 == 0 })
+        }
+    }
+
     @Test func preservesLargeFramesAcrossSocketReads() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<8).map { Data(repeating: UInt8($0), count: 64 * 1024) }
