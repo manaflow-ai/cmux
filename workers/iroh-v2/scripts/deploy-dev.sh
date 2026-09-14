@@ -30,7 +30,7 @@ case "$slug" in
 esac
 
 name="cmux-iroh-v2-dev-${slug}"
-workers_subdomain="${CMUX_IROH_V2_WORKERS_SUBDOMAIN:-cmux-presence-worker}"
+workers_subdomain="${CMUX_IROH_V2_WORKERS_SUBDOMAIN:-debussy}"
 required=(STACK_PROJECT_ID STACK_PUBLISHABLE_KEY STACK_SERVER_KEY API_TICKET_KEYS
   API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS DATABASE_URL)
 # PlanetScale is a supported shared Postgres provider. Accept its explicit

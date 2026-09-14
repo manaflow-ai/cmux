@@ -21,9 +21,9 @@
     "appLaunched": false
   },
   "originProbe": {
-    "staging": "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev",
-    "development": "https://cmux-iroh-v2-development.cmux-presence-worker.workers.dev",
-    "production": "https://cmux-iroh-v2.cmux-presence-worker.workers.dev",
+    "staging": "https://cmux-iroh-v2-staging.debussy.workers.dev",
+    "development": "https://cmux-iroh-v2-development.debussy.workers.dev",
+    "production": "https://cmux-iroh-v2.debussy.workers.dev",
     "result": "all responded to GET /v2/health with expected unsupported_method error.v1"
   },
   "blockingConfiguration": [

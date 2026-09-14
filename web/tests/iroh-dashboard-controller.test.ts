@@ -29,12 +29,12 @@ describe("IROH Dashboard v2 controller", () => {
     const calls: Request[] = [];
     globalThis.fetch = (async (input, init) => { calls.push(new Request(input, init)); return Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "body.signature", expiresAt: 3600, refreshAfter: 3300 } }); }) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "stack-token", onDirectory: () => {}, onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "stack-token", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start();
     await new Promise(resolve => setTimeout(resolve, 0));
     const socket = FakeSocket.instances[0];
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer stack-token");
-    expect(calls[0]?.url).toBe("https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev/v2/dashboard/session");
+    expect(calls[0]?.url).toBe("https://cmux-iroh-v2-staging.debussy.workers.dev/v2/dashboard/session");
     expect(socket?.protocols).toEqual(["cmux-v2-dashboard", "ticket.body.signature"]);
     socket?.open();
     await pending;
@@ -45,7 +45,7 @@ describe("IROH Dashboard v2 controller", () => {
   test("acknowledges delivery receipts without opening another request", async () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
     const socket = FakeSocket.instances[0]!; socket.open();
     socket.message({ schemaId: "directory.changed.v1", teamId: "t", revision: 1, deliveryReceipt: { sequence: 7, token: "receipt" } });
@@ -58,7 +58,7 @@ describe("IROH Dashboard v2 controller", () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const directories: unknown[] = [];
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
     const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
     const socket = FakeSocket.instances[0]!; socket.open();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -78,7 +78,7 @@ describe("IROH Dashboard v2 controller", () => {
   test("uses the cursor for paged directories and sends expected revision for settings", async () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
     const socket = FakeSocket.instances[0]!; socket.open();
     await new Promise(resolve => setTimeout(resolve, 0));

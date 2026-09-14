@@ -7,7 +7,7 @@
   "acceptanceStatus": "not-confirmed",
   "backend": {
     "environment": "staging",
-    "origin": "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev",
+    "origin": "https://cmux-iroh-v2-staging.debussy.workers.dev",
     "workerVersion": "4bdddd87-8cd4-4dcc-a125-08c9a9ea5864",
     "observed": [
       "POST /v2/control/session reached the team Durable Object",

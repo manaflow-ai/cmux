@@ -51,9 +51,9 @@ public struct MobileIrohV2Configuration: Sendable {
         let environment = override("CMUX_IROH_V2_ENVIRONMENT") ?? defaultEnvironment
         let origin: String
         switch environment {
-        case "production": origin = "https://cmux-iroh-v2.cmux-presence-worker.workers.dev"
-        case "staging": origin = "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev"
-        default: origin = "https://cmux-iroh-v2-development.cmux-presence-worker.workers.dev"
+        case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
+        case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
+        default: origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
         }
         guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),
               url.scheme == "https", url.host != nil else {
