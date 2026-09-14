@@ -184,6 +184,26 @@ describe("billing checkout route", () => {
     expect(createStripeSession).not.toHaveBeenCalled();
   });
 
+  for (const plan of ["pro", "max", "team", "go"]) {
+    test(`direct ${plan} checkout requires sign-in and preserves the return plan`, async () => {
+      stripeConfigured = true;
+      userResponses = [null, anonymousUser];
+      const response = await GET(new NextRequest(`https://cmux.test/api/billing/checkout?plan=${plan}&cmux_source=pricing_page&cmux_placement=pricing_compare_header&utm_campaign=launch&format=json`));
+      const signIn = new URL((await response.json()).url);
+      expect(signIn.pathname).toBe("/handler/sign-in");
+      const afterAuth = new URL(signIn.searchParams.get("after_auth_return_to")!, signIn);
+      const checkout = new URL(afterAuth.searchParams.get("after_auth_return_to")!, signIn);
+      expect(checkout.pathname).toBe("/api/billing/checkout");
+      expect(checkout.searchParams.get("plan")).toBe(plan);
+      expect(checkout.searchParams.get("cmux_placement")).toBe("pricing_compare_header");
+      expect(checkout.searchParams.get("utm_campaign")).toBe("launch");
+      expect(checkout.searchParams.has("format")).toBe(false);
+      expect(createStripeSession).not.toHaveBeenCalled();
+      expect(createStripeCustomer).not.toHaveBeenCalled();
+      expect(getUser).not.toHaveBeenCalledWith({ or: "anonymous" });
+    });
+  }
+
   test("CLI checkout binds the Stripe purchase to the verified app account", async () => {
     stripeConfigured = true;
     userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];

@@ -10,6 +10,21 @@ import Testing
 @Suite("New machine model")
 @MainActor
 struct NewMachineModelTests {
+    @Test func lockedLadderCannotSubmitThroughTheModel() {
+        var didSubmit = false
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            memoryOptionsMb: [32768],
+            lockedMemoryOptionsMb: [32768],
+            submit: { _ in didSubmit = true; return true }
+        )
+        model.create()
+        #expect(model.hasNoAllowedMemoryOptions)
+        #expect(!didSubmit)
+        #expect(model.outcome == nil)
+    }
+
     @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
         let model = NewMachineModel(
             mode: .newMachine,
