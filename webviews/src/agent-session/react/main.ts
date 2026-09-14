@@ -47,7 +47,6 @@ import {
   loadInitialData,
   messageForError,
   reduceSession,
-  sendInput,
   selectProvider,
   startProvider,
   statusLabel,
@@ -75,6 +74,8 @@ import {
   GuiModeWelcome,
 } from "../../gui-mode/GuiModeSessionChrome";
 import { executeGuiModeTerminal } from "../../gui-mode/bridge";
+
+import { useSessionSubmission } from "./useSessionSubmission";
 
 const h = React.createElement;
 
@@ -274,33 +275,9 @@ function useAutoStart(state: SessionState, dispatch: React.Dispatch<Action>) {
 
 export function AgentSessionApp() {
   const [state, dispatch] = useReducer(reduceSession, initialState("react"));
-  const autoSubmittedGuiPrompt = useRef<string | null>(null);
   useInitialData(dispatch);
   useNativeEvents(dispatch);
   useAutoStart(state, dispatch);
-  useEffect(() => {
-    const guiMode = state.context?.guiMode;
-    const prompt = guiModePromptForAutoSubmission(state);
-    if (!prompt || !state.runningSessionId || state.status !== "running") {
-      return;
-    }
-    if (autoSubmittedGuiPrompt.current === prompt) {
-      return;
-    }
-    autoSubmittedGuiPrompt.current = prompt;
-    void sendInput(state, dispatch, {
-      clearInput: "",
-      displayText: prompt,
-      modelId: guiMode?.selectedModelId,
-      permissionMode: "default",
-      reasoningEffort: guiMode?.selectedReasoningEffort,
-      text: prompt,
-    }).then((didSend) => {
-      if (!didSend) {
-        autoSubmittedGuiPrompt.current = null;
-      }
-    });
-  }, [state]);
   return h(SessionSurface, { state, dispatch, renderer: "React" });
 }
 
@@ -346,9 +323,23 @@ function SessionSurface({
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const submission = useSessionSubmission(state, dispatch);
+  const autoSubmittedGuiPrompt = useRef<string | null>(null);
+  useEffect(() => {
+    const prompt = guiModePromptForAutoSubmission(state);
+    if (!prompt || autoSubmittedGuiPrompt.current === prompt || state.status !== "running") return;
+    if (submission.submit({
+      clearInput: "",
+      displayText: prompt,
+      modelId: guiModelId,
+      permissionMode: "default",
+      reasoningEffort: guiReasoningEffort,
+      text: prompt,
+    })) autoSubmittedGuiPrompt.current = prompt;
+  }, [state, submission, guiModelId, guiReasoningEffort]);
   const canSend = isGuiMode && composerMode === "terminal"
     ? state.input.trim().length > 0 && !terminalCommandPending
-    : state.status === "running" && (state.input.length > 0 || attachments.length > 0);
+    : submission.canSubmit && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
@@ -415,7 +406,7 @@ function SessionSurface({
       }).finally(() => setTerminalCommandPending(false));
       return;
     }
-    const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
+    const canSubmit = submission.canSubmit && (currentInput.length > 0 || attachments.length > 0);
     if (!canSubmit) {
       return;
     }
@@ -434,7 +425,7 @@ function SessionSurface({
     );
     const text = promptTextWithAttachments(providerInput, attachments);
     const submittedAttachmentIds = new Set(attachments.map((attachment) => attachment.id));
-    void sendInput(state, dispatch, {
+    submission.submit({
       attachments,
       clearInput: currentInput,
       displayText: currentInput,
@@ -442,14 +433,13 @@ function SessionSurface({
       modelId: isGuiMode ? guiModelId : undefined,
       reasoningEffort: isGuiMode ? guiReasoningEffort : undefined,
       text,
-    }).then((didSend) => {
-      if (didSend) {
-        setAttachments((currentAttachments) =>
-          currentAttachments.filter((attachment) => !submittedAttachmentIds.has(attachment.id)),
-        );
-      }
+    }, () => {
+      setAttachments((currentAttachments) =>
+        currentAttachments.filter((attachment) => !submittedAttachmentIds.has(attachment.id)),
+      );
     });
   };
+
   const insertComposerMenuItem = (item: ComposerMenuItem) => {
     editorRef.current?.insertMention(item.mention);
     setMenuKind(null);
