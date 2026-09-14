@@ -13107,7 +13107,9 @@ class TerminalController {
     /// `resizeMainWindow` sets and returns.
     private func resizeWindow(_ args: String) -> String {
         let parts = args.split(separator: " ").map(String.init)
-        guard parts.count >= 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
+        // Exactly three: the grammar has no optional tail, and silently ignoring extra
+        // tokens turns a malformed command into a successful resize.
+        guard parts.count == 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
         guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
 
         // A dimension must survive the CGFloat math and the Int in the reply:

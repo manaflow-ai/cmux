@@ -18957,8 +18957,8 @@ struct CMUXCLI {
             return """
             Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]
 
-            Resize a window, keeping its top-left corner fixed so the change reads
-            like dragging the bottom edge. Prints the resulting window frame size
+            Resize a window, keeping its top-left corner fixed: height grows or shrinks
+            downward, width rightward. Prints the resulting window frame size
             (title bar included). With neither --width nor --height it changes
             nothing and prints the current frame size. A height change is what
             drives the terminal's resize path, so this is how a test reproduces

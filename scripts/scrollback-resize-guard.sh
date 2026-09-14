@@ -32,6 +32,12 @@ set -uo pipefail
 TAG="${CMUX_TAG:?set CMUX_TAG}"
 CYCLES="${1:-8}"
 NLINES="${2:-400}"
+# A zero or junk count makes the seq loop empty, and the guard then reports PASS without
+# having resized anything -- the failure mode this whole script exists to catch.
+case "$CYCLES" in ''|*[!0-9]*) echo "FAIL: cycles must be a positive integer, got '$CYCLES'" >&2; exit 2 ;; esac
+case "$NLINES" in ''|*[!0-9]*) echo "FAIL: lines must be a positive integer, got '$NLINES'" >&2; exit 2 ;; esac
+[ "$CYCLES" -gt 0 ] || { echo "FAIL: cycles must be greater than zero" >&2; exit 2; }
+[ "$NLINES" -gt 0 ] || { echo "FAIL: lines must be greater than zero" >&2; exit 2; }
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SOCKDIR=/tmp/cm-dragguard-$TAG
 LOG=/tmp/dragtmux-$TAG.log
@@ -132,6 +138,11 @@ TMUX_TMPDIR="$SOCKDIR" tmux -L dg set-option -t dg status off \
 # marker typed into the tmux pane.
 run "tmux detach-client"
 run "TMUX_TMPDIR=$SOCKDIR tmux -L dg attach -t dg"
+# `run` cannot see the attach fail: the shell survives it and still echoes the marker, so
+# the marker alone would let the guard resize with no tmux underneath and still pass. Ask
+# tmux itself whether a client is attached before believing anything on screen.
+attached() { TMUX_TMPDIR="$SOCKDIR" tmux -L dg list-clients -t dg 2>/dev/null | grep -q .; }
+wait_until 20 "an attached tmux client" attached
 run "echo TMUX-READY-$$"
 wait_until 20 "the reattached tmux client" screen_has "TMUX-READY-$$"
 
@@ -145,8 +156,8 @@ wait_until 30 "the $NLINES numbered lines" screen_has "^$LAST\$"
 run "printf 'PARKED\\n'; printf '\\033[12;1H'; sleep 900"
 wait_until 15 "the parked cursor" screen_has "PARKED"
 
-snap > /tmp/dragtmux-$TAG-before.txt || fail "read-screen failed on the before snapshot"
-BEFORE=$(grep -c . /tmp/dragtmux-$TAG-before.txt)
+snap > "/tmp/dragtmux-$TAG-before.txt" || fail "read-screen failed on the before snapshot"
+BEFORE=$(grep -c . "/tmp/dragtmux-$TAG-before.txt")
 # tmux keeps its own history, so ghostty holds one screenful. A near-full screen
 # is the precondition the shrink needs: with blank rows to trim it never pushes
 # real content into history. Anything above this count later came from a resize.
@@ -171,13 +182,13 @@ for c in $(seq 1 "$CYCLES"); do
   echo "cycle $c lines=$(snap | grep -c .)" >> "$LOG"
 done
 
-snap > /tmp/dragtmux-$TAG-after.txt || fail "read-screen failed on the after snapshot"
-AFTER=$(grep -c . /tmp/dragtmux-$TAG-after.txt)
+snap > "/tmp/dragtmux-$TAG-after.txt" || fail "read-screen failed on the after snapshot"
+AFTER=$(grep -c . "/tmp/dragtmux-$TAG-after.txt")
 # An empty or shrunken snapshot is a broken read, not a passing terminal: the
 # parked rows cannot leave the buffer, so AFTER below BEFORE means the snapshot
 # lied and the growth comparison would pass vacuously.
 [ "$AFTER" -ge "$BEFORE" ] || fail "after snapshot returned $AFTER lines (before had $BEFORE) -- snapshot failed"
-UNI=$(sort -u /tmp/dragtmux-$TAG-after.txt | grep -c .)
+UNI=$(sort -u "/tmp/dragtmux-$TAG-after.txt" | grep -c .)
 echo "after $CYCLES drag cycles: $AFTER numbered lines, $UNI unique"
 
 FAIL=0
@@ -186,7 +197,7 @@ FAIL=0
 # discriminate -- tmux repaints the screen after every resize and that repaint
 # writes a second copy of the visible rows on a fixed build too, so both arms
 # show some. Growth separates them: 8 cycles cost ~37 lines unfixed and ~2 fixed.
-DUPCOUNT=$(sort /tmp/dragtmux-$TAG-after.txt | uniq -d | grep -c .)
+DUPCOUNT=$(sort "/tmp/dragtmux-$TAG-after.txt" | uniq -d | grep -c .)
 echo "duplicated lines: $DUPCOUNT (informational; tmux repaint duplicates on any build)"
 if [ "$AFTER" -gt "$((BEFORE + 5))" ]; then
   echo "FAIL: scrollback grew by $((AFTER - BEFORE)) lines across $CYCLES drag cycles"; FAIL=1
