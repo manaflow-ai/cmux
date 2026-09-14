@@ -62,6 +62,31 @@ struct CloudTerminalStartupLatencyTests {
         ))
     }
 
+    @Test
+    func aFrameBeforeReplayCannotMakeTheReplayedTerminalReady() {
+        var readiness = CloudTerminalStartupReadiness()
+        readiness.begin(baselineFrame: 10)
+        readiness.markAttached()
+        readiness.markFramePresented(sequence: 11, rendererPresented: true, effectivelyVisible: true)
+        #expect(!readiness.markReplayApplied())
+        #expect(!readiness.isReady)
+        #expect(readiness.markFramePresented(sequence: 12, rendererPresented: true, effectivelyVisible: true))
+    }
+
+    @Test @MainActor
+    func unresolvedPaneShowsProgressUntilCancelledOrFailed() {
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_pending", remoteSurfaceID: 0,
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+        #expect(session.connectionPresentation?.showsProgress == true)
+        #expect(session.cancelConnectionAttempt())
+        #expect(session.connectionPresentation == nil)
+        #expect(session.retryConnection())
+        #expect(session.connectionPresentation?.showsReconnectButton == true)
+    }
+
     @Test @MainActor
     func unresolvedSurfaceCannotStartAnAttachStream() async throws {
         let fixture = try CloudManualMirrorSocketFixture()
