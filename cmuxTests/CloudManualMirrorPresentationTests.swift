@@ -164,7 +164,7 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
-    func unavailableSurfaceResolutionRequestsRefreshOnceAndRemainsRetryable() {
+    func unavailableSurfaceResolutionLeavesRefreshToProviderAndRemainsRetryable() {
         var reconnectRequests = 0
         let session = CloudTuiManualMirrorSession(
             machineID: "machine",
@@ -175,12 +175,14 @@ struct CloudManualMirrorPresentationTests {
         defer { session.stop() }
         session.markSurfaceResolutionUnavailable()
         session.markSurfaceResolutionUnavailable()
-        #expect(reconnectRequests == 1)
+        // The provider schedules resolution retries with backoff. A failed
+        // resolution must not immediately request the same refresh again.
+        #expect(reconnectRequests == 0)
         #expect(session.connectionPresentation?.showsReconnectButton == true)
         #expect(session.retryConnection())
-        #expect(reconnectRequests == 2)
+        #expect(reconnectRequests == 1)
         session.visibilityChanged(true)
-        #expect(reconnectRequests == 3)
+        #expect(reconnectRequests == 2)
         session.stop()
         #expect(!session.retryConnection())
     }
@@ -226,6 +228,7 @@ struct CloudManualMirrorPresentationTests {
         defer { old.stop(); replacement.stop() }
         let owner = CloudTerminalOverlayCoordinator()
         let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        replacement.markSurfaceResolutionUnavailable()
         owner.session = replacement
         owner.apply(replacement.connectionPresentation, in: anchor, frame: anchor.bounds) {}
         owner.unbindSession(old)
