@@ -57,14 +57,12 @@ test("unavailable, truncated and non-ancestor comparisons build defensively", as
 });
 
 test("explicit force, branch dogfood and measurement always build", async () => {
-  for (const scenario of [{ env: { FORCE_BUILD: "true" } }, { branch: "feature" }, { env: { BUILD_ONLY: "true", COMPILATION_MODE: "singlefile" } }]) {
+  for (const scenario of [{ env: { FORCE_BUILD: "true" } }, { branch: "feature" }, { env: { BUILD_ONLY: "true" } }]) {
     const { outputs, comparisons } = await decide(scenario);
     assert.equal(outputs.should_build, "true");
     assert.equal(comparisons, 0);
     if (scenario.env?.BUILD_ONLY) {
       assert.equal(outputs.should_publish, "false");
-      assert.equal(outputs.compilation_mode, "singlefile");
     }
   }
-  assert.equal((await decide({ env: { COMPILATION_MODE: "singlefile", FORCE_BUILD: "true" } })).outputs.compilation_mode, "wholemodule");
 });

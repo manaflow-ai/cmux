@@ -1,7 +1,7 @@
 name: Nightly macOS build
 
 on:
-  # Publish every changed main revision, while keeping the scheduled cache warm.
+  # Publish changes to macOS build inputs, while keeping the scheduled cache warm.
   push:
     branches:
       - main
@@ -30,12 +30,6 @@ on:
         required: false
         default: false
         type: boolean
-      compilation_mode:
-        description: Swift compilation mode for build-only measurements. Published nightlies always use whole-module optimization.
-        required: false
-        default: wholemodule
-        type: choice
-        options: [wholemodule, singlefile]
 
 concurrency:
   # A fast branch dogfood run must not wait behind a queued full matrix run on
@@ -68,7 +62,6 @@ jobs:
       fast_build: ${{ steps.decide.outputs.fast_build }}
       build_only: ${{ steps.decide.outputs.build_only }}
       cold_cache: ${{ steps.decide.outputs.cold_cache }}
-      compilation_mode: ${{ steps.decide.outputs.compilation_mode }}
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
@@ -78,7 +71,6 @@ jobs:
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
           COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
-          COMPILATION_MODE: ${{ github.event.inputs.compilation_mode }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -104,7 +96,6 @@ jobs:
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
             core.setOutput('build_only', buildOnly ? 'true' : 'false');
             core.setOutput('cold_cache', coldCache ? 'true' : 'false');
-            core.setOutput('compilation_mode', buildOnly && process.env.COMPILATION_MODE === 'singlefile' ? 'singlefile' : 'wholemodule');
             const { owner, repo } = context.repo;
             const requestedRef = context.ref.startsWith('refs/heads/')
               ? context.ref.replace('refs/heads/', '')
@@ -142,7 +133,7 @@ jobs:
             // Compare with the last successfully published app, not the previous
             // push. Several web-only commits can arrive between native changes.
             // GitHub returns at most 300 files; incomplete comparisons rebuild.
-            let buildInputsChanged = true;
+            let buildInputsChanged = nightlySha !== headSha;
             if (isMainRef && nightlySha && nightlySha !== headSha && !forceBuild && !buildOnly) {
               try {
                 const { data } = await github.rest.repos.compareCommitsWithBasehead({
@@ -182,7 +173,7 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && needs.decide.outputs.should_build == 'true'
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
@@ -493,7 +484,6 @@ jobs:
             -showBuildTimingSummary \
             ARCHS="$archs" \
             ONLY_ACTIVE_ARCH="$only_active" \
-            SWIFT_COMPILATION_MODE="${{ needs.decide.outputs.compilation_mode }}" \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
