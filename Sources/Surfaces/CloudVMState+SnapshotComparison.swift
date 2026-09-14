@@ -12,7 +12,8 @@ extension CloudVMState {
     /// strict, and every unknown field inside a row remains part of equality.
     func hasSameRevisionedContent(as other: CloudVMState) -> Bool {
         hasSameRevisionedModeledContent(as: other)
-            && document.values.filter { $0.key != "clients" } == other.document.values.filter { $0.key != "clients" }
+            && document.values.filter { $0.key != "clients" && $0.key != "session" }
+                == other.document.values.filter { $0.key != "clients" && $0.key != "session" }
             && document.collections.filter { $0.key != "clients" && $0.key != "terminals" }
                 .mapValues { $0.rows }
                 == other.document.collections.filter { $0.key != "clients" && $0.key != "terminals" }
