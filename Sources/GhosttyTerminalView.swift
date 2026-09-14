@@ -312,7 +312,8 @@ class GhosttyApp {
                 }
             )
             return TerminalSurfaceViewFactory(
-                imageTransferPreparation: preparationService
+                imageTransferPreparation: preparationService,
+                paneDropTargetRegistryProvider: { AppDelegate.nativeDragCoordinator.paneDropTargetRegistry }
             )
         }(),
         spawnPolicy: TerminalSurfaceSpawnPolicyBridge(),
@@ -9640,7 +9641,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let mobileViewportBorderOverlayView = TerminalViewportBorderOverlayView(frame: .zero)
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
-    private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
+    private let paneDropTargetView: TerminalPaneDropTargetView
     private let notificationRingOverlayView: GhosttyFlashOverlayView
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
@@ -9897,7 +9898,10 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    init(surfaceView: GhosttyNSView) {
+    init(
+        surfaceView: GhosttyNSView,
+        paneDropTargetRegistry: PaneDropTargetRegistry
+    ) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
         #endif
@@ -9907,6 +9911,10 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        paneDropTargetView = TerminalPaneDropTargetView(
+            frame: .zero,
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)

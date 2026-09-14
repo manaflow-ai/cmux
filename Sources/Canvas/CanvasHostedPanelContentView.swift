@@ -19,6 +19,7 @@ struct CanvasHostedPanelContentView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     let settingsRuntime: SettingsRuntime?
+    let paneDropTargetRegistry: PaneDropTargetRegistry?
     let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
     let onRequestDeferredBrowserMaterialization: () -> Void
@@ -48,6 +49,7 @@ struct CanvasHostedPanelContentView: View {
             onRequestDeferredBrowserMaterialization: onRequestDeferredBrowserMaterialization
         )
         .environment(\.settingsRuntime, settingsRuntime)
+        .environment(\.paneDropTargetRegistry, paneDropTargetRegistry)
         .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)
         // Window-portal content (webviews) floats above the pane's layer
         // border; this inset keeps the focus ring visible around it.

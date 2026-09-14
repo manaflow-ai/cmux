@@ -17,7 +17,7 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
         XCTAssertTrue(fileManager.fileExists(atPath: pluginURL.path))
 
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true).appendingPathComponent(
             "cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true
         )
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)

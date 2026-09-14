@@ -27,7 +27,7 @@ struct FilePreviewNativeDragOwnership {
     func finish(from pasteboard: NSPasteboard) {
         transferRegistration?.clearResidualCapability(from: pasteboard)
         if let transferRegistration {
-            transferRegistry?.end(transferRegistration)
+            transferRegistry?.endNativeDrag(transferRegistration)
         }
         let cleaner = DragPasteboardCapabilityCleaner()
         cleaner.remove(

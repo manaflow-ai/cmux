@@ -23,6 +23,7 @@ struct WorkspaceCanvasHostView: View {
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
     @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.paneDropTargetRegistry) private var paneDropTargetRegistry
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -71,6 +72,7 @@ struct WorkspaceCanvasHostView: View {
                             appearance: appearance,
                             windowAppearance: windowAppearance,
                             settingsRuntime: settingsRuntime,
+                            paneDropTargetRegistry: paneDropTargetRegistry,
                             workspaceAttentionColor: workspaceAttentionColor,
                             sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
@@ -131,6 +133,7 @@ struct WorkspaceCanvasHostView: View {
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
         settingsRuntime: SettingsRuntime?,
+        paneDropTargetRegistry: PaneDropTargetRegistry?,
         workspaceAttentionColor: WorkspaceAttentionColor,
         sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
@@ -155,6 +158,7 @@ struct WorkspaceCanvasHostView: View {
             appearance: appearance,
             windowAppearance: windowAppearance,
             settingsRuntime: settingsRuntime,
+            paneDropTargetRegistry: paneDropTargetRegistry,
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)

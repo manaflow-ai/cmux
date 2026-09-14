@@ -477,23 +477,29 @@ final class WindowBrowserHostView: NSView {
         // same BrowserPaneDropTargetView router. Sidebar reorder and stale or
         // unknown transfer payloads still pass through to the SwiftUI layers.
         let dragPasteboardTypes = dragPasteboard.types
+        let hasLiveTabTransfer = DragOverlayRoutingPolicy.hasLiveTabTransfer(
+            in: dragPasteboard,
+            pasteboardTypes: dragPasteboardTypes,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
+        let hasLiveFileDropPayload = DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+            from: dragPasteboard,
+            pasteboardTypes: dragPasteboardTypes,
+            resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+        )
         if Self.shouldPassThroughToDragTargets(
             pasteboardTypes: dragPasteboardTypes,
             eventType: eventType,
             hasActiveDropDrag: hasActivePaneDropDrag,
-            hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
-                in: dragPasteboard,
-                pasteboardTypes: dragPasteboardTypes,
-                resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
-            ),
-            hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
-                from: dragPasteboard,
-                pasteboardTypes: dragPasteboardTypes,
-                resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
-            )
+            hasLiveTabTransfer: hasLiveTabTransfer,
+            hasLiveFileDropPayload: hasLiveFileDropPayload
         ) {
             if routingContext.eventKind == .pointerUp,
-               hasActivePaneDropDrag,
+               Self.shouldRoutePointerUpToPaneDropTarget(
+                   hasActiveDropDrag: hasActivePaneDropDrag,
+                   hasLiveTabTransfer: hasLiveTabTransfer,
+                   hasLiveFileDropPayload: hasLiveFileDropPayload
+               ),
                let paneDropTarget = paneDropTarget(at: point) {
                 return paneDropTarget
             }
@@ -902,6 +908,14 @@ final class WindowBrowserHostView: NSView {
         )
     }
 
+    static func shouldRoutePointerUpToPaneDropTarget(
+        hasActiveDropDrag: Bool,
+        hasLiveTabTransfer: Bool,
+        hasLiveFileDropPayload: Bool
+    ) -> Bool {
+        hasActiveDropDrag || hasLiveTabTransfer || hasLiveFileDropPayload
+    }
+
     private func paneDropTarget(at point: NSPoint) -> BrowserPaneDropTargetView? {
         for subview in subviews.reversed() {
             guard let slotView = subview as? WindowBrowserSlotView,
@@ -1260,7 +1274,7 @@ final class WindowBrowserSlotView: NSView {
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
     }
-    private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
+    private let paneDropTargetView: BrowserPaneDropTargetView
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
@@ -1282,7 +1296,11 @@ final class WindowBrowserSlotView: NSView {
     fileprivate var isApplyingHostedInspectorLayout = false
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, paneDropTargetRegistry: PaneDropTargetRegistry) {
+        paneDropTargetView = BrowserPaneDropTargetView(
+            frame: .zero,
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -1904,6 +1922,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private weak var window: NSWindow?
+    private let paneDropTargetRegistry: PaneDropTargetRegistry
     private let hostView = WindowBrowserHostView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
@@ -1960,8 +1979,9 @@ final class WindowBrowserPortal: NSObject {
     }
 #endif
 
-    init(window: NSWindow) {
+    init(window: NSWindow, paneDropTargetRegistry: PaneDropTargetRegistry) {
         self.window = window
+        self.paneDropTargetRegistry = paneDropTargetRegistry
         super.init()
         hostView.wantsLayer = true
         hostView.layer?.masksToBounds = true
@@ -1969,6 +1989,13 @@ final class WindowBrowserPortal: NSObject {
         hostView.autoresizingMask = []
         installGeometryObservers(for: window)
         _ = ensureInstalled()
+    }
+
+    func validatePaneDropTargetRegistry(_ registry: PaneDropTargetRegistry) {
+        precondition(
+            paneDropTargetRegistry === registry,
+            "A browser portal cannot change pane drop registry ownership"
+        )
     }
 
     static func shouldTreatSplitResizeAsExternalGeometry(
@@ -2519,7 +2546,10 @@ final class WindowBrowserPortal: NSObject {
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
         }
-        let created = WindowBrowserSlotView(frame: .zero)
+        let created = WindowBrowserSlotView(
+            frame: .zero,
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         if let paneDropContext = entry.paneDropContext {
             created.setPaneDropContext(paneDropContext)
         }
@@ -3110,8 +3140,10 @@ final class WindowBrowserPortal: NSObject {
         to anchorView: NSView,
         visibleInUI: Bool,
         zPriority: Int = 0,
-        paneDropContext: BrowserPaneDropContext? = nil
+        paneDropContext: BrowserPaneDropContext? = nil,
+        paneDropTargetRegistry: PaneDropTargetRegistry
     ) {
+        validatePaneDropTargetRegistry(paneDropTargetRegistry)
         guard ensureInstalled() else { return }
 
         let webViewId = ObjectIdentifier(webView)
@@ -4111,14 +4143,21 @@ enum BrowserWindowPortalRegistry {
         }
     }
 
-    private static func portal(for window: NSWindow) -> WindowBrowserPortal {
+    private static func portal(
+        for window: NSWindow,
+        paneDropTargetRegistry: PaneDropTargetRegistry
+    ) -> WindowBrowserPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowBrowserPortalKey) as? WindowBrowserPortal {
+            existing.validatePaneDropTargetRegistry(paneDropTargetRegistry)
             portalsByWindowId[ObjectIdentifier(window)] = existing
             installWindowCloseObserverIfNeeded(for: window)
             return existing
         }
 
-        let portal = WindowBrowserPortal(window: window)
+        let portal = WindowBrowserPortal(
+            window: window,
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
         objc_setAssociatedObject(window, &cmuxWindowBrowserPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
@@ -4130,13 +4169,17 @@ enum BrowserWindowPortalRegistry {
         to anchorView: NSView,
         visibleInUI: Bool,
         zPriority: Int = 0,
-        paneDropContext: BrowserPaneDropContext? = nil
+        paneDropContext: BrowserPaneDropContext? = nil,
+        paneDropTargetRegistry: PaneDropTargetRegistry
     ) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
         let webViewId = ObjectIdentifier(webView)
-        let nextPortal = portal(for: window)
+        let nextPortal = portal(
+            for: window,
+            paneDropTargetRegistry: paneDropTargetRegistry
+        )
 
         if let oldWindowId = webViewToWindowId[webViewId],
            oldWindowId != windowId {
@@ -4148,7 +4191,8 @@ enum BrowserWindowPortalRegistry {
             to: anchorView,
             visibleInUI: visibleInUI,
             zPriority: zPriority,
-            paneDropContext: paneDropContext
+            paneDropContext: paneDropContext,
+            paneDropTargetRegistry: paneDropTargetRegistry
         )
         webViewToWindowId[webViewId] = windowId
         pruneWebViewMappings(for: windowId, validWebViewIds: nextPortal.webViewIds())
@@ -4156,8 +4200,10 @@ enum BrowserWindowPortalRegistry {
     }
 
     static func synchronizeForAnchor(_ anchorView: NSView) {
-        guard let window = anchorView.window else { return }
-        let portal = portal(for: window)
+        guard let window = anchorView.window,
+              let portal = objc_getAssociatedObject(window, &cmuxWindowBrowserPortalKey) as? WindowBrowserPortal else {
+            return
+        }
         portal.synchronizeWebViewForAnchor(anchorView)
     }
 

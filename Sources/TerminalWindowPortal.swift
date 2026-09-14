@@ -158,24 +158,32 @@ final class WindowTerminalHostView: NSView {
             }
 
             clearActiveDividerCursor(restoreArrow: true)
-            if routingContext.allowsTerminalPortalDragRouting,
-               routingContext.eventKind != .pointerUp || hasActivePaneDropDrag {
+            if routingContext.allowsTerminalPortalDragRouting {
                 let dragPasteboard = NSPasteboard(name: .drag)
                 let dragPasteboardTypes = dragPasteboard.types ?? []
+                let hasLiveTabTransfer = DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                    in: dragPasteboard,
+                    pasteboardTypes: dragPasteboardTypes,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                )
+                let hasLiveFileDropPayload = DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                    from: dragPasteboard,
+                    pasteboardTypes: dragPasteboardTypes,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                )
+                guard routingContext.eventKind != .pointerUp
+                    || hasActivePaneDropDrag
+                    || hasLiveTabTransfer
+                    || hasLiveFileDropPayload else {
+                    let hitView = super.hitTest(point)
+                    return hitView === self ? nil : hitView
+                }
                 let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                     pasteboardTypes: dragPasteboardTypes,
                     eventType: eventType,
                     hasActiveDropDrag: hasActivePaneDropDrag,
-                    hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
-                        in: dragPasteboard,
-                        pasteboardTypes: dragPasteboardTypes,
-                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
-                    ),
-                    hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
-                        from: dragPasteboard,
-                        pasteboardTypes: dragPasteboardTypes,
-                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
-                    )
+                    hasLiveTabTransfer: hasLiveTabTransfer,
+                    hasLiveFileDropPayload: hasLiveFileDropPayload
                 )
                 if shouldPassThrough {
                     let hitView = super.hitTest(point)
