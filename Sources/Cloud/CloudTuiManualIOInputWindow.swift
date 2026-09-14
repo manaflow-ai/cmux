@@ -6,24 +6,32 @@ import Foundation
 struct CloudTuiManualIOInputWindow {
     private let maximumInFlight = 32
     private let maximumBytes = 256 * 1024
-    private var pending: [Data?] = []
+    private struct Command {
+        let line: Data
+        let needsReceipt: Bool
+    }
+    private var pending: [Command?] = []
     private var pendingIndex = 0
     private var inFlightSizes: [Int] = []
     private var retainedBytes = 0
 
-    mutating func append(_ line: Data) -> Bool {
+    mutating func append(_ line: Data, needsReceipt: Bool) -> Bool {
         guard !line.isEmpty, line.count <= maximumBytes - retainedBytes else { return false }
-        pending.append(line)
+        pending.append(Command(line: line, needsReceipt: needsReceipt))
         retainedBytes += line.count
         return true
     }
 
     mutating func next() -> Data? {
-        guard inFlightSizes.count < maximumInFlight, pendingIndex < pending.count else { return nil }
-        guard let line = pending[pendingIndex] else { return nil }
+        guard pendingIndex < pending.count, let command = pending[pendingIndex],
+              !command.needsReceipt || inFlightSizes.count < maximumInFlight else { return nil }
         pending[pendingIndex] = nil
         pendingIndex += 1
-        inFlightSizes.append(line.count)
+        if command.needsReceipt {
+            inFlightSizes.append(command.line.count)
+        } else {
+            retainedBytes -= command.line.count
+        }
         if pendingIndex == pending.count {
             pending.removeAll(keepingCapacity: true)
             pendingIndex = 0
@@ -31,7 +39,7 @@ struct CloudTuiManualIOInputWindow {
             pending.removeFirst(pendingIndex)
             pendingIndex = 0
         }
-        return line
+        return command.line
     }
 
     /// Input uses reserved request ID zero on this ordered connection. Each
