@@ -1360,11 +1360,12 @@ struct cmuxApp: App {
 
     /// Whether the "New Local Workspace" File-menu item should be shown: true only
     /// when plain New Workspace in the active window would route to a remote tmux
-    /// host. Reads `focusHistoryMenuInvalidator.revision` so the menu re-evaluates
-    /// on window-focus and workspace-selection changes (a window must become key
-    /// before its menu bar opens, so switching into a mirror window refreshes this).
+    /// host. Reads `historyMenuCoordinator.state` so the menu re-evaluates on
+    /// window-focus and workspace-selection changes: the coordinator refreshes its
+    /// state when focus history changes and when a window becomes key, and a window
+    /// must become key before its menu bar opens.
     private var newLocalWorkspaceMenuItemVisible: Bool {
-        let _ = focusHistoryMenuInvalidator.revision
+        let _ = historyMenuCoordinator.state
         guard let appDelegate = AppDelegate.shared else { return false }
         return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
     }
