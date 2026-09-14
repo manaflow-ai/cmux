@@ -14,7 +14,7 @@ extension TerminalWindowPortalLifecycleTests {
     // same window-owned portal hierarchy used by workspace mounting.
 
     @MainActor
-    func testParkingWorkspaceEntriesRemovesHostedLayersButRetainsBindingState() throws {
+    func testWorkspaceUnmountDetachesTerminalAndRebindsOnReveal() throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
@@ -38,13 +38,17 @@ extension TerminalWindowPortalLifecycleTests {
         realizeWindowLayout(window)
 
         XCTAssertTrue(surface.hostedView.superview != nil)
-        portal.parkEntries(forWorkspaceID: surface.tabId)
+        let originalRuntime = surface.surface
+        XCTAssertNotNil(originalRuntime)
+        surface.hostedView.setVisibleInUI(false)
+        portal.hideEntry(forHostedId: ObjectIdentifier(surface.hostedView))
 
         XCTAssertNil(
             surface.hostedView.superview,
             "An unmounted workspace must remove its terminal layer tree from the WindowServer hierarchy"
         )
         XCTAssertTrue(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Unmounting must preserve the live PTY")
         XCTAssertEqual(
             portal.debugEntryCount(),
             1,
@@ -57,6 +61,14 @@ extension TerminalWindowPortalLifecycleTests {
             ),
             "A parked entry must request a reattach when its workspace becomes visible"
         )
+        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        drainMainQueue()
+        realizeWindowLayout(window)
+        XCTAssertTrue(surface.hostedView.superview === portal.hostView)
+        XCTAssertTrue(surface.hostedView.window === window)
+        XCTAssertFalse(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Reveal must reuse the terminal process")
         withExtendedLifetime(surface) {}
     }
 
