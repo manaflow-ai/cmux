@@ -2,34 +2,35 @@ import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
-/// Equal-width columns prevent changing names or readings from shifting the metrics.
+/// Compact trailing metrics that share the machine-name baseline.
 struct CloudTreeMachineResourceView: View {
     let metrics: CloudMachineResourcePresentation
     let style: CloudTreeStyle
 
     var body: some View {
-        HStack(spacing: 8) {
-            column(metrics.cpu)
-            column(metrics.memory)
-            column(metrics.disk)
+        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+            metric(metrics.cpu)
+            metric(metrics.memory)
+            metric(metrics.disk)
         }
-        .frame(height: style.machineResourceHeight)
+        .lineLimit(1)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func column(_ reading: CloudMachineResourcePresentation.Reading) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
+    private func metric(_ reading: CloudMachineResourcePresentation.Reading) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 2) {
             Text(reading.label)
                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
                 .foregroundStyle(.secondary)
-                .frame(height: style.detailSize + 2)
+                .minimumScaleFactor(0.75)
             Text(reading.value)
                 .cmuxFont(size: style.machineNameSize, weight: .semibold, design: style.fontDesign, monospacedDigit: true)
                 .foregroundStyle(reading.percent == nil ? .secondary : .primary)
-                .minimumScaleFactor(0.8)
-                .frame(height: style.machineNameLineHeight)
+                .minimumScaleFactor(0.65)
         }
         .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(reading.detail)
     }

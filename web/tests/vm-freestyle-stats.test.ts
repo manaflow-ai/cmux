@@ -42,7 +42,7 @@ describe("Freestyle live machine stats", () => {
   test("existing stats workflow returns the guest sample without executing in the VM", async () => {
     const receivedAt = Date.now();
     const result = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
-    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
+    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
   test.each(["paused", "pausing", "stopped", "starting"])("a %s machine never exposes an old reading or touches the guest", async (state) => {
@@ -58,6 +58,13 @@ describe("Freestyle live machine stats", () => {
     const result = await readStats("running", sample);
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
+  });
+
+  test("a stale guest sample keeps its timestamp without exposing old gauges", async () => {
+    const result = await readStats("running", { ...gauges, receivedAt: Date.now() - 90_001, providerVmId: "vm-stats" });
+    expect(result.cpuPercent).toBeUndefined();
+    expect(result.memoryUsedMb).toBeUndefined();
+    expect(result.resourceSampledAt).toBeDefined();
   });
 
   test("freshness boundary uses server time and retains partial zero readings", () => {

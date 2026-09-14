@@ -1004,16 +1004,16 @@ final class MachinesPanelModelTests: XCTestCase {
         for preset in presets {
             XCTAssertEqual(CloudTreeStyle.preset(id: preset.id), preset)
             XCTAssertGreaterThan(preset.rowHeight, 0)
-            XCTAssertGreaterThanOrEqual(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
+            XCTAssertEqual(preset.machineRowHeight(hasStats: true), preset.machineRowHeight(hasStats: false))
             XCTAssertGreaterThan(preset.machineRowHeight(hasStats: false), 0)
         }
         XCTAssertEqual(CloudTreeStyle.defaultStyle, .compact, "the default is the compact variant")
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Every cloud style reserves a dedicated resource strip.
-        XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
-        XCTAssertGreaterThan(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
+        // Every cloud style keeps resource readings on the machine name line.
+        XCTAssertEqual(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
+        XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
     func testDropDestinationMapsEverySplitSideAndInserts() {
@@ -1152,7 +1152,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Resource readings have their own strip, leaving only Locked beside the name.
+/// Resource readings share the machine-name line; only Locked is an identity fact.
 @Suite("Cloud tree machine inline fact")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {

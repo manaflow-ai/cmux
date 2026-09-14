@@ -19,6 +19,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
   readonly sampledAt: number;
+  /** Timestamp of the latest guest reporter sample, even when it is stale. */
+  readonly resourceSampledAt?: number;
   readonly cpus?: number;
   readonly cpuPercent?: number;
   readonly loadAverage1m?: number;

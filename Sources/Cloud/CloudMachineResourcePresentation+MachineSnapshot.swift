@@ -1,11 +1,30 @@
+import Foundation
 import CmuxCloudMachines
 
 extension CloudMachineResourcePresentation {
     /// Maps the app's immutable machine snapshot to the package's resource presentation.
-    init(machine: MachineSnapshot) {
+    init(machine: MachineSnapshot, now: Date = .now) {
         let stats = machine.stats
-        let availability: Availability = machine.capabilities.stats && stats?.state == .awake
-            ? .awake : stats?.state == .asleep ? .asleep : .unavailable
+        let availability: Availability
+        if !machine.capabilities.stats {
+            availability = .unavailable
+        } else if stats == nil {
+            availability = .loading
+        } else {
+            switch stats!.state {
+            case .asleep:
+                availability = .asleep
+            case .unknown:
+                availability = .unavailable
+            case .awake:
+                if let sampledAt = stats!.resourceSampledAt,
+                   now.timeIntervalSince(sampledAt) > Self.staleSampleAge {
+                    availability = .stale
+                } else {
+                    availability = .awake
+                }
+            }
+        }
         self.init(
             availability: availability,
             cpuPercent: stats?.cpuPercent,

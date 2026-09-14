@@ -9,7 +9,7 @@ import SwiftUI
 /// side by side so a variant is picked by looking, not by rebuilding.
 struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     enum MachineRowLayout: String, Sendable {
-        /// Name and resources plus a dim metadata subtitle.
+        /// Name and inline resources plus a dim metadata subtitle.
         case twoLine
         /// Compact name and resources, without a metadata subtitle.
         case singleLine
@@ -75,7 +75,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// A dedicated CPU/RAM/disk strip below the cloud machine name in every layout.
+    /// CPU/RAM/disk readings in the trailing machine-name area.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
@@ -83,16 +83,9 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
-    var machineResourceHeight: CGFloat { detailSize + 2 + machineNameLineHeight + 1 }
-
-    /// Resource columns reserve space even before the first sample arrives.
-    /// Local/pending rows pass false and keep the preset's original density.
-    func machineRowHeight(hasStats: Bool) -> CGFloat {
-        if hasStats && showsMachineStats {
-            return machineVerticalPadding * 2 + machineNameLineHeight + 4 + machineResourceHeight
-                + (machineRowLayout == .twoLine ? 1 + machineSubtitleLineHeight : 0)
-                + (machineBand ? 8 : 0)
-        }
+    /// Metrics share the name line, so their presence never changes row height.
+    /// The argument remains for callers that size cloud rows from capability data.
+    func machineRowHeight(hasStats _: Bool) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)

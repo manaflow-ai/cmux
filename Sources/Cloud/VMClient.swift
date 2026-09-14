@@ -389,9 +389,9 @@ struct VMStats: Equatable {
         case asleep
         case unknown
     }
-
     let state: State
     let sampledAt: Date
+    let resourceSampledAt: Date? = nil
     let cpus: Int?
     let cpuPercent: Double?
     let loadAverage1m: Double?
@@ -400,7 +400,6 @@ struct VMStats: Equatable {
     let diskTotalMb: Int?
     let diskUsedMb: Int?
 }
-
 struct VMBaseSummary {
     let id: String
     let name: String
@@ -1982,6 +1981,7 @@ actor VMClient {
             return VMStats(
                 state: state,
                 sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+                resourceSampledAt: double("resourceSampledAt").map { Date(timeIntervalSince1970: $0 / 1000) },
                 cpus: int("cpus"),
                 cpuPercent: double("cpuPercent"),
                 loadAverage1m: double("loadAverage1m"),

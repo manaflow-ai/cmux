@@ -64,6 +64,31 @@ struct CloudTreeMachineResourcesTests {
         #expect(unsupported.disk.percent == nil)
     }
 
+    @Test func machineSnapshotsDistinguishLoadingAndStaleTelemetry() {
+        var snapshot = machine()
+        snapshot.stats = nil
+        #expect(CloudMachineResourcePresentation(machine: snapshot).availability == .loading)
+
+        snapshot.stats = VMStats(
+            state: .awake,
+            sampledAt: Date(timeIntervalSince1970: 1_780_000_000),
+            resourceSampledAt: Date(timeIntervalSince1970: 1_780_000_000),
+            cpus: 4,
+            cpuPercent: nil,
+            loadAverage1m: nil,
+            memoryTotalMb: 4096,
+            memoryUsedMb: nil,
+            diskTotalMb: 4096,
+            diskUsedMb: nil
+        )
+        let stale = CloudMachineResourcePresentation(
+            machine: snapshot,
+            now: Date(timeIntervalSince1970: 1_780_000_000 + CloudMachineResourcePresentation.staleSampleAge + 1)
+        )
+        #expect(stale.availability == .stale)
+        #expect(stale.cpu.percent == nil)
+    }
+
     @Test @MainActor func refreshedSnapshotsUpdateReadingsWithoutReplacingRows() throws {
         var first = machine()
         first.stats = nil
@@ -84,10 +109,10 @@ struct CloudTreeMachineResourcesTests {
         #expect(CloudTreeMachineRowContent(machine: snapshot).toolTip.contains("83"))
     }
 
-    @Test @MainActor func everyPresetReservesResourceSpaceAndKeepsNameClear() {
+    @Test @MainActor func everyPresetKeepsResourceLabelsAndNameClear() {
         for style in CloudTreeStyle.presets {
             #expect(style.showsMachineStats)
-            #expect(style.machineRowHeight(hasStats: true) >= style.machineNameLineHeight + style.machineResourceHeight)
+            #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
             #expect(CloudTreeMachineRowContent(machine: machine(), style: style).inlineFact == nil)
         }
     }
