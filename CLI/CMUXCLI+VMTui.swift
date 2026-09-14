@@ -438,7 +438,7 @@ extension CMUXCLI {
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
             _ = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
-                params: ["workspace_id": workspaceId, "vm_id": vmId, "base": options.pinAsBase]
+                params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )
             if options.pinAsBase {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
