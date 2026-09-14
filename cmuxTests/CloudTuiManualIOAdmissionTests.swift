@@ -33,6 +33,7 @@ import Testing
         let admission = CloudTuiManualIOAdmission()
         #expect(admission.reserve(1) == .reserved)
         admission.invalidate()
+        admission.saturate()
         #expect(!admission.reopen())
         #expect(admission.reserve(1) == .closed)
         admission.release(1)
