@@ -2,14 +2,23 @@ name: CodeRouter transfer tests
 
 on:
   push:
-    branches: [feat-restore-web-build]
+    branches: [main]
+    paths:
+      - web/services/coderouter/**
+      - web/app/api/coderouter/accounts/**
+      - web/db/**
+      - web/tests/coderouter-transfer-*.test.ts
+      - web/package.json
+      - web/bun.lock
+      - .github/workflows/coderouter-transfer-tests.yml
   pull_request:
     paths:
-      - web/services/coderouter/accounts.ts
-      - web/services/coderouter/repository.ts
-      - web/services/coderouter/encryption.ts
+      - web/services/coderouter/**
       - web/app/api/coderouter/accounts/**
+      - web/db/**
       - web/tests/coderouter-transfer-*.test.ts
+      - web/package.json
+      - web/bun.lock
       - .github/workflows/coderouter-transfer-tests.yml
 
 permissions:
