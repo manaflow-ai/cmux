@@ -138,9 +138,11 @@ skipped=0
 for ((i = 0; i < ${#CANDIDATES[@]}; i++)); do
   sha="${CANDIDATES[$i]}"
   url="$BASE/$sha/manifest.json"
-  # One probe per candidate, no retry loop: a transient failure just moves on to the
-  # next candidate (or fails exact mode, which a re-run covers) instead of waiting.
-  if curl --proto '=https,file' --tlsv1.2 -fsS -o /dev/null "$url" 2>/dev/null; then
+  # One probe per candidate: a 404 moves on to the next candidate (or fails exact
+  # mode). curl retries resolution and connection blips itself, bounded, so a DNS
+  # hiccup on the release runner does not read as a missing manifest.
+  if curl --proto '=https,file' --tlsv1.2 -fsS -o /dev/null \
+       --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$url" 2>/dev/null; then
     chosen="$sha"
     break
   fi
