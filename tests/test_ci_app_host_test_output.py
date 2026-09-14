@@ -81,7 +81,7 @@ class AppHostTestOutputTests(unittest.TestCase):
 
     def test_ignores_build_signature_when_finding_app_host_cause(self) -> None:
         diagnosis = MODULE.diagnose(
-            "Build description signature: 0f827202eba1e9d1b8b2c28cebb594a2\n"
+            "Build description Signal 5 is a digest label, not a crash marker\n"
             "The test runner timed out while preparing to run tests.\n",
             exit_code=65,
         )
