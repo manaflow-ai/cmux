@@ -7530,6 +7530,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            let machineID = resource.id.machine.cloudMachineID {
             return CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId]?.connectionPresentation
         }
+        if let startup = cloudStartupPresentation(forSurfaceId: surfaceId) { return startup }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),

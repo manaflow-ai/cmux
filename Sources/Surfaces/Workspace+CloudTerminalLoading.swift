@@ -2,6 +2,18 @@ import Bonsplit
 import Foundation
 
 extension Workspace {
+    /// Legacy Cloud startup shares the native card until its first usable frame.
+    func cloudStartupPresentation(forSurfaceId surfaceID: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        guard let panel = panels[surfaceID] as? TerminalPanel,
+              panel.cloudStartupReadiness.isLoading else { return nil }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
+            isManagedCloudWorkspace: true,
+            isRemoteTerminalSurface: true,
+            connectionState: .connecting,
+            detail: nil
+        )
+    }
+
     /// Ends the Cloud workspace handoff after the first presented frame of the
     /// replacement terminal, keeping the loader over blank runtime surfaces.
     @MainActor
@@ -23,6 +35,7 @@ extension Workspace {
                 isLoading: loading,
                 isPinned: nil
             )
+            self.postRemoteConnectionPresentationDidChange()
         }
         panel.cloudStartupReadiness.begin(
             surface: panel.surface,
@@ -49,5 +62,6 @@ extension Workspace {
                 )
             }
         )
+        postRemoteConnectionPresentationDidChange()
     }
 }

@@ -74,15 +74,6 @@ final class CloudTerminalOverlayCoordinator {
         let presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
         if let session {
             presentation = session.connectionPresentation
-        } else if let panel = hostedView.surfaceView.terminalSurface
-            .flatMap({ $0.owningWorkspace()?.panels[$0.id] as? TerminalPanel }),
-            panel.cloudStartupReadiness.isLoading {
-            presentation = CloudTerminalReconnectOverlayPolicy.presentation(
-                isManagedCloudWorkspace: true,
-                isRemoteTerminalSurface: true,
-                connectionState: .connecting,
-                detail: nil
-            )
         } else {
             presentation = legacyPresentation
         }
