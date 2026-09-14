@@ -126,13 +126,19 @@ import Testing
         await provider.creationAttemptSignal.wait()
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        #expect(failure.machine == machine)
-        #expect(!failure.errorText.isEmpty)
-        #expect(!failure.errorText.contains("connection refused"))
-
-        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        let pending = try #require(workspace.panels.values.compactMap { $0 as? CloudTerminalPendingPanel }.first)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while pending.state.phase == .starting, ContinuousClock.now < deadline { await Task.yield() }
+        guard case .failed(let detail) = pending.state.phase else {
+            Issue.record("Expected an inline failure in the pending pane")
+            return
+        }
+        #expect(pending.machine == machine)
+        #expect(!detail.isEmpty)
+        #expect(!detail.contains("connection refused"))
+        #expect(!pending.state.canRetry)
+        _ = workspace.closePanel(pending.id, force: true)
+        #expect(workspace.panels[pending.id] == nil)
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -147,6 +153,61 @@ import Testing
         #expect(store.failure == nil)
         store.present(machine: .cloud("new"), error: error, requestID: second)
         #expect(store.failure?.machine == .cloud("new"))
+    }
+
+    @Test("Cloud pane failure retry invokes the original action")
+    @MainActor
+    func cloudPaneFailureRetryInvokesAction() throws {
+        let store = CloudPaneCreationFailureStore()
+        let request = store.beginRequest()
+        var retries = 0
+        let error = NSError(domain: "CloudPaneCreationFailureTests", code: 2)
+
+        store.present(
+            machine: .cloud("machine"),
+            error: error,
+            requestID: request,
+            retry: { retries += 1 }
+        )
+        store.retry(id: try #require(store.failure?.id))
+
+        #expect(retries == 1)
+        #expect(store.failure == nil)
+    }
+
+    @Test("Inline retry consumes only the displayed request")
+    func inlineRetryIsIdentityFencedAndSingleUse() throws {
+        let store = CloudPaneCreationFailureStore()
+        let error = NSError(domain: "test", code: 1)
+        let first = store.beginRequest()
+        store.present(machine: .cloud("machine"), error: error, requestID: first)
+        let staleID = try #require(store.failure?.id)
+        let current = store.beginRequest()
+        var retried = 0
+        store.present(machine: .cloud("machine"), error: error, requestID: current, retry: { retried += 1 })
+        let currentID = try #require(store.failure?.id)
+        #expect(store.canRetry)
+        store.retry(id: staleID)
+        #expect(retried == 0)
+        #expect(store.failure?.id == currentID)
+        store.retry(id: currentID)
+        store.retry(id: currentID)
+        #expect(retried == 1)
+        #expect(store.failure == nil)
+        #expect(!store.canRetry)
+    }
+
+    @Test("A placement failure remains inline in a mixed workspace")
+    func placementFailureDoesNotRequireACloudWorkspaceBinding() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        #expect(harness.workspace.cloudVMID == nil)
+        harness.workspace.presentCloudPlacementFailure(
+            NSError(domain: "test", code: 1), machine: .cloud("mixed-machine")
+        )
+        #expect(NSApp.modalWindow == nil)
+        #expect(harness.workspace.cloudPaneCreationFailureStore.failure?.machine == .cloud("mixed-machine"))
+        #expect(!harness.workspace.cloudPaneCreationFailureStore.canRetry)
     }
 
     @Test("Cloud process cwd parsing ignores the recorded spawn directory")

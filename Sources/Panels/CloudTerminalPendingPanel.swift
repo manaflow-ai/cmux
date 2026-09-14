@@ -15,6 +15,7 @@ final class CloudTerminalPendingPanel: Panel {
     let state: CloudTerminalPendingState
     var onRetry: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onResolveResource: (() async throws -> SurfaceResource)?
 
     var displayTitle: String {
         String(localized: "cloudTerminal.creation.title", defaultValue: "Cloud Terminal")
@@ -32,6 +33,7 @@ final class CloudTerminalPendingPanel: Panel {
         onCancel?()
         onCancel = nil
         onRetry = nil
+        onResolveResource = nil
     }
 
     func focus() {}
@@ -42,8 +44,8 @@ final class CloudTerminalPendingPanel: Panel {
         state.resetForRetry()
     }
 
-    func showFailure() {
-        state.showFailure()
+    func showFailure(canRetry: Bool = true) {
+        state.showFailure(canRetry: canRetry)
     }
 
     func retry() {

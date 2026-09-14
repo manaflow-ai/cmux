@@ -94,6 +94,14 @@ struct CloudTreeNodeActions {
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
+        func createTerminal(_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) {
+            let catalog = catalog()
+            guard let workspaceID = selectedWorkspaceID(),
+                  let workspace = SurfacePaneFactory.workspace(id: workspaceID) else { return }
+            onWillMutate(startingLabel(machine))
+            _ = workspace.createCloudTerminal(on: machine, remoteWorkspaceID: remoteWorkspaceID, catalog: catalog)
+            onDidMutate()
+        }
         var actions = CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 // Capture the caller's workspace before the async operation starts.
@@ -196,35 +204,11 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
-                run(startingLabel(machine)) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
-                    defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
-                    let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                    let (projection, _) = try await catalog.project(
-                        resource.id,
-                        into: try destination(.tab),
-                        focus: true,
-                        reuseExisting: true,
-                        remoteView: Self.uniqueRemoteView(resource)
-                    )
-                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
-                }
+                createTerminal(machine, remoteWorkspaceID)
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
-                    run(startingLabel(machine)) { catalog in
-                        guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        let (projection, _) = try await catalog.project(
-                            resource.id,
-                            into: try destination(.tab),
-                            focus: true,
-                            reuseExisting: true,
-                            remoteView: Self.uniqueRemoteView(resource)
-                        )
-                        SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
-                    }
+                    createTerminal(machine, remoteWorkspaceID)
                 } else {
                     run(openingLabel(machine)) { catalog in
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)

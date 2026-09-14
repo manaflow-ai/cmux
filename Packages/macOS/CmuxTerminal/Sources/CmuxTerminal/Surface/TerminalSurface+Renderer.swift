@@ -1,15 +1,9 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
-internal import os
 #if DEBUG
 internal import CMUXDebugLog
 #endif
-
-nonisolated private let rendererHealthLogger = Logger(
-    subsystem: "com.cmuxterm.app",
-    category: "terminal.render"
-)
 
 // MARK: - Focus, occlusion, and renderer reclamation
 
@@ -124,6 +118,7 @@ extension TerminalSurface {
                 ensureRendererPresented()
             }
         } else {
+            rendererPresentationState.completeFrameWaiters(nil)
             rendererPresentationState.recoveryAttempted = false
             setOcclusion(false)
         }
@@ -165,7 +160,7 @@ extension TerminalSurface {
         let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
         if !visible {
-            rendererPresentationState.inFlightToken = nil
+            rendererPresentationState.completeFrameWaiters(nil)
             rendererPresentationState.recoveryAttempted = false
             if renderHealth != .shellExited {
                 renderHealth = .notStarted
@@ -213,6 +208,7 @@ extension TerminalSurface {
     func rendererRuntimeSurfaceDidCreate(presentationReady: Bool) {
         rendererPresentationPhase = .awaitingFirstPresentation
         rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.completeFrameWaiters(nil)
         rendererPresentationState.recoveryAttempted = false
         rendererPresentationState.didPresentFrame = false
         renderHealth = .notStarted
@@ -275,6 +271,7 @@ extension TerminalSurface {
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererPresentationPhase = .released
             rendererPresentationState.inFlightToken = nil
+            rendererPresentationState.completeFrameWaiters(nil)
             if renderHealth != .shellExited {
                 renderHealth = .notStarted
             }
@@ -371,128 +368,4 @@ extension TerminalSurface {
         ensureRendererPresented(presentationReady: presentationReady)
     }
 
-    /// Starts one exact host-layer presentation probe for the current runtime.
-    /// Ghostty owns the renderer wakeup; no app timer or second draw loop is
-    /// needed to determine whether the first frame reached the pane.
-    @MainActor
-    private func requestRendererPresentationProbe(reason: String) {
-#if os(macOS)
-        guard rendererPortalVisible,
-              rendererWindowVisible,
-              rendererPresentationPhase == .presented,
-              let surface = liveSurfaceForGhosttyAccess(reason: "renderer.probe.\(reason)"),
-              rendererPresentationState.inFlightToken == nil else { return }
-
-        rendererPresentationState.token &+= 1
-        let token = rendererPresentationState.token
-        rendererPresentationState.inFlightToken = token
-        guard ghostty_surface_request_render_with_token(
-            surface,
-            token
-        ) else {
-            rendererPresentationState.inFlightToken = nil
-            markRendererNotRendering(reason: "probeRejected.\(reason)")
-            recoverRendererPresentationIfNeeded(reason: "probeRejected.\(reason)")
-            return
-        }
-#if DEBUG
-        logDebugEvent(
-            "surface.render.probe surface=\(id.uuidString.prefix(8)) " +
-            "token=\(token) reason=\(reason)"
-        )
-#endif
-#endif
-    }
-
-    /// Called by the exact tokened host-layer callback.
-    @MainActor
-    func rendererFrameDidPresent(token: UInt64) {
-        guard rendererPresentationState.inFlightToken == token,
-              rendererPortalVisible,
-              rendererWindowVisible,
-              rendererPresentationPhase != .released else { return }
-        rendererPresentationState.inFlightToken = nil
-        rendererPresentationState.recoveryAttempted = false
-        rendererPresentationState.didPresentFrame = true
-        rendererPresentationPhase = .presented
-        if renderHealth != .shellExited {
-            renderHealth = .rendering
-        }
-        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
-        callbackContext?.cancelRendererPresentationRepair()
-#if DEBUG
-        logDebugEvent(
-            "surface.render.presented surface=\(id.uuidString.prefix(8)) token=\(token)"
-        )
-#endif
-    }
-
-    /// Called when Ghostty discarded or failed the exact tokened frame.
-    @MainActor
-    func rendererFrameDidFail(
-        token: UInt64,
-        status: ghostty_render_presentation_status_e
-    ) {
-        guard rendererPresentationState.inFlightToken == token else { return }
-        guard rendererWindowVisible else {
-            rendererPresentationState.inFlightToken = nil
-            if renderHealth != .shellExited {
-                renderHealth = .notStarted
-            }
-            return
-        }
-        rendererPresentationState.inFlightToken = nil
-        guard rendererPortalVisible else {
-            if renderHealth != .shellExited {
-                renderHealth = .notStarted
-            }
-            return
-        }
-        markRendererNotRendering(reason: "probeFailed.\(status.rawValue)")
-        recoverRendererPresentationIfNeeded(reason: "probeFailed.\(status.rawValue)")
-    }
-
-    @MainActor
-    private func markRendererNotRendering(reason: String) {
-        guard renderHealth != .shellExited else { return }
-        renderHealth = .notRendering
-        rendererHealthLogger.error(
-            "surface.render.notRendering surface=\(self.id.uuidString, privacy: .public) reason=\(reason, privacy: .public)"
-        )
-#if DEBUG
-        logDebugEvent(
-            "surface.render.notRendering surface=\(id.uuidString.prefix(8)) reason=\(reason) " +
-            "portal=\(rendererPortalVisible ? 1 : 0) window=\(rendererWindowVisible ? 1 : 0)"
-        )
-#endif
-    }
-
-    @MainActor
-    private func recoverRendererPresentationIfNeeded(reason: String) {
-        guard renderHealth != .shellExited,
-              !rendererPresentationState.recoveryAttempted,
-              rendererPortalVisible,
-              rendererPresentationPhase == .presented,
-              liveSurfaceForGhosttyAccess(reason: "renderer.recover.\(reason)") != nil else {
-            return
-        }
-        rendererPresentationState.recoveryAttempted = true
-        forceRefresh(reason: "renderer.recover.\(reason)")
-        renderHealth = .awaitingFrame
-        requestRendererPresentationProbe(reason: "recovery.\(reason)")
-    }
-
-    /// Records that the child process has exited while retaining the pane for
-    /// inspection. A later runtime replacement resets this state.
-    @MainActor
-    public func markShellExited() {
-        rendererPresentationState.inFlightToken = nil
-        renderHealth = .shellExited
-        rendererHealthLogger.notice(
-            "surface.render.shellExited surface=\(self.id.uuidString, privacy: .public)"
-        )
-#if DEBUG
-        logDebugEvent("surface.render.shellExited surface=\(id.uuidString.prefix(8))")
-#endif
-    }
 }

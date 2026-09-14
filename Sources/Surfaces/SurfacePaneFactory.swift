@@ -138,7 +138,7 @@ enum SurfacePaneFactory {
         )
     }
 
-    private static func workspace(id: UUID) -> Workspace? {
+    static func workspace(id: UUID) -> Workspace? {
         AppDelegate.shared?.tabManagerFor(tabId: id)?.tabs.first { $0.id == id }
     }
 

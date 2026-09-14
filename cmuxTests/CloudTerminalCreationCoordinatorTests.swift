@@ -48,7 +48,7 @@ struct CloudTerminalCreationCoordinatorTests {
                 }
                 return (projection: projection, reused: false)
             },
-            onSuccess: {}
+            onSuccess: { _ in }
         )
         panel.onRetry = { coordinator.retry() }
         coordinator.start()
@@ -112,7 +112,7 @@ struct CloudTerminalCreationCoordinatorTests {
                 }
                 return (projection: projection, reused: false)
             },
-            onSuccess: {},
+            onSuccess: { _ in },
             discardProjection: { _ in discarded = true }
         )
 

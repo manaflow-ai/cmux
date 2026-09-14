@@ -115,7 +115,7 @@ struct CloudTreeRowContentView: View {
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
                 count: nil,
                 style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
+                helpAction: cloudVPNSetup, showsHelp: showsCloudVPNWarning
             )
         case .port(let resource, let url, _):
             CloudTreeLeafRow(

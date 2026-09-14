@@ -131,7 +131,7 @@ final class SurfaceCatalog {
                 return state.workspaceIDs.contains(remoteWorkspaceID)
             },
             reportFailure: { projection, error in
-                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error)
+                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error, machine: projection.resource.machine)
             }
         )
     }

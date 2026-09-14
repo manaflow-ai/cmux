@@ -14,14 +14,23 @@ struct CloudTuiManualMirrorDeadlines: Equatable, Sendable {
     /// The probe must be answered within this bound or the attachment is
     /// declared stalled and reconnected.
     let livenessAnswer: Duration
+    /// After attachment, a visible pane must present a frame within this bound.
+    let startup: Duration
 
-    init(handshake: Duration, livenessInterval: Duration, livenessAnswer: Duration) {
+    init(
+        handshake: Duration,
+        livenessInterval: Duration,
+        livenessAnswer: Duration,
+        startup: Duration = .seconds(20)
+    ) {
         precondition(handshake > .zero)
         precondition(livenessInterval > .zero)
         precondition(livenessAnswer > .zero)
+        precondition(startup > .zero)
         self.handshake = handshake
         self.livenessInterval = livenessInterval
         self.livenessAnswer = livenessAnswer
+        self.startup = startup
     }
 
     /// Production bounds: generous enough for a cold link over a slow route,
@@ -29,6 +38,7 @@ struct CloudTuiManualMirrorDeadlines: Equatable, Sendable {
     static let standard = Self(
         handshake: .seconds(20),
         livenessInterval: .seconds(30),
-        livenessAnswer: .seconds(10)
+        livenessAnswer: .seconds(10),
+        startup: .seconds(20)
     )
 }

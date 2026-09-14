@@ -8530,55 +8530,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud service did not accept the terminal request."
+            "value": "Could not confirm that the terminal is ready. Check the machine before trying again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud サービスがターミナル要求を受け付けませんでした。"
+            "value": "ターミナルの準備ができたことを確認できませんでした。マシンを確認してから再試行してください。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Cloud-Dienst hat die Terminalanfrage nicht akzeptiert."
+            "value": "Es konnte nicht bestätigt werden, dass das Terminal bereit ist. Prüfe den Rechner, bevor du es erneut versuchst."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le service Cloud n’a pas accepté la demande de terminal."
+            "value": "Impossible de confirmer que le terminal est prêt. Vérifiez la machine avant de réessayer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم تقبل خدمة Cloud طلب الطرفية."
+            "value": "تعذّر التأكد من جاهزية الطرفية. تحقّق من الجهاز قبل المحاولة مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El servicio Cloud no aceptó la solicitud del terminal."
+            "value": "No se pudo confirmar que el terminal esté listo. Comprueba la máquina antes de intentarlo de nuevo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 服務未接受終端機要求。"
+            "value": "無法確認終端機是否已就緒。請先檢查機器，再重試。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 服务未接受终端请求。"
+            "value": "无法确认终端是否已就绪。请先检查机器，再重试。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 서비스가 터미널 요청을 수락하지 않았습니다."
+            "value": "터미널이 준비되었는지 확인할 수 없습니다. 다시 시도하기 전에 머신을 확인하세요."
           }
         }
       }
