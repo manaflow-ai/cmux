@@ -218,20 +218,13 @@ struct MobileWhatsNewPairingSetupContent: View {
     var body: some View {
         VStack(spacing: layout.headerSpacing) {
             VStack(spacing: 10) {
-                Text(L10n.string(
-                    "mobile.onboarding.pairing.required",
-                    defaultValue: "Required for Mac discovery"
-                ))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tint)
-
                 Text(page.title)
                     .font(layout.titleFont)
                     .multilineTextAlignment(.center)
 
                 Text(L10n.string(
                     "mobile.pairingOptInUpdate.requirement",
-                    defaultValue: "Required before connecting: Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing."
+                    defaultValue: "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."
                 ))
                 .font(layout.detailFont)
                 .foregroundStyle(.secondary)
@@ -251,12 +244,11 @@ struct MobileWhatsNewPairingSetupContent: View {
 
     private var settingsScreenshot: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(
+            Text(
                 L10n.string(
-                    "mobile.onboarding.pairing.macLabel",
-                    defaultValue: "On your Mac"
-                ),
-                systemImage: "macwindow"
+                    "mobile.whatsNew.pairing.macSettingsLabel",
+                    defaultValue: "Mac Settings"
+                )
             )
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.primary)
@@ -356,22 +348,13 @@ struct MobileWhatsNewPairingSetupContent: View {
 
     private var compatibilitySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(
+            Text(
                 L10n.string(
-                    "mobile.connectionsUpdate.macUpdate.title",
-                    defaultValue: "Use a compatible Mac build"
-                ),
-                systemImage: "checkmark.shield"
+                    "mobile.whatsNew.pairing.compatibilityTitle",
+                    defaultValue: "Mac compatibility"
+                )
             )
             .font(layout.featureTitleFont)
-
-            Text(MobileWhatsNewCatalog.macUpdateDetail(
-                buildType: MobileBuildType.current(),
-                requiredVersion: compatibility.stableVersion
-            ))
-            .font(layout.detailFont)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 8) {
                 compatibilityRow(
@@ -388,6 +371,16 @@ struct MobileWhatsNewPairingSetupContent: View {
                     ),
                     value: nightlyRequirement
                 )
+            }
+
+            if MobileBuildType.current().usesInternalBuildVocabulary {
+                Text(MobileWhatsNewCatalog.macUpdateDetail(
+                    buildType: MobileBuildType.current(),
+                    requiredVersion: compatibility.stableVersion
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(16)

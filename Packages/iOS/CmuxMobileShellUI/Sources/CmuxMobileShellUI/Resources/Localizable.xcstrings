@@ -13000,7 +13000,7 @@
     "mobile.pairingOptInUpdate.requirement": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."}},
         "ja": {"stringUnit": {"state": "translated", "value": "接続する前に必須: iPhone で使う各 cmux Mac で「設定」>「Mobile」を開き、「iOS ペアリングを有効にする」をオンにしてください。"}},
         "de": {"stringUnit": {"state": "translated", "value": "Vor dem Verbinden erforderlich: Öffnen Sie auf jedem cmux Mac, den Sie mit dem iPhone verwenden möchten, „Einstellungen“ > „Mobile“ und aktivieren Sie die iOS-Kopplung."}},
         "fr": {"stringUnit": {"state": "translated", "value": "Requis avant la connexion : sur chaque Mac cmux que vous voulez utiliser avec l’iPhone, ouvrez Réglages > Mobile et activez le jumelage iOS."}},
@@ -13028,7 +13028,19 @@
     "mobile.whatsNew.pairing.pageTitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Pairing begins on your Mac"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Action Required: Enable iOS pairing on your Mac"}}
+      }
+    },
+    "mobile.whatsNew.pairing.macSettingsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac Settings"}}
+      }
+    },
+    "mobile.whatsNew.pairing.compatibilityTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac compatibility"}}
       }
     },
     "mobile.whatsNew.pairing.screenshotLabel": {

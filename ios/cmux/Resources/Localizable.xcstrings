@@ -82884,7 +82884,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Required before connecting: On every cmux Mac you want to use with iPhone, open Settings > Mobile and turn on Enable iOS pairing."
+            "value": "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."
           }
         },
         "ja": {
@@ -83120,7 +83120,29 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pairing begins on your Mac"
+            "value": "Action Required: Enable iOS pairing on your Mac"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.macSettingsLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Settings"
+          }
+        }
+      }
+    },
+    "mobile.whatsNew.pairing.compatibilityTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac compatibility"
           }
         }
       }
@@ -83632,7 +83654,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
           }
         },
         "ja": {
@@ -83861,7 +83883,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+            "value": "Use cmux %@ or later on your Mac before connecting."
           }
         },
         "ja": {

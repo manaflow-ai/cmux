@@ -121,7 +121,7 @@ enum MobileWhatsNewCatalog {
             ),
             title: L10n.string(
                 "mobile.whatsNew.pairing.pageTitle",
-                defaultValue: "Pairing begins on your Mac"
+                defaultValue: "Action Required: Enable iOS pairing on your Mac"
             ),
             body: .pairingSetup([]),
             isAnnouncement: false
@@ -159,7 +159,7 @@ enum MobileWhatsNewCatalog {
             return String(
                 format: L10n.string(
                     "mobile.connectionsUpdate.macUpdate.detail",
-                    defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting. Not ready to update your Mac? Stay on (or revert to) cmux BETA TestFlight version 1.0.4 (20260817224846), the last version that works with older Macs."
+                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
                 ),
                 version
             )
@@ -167,7 +167,7 @@ enum MobileWhatsNewCatalog {
         return String(
             format: L10n.string(
                 "mobile.connectionsUpdate.macUpdate.detail.official",
-                defaultValue: "This iPhone update speaks a new connection protocol and only pairs with an updated Mac. Update cmux on your Mac to %@ before connecting."
+                defaultValue: "Use cmux %@ or later on your Mac before connecting."
             ),
             version
         )
