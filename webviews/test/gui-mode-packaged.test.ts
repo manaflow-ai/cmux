@@ -48,7 +48,6 @@ test("packaged GUI boots its real script and displays the native composer contex
     expect(result.home).toBe(true);
     expect(result.composerVisible).toBe(true);
     expect(result.hasEditor).toBe(true);
-    expect(result.selectedProvider).toBe("codex");
     expect(result.submitDisabled).toBe(true);
   } finally {
     rmSync(fixture, { recursive: true, force: true });

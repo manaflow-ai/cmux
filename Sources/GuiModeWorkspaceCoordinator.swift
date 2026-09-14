@@ -47,7 +47,7 @@ final class GuiModeWorkspaceCoordinator {
         ) else { throw AgentSessionBridgeError.invalidRequest }
         do {
             guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-            guard let guiPanel = installGuiPanel(
+            guard installGuiPanel(
                 in: workspace,
                 state: .taskWorktreePR(
                     prompt: trimmedPrompt,
@@ -55,29 +55,10 @@ final class GuiModeWorkspaceCoordinator {
                     modelID: modelID,
                     reasoningEffort: reasoningEffort
                 )
-            ),
-            let pane = workspace.paneId(forPanelId: guiPanel.id) else {
-                throw AgentSessionBridgeError.invalidRequest
-            }
-            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-            await Task.yield()
-            guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
-            guard workspace.splitPaneWithNewTerminal(
-                targetPane: pane,
-                orientation: .horizontal,
-                insertFirst: false,
-                workingDirectory: location.workspace.currentDirectory,
-                initialInput: Self.taskWorktreePRInput(prompt: trimmedPrompt, providerID: providerID),
-                initialCommand: GuiModeModelCatalog.launchCommand(
-                    provider: providerID,
-                    modelID: modelID,
-                    reasoningEffort: reasoningEffort,
-                    permissionMode: permissionMode
-                )
             ) != nil else {
                 throw AgentSessionBridgeError.invalidRequest
             }
-            await Task.yield()
+            guard isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             guard !Task.isCancelled, isRequestCurrent() else { throw AgentSessionBridgeError.invalidRequest }
             return workspace
         } catch {

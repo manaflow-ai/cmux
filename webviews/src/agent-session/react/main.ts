@@ -39,6 +39,7 @@ import {
 } from "../shared/rateLimits";
 import {
   initialState,
+  guiModePromptForAutoSubmission,
   autoStartProvider,
   canSelectProvider,
   canStartProvider,
@@ -273,9 +274,33 @@ function useAutoStart(state: SessionState, dispatch: React.Dispatch<Action>) {
 
 export function AgentSessionApp() {
   const [state, dispatch] = useReducer(reduceSession, initialState("react"));
+  const autoSubmittedGuiPrompt = useRef<string | null>(null);
   useInitialData(dispatch);
   useNativeEvents(dispatch);
   useAutoStart(state, dispatch);
+  useEffect(() => {
+    const guiMode = state.context?.guiMode;
+    const prompt = guiModePromptForAutoSubmission(state);
+    if (!prompt || !state.runningSessionId || state.status !== "running") {
+      return;
+    }
+    if (autoSubmittedGuiPrompt.current === prompt) {
+      return;
+    }
+    autoSubmittedGuiPrompt.current = prompt;
+    void sendInput(state, dispatch, {
+      clearInput: "",
+      displayText: prompt,
+      modelId: guiMode?.selectedModelId,
+      permissionMode: "default",
+      reasoningEffort: guiMode?.selectedReasoningEffort,
+      text: prompt,
+    }).then((didSend) => {
+      if (!didSend) {
+        autoSubmittedGuiPrompt.current = null;
+      }
+    });
+  }, [state]);
   return h(SessionSurface, { state, dispatch, renderer: "React" });
 }
 

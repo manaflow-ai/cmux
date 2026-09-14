@@ -5,6 +5,7 @@ import {
   canSelectProvider,
   canStopProvider,
   formatTemplate,
+  guiModePromptForAutoSubmission,
   initialState,
   messageForError,
   reduceSession,
@@ -147,6 +148,28 @@ test("provider started event records running session", () => {
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
   expect(state.log.at(-1)?.text).toBe("Provider started");
+});
+
+test("restored GUI task prompt is submitted after its provider starts", () => {
+  const guiContext: AppContext = {
+    ...context,
+    renderer: "guiMode",
+    guiMode: {
+      page: "task-worktree-pr",
+      prompt: "1+1",
+      selectedModelId: "gpt-6-astra",
+      selectedReasoningEffort: "xhigh",
+    },
+  };
+  const state = {
+    ...reduceSession(
+      reduceSession(initialState("react"), { type: "context", context: guiContext }),
+      { type: "providers", providers },
+    ),
+    runningSessionId: "session-1",
+    status: "running" as const,
+  };
+  expect(guiModePromptForAutoSubmission(state)).toBe("1+1");
 });
 
 test("rate limit row event updates context", () => {
@@ -786,6 +809,61 @@ test("send waits until provider is running after start is accepted", async () =>
 
   expect(messages).toHaveLength(0);
   expect(actions).toHaveLength(0);
+});
+
+test("GUI task sends model and reasoning selections with its prompt", async () => {
+  const running = {
+    ...reduceSession(initialState("react"), {
+      type: "context",
+      context: {
+        ...context,
+        renderer: "guiMode" as const,
+        guiMode: {
+          page: "task-worktree-pr" as const,
+          prompt: "1+1",
+          selectedModelId: "gpt-6-astra",
+          selectedReasoningEffort: "xhigh",
+        },
+      },
+    }),
+    status: "running" as const,
+    runningSessionId: "session-1",
+    input: "1+1",
+  };
+  const messages: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const globalWithWindow = globalThis as unknown as { window?: unknown };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage(message: unknown) {
+            messages.push(message as { method: string; params: Record<string, unknown> });
+            return { ok: true, value: { sent: true } };
+          },
+        },
+      },
+    },
+  };
+  try {
+    await sendInput(running, () => {}, {
+      modelId: "gpt-6-astra",
+      reasoningEffort: "xhigh",
+      text: "1+1",
+    });
+  } finally {
+    if (originalWindow === undefined) delete globalWithWindow.window;
+    else globalWithWindow.window = originalWindow;
+  }
+  expect(messages[0]).toMatchObject({
+    method: "provider.writeLine",
+    params: {
+      modelId: "gpt-6-astra",
+      permissionMode: "default",
+      reasoningEffort: "xhigh",
+      text: "1+1",
+    },
+  });
 });
 
 test("send includes selected permission mode", async () => {

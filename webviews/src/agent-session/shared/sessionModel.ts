@@ -93,18 +93,12 @@ export function initialState(_renderer: AppContext["renderer"]): SessionState {
 export function reduceSession(state: SessionState, action: Action): SessionState {
   switch (action.type) {
     case "context":
-      {
-        const nextState = appendContextReadyLog({
+      return appendContextReadyLog({
         ...state,
         context: action.context,
         selectedProviderId: action.context.initialProviderId,
         status: "idle",
-        });
-        const prompt = action.context.guiMode?.prompt?.trim();
-        return prompt
-          ? { ...nextState, transcript: appendUserTranscript(nextState, prompt) }
-          : nextState;
-      }
+      });
     case "providers":
       return { ...state, providers: action.providers };
     case "selectProvider":
@@ -366,6 +360,16 @@ export function canSelectProvider(state: SessionState): boolean {
 
 export function canStopProvider(state: SessionState): boolean {
   return Boolean(state.runningSessionId) && state.status !== "stopping";
+}
+
+/// Returns the restored GUI prompt that should be submitted once its provider starts.
+export function guiModePromptForAutoSubmission(state: SessionState): string | null {
+  const guiMode = state.context?.guiMode;
+  if (guiMode?.page === "task-worktree-pr") {
+    const prompt = guiMode.prompt?.trim();
+    if (prompt) return prompt;
+  }
+  return null;
 }
 
 function applyEvent(state: SessionState, event: AgentEvent): SessionState {
