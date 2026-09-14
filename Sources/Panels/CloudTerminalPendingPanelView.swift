@@ -29,17 +29,19 @@ struct CloudTerminalPendingPanelView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
-                Button {
-                    panel.retry()
-                } label: {
-                    Label(
-                        String(localized: "cloudTerminal.creation.retry", defaultValue: "Retry"),
-                        systemImage: "arrow.clockwise"
-                    )
-                    .cmuxFont(size: 12, weight: .semibold)
+                if panel.state.canRetry {
+                    Button {
+                        panel.retry()
+                    } label: {
+                        Label(
+                            String(localized: "cloudTerminal.creation.retry", defaultValue: "Retry"),
+                            systemImage: "arrow.clockwise"
+                        )
+                        .cmuxFont(size: 12, weight: .semibold)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
         }
         .padding(32)
