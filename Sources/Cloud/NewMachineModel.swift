@@ -264,7 +264,9 @@ final class NewMachineModel {
         } else if let lockedMemoryOptionsMb {
             locked = Set(lockedMemoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         } else {
-            locked = Self.mirroredLockedMemoryOptionsMb(planId: plan?.planId)
+            // Without server lock metadata, fail closed. The server owns the
+            // entitlement ladder and may have operator-specific ceilings.
+            locked = serverOptions
         }
         let allowed = serverOptions.filter { !locked.contains($0) }
         self.availableMemoryOptionsMb = allowed

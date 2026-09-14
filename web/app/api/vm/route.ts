@@ -234,6 +234,9 @@ export async function POST(request: Request): Promise<Response> {
       const scope = await resolveCreateAccount({ request, span, timing, user: initialUser, body });
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
+      if (!isPaidVmPlan(entitlements.planId)) {
+        return await vmRequiresProResponse(vmRequestLocale(request));
+      }
 
       const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
