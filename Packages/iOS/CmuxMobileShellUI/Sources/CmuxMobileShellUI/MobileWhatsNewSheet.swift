@@ -121,11 +121,11 @@ struct MobileWhatsNewSheet: View {
     }
 
     private func fullHeightPageWithContinue(_ page: MobileWhatsNewPage) -> some View {
-        VStack(spacing: 0) {
-            fullHeightPage(page)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            continueButton
-        }
+        fullHeightPage(page)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                continueButton
+                    .background(PlatformPalette.systemBackground)
+            }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

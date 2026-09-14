@@ -122,10 +122,9 @@ struct MobileWhatsNewContent: View {
 
     var body: some View {
         switch page.body {
-        case .pairingSetup(let features):
+        case .pairingSetup:
             MobileWhatsNewPairingSetupContent(
                 page: page,
-                features: features,
                 layout: layout
             )
         case .features:
@@ -205,7 +204,6 @@ struct MobileWhatsNewContent: View {
 /// the same policy that connection admission uses.
 struct MobileWhatsNewPairingSetupContent: View {
     let page: MobileWhatsNewPage
-    let features: [MobileWhatsNewFeature]
     let layout: MobileWhatsNewPageLayout
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter: MobileMacCompatCenter?
 
@@ -232,8 +230,8 @@ struct MobileWhatsNewPairingSetupContent: View {
                     .multilineTextAlignment(.center)
 
                 Text(L10n.string(
-                    "mobile.onboarding.pairing.body",
-                    defaultValue: "This step is required before any Mac can appear on your iPhone. In cmux Settings > Mobile on your Mac, turn on Enable iOS pairing. Until you do, cmux keeps the Mac hidden and does not start iOS pairing networking."
+                    "mobile.pairingOptInUpdate.requirement",
+                    defaultValue: "Required before connecting: Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing."
                 ))
                 .font(layout.detailFont)
                 .foregroundStyle(.secondary)
@@ -246,7 +244,6 @@ struct MobileWhatsNewPairingSetupContent: View {
             settingsScreenshot
             pairingSteps
             compatibilitySection
-            connectionChoices
         }
         .padding(.bottom, layout.bottomPadding)
         .accessibilityIdentifier("MobileWhatsNewPairingSetup")
@@ -312,12 +309,6 @@ struct MobileWhatsNewPairingSetupContent: View {
 
     private var pairingSteps: some View {
         VStack(alignment: .leading, spacing: layout.rowSpacing) {
-            Text(L10n.string(
-                "mobile.onboarding.pairing.required",
-                defaultValue: "Required for Mac discovery"
-            ))
-            .font(layout.featureTitleFont)
-
             pairingStep(
                 number: "1",
                 title: L10n.string(
@@ -331,17 +322,6 @@ struct MobileWhatsNewPairingSetupContent: View {
             )
             pairingStep(
                 number: "2",
-                title: L10n.string(
-                    "mobile.pairingOptInUpdate.title",
-                    defaultValue: "Required: Enable iOS pairing on Mac"
-                ),
-                detail: L10n.string(
-                    "mobile.pairingOptInUpdate.detail",
-                    defaultValue: "Before this iPhone can find a cmux Mac, open Settings > Mobile on that Mac and turn on Enable iOS pairing. While it is off, the Mac stays hidden and starts no iOS pairing networking."
-                )
-            )
-            pairingStep(
-                number: "3",
                 title: L10n.string(
                     "mobile.onboarding.pairing.phoneLabel",
                     defaultValue: "On this iPhone"
@@ -460,34 +440,6 @@ struct MobileWhatsNewPairingSetupContent: View {
             ),
             version
         )
-    }
-
-    private var connectionChoices: some View {
-        VStack(alignment: .leading, spacing: layout.rowSpacing) {
-            Text(L10n.string(
-                "mobile.whatsNew.pairing.connectionChoicesTitle",
-                defaultValue: "Connection choices"
-            ))
-            .font(layout.featureTitleFont)
-
-            ForEach(Array(features.enumerated()), id: \.offset) { _, feature in
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: feature.symbol)
-                        .font(layout.iconFont)
-                        .foregroundStyle(.tint)
-                        .frame(width: layout.iconWidth)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(feature.title)
-                            .font(layout.featureTitleFont)
-                        Text(feature.detail)
-                            .font(layout.detailFont)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 28)
     }
 }
 

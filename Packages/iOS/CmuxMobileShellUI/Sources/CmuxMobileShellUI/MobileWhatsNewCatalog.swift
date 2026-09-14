@@ -123,52 +123,7 @@ enum MobileWhatsNewCatalog {
                 "mobile.whatsNew.pairing.pageTitle",
                 defaultValue: "Pairing begins on your Mac"
             ),
-            body: .pairingSetup([
-                .init(
-                    symbol: "desktopcomputer.and.macbook",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.perComputer.title",
-                        defaultValue: "Per-computer methods"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.perComputer.detail",
-                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
-                    )
-                ),
-                .init(
-                    symbol: "bolt.horizontal",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.iroh.title",
-                        defaultValue: "Auto-Connect is now Iroh"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.iroh.detail",
-                        defaultValue: "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings."
-                    )
-                ),
-                .init(
-                    symbol: "network",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.direct.title",
-                        defaultValue: "New: Direct addresses"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.direct.detail",
-                        defaultValue: "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
-                    )
-                ),
-                .init(
-                    symbol: "qrcode.viewfinder",
-                    title: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.title",
-                        defaultValue: "Tailscale, on your terms"
-                    ),
-                    detail: L10n.string(
-                        "mobile.connectionsUpdate.tailscale.detail",
-                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
-                    )
-                ),
-            ]),
+            body: .pairingSetup([]),
             isAnnouncement: false
         )
     }
