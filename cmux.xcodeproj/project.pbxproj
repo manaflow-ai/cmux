@@ -719,6 +719,11 @@
 		E58AA0A516704DF28E795531 /* CloudHubConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */; };		7A0CE100000000000000070E /* CloudHubDialing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070D /* CloudHubDialing.swift */; };
 		7A0CE100000000000000071A /* CloudHubPortForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */; };
 		7A0CE100000000000000070C /* CloudHubSocketClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070B /* CloudHubSocketClaim.swift */; };
+		12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */; };
+		124760000000000000000005 /* CloudImagePasteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000005 /* CloudImagePasteError.swift */; };
+		124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000028 /* CloudImagePasteInputLease.swift */; };
+		124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */; };
+		12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001F /* CloudImagePasteTestPeer.swift */; };
 		7A0CE1000000000000000718 /* CloudLoopbackPortForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */; };
 		7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */; };
 		45C9A2CF66756A75B4B9A8AF /* CloudMachineCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */; };
@@ -1143,6 +1148,8 @@
 		C0DE64950000000000000003 /* CMUXCLITestAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64950000000000000004 /* CMUXCLITestAssertions.swift */; };
 		D0F2A0000000000000000003 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
 		D0F2A0000000000000000004 /* CmuxCloudBannerCore in Frameworks */ = {isa = PBXBuildFile; productRef = D0F2A0000000000000000002 /* CmuxCloudBannerCore */; };
+		D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
+		D0F3A0000000000000000004 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
 		5996379F78D24368B729D109 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		F9400C76C7934BA6BD8DD837 /* CmuxCloudMachines in Frameworks */ = {isa = PBXBuildFile; productRef = 79E4513469FB44C7A3690415 /* CmuxCloudMachines */; };
 		5E55500000000000000000E3 /* CmuxCommandPalette in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55500000000000000000E2 /* CmuxCommandPalette */; };
@@ -1778,6 +1785,7 @@
 		D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */; };
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
 		C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */; };
+		124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */; };
 		265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */; };
 		C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */; };
 		EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */; };
@@ -3221,9 +3229,11 @@
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
 		B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */; };
 		B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */; };
+		124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000029 /* TerminalImageTransferPlan.swift */; };
 		B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */; };
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
+		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
 		C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
@@ -3309,6 +3319,8 @@
 		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 		D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */; };
 		99230001992300019923000E /* TerminalStartupRestoreFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */; };
+		124760000000000000000009 /* TerminalSurface+CloudImagePaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */; };
+		12476000000000000000000A /* TerminalSurface+ImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000000A /* TerminalSurface+ImageTransferTarget.swift */; };
 		D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */; };
 		D3052001000000000000001 /* TerminalSurfaceResizePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */; };
 		C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */; };
@@ -3344,6 +3356,7 @@
 		5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */; };
 		5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */; };
 		C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B100000000000000002 /* TextBoxInput.swift */; };
+		12476000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift */; };
 		B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */; };
 		B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */; };
 		B8835800000000000000000F /* TextBoxInputTextView+ExternalTextSynchronization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000010 /* TextBoxInputTextView+ExternalTextSynchronization.swift */; };
@@ -3731,20 +3744,6 @@
 		A78C42010000000000000001 /* XCUIApplication+CmuxTestApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
 
-		12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */; };
-		124760000000000000000005 /* CloudImagePasteError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000005 /* CloudImagePasteError.swift */; };
-		124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000028 /* CloudImagePasteInputLease.swift */; };
-		124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31231BF38D1DD6D45354C82C /* CloudImagePasteRoutingTests.swift */; };
-		12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001F /* CloudImagePasteTestPeer.swift */; };
-		D0F3A0000000000000000003 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
-		D0F3A0000000000000000004 /* CmuxCloudImagePaste in Frameworks */ = {isa = PBXBuildFile; productRef = D0F3A0000000000000000002 /* CmuxCloudImagePaste */; };
-		124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */; };
-		124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000029 /* TerminalImageTransferPlan.swift */; };
-		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
-		124760000000000000000009 /* TerminalSurface+CloudImagePaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */; };
-		12476000000000000000000A /* TerminalSurface+ImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000000A /* TerminalSurface+ImageTransferTarget.swift */; };
-		12476000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift */; };
-		124760000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -4540,6 +4539,10 @@
 		03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudHubConnector.swift"; sourceTree = "<group>"; };		7A0CE100000000000000070D /* CloudHubDialing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubDialing.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubPortForwarder.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000070B /* CloudHubSocketClaim.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubSocketClaim.swift; sourceTree = "<group>"; };
+		12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteCoordinatorTests.swift; sourceTree = "<group>"; };
+		124770000000000000000005 /* CloudImagePasteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteError.swift"; sourceTree = SOURCE_ROOT; };
+		124770000000000000000028 /* CloudImagePasteInputLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteInputLease.swift"; sourceTree = SOURCE_ROOT; };
+		12477000000000000000001F /* CloudImagePasteTestPeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteTestPeer.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForward.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000731 /* CloudLoopbackPortForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLoopbackPortForwardTests.swift; sourceTree = "<group>"; };
 		1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudMachineCache.swift; sourceTree = "<group>"; };
@@ -5500,6 +5503,7 @@
 		D3571001A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+IMEComposition.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		C7261F030000000000000002 /* GhosttyNSView+PointerFocusActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+PointerFocusActivation.swift"; sourceTree = "<group>"; };
+		124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/GhosttyNSView+PreparedImageTransfer.swift"; sourceTree = SOURCE_ROOT; };
 		47895BD8BBB2418438E708F5 /* GhosttyNSView+RemoteReconnect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+RemoteReconnect.swift"; sourceTree = "<group>"; };
 		C75100010000000000000002 /* GhosttyNSView+SelectionTranslation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+SelectionTranslation.swift"; sourceTree = "<group>"; };
 		EC010E02 /* GhosttyNSView+TerminalCustomUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+TerminalCustomUpload.swift"; sourceTree = "<group>"; };
@@ -6924,9 +6928,11 @@
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
 		B8835A000000000000000006 /* TerminalImageTransferConcurrencyTests+Timeouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferConcurrencyTests+Timeouts.swift"; sourceTree = "<group>"; };
 		B88350000000000000000002 /* TerminalImageTransferConcurrencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferConcurrencyTests.swift; sourceTree = "<group>"; };
+		124770000000000000000029 /* TerminalImageTransferPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferPlan.swift"; sourceTree = SOURCE_ROOT; };
 		B88351000000000000000004 /* TerminalImageTransferPreparationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransferPreparationService.swift; sourceTree = "<group>"; };
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
+		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
 		C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkLocationAndDockTests.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
@@ -7011,6 +7017,8 @@
 		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 		D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreCoordinator.swift; sourceTree = "<group>"; };
 		99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalStartupRestoreFailureTests.swift; sourceTree = "<group>"; };
+		124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalSurface+CloudImagePaste.swift"; sourceTree = SOURCE_ROOT; };
+		12477000000000000000000A /* TerminalSurface+ImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalSurface+ImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
 		D36A00090000000000000002 /* TerminalSurface+RendererRealizationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/TerminalSurface+RendererRealizationSurface.swift"; sourceTree = "<group>"; };
 		D3052001000000000000002 /* TerminalSurfaceResizePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceResizePolicyTests.swift; sourceTree = "<group>"; };
 		C750500000000000000000B2 /* TerminalSurfaceRuntimeWiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurfaceRuntimeWiring.swift; sourceTree = "<group>"; };
@@ -7047,6 +7055,7 @@
 		5330B0625330B0625330B062 /* TextBoxInlineAttachmentThumbnailSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineAttachmentThumbnailSource.swift; sourceTree = "<group>"; };
 		5330B0825330B0825330B082 /* TextBoxInlineTextAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInlineTextAttachment.swift; sourceTree = "<group>"; };
 		C0DE7B100000000000000002 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
+		12477000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TextBoxInputContainer+CloudImagePaste.swift"; sourceTree = SOURCE_ROOT; };
 		B88351000000000000000012 /* TextBoxInputContainer+Paste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputContainer+Paste.swift"; sourceTree = "<group>"; };
 		B88351000000000000000010 /* TextBoxInputTextView+AsyncPastePreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+AsyncPastePreparation.swift"; sourceTree = "<group>"; };
 		B88358000000000000000010 /* TextBoxInputTextView+ExternalTextSynchronization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TextBoxInputTextView+ExternalTextSynchronization.swift"; sourceTree = "<group>"; };
@@ -7430,17 +7439,6 @@
 		A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XCUIApplication+CmuxTestApplication.swift"; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 
-		12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteCoordinatorTests.swift; sourceTree = "<group>"; };
-		124770000000000000000005 /* CloudImagePasteError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteError.swift"; sourceTree = SOURCE_ROOT; };
-		124770000000000000000028 /* CloudImagePasteInputLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudImagePasteInputLease.swift"; sourceTree = SOURCE_ROOT; };
-		12477000000000000000001F /* CloudImagePasteTestPeer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteTestPeer.swift; sourceTree = "<group>"; };
-		124770000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/GhosttyNSView+PreparedImageTransfer.swift"; sourceTree = SOURCE_ROOT; };
-		124770000000000000000029 /* TerminalImageTransferPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferPlan.swift"; sourceTree = SOURCE_ROOT; };
-		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
-		124770000000000000000009 /* TerminalSurface+CloudImagePaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalSurface+CloudImagePaste.swift"; sourceTree = SOURCE_ROOT; };
-		12477000000000000000000A /* TerminalSurface+ImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalSurface+ImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
-		12477000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TextBoxInputContainer+CloudImagePaste.swift"; sourceTree = SOURCE_ROOT; };
-		124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/Cloud/CloudTuiManualMirrorSession+Capabilities.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -7941,7 +7939,6 @@
 		590E4F5F342E5B27010ECC8D /* Cloud */ = {
 			isa = PBXGroup;
 			children = (
-				124770000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift */,
 				C11325A20000000000000001 /* CloudTuiTerminalProjectionTarget.swift */,
 				C11324120000000000000001 /* CloudTuiManualIOCommand.swift */,
 				C11324320000000000000001 /* CloudTuiManualIODescriptorLease.swift */,
@@ -11666,6 +11663,7 @@
 				C01E00AA00000000000000A1 /* XCLocalSwiftPackageReference "CmuxSyntaxHighlighting" */,
 				D0F1A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxFilePreviewCore" */,
 				D0F2A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudBannerCore" */,
+				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
@@ -11911,15 +11909,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				124760000000000000000006 /* CloudTuiManualMirrorSession+Capabilities.swift in Sources */,
-				124760000000000000000005 /* CloudImagePasteError.swift in Sources */,
-				124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */,
-				124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */,
-				124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */,
-				124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */,
-				124760000000000000000009 /* TerminalSurface+CloudImagePaste.swift in Sources */,
-				12476000000000000000000A /* TerminalSurface+ImageTransferTarget.swift in Sources */,
-				12476000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift in Sources */,
 
 
 
@@ -12372,6 +12361,8 @@
 				E58AA0A516704DF28E795531 /* CloudHubConnector.swift in Sources */,				7A0CE100000000000000070E /* CloudHubDialing.swift in Sources */,
 				7A0CE100000000000000071A /* CloudHubPortForwarder.swift in Sources */,
 				7A0CE100000000000000070C /* CloudHubSocketClaim.swift in Sources */,
+				124760000000000000000005 /* CloudImagePasteError.swift in Sources */,
+				124760000000000000000028 /* CloudImagePasteInputLease.swift in Sources */,
 				7A0CE1000000000000000718 /* CloudLoopbackPortForward.swift in Sources */,
 				45C9A2CF66756A75B4B9A8AF /* CloudMachineCache.swift in Sources */,
 				E0C1BF3A1CF2C22FF100B77B /* CloudMachineLink.swift in Sources */,
@@ -12938,6 +12929,7 @@
 				D3571000A1B2C3D4E5F60718 /* GhosttyNSView+IMEComposition.swift in Sources */,
 				D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */,
 				C7261F030000000000000001 /* GhosttyNSView+PointerFocusActivation.swift in Sources */,
+				124760000000000000000007 /* GhosttyNSView+PreparedImageTransfer.swift in Sources */,
 				265FFB2D782433ED46B87F32 /* GhosttyNSView+RemoteReconnect.swift in Sources */,
 				C75100010000000000000001 /* GhosttyNSView+SelectionTranslation.swift in Sources */,
 				EC010E01 /* GhosttyNSView+TerminalCustomUpload.swift in Sources */,
@@ -13936,9 +13928,11 @@
 				A5FB1303 /* TerminalForegroundCommandCapture.swift in Sources */,
 				C86270000000000000000001 /* TerminalHTMLFileBrowserAction.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,
+				124760000000000000000029 /* TerminalImageTransferPlan.swift in Sources */,
 				B88351000000000000000003 /* TerminalImageTransferPreparationService.swift in Sources */,
 				B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */,
 				B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */,
+				124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */,
 				859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */,
 				859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */,
 				859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */,
@@ -14005,6 +13999,8 @@
 				85510003A1B2C3D4E5F60001 /* TerminalShellResolver+CurrentUser.swift in Sources */,
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				D4A9923A0000000000000001 /* TerminalStartupRestoreCoordinator.swift in Sources */,
+				124760000000000000000009 /* TerminalSurface+CloudImagePaste.swift in Sources */,
+				12476000000000000000000A /* TerminalSurface+ImageTransferTarget.swift in Sources */,
 				D36A00090000000000000001 /* TerminalSurface+RendererRealizationSurface.swift in Sources */,
 				C750500000000000000000B1 /* TerminalSurfaceRuntimeWiring.swift in Sources */,
 				F83620020000000000000001 /* TerminalTTYSessionIdentity.swift in Sources */,
@@ -14030,6 +14026,7 @@
 				5330B0615330B0615330B061 /* TextBoxInlineAttachmentThumbnailSource.swift in Sources */,
 				5330B0815330B0815330B081 /* TextBoxInlineTextAttachment.swift in Sources */,
 				C0DE7B100000000000000001 /* TextBoxInput.swift in Sources */,
+				12476000000000000000000B /* TextBoxInputContainer+CloudImagePaste.swift in Sources */,
 				B88351000000000000000011 /* TextBoxInputContainer+Paste.swift in Sources */,
 				B8835100000000000000000F /* TextBoxInputTextView+AsyncPastePreparation.swift in Sources */,
 				B8835800000000000000000F /* TextBoxInputTextView+ExternalTextSynchronization.swift in Sources */,
@@ -14593,9 +14590,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */,
-				124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */,
-				12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */,
 
 
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
@@ -14820,6 +14814,9 @@
 				C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */,
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,
 				57BC801370636A4E2C1B31B7 /* CloudFileDeliveryTests.swift in Sources */,
+				12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */,
+				124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */,
+				12476000000000000000001F /* CloudImagePasteTestPeer.swift in Sources */,
 				7A0CE1000000000000000732 /* CloudLoopbackPortForwardTests.swift in Sources */,
 				62D6740CB59ACBE3EED47A27 /* CloudMachineNotificationDeliveryTests.swift in Sources */,
 				E35A8A2444244DF837446844 /* CloudMachineNotificationEventTests.swift in Sources */,
@@ -16275,31 +16272,9 @@
 			relativePath = vendor/WireGuardKit;
 		};
 		3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/macOS/CmuxCloudMachines; };
-		D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
-				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
-				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
-				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
-				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
-				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
-				28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */,
-				0C69E6A5FA9B0513E68DF443 /* XCLocalSwiftPackageReference "CMUXMobileCore" */,
-				0C69E6A5FA9B0513E68D5757 /* XCLocalSwiftPackageReference "CmuxSimulatorStreamKit" */,
-				1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */,
-				1A0B0C0D0E0F101112132111 /* XCLocalSwiftPackageReference "CmuxIrxTransport" */,
-				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
-				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
-			);
-			productRefGroup = A5001042 /* Products */;
-			projectDirPath = "";
-			projectRoot = "";
-			targets = (
-				A5001050 /* cmux */,
-				D1320AA0D1320AA0D1320AA8 /* CmuxDockTilePlugin */,
-				7A0CE1000000000000000054 /* cmuxTunnelExtension */,
-				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
-				CB450DF0F0B3839599082C4D /* cmuxUITests */,
-				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
-			);
+		D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxCloudImagePaste;
 		};
 /* End XCLocalSwiftPackageReference section */
 
