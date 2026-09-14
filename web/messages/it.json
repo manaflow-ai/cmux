@@ -3868,5 +3868,11 @@
         "action": "Gestisci piano"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Email",
+    "emailUnavailable": "email non disponibile",
+    "organization": "Organizzazione",
+    "personalAccount": "account personale"
   }
 }
