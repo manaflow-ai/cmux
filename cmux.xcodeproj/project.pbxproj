@@ -1825,6 +1825,7 @@
 		A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */; };
 		937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */; };
 		B6AC00000000000000000001 /* GuiModeModelCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AC00000000000000000002 /* GuiModeModelCatalog.swift */; };
+		B6AC00000000000000000005 /* GuiModeModelOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AC00000000000000000006 /* GuiModeModelOption.swift */; };
 		B6AB00000000000000000001 /* GuiModePanelPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6AB00000000000000000002 /* GuiModePanelPage.swift */; };
 		B6A900000000000000000001 /* GuiModePanelState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A900000000000000000002 /* GuiModePanelState.swift */; };
 		B6A700000000000000000001 /* GuiModeProviderID.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6A700000000000000000002 /* GuiModeProviderID.swift */; };
@@ -5512,6 +5513,7 @@
 		A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokSessionLocator+ProcessDiscovery.swift"; sourceTree = "<group>"; };
 		937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		B6AC00000000000000000002 /* GuiModeModelCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeModelCatalog.swift"; sourceTree = "<group>"; };
+		B6AC00000000000000000006 /* GuiModeModelOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeModelOption.swift"; sourceTree = "<group>"; };
 		B6AB00000000000000000002 /* GuiModePanelPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelPage.swift"; sourceTree = "<group>"; };
 		B6A900000000000000000002 /* GuiModePanelState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModePanelState.swift"; sourceTree = "<group>"; };
 		B6A700000000000000000002 /* GuiModeProviderID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/GuiModeProviderID.swift"; sourceTree = "<group>"; };
@@ -9511,6 +9513,7 @@
 				B6A900000000000000000002 /* GuiModePanelState.swift */,
 				B6AB00000000000000000002 /* GuiModePanelPage.swift */,
 				B6AC00000000000000000002 /* GuiModeModelCatalog.swift */,
+				B6AC00000000000000000006 /* GuiModeModelOption.swift */,
 
 				B0A501000000000000000002 /* BrowserOmnibarAppKitBridge.swift */,
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
@@ -12871,6 +12874,7 @@
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
 				B6AC00000000000000000001 /* GuiModeModelCatalog.swift in Sources */,
+				B6AC00000000000000000005 /* GuiModeModelOption.swift in Sources */,
 				B6AB00000000000000000001 /* GuiModePanelPage.swift in Sources */,
 				B6A900000000000000000001 /* GuiModePanelState.swift in Sources */,
 				B6A700000000000000000001 /* GuiModeProviderID.swift in Sources */,

@@ -1,12 +1,5 @@
 import Foundation
 
-/// Describes the model and reasoning choices exposed by GUI Mode's composer.
-struct GuiModeModelOption: Codable, Equatable, Sendable {
-    let id: String
-    let displayName: String
-    let reasoningEfforts: [String]
-}
-
 /// Supplies provider-aware model choices and the command-line arguments they represent.
 struct GuiModeModelCatalog {
     static let defaultReasoningEffort = "extra-high"
