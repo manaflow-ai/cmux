@@ -817,6 +817,34 @@ private func waitForReplayRequestCount(
     #expect(queue.completeInFlight()?.sourceRenderGridFrame?.renderRevision == 3)
 }
 
+@Test func terminalOutputQueueRequestsReplayBeforeRevisionedBacklogGrowsUnbounded() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    #expect(queue.enqueue(inFlight) == inFlight)
+
+    for revision in 0...TerminalOutputDeliveryQueue.maxPendingDeliveries {
+        var frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "terminal",
+            stateSeq: UInt64(revision),
+            renderEpoch: "epoch",
+            renderRevision: UInt64(revision + 1),
+            columns: 12,
+            rows: 1,
+            text: "revision-\(revision)",
+            full: false,
+            changedRows: [0]
+        )
+        frame.deltaBaseRenderRevision = UInt64(revision)
+        #expect(queue.enqueue(TerminalOutputDelivery(renderGrid: frame, replaceable: true)) == nil)
+    }
+
+    #expect(queue.pendingCount == 0)
+    let overflowed = queue.takeOverflowed()
+    #expect(overflowed)
+    let consumed = queue.takeOverflowed()
+    #expect(!consumed)
+}
+
 @Test func terminalOutputQueueDoesNotReplaceRenderGridSnapshotWithPolicyOnlyDelivery() throws {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

@@ -102,9 +102,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    static let maxPendingDeliveries = 128
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
+    private var overflowed = false
 
     var isIdle: Bool {
         !inFlight && pendingCount == 0
@@ -112,6 +114,11 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     var pendingCount: Int {
         pending.count - pendingHeadIndex
+    }
+
+    mutating func takeOverflowed() -> Bool {
+        defer { overflowed = false }
+        return overflowed
     }
 
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
@@ -145,6 +152,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
         inFlight = false
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
+        overflowed = false
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
@@ -153,6 +161,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
             return
         }
         guard delivery.canCoalesce else {
+            guard pendingCount < Self.maxPendingDeliveries else {
+                overflowed = true
+                pending.removeAll(keepingCapacity: false)
+                pendingHeadIndex = 0
+                return
+            }
             pending.append(delivery)
             return
         }
@@ -164,6 +178,12 @@ struct TerminalOutputDeliveryQueue: Sendable {
                 pending.remove(at: candidateIndex)
                 break
             }
+        }
+        guard pendingCount < Self.maxPendingDeliveries else {
+            overflowed = true
+            pending.removeAll(keepingCapacity: false)
+            pendingHeadIndex = 0
+            return
         }
         pending.append(delivery)
     }

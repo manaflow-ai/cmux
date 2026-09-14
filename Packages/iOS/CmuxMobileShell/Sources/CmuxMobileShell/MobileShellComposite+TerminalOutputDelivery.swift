@@ -504,8 +504,16 @@ extension MobileShellComposite {
         }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
+        let queueOverflowed = queue.takeOverflowed()
         let pendingCount = queue.pendingCount
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
+        if queueOverflowed {
+            MobileDebugLog.anchormux(
+                "terminal.output.pending_overflow surface=\(surfaceID) cap=\(TerminalOutputDeliveryQueue.maxPendingDeliveries)"
+            )
+            terminalOutputNeedsReplay(surfaceID: surfaceID)
+            return false
+        }
         if bypassReplayBarrier,
            immediate != nil,
            terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil {
