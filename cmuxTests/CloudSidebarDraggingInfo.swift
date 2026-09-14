@@ -11,17 +11,18 @@ final class CloudSidebarDraggingInfo: NSObject, NSDraggingInfo {
     // NSDraggingInfo declares these getters nonisolated; the fixture is immutable.
     nonisolated(unsafe) let draggingPasteboard: NSPasteboard
     nonisolated(unsafe) let draggingSource: Any?
-    let draggingSequenceNumber = 1
+    let draggingSequenceNumber: Int
     var draggingFormation: NSDraggingFormation = .default
     var animatesToDestination = false
     var numberOfValidItemsForDrop = 1
     let springLoadingHighlight: NSSpringLoadingHighlight = .none
 
-    init(source: NSOutlineView, pasteboard: NSPasteboard, location: NSPoint) {
+    init(source: NSOutlineView, pasteboard: NSPasteboard, location: NSPoint, sequenceNumber: Int = 1) {
         draggingSource = source
         draggingDestinationWindow = source.window
         draggingPasteboard = pasteboard
         draggingLocation = location
+        draggingSequenceNumber = sequenceNumber
     }
 
     func slideDraggedImage(to screenPoint: NSPoint) {}
