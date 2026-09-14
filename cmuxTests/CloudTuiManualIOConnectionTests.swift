@@ -9,6 +9,29 @@ import Testing
 
 @Suite struct CloudTuiManualIOConnectionTests {
     @Test(arguments: [false, true])
+    func bufferedBytesFollowTheNewBinding(detachFirst: Bool) async throws {
+        try await Self.withConnection { old, oldPeer in
+            try await Self.withConnection { replacement, peer in
+                let queue = DispatchQueue(label: "test.cloud-buffered-rebind")
+                let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+                queue.suspend()
+                router.setConnection(old)
+                router.send(.bytes(Data("new-binding".utf8)))
+                if detachFirst { router.setConnection(nil) }
+                router.setConnection(replacement)
+                queue.resume()
+                let encoded = try await Self.blocking {
+                    let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                    return command["bytes"] as? String
+                }
+                #expect(encoded == Data("new-binding".utf8).base64EncodedString())
+                #expect(try await Self.blocking { try Self.readAvailable(oldPeer).isEmpty })
+                router.invalidate()
+            }
+        }
+    }
+
+    @Test(arguments: [false, true])
     func rejectedHandoffRetainsKnownUnsentInput(queuedBeforeBind: Bool) async throws {
         try await Self.withConnection { rejected, _ in
             rejected.close()
