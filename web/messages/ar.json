@@ -3865,5 +3865,11 @@
         "action": "إدارة الخطة"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "البريد الإلكتروني",
+    "emailUnavailable": "البريد الإلكتروني غير متاح",
+    "organization": "المؤسسة",
+    "personalAccount": "حساب شخصي"
   }
 }
