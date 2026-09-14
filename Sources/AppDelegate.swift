@@ -19098,6 +19098,41 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
+extension NSWindow {
+    static func cmuxOwningWebView(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        if browserOmnibarPanelId(for: responder) != nil {
+            return nil
+        }
+
+        // Browser find runs in the portal slot alongside the hosted WKWebView.
+        // Treat its native field editor chain as browser chrome, not as web content,
+        // so Cmd+F can move first responder into the find field while web focus is suppressed.
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
+            return nil
+        }
+
+        if let webView = cmuxOwningWebView(for: responder) {
+            return webView
+        }
+
+        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
+            return nil
+        }
+
+        if let event,
+           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
+            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
+            return hitWebView
+        }
+
+        return cmuxTrackedOwningWebView(for: textView)
+    }
+}
+
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
@@ -19914,39 +19949,6 @@ private extension NSWindow {
         }
 
         return nil
-    }
-
-    internal static func cmuxOwningWebView(
-        for responder: NSResponder,
-        in window: NSWindow,
-        event: NSEvent?
-    ) -> CmuxWebView? {
-        if browserOmnibarPanelId(for: responder) != nil {
-            return nil
-        }
-
-        // Browser find runs in the portal slot alongside the hosted WKWebView.
-        // Treat its native field editor chain as browser chrome, not as web content,
-        // so Cmd+F can move first responder into the find field while web focus is suppressed.
-        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
-            return nil
-        }
-
-        if let webView = cmuxOwningWebView(for: responder) {
-            return webView
-        }
-
-        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
-            return nil
-        }
-
-        if let event,
-           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
-            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
-            return hitWebView
-        }
-
-        return cmuxTrackedOwningWebView(for: textView)
     }
 
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
