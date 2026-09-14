@@ -815,6 +815,9 @@
 		9655E17F287CE06166FC8CE2 /* CloudTerminalAttachmentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB2F34F568E7BBC7AE26E96E /* CloudTerminalAttachmentStatus.swift */; };
 		3EAC8AAF4F2E473CA9DA0194 /* CloudTerminalCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */; };
 		8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */; };
+		E803B1488B47F8B8C84FE38C /* CloudTerminalOptimisticCreationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6ADCF81124599479B1F76C9 /* CloudTerminalOptimisticCreationTests.swift */; };
+		EDFF9BC08863DA7DBAA1D00F /* CloudTerminalOptimisticHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 415899A2B61EA0412519E19D /* CloudTerminalOptimisticHarness.swift */; };
+		4EFA75E614B6FDAD0D7E110E /* CloudTerminalOptimisticProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30896FE45D432B263B9E8008 /* CloudTerminalOptimisticProvider.swift */; };
 		BD5C6A44F9B646C29565CF59 /* CloudTerminalOverlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */; };
 		FA0000000000000000000005 /* CloudTerminalPaneClosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */; };
 		FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000004 /* CloudTerminalPaneClosureTests.swift */; };
@@ -4642,6 +4645,9 @@
 		AB2F34F568E7BBC7AE26E96E /* CloudTerminalAttachmentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalAttachmentStatus.swift; sourceTree = "<group>"; };
 		9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinator.swift; sourceTree = "<group>"; };
 		80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalCreationCoordinatorTests.swift; sourceTree = "<group>"; };
+		D6ADCF81124599479B1F76C9 /* CloudTerminalOptimisticCreationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalOptimisticCreationTests.swift; sourceTree = "<group>"; };
+		415899A2B61EA0412519E19D /* CloudTerminalOptimisticHarness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalOptimisticHarness.swift; sourceTree = "<group>"; };
+		30896FE45D432B263B9E8008 /* CloudTerminalOptimisticProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalOptimisticProvider.swift; sourceTree = "<group>"; };
 		DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalOverlayCoordinator.swift; sourceTree = "<group>"; };
 		FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosure.swift; sourceTree = "<group>"; };
 		FA0000000000000000000004 /* CloudTerminalPaneClosureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosureTests.swift; sourceTree = "<group>"; };
@@ -10336,6 +10342,9 @@
 				C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */,
 				C12376020000000000000001 /* CloudManualMirrorPresentationTests.swift */,
 				C12537000000000000000112 /* CloudTerminalStartupLatencyTests.swift */,
+				30896FE45D432B263B9E8008 /* CloudTerminalOptimisticProvider.swift */,
+				415899A2B61EA0412519E19D /* CloudTerminalOptimisticHarness.swift */,
+				D6ADCF81124599479B1F76C9 /* CloudTerminalOptimisticCreationTests.swift */,
 				80491D6123C848EB921CB912 /* CloudTerminalCreationCoordinatorTests.swift */,
 				9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */,
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
@@ -14883,6 +14892,9 @@
 				4DB42AF8827945DFADF7C4D4 /* CloudSidebarSurfaceRegressionTests.swift in Sources */,
 				83EFE46711801D1A82B94FD1 /* CloudTerminalAttachmentRecoveryTests.swift in Sources */,
 				8D00A9B0971047B181BBEDCE /* CloudTerminalCreationCoordinatorTests.swift in Sources */,
+				E803B1488B47F8B8C84FE38C /* CloudTerminalOptimisticCreationTests.swift in Sources */,
+				EDFF9BC08863DA7DBAA1D00F /* CloudTerminalOptimisticHarness.swift in Sources */,
+				4EFA75E614B6FDAD0D7E110E /* CloudTerminalOptimisticProvider.swift in Sources */,
 				FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */,
 				C12537000000000000000111 /* CloudTerminalStartupLatencyTests.swift in Sources */,
 				8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */,
