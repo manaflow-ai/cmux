@@ -13040,7 +13040,7 @@
     "mobile.whatsNew.pairing.compatibilityTitle": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Mac compatibility"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Mac version required"}}
       }
     },
     "mobile.whatsNew.pairing.screenshotLabel": {

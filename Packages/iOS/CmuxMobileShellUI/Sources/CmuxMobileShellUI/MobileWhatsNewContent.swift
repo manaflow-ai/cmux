@@ -235,7 +235,7 @@ struct MobileWhatsNewPairingSetupContent: View {
             .padding(.horizontal, 28)
 
             settingsScreenshot
-            pairingSteps
+            accountRequirement
             compatibilitySection
         }
         .padding(.bottom, layout.bottomPadding)
@@ -243,19 +243,8 @@ struct MobileWhatsNewPairingSetupContent: View {
     }
 
     private var settingsScreenshot: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(
-                L10n.string(
-                    "mobile.whatsNew.pairing.macSettingsLabel",
-                    defaultValue: "Mac Settings"
-                )
-            )
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.primary)
-
-            screenshotImage
-        }
-        .padding(.horizontal, 24)
+        screenshotImage
+            .padding(.horizontal, 24)
     }
 
     @ViewBuilder
@@ -299,51 +288,24 @@ struct MobileWhatsNewPairingSetupContent: View {
         }
     }
 
-    private var pairingSteps: some View {
-        VStack(alignment: .leading, spacing: layout.rowSpacing) {
-            pairingStep(
-                number: "1",
-                title: L10n.string(
-                    "mobile.onboarding.pairing.macLabel",
-                    defaultValue: "On your Mac"
-                ),
-                detail: L10n.string(
-                    "mobile.onboarding.pairing.macDetail",
-                    defaultValue: "Settings > Mobile > Enable iOS pairing"
-                )
-            )
-            pairingStep(
-                number: "2",
-                title: L10n.string(
+    private var accountRequirement: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.string(
                     "mobile.onboarding.pairing.phoneLabel",
                     defaultValue: "On this iPhone"
-                ),
-                detail: L10n.string(
+                ))
+                    .font(layout.featureTitleFont)
+                Text(L10n.string(
                     "mobile.onboarding.pairing.phoneDetail",
                     defaultValue: "Sign in to the same cmux account"
-                )
-            )
-        }
-        .padding(.horizontal, 28)
-        .accessibilityIdentifier("MobileWhatsNewPairingRequirement")
-    }
-
-    private func pairingStep(number: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(number)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(Color.accentColor, in: Circle())
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(layout.featureTitleFont)
-                Text(detail)
+                ))
                     .font(layout.detailFont)
                     .foregroundStyle(.secondary)
             }
         }
+        .padding(.horizontal, 28)
+        .accessibilityIdentifier("MobileWhatsNewPairingRequirement")
     }
 
     private var compatibilitySection: some View {
@@ -351,7 +313,7 @@ struct MobileWhatsNewPairingSetupContent: View {
             Text(
                 L10n.string(
                     "mobile.whatsNew.pairing.compatibilityTitle",
-                    defaultValue: "Mac compatibility"
+                    defaultValue: "Mac version required"
                 )
             )
             .font(layout.featureTitleFont)

@@ -32,7 +32,7 @@ struct MobileWhatsNewSheet: View {
         if dynamicTypeSize.isAccessibilitySize { return true }
         if pages.count > 1 { return true }
         switch pages.first?.body {
-        case .pairingSetup, .web:
+        case .web:
             return true
         default:
             break
@@ -58,17 +58,20 @@ struct MobileWhatsNewSheet: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let page = pages.first {
                 switch page.body {
-                case .features where !dynamicTypeSize.isAccessibilitySize:
-                    // Content-fitted card: compact density measured at its
-                    // natural height; the scroll tier only takes over when
-                    // the screen caps the sheet below that height (short
-                    // landscape phones), never in portrait at standard type.
-                    ViewThatFits(in: .vertical) {
-                        measuredSinglePage(page)
-                        ScrollView {
+                case .features, .pairingSetup:
+                    if dynamicTypeSize.isAccessibilitySize {
+                        fullHeightPageWithContinue(page)
+                    } else {
+                        // Content-fitted card: compact density measured at
+                        // its natural height; the scroll tier only takes over
+                        // when the screen caps the sheet below that height.
+                        ViewThatFits(in: .vertical) {
                             measuredSinglePage(page)
+                            ScrollView {
+                                measuredSinglePage(page)
+                            }
+                            .scrollBounceBehavior(.basedOnSize)
                         }
-                        .scrollBounceBehavior(.basedOnSize)
                     }
                 default:
                     fullHeightPageWithContinue(page)
