@@ -31,6 +31,11 @@ enum IdentityColdStartFixture {
         guard canonicalPath(support.path).hasPrefix(home + "/") else {
             fail("application support escaped the fixture home")
         }
+        guard let expectedBundleID = environment["CMUX_IDENTITY_FIXTURE_BUNDLE_ID"],
+              expectedBundleID.hasPrefix("com.cmuxterm.fixture.identity."),
+              Bundle.main.bundleIdentifier == expectedBundleID else {
+            fail("fixture must have its own preference domain")
+        }
         let directory = support.appendingPathComponent("cmux", isDirectory: true)
         let sharedURL = directory.appendingPathComponent("mobile-host-device-id")
         guard !FileManager.default.fileExists(atPath: sharedURL.path),
