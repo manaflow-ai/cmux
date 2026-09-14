@@ -34,6 +34,7 @@ struct CloudTreeNodeActions {
     /// Close a workspace on its machine AND kill every terminal in it (austin,
     /// 2026-08-31: a closed workspace never leaves stray terminals behind in the
     /// pool). Confirms first when there is something to kill. The protocol's
+    /// keep-terminals close stays CLI-only (`cmux vm workspace close`).
     let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
@@ -195,7 +196,6 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
-                guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
@@ -203,7 +203,7 @@ struct CloudTreeNodeActions {
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: capturedDestination,
+                        into: try destination(.tab),
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)
@@ -213,13 +213,12 @@ struct CloudTreeNodeActions {
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
-                    guard let capturedDestination = try? Self.capturedTabDestination(selectedWorkspaceID()) else { onFailure(String(localized: "cloudTree.error.noSelectedWorkspace", defaultValue: "No selected workspace.")); return }
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let (projection, _) = try await catalog.project(
                             resource.id,
-                            into: capturedDestination,
+                            into: try destination(.tab),
                             focus: true,
                             reuseExisting: true,
                             remoteView: Self.uniqueRemoteView(resource)
@@ -454,6 +453,7 @@ struct CloudTreeNodeActions {
         if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         return (workspace, terminal, opened)
     }
+
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
     /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
     /// then close the workspace. Re-syncs and re-enumerates AT operation time — the
