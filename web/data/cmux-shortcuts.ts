@@ -93,7 +93,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "newCloudWorkspace",
-        combos: [["⌘", "Y"]],
+        combos: [["⇧", "⌘", "Y"]],
         description: { en: "New cloud workspace", ja: "新規クラウドワークスペース", "zh-CN": "新建云工作区", "zh-TW": "新增雲端工作區", "ko": "새 클라우드 워크스페이스", "de": "Neuer Cloud-Arbeitsbereich", "es": "Nuevo espacio de trabajo en la nube", "fr": "Nouvel espace de travail cloud", "it": "Nuovo spazio di lavoro cloud", "da": "Nyt cloud-arbejdsområde", "pl": "Nowy obszar roboczy w chmurze", "ru": "Новое облачное рабочее пространство", "bs": "Novi cloud radni prostor", "ar": "مساحة عمل سحابية جديدة", "no": "Nytt skyarbeidsområde", "pt-BR": "Novo espaço de trabalho na nuvem", "th": "เวิร์กสเปซคลาวด์ใหม่", "tr": "Yeni bulut çalışma alanı", "km": "កន្លែងធ្វើការលើពពកថ្មី", "uk": "Новий хмарний робочий простір" },
         note: {
           en: "creates a workspace on the starred default cmux Cloud machine",

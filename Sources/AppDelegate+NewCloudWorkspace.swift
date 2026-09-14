@@ -27,6 +27,25 @@ extension AppDelegate {
         }
     }
 
+    /// Creates a workspace on the cloud VM currently selected in a workspace.
+    @discardableResult
+    func performNewCloudWorkspaceOnCurrentMachineAction(
+        preferredTabManager: TabManager? = nil,
+        preferredWindow: NSWindow? = nil,
+        debugSource: String = "newCloudWorkspace.currentMachine"
+    ) -> Bool {
+        guard let coordinator = cloudWorkspaceCoordinator,
+              let operationController = cloudWorkspaceOperationController,
+              coordinator.isAvailable,
+              let manager = preferredTabManager ?? preferredWindow.flatMap({ contextForMainWindow($0)?.tabManager }) ?? synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)?.tabManager,
+              let vmID = manager.selectedWorkspace?.cloudVMID,
+              !vmID.isEmpty else { return false }
+        let focus = manager.selectedTabId != nil
+        return operationController.start(key: "new-cloud-workspace.current-machine") {
+            _ = try await coordinator.createOnMachine(id: vmID, focus: focus)
+        }
+    }
+
     /// Presents machine provisioning and applies its exact workspace receipt to a group when requested.
     @discardableResult
     func performNewCloudWorkspaceAction(

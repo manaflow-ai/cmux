@@ -34,6 +34,12 @@ public final class CloudWorkspaceCoordinator {
     /// - Parameter focus: Whether to focus the new local workspace.
     /// - Returns: The exact created local workspace ID, or nil when unavailable or empty.
     /// - Throws: Cancellation or a cloud service failure.
+    public func createOnMachine(id: String, focus: Bool) async throws -> UUID? {
+        guard isAvailable, !id.isEmpty else { return nil }
+        try Task.checkCancellation()
+        return try await createWorkspace(id, focus)
+    }
+
     public func createOnDefaultMachine(focus: Bool) async throws -> UUID? {
         guard isAvailable else { return nil }
         try Task.checkCancellation()
@@ -41,6 +47,6 @@ public final class CloudWorkspaceCoordinator {
         try Task.checkCancellation()
         guard isAvailable,
               let id = defaultMachineStore.resolveMachineID(from: machines, isComplete: true) else { return nil }
-        return try await createWorkspace(id, focus)
+        return try await createOnMachine(id: id, focus: focus)
     }
 }

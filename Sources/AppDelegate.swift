@@ -8442,7 +8442,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        performNewWorkspaceCreationAction(
+        let preferredWindow = event.flatMap { mainWindowForShortcutEvent($0) }
+        if performNewCloudWorkspaceOnCurrentMachineAction(
+            preferredTabManager: preferredTabManager,
+            preferredWindow: preferredWindow,
+            debugSource: debugSource
+        ) {
+            return true
+        }
+        return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
