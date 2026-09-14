@@ -294,7 +294,7 @@ extension TerminalSurface {
     /// Idempotent — safe to call before deinit; deinit will skip the work if
     /// already torn down.
     @MainActor
-    public func teardownSurface() {
+    public func teardownSurface() -> TerminalSurfaceRuntimeTeardownTicket? {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
         retireSurfaceRegistryRegistrationIfNeeded()
@@ -319,7 +319,7 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            return nil
         }
 
 #if DEBUG
@@ -328,7 +328,7 @@ extension TerminalSurface {
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            return nil
         }
 #endif
 #if DEBUG
@@ -336,7 +336,7 @@ extension TerminalSurface {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
+            return runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: "teardown",
@@ -349,11 +349,10 @@ extension TerminalSurface {
                 },
                 freeSurface: freeSurface
             )
-            return
         }
 #endif
 
-        runtimeTeardown.enqueueRuntimeTeardown(
+        return runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
             reason: "teardown",
