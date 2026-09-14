@@ -2157,9 +2157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
-        guard !markedForKill.isEmpty
-                || !simulatorCleanupTasks.isEmpty
-                || hasSudoApprovalRuntime else {
+        guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
         if !isAwaitingTerminateCleanup {
@@ -2209,6 +2207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
                 )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
+                await CloudNotificationSyncHub.shared.persistenceStore.drain()
                 self.terminationWatchdog.arm()
                 self.replyToTerminateOnce(true)
             }
@@ -9407,7 +9406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             destination: CloudWorkspaceGroupDestination(
                 tabManager: context.tabManager,
                 groupId: workspaceGroupTarget?.groupId,
-                placement: workspaceGroupTarget?.placement ?? .afterCurrent,
+                placement: workspaceGroupTarget?.placement ?? .end,
                 referenceWorkspaceId: workspaceGroupTarget?.referenceWorkspaceId,
                 initialWorkspaceId: initialWorkspaceId
             )
@@ -15848,15 +15847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
-            if performFocusedDockShortcut(
-                .equalizeSplits,
-                action: .equalizeSplits,
-                event: event
-            ) {
-                return true
-            }
-            performEqualizeSplitsShortcut()
+        if handlePaneSizingShortcut(event: event, equalize: equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault) {
             return true
         }
         // Canvas layout actions share one executor with the palette, View
@@ -19043,7 +19034,7 @@ private extension NSApplication {
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(
             event,
             preferredWindow: event.window ?? AppDelegate.shared?.shortcutRoutingActiveWindow ?? keyWindow ?? mainWindow
-        ) {
+        ) || cmuxRouteApplicationUndoRedoCommandEquivalent(event) {
             return
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
@@ -19145,7 +19136,6 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
-
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
@@ -19555,7 +19545,7 @@ private extension NSWindow {
             }
             return false
         }
-        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, browserWebKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
+        if cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(event, terminalView: firstResponderGhosttyView, webView: firstResponderWebView, webKitKeyDownReentry: browserWebKitKeyDownReentry) { return true }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event),
            AppDelegate.shared?.shouldRouteRightSidebarModeShortcut(in: self) == true {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
@@ -19964,7 +19954,7 @@ private extension NSWindow {
         return nil
     }
 
-    private static func cmuxOwningWebView(
+    fileprivate static func cmuxOwningWebView(
         for responder: NSResponder,
         in window: NSWindow,
         event: NSEvent?

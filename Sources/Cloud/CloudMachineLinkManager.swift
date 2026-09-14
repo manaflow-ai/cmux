@@ -143,14 +143,29 @@ actor CloudMachineLinkManager {
         if let inFlight = connecting[machineID] {
             return try await inFlight.value
         }
+        let correlationID = UUID().uuidString.lowercased()
+        StartupBreadcrumbLog.append(
+            "cloud.link.start",
+            fields: [
+                "machine": machineID,
+                "knownDevice": paths.deviceFingerprint(for: machineID) == nil ? "0" : "1",
+                "correlation": correlationID,
+                "outcome": "started"
+            ]
+        )
         if let failure = lastFailure[machineID], Date().timeIntervalSince(failure.at) < retryBackoff {
+            recordPreflightFailure(machineID: machineID, reason: "retry_backoff", correlationID: correlationID)
             throw ManagerError.retryLater(failure.error)
         }
-        guard let clientURL else { throw ManagerError.clientMissing }
+        guard let clientURL else {
+            recordPreflightFailure(machineID: machineID, reason: "client_missing", correlationID: correlationID)
+            throw ManagerError.clientMissing
+        }
         guard privateRoutes[machineID] != nil else {
+            recordPreflightFailure(machineID: machineID, reason: "private_route_required", correlationID: correlationID)
             throw ManagerError.privateRouteRequired(machineID)
         }
-        #if DEBUG
+#if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
@@ -233,6 +248,15 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.connected",
+                fields: [
+                    "machine": machineID,
+                    "session": connected.session,
+                    "correlation": correlationID,
+                    "outcome": "connected"
+                ]
+            )
             pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
             return connected
         } catch {
@@ -242,12 +266,34 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
             #endif
+            StartupBreadcrumbLog.append(
+                "cloud.link.failed",
+                fields: [
+                    "machine": machineID,
+                    "error": CloudDiagnosticFailure.classify(error).rawValue,
+                    "correlation": correlationID,
+                    "outcome": "failed"
+                ]
+            )
             throw error
         }
     }
 
     func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
+    }
+
+    /// Records a preflight failure without mutating link retry state.
+    private func recordPreflightFailure(machineID: String, reason: String, correlationID: String) {
+        StartupBreadcrumbLog.append(
+            "cloud.link.failed",
+            fields: [
+                "machine": machineID,
+                "error": reason,
+                "correlation": correlationID,
+                "outcome": "failed"
+            ]
+        )
     }
 
     /// Machines with a live link right now: the app-side consumers of the

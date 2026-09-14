@@ -5,20 +5,38 @@ private func chainFrame(
     revision: UInt64,
     epoch: String = "epoch-1",
     full: Bool = false,
-    baseRevision: UInt64? = nil
+    baseRevision: UInt64? = nil,
+    columns: Int = 8,
+    rows: Int = 2
 ) throws -> MobileTerminalRenderGridFrame {
     try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: revision,
         renderEpoch: epoch,
         renderRevision: revision,
-        columns: 8,
-        rows: 2,
+        columns: columns,
+        rows: rows,
         full: full,
         clearedRows: full ? [] : [0],
         rowSpans: [.init(row: 0, column: 0, text: "row")],
         deltaBaseRenderRevision: baseRevision
     )
+}
+
+@Test func revisionContinuityRejectsDeltaAcrossDimensionChange() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        delivered: try chainFrame(revision: 7, full: true, columns: 80, rows: 24)
+    )
+    // The producer reused the revision chain while the phone resized. The
+    // delta's absolute rows address a different grid and must be replayed.
+    let delta = try chainFrame(
+        revision: 8,
+        baseRevision: 7,
+        columns: 40,
+        rows: 12
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
 }
 
 @Test func revisionContinuityAdmitsChainedDelta() throws {
@@ -85,12 +103,46 @@ private func chainFrame(
     #expect(!MobileTerminalRenderGridRevisionContinuity.admits(regressedRevision, delivered: delivered))
 }
 
-@Test func revisionContinuityAdmitsEpochlessDeltaWithBase() throws {
-    // Epochless frames record no delivered identity, so rejecting their
-    // deltas would request replays forever; the history chain governs them.
+@Test func revisionContinuityRejectsDeltaWithUnknownDeliveredDimensions() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        renderEpoch: "epoch-1",
+        renderRevision: 7
+    )
+    let delta = try chainFrame(revision: 8, baseRevision: 7)
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
+@Test func revisionContinuityRejectsEpochlessDeltaAcrossDimensionChange() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        delivered: try chainFrame(revision: 7, full: true, columns: 80, rows: 24)
+    )
+    let delta = try chainFrame(
+        revision: 8,
+        epoch: "",
+        baseRevision: 7,
+        columns: 40,
+        rows: 12
+    )
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
+@Test func revisionContinuityRejectsEpochlessDeltaWithStaleBase() throws {
+    let delivered = MobileTerminalRenderGridRevisionContinuity(
+        delivered: try chainFrame(revision: 8, full: true)
+    )
+    let delta = try chainFrame(revision: 9, epoch: "", baseRevision: 7)
+
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(delta, delivered: delivered))
+}
+
+@Test func revisionContinuityRejectsEpochlessDeltaWithoutBaseline() throws {
+    // A base revision without an epoch still needs a delivered shape. Without
+    // that baseline, a resize could make absolute row spans unsafe to patch.
     let epochlessDelta = try chainFrame(revision: 8, epoch: "", baseRevision: 7)
 
-    #expect(MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
+    #expect(!MobileTerminalRenderGridRevisionContinuity.admits(epochlessDelta, delivered: nil))
 }
 
 @Test func revisionContinuityRoundTripsThroughCoding() throws {

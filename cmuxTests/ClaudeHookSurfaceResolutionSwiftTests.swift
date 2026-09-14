@@ -863,6 +863,12 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        // Process can finish while the test host is busy servicing another
+        // fixture. Observe termination directly instead of queueing a blocking
+        // waitUntilExit() on the shared global pool, where the waiter can be
+        // starved and report a successful child as a timeout.
+        let exitSignal = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -874,16 +880,10 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             try? stdinPipe.fileHandleForWriting.close()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

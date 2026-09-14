@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 
@@ -8,8 +9,18 @@ enum MobileHostIdentity {
     private static let stableBundleIdentifier = "com.cmuxterm.app"
     private static let maximumDisplayNameUTF16Length = 128
     private static let maximumDisplayedBuildTagUTF16Length = 64
+    /// Published after the immutable snapshot has been fully initialized.
+    /// Callers on latency-sensitive paths can inspect readiness without
+    /// triggering Swift's once-initialized storage.
+    private static let deviceIDReady = AtomicBooleanGate(false)
 
-    static func deviceID() -> String {
+    /// Process-stable host identity used by synchronous transport and terminal paths.
+    ///
+    /// Swift initializes this constant once, so the filesystem-backed migration
+    /// runs at most once per app process. After initialization, ``deviceID()``
+    /// returns the immutable snapshot without locking or disk access. The
+    /// overload below remains the testable resolver for persistence migration.
+    private static let cachedDeviceID: String = {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
@@ -19,6 +30,28 @@ enum MobileHostIdentity {
             stableDefaults: stableDefaults,
             bundleIdentifier: Bundle.main.bundleIdentifier
         )
+    }()
+
+    /// Returns the process-stable host identity without repeating filesystem work.
+    static func deviceID() -> String {
+        let value = cachedDeviceID
+        deviceIDReady.storeRelease(true)
+        return value
+    }
+
+    /// Returns the process-stable identity only after background prewarming has
+    /// completed. This check never touches the lazy snapshot while it is cold.
+    static func deviceIDIfReady() -> String? {
+        guard deviceIDReady.loadAcquire() else { return nil }
+        return cachedDeviceID
+    }
+
+    /// Resolves the identity on a utility task so migration I/O cannot occupy
+    /// the main actor. Swift still initializes ``cachedDeviceID`` exactly once.
+    static func prewarm() async {
+        await Task.detached(priority: .utility) {
+            _ = deviceID()
+        }.value
     }
 
     static func deviceID(

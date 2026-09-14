@@ -12,9 +12,80 @@ import Testing
 struct CloudManualMirrorPresentationTests {
     @Test
     func attachmentAloneDoesNotHideTheConnectionState() {
+        #expect(CloudManualMirrorPresentation(phase: .idle, replayReceived: false).connectionState == nil)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: false).connectionState == .connecting)
         #expect(CloudManualMirrorPresentation(phase: .attached, replayReceived: true).connectionState == .connected)
         #expect(CloudManualMirrorPresentation(phase: .disconnected, replayReceived: true).connectionState == .error)
+    }
+
+    @Test @MainActor
+    func cancellingAnActiveConnectionSuppressesAutomaticRecovery() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        var refreshes = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine", terminalID: "term_cancel", remoteSurfaceID: 17,
+            onNeedsReconnect: { refreshes += 1 }
+        )
+        defer { session.stop() }
+        session.reconnect(socketPath: fixture.socketPath)
+        #expect(session.phase == .connecting)
+        #expect(session.cancelConnectionAttempt())
+        #expect(session.phase == .idle)
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(refreshes == 0)
+        session.visibilityChanged(true)
+        #expect(refreshes == 0)
+        #expect(session.connectionPresentation == nil)
+        #expect(session.retryConnection())
+        #expect(session.allowsAutomaticReconnect)
+        #expect(refreshes == 1)
+    }
+
+    @Test @MainActor
+    func progressCardDismissalInvokesCancellationCallback() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let destination = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let progress = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Connecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        var cancelled = 0
+        owner.apply(progress, in: destination, frame: destination.bounds, dismissalID: "cancel-test", onReconnect: {}, onCancel: {
+            cancelled += 1
+        })
+        let card = try #require(owner.overlay)
+        card.onDismiss?()
+        #expect(cancelled == 1)
+        #expect(owner.overlay == nil)
+    }
+
+    @Test @MainActor
+    func coordinatorRemovesReconnectCardWhenReadySnapshotArrives() throws {
+        let owner = CloudTerminalOverlayCoordinator()
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320))
+        )
+        let anchor = GhosttyTerminalView.HostContainerView(frame: hosted.bounds)
+        owner.updateAnchor(anchor, visible: true, ownershipGeneration: 1)
+        let reconnecting = CloudTerminalReconnectOverlayPolicy.Presentation(
+            title: "Reconnecting", detail: "Waiting", showsProgress: true, showsReconnectButton: false
+        )
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: reconnecting,
+            onReconnect: {}
+        )
+        #expect(owner.overlay != nil)
+
+        owner.synchronize(
+            hostedView: hosted,
+            contentFrame: hosted.bounds,
+            legacyPresentation: nil,
+            onReconnect: {}
+        )
+        #expect(owner.overlay == nil)
+        #expect(anchor.subviews.isEmpty)
     }
 
     @Test @MainActor

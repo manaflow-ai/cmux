@@ -3,9 +3,10 @@ import CmuxMobilePairedMac
 import Foundation
 
 extension MobileShellComposite {
-    /// Snapshot the authenticated foreground route before a destructive switch.
-    /// The saved row may already describe another tagged process on the same
-    /// physical Mac, so rollback must use live A rather than persisted B.
+    /// Snapshot the authenticated foreground route before a switch that may
+    /// require replacing the focused session. The saved row may already
+    /// describe another tagged process on the same physical Mac, so rollback
+    /// must use live A rather than persisted B.
     func liveForegroundMacForSwitchRestore() -> MobilePairedMac? {
         guard hasActiveMacConnection,
               let macDeviceID = foregroundMacDeviceID,
@@ -29,7 +30,8 @@ extension MobileShellComposite {
         )
     }
 
-    /// Resolves the live foreground Mac that a failed destructive switch should restore.
+    /// Resolves the live foreground Mac that a failed switch should restore
+    /// after its prior focused session was retired.
     func previousForegroundMacForSwitchRestore(
         previousForegroundMacDeviceID: String?,
         previousForegroundInstanceTag: String? = nil,

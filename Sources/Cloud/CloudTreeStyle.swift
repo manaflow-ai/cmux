@@ -9,9 +9,9 @@ import SwiftUI
 /// side by side so a variant is picked by looking, not by rebuilding.
 struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     enum MachineRowLayout: String, Sendable {
-        /// Name line plus a dim subtitle (and stats when enabled).
+        /// Name and resources plus a dim metadata subtitle.
         case twoLine
-        /// One Finder-like line: dot, name, dim inline detail.
+        /// Compact name and resources, without a metadata subtitle.
         case singleLine
     }
 
@@ -75,8 +75,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// The CPU/Mem/Disk reading: a line under the machine in two-line layout,
-    /// the dim inline fact after the name in single-line layout.
+    /// A dedicated CPU/RAM/disk strip below the cloud machine name in every layout.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
 
@@ -84,17 +83,21 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
 
-    /// `hasUsage` adds the coderouter spend line under the stats in the
-    /// two-line layout; single-line rows carry it inline at a fixed height.
-    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
+    var machineResourceHeight: CGFloat { detailSize + 2 + machineNameLineHeight + 1 }
+
+    /// Resource columns reserve space even before the first sample arrives.
+    /// Local/pending rows pass false and keep the preset's original density.
+    func machineRowHeight(hasStats: Bool) -> CGFloat {
+        if hasStats && showsMachineStats {
+            return machineVerticalPadding * 2 + machineNameLineHeight + 4 + machineResourceHeight
+                + (machineRowLayout == .twoLine ? 1 + machineSubtitleLineHeight : 0)
+                + (machineBand ? 8 : 0)
+        }
         switch machineRowLayout {
         case .singleLine:
             return rowHeight + (machineBand ? 7 : 2)
         case .twoLine:
-            let lines = machineNameLineHeight + CloudTreeRowGrid.machineLineSpacing + machineSubtitleLineHeight
-                + (hasStats && showsMachineStats ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
-                + (hasUsage ? CloudTreeRowGrid.machineLineSpacing + CloudTreeRowGrid.machineStatsLineHeight : 0)
-            return machineVerticalPadding * 2 + lines
+            return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
         }
     }
 

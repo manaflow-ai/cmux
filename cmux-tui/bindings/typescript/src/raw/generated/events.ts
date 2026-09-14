@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
+/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
 
 
 import type * as T from "./types.js";
@@ -63,6 +63,7 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (T.CursorStyle) | null;
   "fg": (T.ColorHex) | null;
+  "overrides"?: T.TerminalColorOverrides;
   "palette"?: Record<string, T.ColorHex>;
   "selection_bg": (T.ColorHex) | null;
   "selection_fg": (T.ColorHex) | null;

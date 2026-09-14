@@ -52,11 +52,13 @@ import {
   type VmRequestContext,
 } from "./requestContext";
 import {
+  vmArtifactUnavailableCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
+import { ProviderArtifactUnavailableError } from "./drivers/types";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -653,6 +655,9 @@ export const vmWorkflowErrorResponders = {
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
     }
+    if (providerArtifactUnavailable(error.cause)) {
+      return vmArtifactUnavailableResponse(error, context.locale);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -683,21 +688,34 @@ export const vmWorkflowErrorResponders = {
   },
   VmModelPlaneError: (error) => vmModelPlaneErrorResponse(error),
   VmResizeInvalidError: (error) => {
-    const requested = Math.round(error.requestedMb / 1024);
-    const current = Math.round(error.currentMb / 1024);
-    const max = Math.round(error.maxMb / 1024);
+    const resource = error.resource ?? "storage";
+    const divisor = resource === "cpu" ? 1 : 1024;
+    const unit = resource === "cpu" ? "vCPUs" : "GiB";
+    const name = resource === "storage" ? "disk" : resource === "memory" ? "memory" : "CPU";
+    const requested = Math.round(error.requestedMb / divisor);
+    const current = Math.round(error.currentMb / divisor);
+    const max = Math.round(error.maxMb / divisor);
     return vmErrorResponse({
       error: "vm_resize_invalid",
       status: 400,
       message: error.reason === "below_current"
-        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
-        : `Cloud VM disk cannot exceed ${max} GiB.`,
-      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+        ? `Cloud VM ${name} can only grow. It is already ${current} ${unit}.`
+        : `Cloud VM ${name} cannot exceed ${max} ${unit}.`,
+      action: `Request a ${name} size between ${current} ${unit} and ${max} ${unit}.`,
       phase: "resize",
       retryable: false,
       details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
     });
   },
+  VmResizePlanLimitError: (error) => vmErrorResponse({
+    error: "vm_resize_plan_limit",
+    status: 403,
+    message: `Your ${error.planId} plan cannot resize ${error.resource} beyond ${error.resource === "cpu" ? error.max : `${Math.round(error.max / 1024)} GiB`}.`,
+    action: error.upgradePlanId ? `Upgrade to ${error.upgradePlanId} to use larger VM sizes.` : "Choose a smaller VM size.",
+    phase: "resize",
+    retryable: false,
+    details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
+  }),
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",
@@ -848,6 +866,32 @@ export async function vmWorkflowErrorResponse(
   const error = vmWorkflowErrorCause(err);
   if (!error) return null;
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
+}
+
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderArtifactUnavailableError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
+/** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
+async function vmArtifactUnavailableResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmArtifactUnavailableCopy(locale);
+  return vmErrorResponse({
+    error: "vm_artifact_unavailable",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
 }
 
 function vmProviderOperationErrorResponse(error: VmProviderOperationError): Response {

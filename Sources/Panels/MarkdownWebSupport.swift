@@ -174,7 +174,7 @@ final class MarkdownWebRenderingCoordinator {
 }
 
 @MainActor
-final class MarkdownWebView: WKWebView {
+final class MarkdownWebView: CmuxUndoableWebView {
     var onPointerDown: (() -> Void)?
     /// Invoked after this view is attached to a window. Keep this separate
     /// from pointer focus so a panel can complete a focus request made before

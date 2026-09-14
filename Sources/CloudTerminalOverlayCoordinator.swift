@@ -11,6 +11,7 @@ private let cloudTerminalPresentationLogger = Logger(
 /// choose where to present that state, never whether the connection has failed.
 @MainActor
 final class CloudTerminalOverlayCoordinator {
+    private let dismissalStore: CloudBannerDismissalStore
     weak var session: CloudTuiManualMirrorSession?
     private(set) var overlay: CloudTerminalReconnectOverlayView?
     private weak var anchor: GhosttyTerminalView.HostContainerView?
@@ -20,6 +21,18 @@ final class CloudTerminalOverlayCoordinator {
 
     private enum Destination: String {
         case hidden, anchor, terminal
+    }
+
+    /// Creates a coordinator with an injected dismissal store.
+    ///
+    /// - Parameter dismissalStore: Repository shared by this native surface owner.
+    init(dismissalStore: CloudBannerDismissalStore) {
+        self.dismissalStore = dismissalStore
+    }
+
+    /// Creates a coordinator backed by the app's standard user defaults.
+    convenience init() {
+        self.init(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
     }
 
     /// A replaced representable may still emit layout and hide callbacks. Only
@@ -40,11 +53,13 @@ final class CloudTerminalOverlayCoordinator {
         anchorVisible = visible
     }
 
+    /// Reconciles the current connection card with portal visibility and dismissal state.
     func synchronize(
         hostedView: GhosttySurfaceScrollView,
         contentFrame: CGRect,
         legacyPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?,
-        onReconnect: @escaping () -> Void
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         let visible = anchor == nil ? hostedView.isVisibleInUI : anchorVisible
         let presented: Bool
@@ -64,15 +79,36 @@ final class CloudTerminalOverlayCoordinator {
         }
 
         let destination: NSView = presented ? hostedView : ((anchor as NSView?) ?? hostedView)
+        let dismissalID = hostedView.surfaceView.terminalSurface.map {
+            "cloud.remote-reconnect.\($0.id.uuidString)"
+        }
+        let effectiveCancel = { [weak self] in
+            if let onCancel {
+                onCancel()
+            } else if let session = self?.session {
+                session.cancelConnectionAttempt()
+            }
+        }
         apply(
             visible ? presentation : nil,
             in: destination,
             frame: presented ? contentFrame : destination.bounds,
-            onReconnect: onReconnect
+            dismissalID: dismissalID,
+            onReconnect: onReconnect,
+            onCancel: effectiveCancel
         )
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
             cloudTerminalPresentationLogger.notice("pane terminal=\(session.terminalID, privacy: .private(mask: .hash)) destination=\(next.rawValue, privacy: .public) bound=\(presented) phase=\(String(describing: session.phase), privacy: .public)")
+            CloudTerminalAttachmentLog(correlationID: session.attachmentCorrelationID).presentation(
+                machineID: session.machineID,
+                terminalID: session.terminalID,
+                destination: next.rawValue,
+                visible: visible,
+                presented: presented,
+                phase: session.phase,
+                hasPresentation: presentation != nil
+            )
         }
         lastDestination = next
     }
@@ -87,11 +123,14 @@ final class CloudTerminalOverlayCoordinator {
 
     /// Applies a snapshot by moving the existing card; no second fallback view
     /// can retain a stale button or outlive a connected presentation.
+    /// Places or removes a card for one presentation snapshot.
     func apply(
         _ presentation: CloudTerminalReconnectOverlayPolicy.Presentation?,
         in destination: NSView,
         frame: CGRect,
-        onReconnect: @escaping () -> Void
+        dismissalID: String? = nil,
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         guard let presentation else {
             overlay?.removeFromSuperview()
@@ -99,9 +138,35 @@ final class CloudTerminalOverlayCoordinator {
             return
         }
         let card = overlay ?? CloudTerminalReconnectOverlayView(frame: frame)
+        if let dismissalID,
+           dismissalStore.isDismissed(id: dismissalID, signature: presentation.copyableError) {
+            card.removeFromSuperview()
+            if overlay === card {
+                overlay = nil
+            }
+            return
+        }
         overlay = card
         card.apply(presentation)
         card.onReconnect = onReconnect
+        card.onDismiss = { [weak self, weak card] in
+            guard let self, let card else { return }
+            if presentation.showsProgress {
+                if let onCancel {
+                    onCancel()
+                } else if let session = self.session {
+                    session.cancelConnectionAttempt()
+                } else if let dismissalID {
+                    self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+                }
+            } else if let dismissalID {
+                self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+            }
+            if self.overlay === card {
+                card.removeFromSuperview()
+                self.overlay = nil
+            }
+        }
         if card.frame != frame { card.frame = frame }
         card.autoresizingMask = [.width, .height]
         if card.superview !== destination {

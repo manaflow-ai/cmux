@@ -2,6 +2,7 @@ import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
 import {
   isDevelopmentProAccessEnabled,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -161,6 +162,11 @@ function resolveBillingContext(
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
+/** Pro/Team/Founder machines stop at 24 GiB; Max unlocks the full ladder. */
+export const PLAN_MAX_MEMORY_MB = 24 * 1024;
+export const MAX_PLAN_MAX_MEMORY_MB = 64 * 1024;
+export const MEMORY_UPGRADE_PLAN_ID = MAX_PLAN_ID;
+
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
   planId: string | null | undefined,
@@ -169,20 +175,39 @@ export function maxMemoryMbForPlan(
   const normalized = normalizedPlanId(planId ?? "");
   const planKey = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`];
-  if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`);
+  const ceiling = normalized === MAX_PLAN_ID ? MAX_PLAN_MAX_MEMORY_MB : PLAN_MAX_MEMORY_MB;
+  if (specific?.trim()) return Math.min(ceiling, positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_MEMORY_MB`));
+  if (normalized === MAX_PLAN_ID) return MAX_PLAN_MAX_MEMORY_MB;
   if (normalized === "free") {
     // The free machine is the product demo: the same full-size computer a
     // paid plan gets, not a cut-down teaser. The paywall is the 7-day access
     // window and the machine count, never the machine's usefulness.
-    return positiveInteger(
+    return Math.min(ceiling, positiveInteger(
       env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
-    );
+    ));
   }
-  return positiveInteger(
+  return Math.min(ceiling, positiveInteger(
     env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
     "CMUX_VM_PAID_MAX_MEMORY_MB",
-  );
+  ));
+}
+
+/** Disk ceiling follows the memory tier: Max unlocks 256 GiB. */
+export function maxDiskMbForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const normalized = normalizedPlanId(planId ?? "");
+  const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
+  const fallback = normalized === MAX_PLAN_ID ? 256 * 1024 : 128 * 1024;
+  const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
+  return raw?.trim() ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`)) : fallback;
+}
+
+/** vCPU ceiling is derived from the plan's memory ceiling. */
+export function maxVcpusForPlan(planId: string | null | undefined, env: Record<string, string | undefined> = process.env): number {
+  return Math.max(1, Math.floor(maxMemoryMbForPlan(planId, env) / 4096));
 }
 
 /**

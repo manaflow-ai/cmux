@@ -294,7 +294,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         // resolve to the registered key so no table is left behind.
         let id = registeredMachineID(matching: rawID)
         let provider = providers.removeValue(forKey: id)
-        catalog?.unregister(machine: .cloud(id))
+        catalog?.removeCloudMachine(.cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
         // a pass already inside the managers), so a refresh that re-lists the
