@@ -16,6 +16,43 @@ import Testing
 /// appears behind the current one and Cmd+T looks like it did nothing.
 @MainActor
 @Suite(.serialized) struct SurfacePaneFactoryFocusTests {
+    @Test(arguments: ["right", "down"])
+    func routedCloudSplitIsAcceptedBeforeItsPanelExists(directionName: String) async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let window = try #require(NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" })
+        let machine = SurfaceMachineID.cloud("split-action-\(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: CloudDiagnosticFailure.network)
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remote, remoteViews: [SurfaceRemoteView(tabID: "tab-source", workspace: remote)],
+            port: nil, url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: remote.id, remoteTabID: "tab-source"
+        ))
+        let direction: SplitDirection = directionName == "right" ? .right : .down
+
+        let accepted = harness.appDelegate.performSplitShortcut(direction: direction, preferredWindow: window)
+        // Menu and palette callers use this fallback when the shared action says it failed.
+        if !accepted { _ = manager.createSplit(direction: direction) }
+        await provider.creationAttemptSignal.wait()
+        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+
+        #expect(accepted)
+        #expect(provider.creationRequestCount == 1)
+    }
+
     @Test func focusedTabIsSelectedOutsideASocketCommand() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -202,6 +239,7 @@ import Testing
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
         let creationRequests = AsyncStream<UUID>.makeStream()
+        private(set) var creationRequestCount = 0
 
         /// Creates a provider fixture with optional deterministic creation failure.
         init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
@@ -244,6 +282,7 @@ import Testing
         }
 
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+            creationRequestCount += 1
             creationRequests.continuation.yield(request.id)
             return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
         }
