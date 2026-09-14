@@ -43,7 +43,7 @@ extension MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
-    @Test func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionStaysOpenWhenIdleAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let connection = NWConnection(
@@ -54,7 +54,6 @@ extension MobileHostAuthorizationTests {
         let session = MobileHostConnection(
             id: connectionID,
             connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -62,16 +61,13 @@ extension MobileHostAuthorizationTests {
                 await recorder.record(id)
             }
         )
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
+        )
+        await session.debugHandleReceiveDataForTesting(frame)
+        try await Task.sleep(nanoseconds: 25_000_000)
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
     @Test func testMobileHostConnectionKeepsSubscribedEventStreamPastIdleTimeout() async throws {
         let connectionID = UUID()
@@ -84,7 +80,6 @@ extension MobileHostAuthorizationTests {
         let session = MobileHostConnection(
             id: connectionID,
             connection: connection,
-            idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
@@ -93,7 +88,6 @@ extension MobileHostAuthorizationTests {
             }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
-        await session.debugStartIdleTimeoutAfterFrameForTesting()
         // An active subscription suppresses the idle-after-frame timeout: the
         // arm path early-returns without scheduling any close. Awaiting an
         // actor-isolated round-trip on the connection guarantees the arm call
@@ -104,15 +98,9 @@ extension MobileHostAuthorizationTests {
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
         _ = await session.unsubscribe(streamID: "events")
-        for _ in 0..<100 {
-            let recordedIDs = await recorder.recordedIDs()
-            if !recordedIDs.isEmpty {
-                break
-            }
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        let finalRecordedIDs = await recorder.recordedIDs()
-        #expect(finalRecordedIDs == [connectionID])
+        try await Task.sleep(nanoseconds: 25_000_000)
+        #expect(await recorder.recordedIDs().isEmpty)
+        await session.close(reason: "test cleanup")
     }
 
     @Test func testDeadIndependentEventLaneFallsBackCurrentAndFutureEventsToControl() async throws {
