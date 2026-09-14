@@ -53,7 +53,15 @@ on:
 jobs:
   tests:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
+    timeout-minutes: 40
+    env:
+      CMUX_TAG: c12574-ci
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "1"
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -121,9 +129,22 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
-      - name: Clean DerivedData
+      - name: Prepare isolated DerivedData
         run: |
-          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+          set -euo pipefail
+          build_path="${RUNNER_TEMP}/cmux-derived-data-c12574-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$build_path"
+          echo "CMUX_DERIVED_DATA_PATH=$build_path" >> "$GITHUB_ENV"
+
+      - name: Prepare isolated app-host home
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Enable XCTest automation mode
+        run: |
+          set -euo pipefail
+          if command -v automationmodetool >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo -n automationmodetool enable-automationmode-without-authentication
+          fi
 
       - name: Resolve Swift packages
         run: |
@@ -160,8 +181,10 @@ jobs:
             shift
             local result_dir
             result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
@@ -238,7 +261,7 @@ jobs:
           if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            rm -rf "$CMUX_DERIVED_DATA_PATH"
             : > "$TEST_OUTPUT"
             set +e
             run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
@@ -296,3 +319,7 @@ jobs:
           path: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
