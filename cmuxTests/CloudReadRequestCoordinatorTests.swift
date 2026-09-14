@@ -46,12 +46,13 @@ struct CloudReadRequestCoordinatorTests {
         #expect(await owner.entries.values.first?.waiters.count == 1)
         second.cancel()
         _ = await second.result
-        do { _ = try await owner.read(key()) { await gate.read(response()) }; Issue.record("started a replacement during teardown") }
-        catch { #expect((error as? URLError)?.code == .cancelled) }
+        let replacement = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await owner.entries.values.first?.pending?.waiters.count == 1 }
         #expect(await gate.requests == 1)
         await gate.release()
+        #expect(try await replacement.value.http.statusCode == 200)
+        #expect(await gate.requests == 2)
         try await eventually { await owner.entries.isEmpty }
-        _ = try await owner.read(key()) { response() }
     }
 
     @Test("Deadline returns before an uncooperative loader, retaining only its draining slot")
@@ -70,6 +71,37 @@ struct CloudReadRequestCoordinatorTests {
         try await eventually { await owner.entries.isEmpty }
     }
 
+    @Test("A queued replacement has its own deadline while old cleanup stays held")
+    func queuedReplacementDeadline() async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock), budget: .seconds(30))
+        let gate = CloudReadResponseGate()
+        let first = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await gate.requests == 1 }
+        first.cancel()
+        _ = await first.result
+        let replacement = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await owner.entries.values.first?.pending?.waiters.count == 1 }
+        clock.advance(by: .seconds(31))
+        do { _ = try await replacement.value; Issue.record("queued deadline missed") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(await gate.requests == 1)
+        await gate.release()
+        try await eventually { await owner.entries.isEmpty }
+    }
+
+    @Test("Time spent acquiring read scope consumes the original budget")
+    func admissionUsesOriginalDeadline() async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let deadline = owner.makeDeadline()
+        clock.advance(by: .seconds(600), deliverTimers: false)
+        do {
+            _ = try await owner.read(key(), deadline: deadline) { Issue.record("started after admission expired"); return response() }
+        } catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(await owner.entries.isEmpty)
+    }
+
     @Test("Response-first delivery after a simulated wake still expires")
     func responseAfterDeadline() async throws {
         let clock = CloudReadManualClock()
@@ -82,6 +114,23 @@ struct CloudReadRequestCoordinatorTests {
         await gate.release()
         do { _ = try await task.value; Issue.record("late response succeeded") }
         catch { #expect((error as? URLError)?.code == .timedOut) }
+    }
+
+    @Test("A reader arriving after wake waits for a fresh pass instead of inheriting the old timeout")
+    func freshReaderAfterWake() async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let gate = CloudReadResponseGate()
+        let old = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await gate.requests == 1 && clock.pendingSleeperCount == 1 }
+        clock.advance(by: .seconds(600), deliverTimers: false)
+        let fresh = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await owner.entries.values.first?.pending?.waiters.count == 1 }
+        await gate.release()
+        do { _ = try await old.value; Issue.record("old request survived its deadline") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(try await fresh.value.http.statusCode == 200)
+        #expect(await gate.requests == 2)
     }
 
     @Test("Retry-After survives operation completion and offline recovery")

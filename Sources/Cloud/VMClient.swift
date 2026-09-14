@@ -640,7 +640,12 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        let reads = CloudReadRequestCoordinator()
+        let reads = CloudReadRequestCoordinator(onNetworkChange: { online in
+            await MainActor.run {
+                NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": online])
+                if online { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
+            }
+        })
         shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, readRequests: reads, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
         Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
     }
@@ -2013,13 +2018,18 @@ actor VMClient {
             if !allowedUnderManagedPolicy, self.isDisabledByManagedPolicy?() == true {
                 throw VMClientError.disabledByManagedPolicy
             }
+            let context = CloudOperationContext.current
+            let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
+            let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
             let identity = await self.auth.authenticatedSessionIdentity
             let teamID = await self.auth.resolvedTeamID
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity?.accountID,
                 generation: identity?.generation, teamID: teamID)
-            let value = try await self.readRequests.read(key) {
-                let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
-                return CloudReadRequestCoordinator.Response(data: data, http: http)
+            let value = try await self.readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.$current.withValue(context) {
+                    let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
             }
             try Task.checkCancellation()
             if let identity {
@@ -2616,18 +2626,22 @@ actor MachineUsageClient {
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
+            let context = CloudOperationContext.current
+            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero)
             let identity = await auth.authenticatedSessionIdentity
             let selectedTeam = await auth.resolvedTeamID
             let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
             let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity?.accountID,
                 generation: identity?.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
-            let response = try await readRequests.read(key) {
-                let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
-                if http.statusCode == 429 {
-                    let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
-                    _ = await self.readRequests.noteRetryAfter(key, seconds: seconds, response: .init(data: data, http: http))
+            let response = try await readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.$current.withValue(context) {
+                    let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
+                    if http.statusCode == 429 {
+                        let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
+                        _ = await self.readRequests.noteRetryAfter(key, seconds: seconds, response: .init(data: data, http: http))
+                    }
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
-                return CloudReadRequestCoordinator.Response(data: data, http: http)
             }
             if let identity {
                 guard await auth.isAuthenticatedSessionIdentityCurrent(identity),

@@ -21,5 +21,6 @@ final class CloudReadNetworkMonitor: Sendable {
 }
 
 extension Notification.Name {
+    static let cmuxCloudReadNetworkChanged = Notification.Name("cmux.cloud.readNetworkChanged")
     static let cmuxCloudReadNetworkRecovered = Notification.Name("cmux.cloud.readNetworkRecovered")
 }
