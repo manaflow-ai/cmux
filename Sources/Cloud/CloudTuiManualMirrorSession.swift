@@ -87,6 +87,15 @@ final class CloudTuiManualMirrorSession {
     private var attachAttempts = 0
     private var interruption: CloudTerminalAttachmentInterruption?
     private var automaticReconnectSuppressed = false
+
+    deinit {
+        if let startupFrameObserver {
+            NotificationCenter.default.removeObserver(startupFrameObserver)
+        }
+        startupDeadlineTask?.cancel()
+        releaseStartupFrameDemand?()
+    }
+
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
     var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
