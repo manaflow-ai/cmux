@@ -71,7 +71,7 @@ enum MobileWhatsNewCatalog {
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
-        [connectionsUpdate]
+        [pairingOptInUpdate, connectionsUpdate]
     }
 
     static func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -101,23 +101,22 @@ enum MobileWhatsNewCatalog {
         if let index = entries.firstIndex(where: { $0.id == id }) {
             return index
         }
-        // These ids were acknowledged by earlier builds. Treat them as an
-        // older marker so the consolidated page is shown once, then advance
-        // the marker to the current entry id.
+        // The first pairing announcement preceded connections.v2. Its marker
+        // sits between the current pairing page and the older connection page.
         switch id {
-        case "pairing-opt-in.v1", "connections.v1":
-            return entries.count
+        case "pairing-opt-in.v1":
+            return 1
         default:
             return nil
         }
     }
 
-    static var connectionsUpdate: MobileWhatsNewPage {
+    static var pairingOptInUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
             id: "connections.v2",
             releaseLabel: L10n.string(
-                "mobile.connectionsUpdate.releaseLabel",
-                defaultValue: "1.0.5 · August 2026"
+                "mobile.pairingOptInUpdate.releaseLabel",
+                defaultValue: "1.0.4 · September 2026"
             ),
             title: L10n.string(
                 "mobile.whatsNew.pairing.pageTitle",
@@ -125,6 +124,78 @@ enum MobileWhatsNewCatalog {
             ),
             body: .pairingSetup([]),
             isAnnouncement: false
+        )
+    }
+
+    static var connectionsUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "connections.v1",
+            releaseLabel: L10n.string(
+                "mobile.connectionsUpdate.releaseLabel",
+                defaultValue: "1.0.5 · August 2026"
+            ),
+            title: L10n.string(
+                "mobile.connectionsUpdate.title",
+                defaultValue: "What's New in cmux"
+            ),
+            body: .features([
+                .init(
+                    symbol: "desktopcomputer.and.macbook",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.perComputer.title",
+                        defaultValue: "Per-computer methods"
+                    ),
+                    detail: L10n.string(
+                        "mobile.connectionsUpdate.perComputer.detail",
+                        defaultValue: "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
+                    )
+                ),
+                .init(
+                    symbol: "bolt.horizontal",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.iroh.title",
+                        defaultValue: "Auto-Connect is now Iroh"
+                    ),
+                    detail: L10n.string(
+                        "mobile.connectionsUpdate.iroh.detail",
+                        defaultValue: "Same authenticated, end-to-end encrypted connection, now with a clearer name. The app-wide setting moved out of Settings."
+                    )
+                ),
+                .init(
+                    symbol: "network",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.direct.title",
+                        defaultValue: "New: Direct addresses"
+                    ),
+                    detail: L10n.string(
+                        "mobile.connectionsUpdate.direct.detail",
+                        defaultValue: "On your LAN, WireGuard, or any other network: add the addresses where a computer is reachable and dial exactly those, with no fallback."
+                    )
+                ),
+                .init(
+                    symbol: "qrcode.viewfinder",
+                    title: L10n.string(
+                        "mobile.connectionsUpdate.tailscale.title",
+                        defaultValue: "Tailscale, on your terms"
+                    ),
+                    detail: L10n.string(
+                        "mobile.connectionsUpdate.tailscale.detail",
+                        defaultValue: "Choosing Tailscale Only shows exactly what's missing and offers the pairing-code scan right there. Nothing opens on its own."
+                    )
+                ),
+            ]),
+            isAnnouncement: false,
+            // The compat requirement is one compact notice under the feature
+            // rows (owner feedback: the old full-width warning row read as
+            // clutter, and BETA users need the revert path).
+            footnote: macUpdateDetail(
+                buildType: .current(),
+                requiredVersion: macCompatibility(
+                    policy: .baked,
+                    iosVersion: AppVersionInfo.current().marketingVersion,
+                    buildType: .current()
+                ).stableVersion
+            )
         )
     }
 

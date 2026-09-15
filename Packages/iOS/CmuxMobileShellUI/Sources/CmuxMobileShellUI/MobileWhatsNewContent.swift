@@ -257,9 +257,9 @@ struct MobileWhatsNewPairingSetupContent: View {
                     MobileWhatsNewMacSettingsScreenshotResource.aspectRatio,
                     contentMode: .fit
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
                 }
                 .accessibilityLabel(L10n.string(
@@ -268,7 +268,7 @@ struct MobileWhatsNewPairingSetupContent: View {
                 ))
                 .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
         } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.secondary.opacity(0.08))
                 .aspectRatio(
                     MobileWhatsNewMacSettingsScreenshotResource.aspectRatio,
@@ -289,22 +289,24 @@ struct MobileWhatsNewPairingSetupContent: View {
     }
 
     private var accountRequirement: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.string(
-                    "mobile.onboarding.pairing.phoneLabel",
-                    defaultValue: "On this iPhone"
-                ))
-                    .font(layout.featureTitleFont)
-                Text(L10n.string(
-                    "mobile.onboarding.pairing.phoneDetail",
-                    defaultValue: "Sign in to the same cmux account"
-                ))
-                    .font(layout.detailFont)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(alignment: .leading, spacing: 2) {
+            Text(L10n.string(
+                "mobile.onboarding.pairing.phoneLabel",
+                defaultValue: "On this iPhone"
+            ))
+            .font(layout.featureTitleFont)
+            .accessibilityIdentifier("MobileWhatsNewPhoneTitle")
+            Text(L10n.string(
+                "mobile.onboarding.pairing.phoneDetail",
+                defaultValue: "Sign in to the same cmux account"
+            ))
+            .font(layout.detailFont)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("MobileWhatsNewPhoneDetail")
         }
-        .padding(.horizontal, 28)
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
         .accessibilityIdentifier("MobileWhatsNewPairingRequirement")
     }
 
@@ -413,7 +415,10 @@ struct MobileWhatsNewAnnouncementBadge: View {
 }
 
 private enum MobileWhatsNewMacSettingsScreenshotResource {
-    static let aspectRatio: CGFloat = 1520.0 / 470.0
+    // Crop the captured settings group to its heading and first row's text.
+    // Keep the original pixels; neither the switch nor later rows is shown.
+    private static let cropRect = CGRect(x: 36, y: 22, width: 584, height: 164)
+    static let aspectRatio: CGFloat = cropRect.width / cropRect.height
 
     static let image: UIImage? = {
         guard let url = Bundle.module.url(
@@ -422,7 +427,11 @@ private enum MobileWhatsNewMacSettingsScreenshotResource {
         ) else {
             return nil
         }
-        return UIImage(contentsOfFile: url.path)
+        guard let source = UIImage(contentsOfFile: url.path),
+              let cropped = source.cgImage?.cropping(to: cropRect) else {
+            return nil
+        }
+        return UIImage(cgImage: cropped, scale: source.scale, orientation: source.imageOrientation)
     }()
 }
 #endif

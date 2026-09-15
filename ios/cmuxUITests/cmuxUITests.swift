@@ -11,6 +11,53 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    @MainActor
+    func testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = ["CMUX_UITEST_WHATS_NEW_PREVIEW": "1"]
+        app.launch()
+        defer { app.terminate() }
+
+        func verifyPairingPage(_ name: String) throws {
+            let screenshot = app.images["MobileWhatsNewMacSettingsScreenshot"].firstMatch
+            XCTAssertTrue(screenshot.waitForExistence(timeout: 15))
+            let title = app.staticTexts["MobileWhatsNewPhoneTitle"].firstMatch
+            let detail = app.staticTexts["MobileWhatsNewPhoneDetail"].firstMatch
+            XCTAssertTrue(title.exists)
+            XCTAssertTrue(detail.exists)
+            XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 584.0 / 164.0, accuracy: 0.05)
+
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            try VNImageRequestHandler(data: screenshot.screenshot().pngRepresentation).perform([request])
+            let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+            XCTAssertTrue(text.contains("Mobile"), text)
+            XCTAssertTrue(text.contains("Enable iOS pairing"), text)
+            XCTAssertTrue(text.contains("for this Mac"), text)
+            XCTAssertFalse(text.contains("Notifications"), text)
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        try verifyPairingPage("Pairing update sheet")
+        app.buttons["MobileWhatsNewContinue"].tap()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Auto-Connect is now Iroh"].exists)
+        app.buttons["MobileWhatsNewContinue"].tap()
+        let newer = app.buttons["MobileWhatsNewEntry-connections.v2"]
+        let older = app.buttons["MobileWhatsNewEntry-connections.v1"]
+        XCTAssertTrue(newer.waitForExistence(timeout: 5))
+        XCTAssertTrue(older.exists)
+        newer.tap()
+        try verifyPairingPage("Pairing update in Settings")
+    }
+
     func testMockHostInstanceTagFollowsTargetBuildScope() {
         XCTAssertEqual(
             mockHostInstanceTag(

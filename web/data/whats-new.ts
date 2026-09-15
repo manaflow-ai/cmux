@@ -83,6 +83,6 @@ export const whatsNewList: WhatsNewList = {
   // One bespoke page now carries the Mac-side opt-in, the screenshot, the
   // compatibility floors, and the connection notes. The earlier standalone
   // pairing page is intentionally absent and can never be shown again.
-  visibleEntryIds: ["connections.v2"],
+  visibleEntryIds: ["connections.v2", "connections.v1"],
   announcements: [],
 };
