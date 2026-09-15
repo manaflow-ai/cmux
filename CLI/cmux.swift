@@ -15451,17 +15451,9 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if filtersReconnectInput {
-            guard terminalInputMode?.beginForwarding() == true else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH terminal input could not enter reconnect mode."
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-        } else {
+        // A reattach stays disconnected, with signal keys live, until
+        // startInputForwardingAfterReplay has delivered the replay prefix.
+        if !filtersReconnectInput {
             terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
         }
         let resizeMonitor = SSHPTYResizeMonitor(
@@ -15572,7 +15564,10 @@ struct CMUXCLI {
                         exitCode: SSHPTYAttachExitCode.retryableTransient
                     )
                 }
-            } else {
+            } else if terminalInputMode == nil {
+                // A fresh attach already owns raw mode. A second owner would
+                // capture raw as its baseline, and releasing the first owner
+                // would restore canonical mode with local echo mid-session.
                 terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
             }
             do {
