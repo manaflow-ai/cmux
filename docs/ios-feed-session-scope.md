@@ -2,9 +2,9 @@
 
 This is the living scope record for the Feed work continued in this session. It includes the existing feature carried forward, subsequent user requests, implementation decisions, evidence, and unfinished work. Code being present does not mean the feature has passed a real phone check.
 
-- Updated: 2026-09-15. Device and test observations below were last recorded on 2026-09-14, unless stated otherwise.
+- Updated: 2026-09-15. Connection observations were refreshed on 2026-09-15; earlier feature-test results remain dated 2026-09-14.
 - Branch: `task-ios-feed-tab`.
-- Implementation snapshot used for this inventory: `c8ec337d105`.
+- Initial feature inventory snapshot: `c8ec337d105`. Later changes are recorded below.
 - [Pull request 10218](https://github.com/manaflow-ai/cmux/pull/10218), author: Abdulaziz Albahar (`azooz2003-bit`).
 - Current Mac/iOS development tag: `xfd2`.
 - Original workspace: `workspace:38`, pane `pane:53`, surface `surface:117`.
@@ -49,10 +49,11 @@ These capabilities were already on this feature branch when this session continu
 | F17 | Send to the row's owning Mac, workspace, and terminal, including a secondary Mac. An unavailable owner must not redirect to a different instance. | Built | Secondary-owner and offline tagged-owner tests pass. End-to-end phone routing remains pending. |
 | F18 | Support other coding providers, including OpenCode, Pi, Cursor, Grok, and Google Gemini CLI, with the same submission path. Preserve provider identity through ingestion. | Partial | Five real editor checks pass; seven-provider routing/identity coverage passes. Broader feature parity and live authenticated provider runs are not established. |
 | F19 | Explain or fix why older completed rows have no Reply action. | Partial | Reply currently requires a stop row with both workspace and terminal IDs. Missing historical targets still suppress it; the original older-row screenshot has not been resolved end to end. |
-| F20 | Install the current version on Mac and Aziz's physical iPhone, ready to open Feed and try it. | Partial | Mac installed. iPhone build signed and queued because the device was unreachable. Mac personal-account sign-in and trusted phone pairing have not passed. |
+| F20 | Install the current version on Mac and Aziz's physical iPhone, ready to open Feed and try it. | Partial | Both apps are installed. On 2026-09-15, native sign-in rejected the saved personal credentials with `EMAIL_PASSWORD_MISMATCH`. Pairing remains blocked. |
 | F21 | Verify the final iOS experience on an isolated simulator and the physical phone. | Pending | Simulator build installed; latest Feed UI, keyboard, animation, and paired reply path have not been exercised there. |
 | F22 | Keep repeatable regressions for submission, routing, stop deduplication, and provider compatibility. | Partial | Focused tests and manual provider harness pass. Hosted application tests and the new provider workflow still need successful complete runs. |
 | F23 | Maintain this Markdown inventory so the user can add, remove, or change scope. | Built | This file, with stable feature/decision/gap IDs and a change log. Maintenance continues with the session. |
+| F24 | Refresh rejected personal development credentials through `scripts/setup-team-dev.sh --refresh`, preserving the agent profile and requiring verification before replacement. | Built | Three regression tests pass for successful refresh, rejected credentials, and unavailable sign-in service. The user must enter the replacement credentials locally; no credentials belong in chat. |
 
 ## Decisions
 
@@ -72,6 +73,7 @@ These capabilities were already on this feature branch when this session continu
 | D12 | Preserve each provider's identity, including an explicit Grok source. Use the shared terminal path wherever possible. | User requested multiple-provider verification. This does not promise identical permission, plan, or question support for every provider. |
 | D13 | “Installed” is insufficient for delivery: Mac and phone need the same tag, matching personal account, trusted pairing, usable connection, and Feed open. | User requested immediate testing; repository dogfood contract supplies these acceptance conditions. Physical phone uses the personal profile; isolated simulator uses the agent profile. |
 | D14 | Keep the existing pull request open until verification and user dogfood are complete. Merge requires an explicit merge instruction. | Session constraint. No merge authorization is recorded. |
+| D15 | Match the installed `xfd2` Mac's API, broker, and sign-in addresses to the phone's existing staging configuration. Keep the personal authentication profile. | Operational repair on 2026-09-15. Both servers responded before repair, so server availability did not explain the rejected password. Future reloads must preserve a matching server configuration. |
 
 ## Provider coverage
 
@@ -103,6 +105,9 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V08 | [Hosted submit-key test run](https://github.com/manaflow-ai/cmux/actions/runs/34922167776) failed before tests executed: `WindowAndDragTests.swift` was missing `customSidebarDataContext`. | No passing result can be inferred for `ComposedPromptSubmitKeyTests`. |
 | V09 | Provider workflow added; initial [run](https://github.com/manaflow-ai/cmux/actions/runs/34922456272) failed workflow validation. Environment scoping was corrected in `c8ec337d105`. | A successful complete run after that correction is not yet recorded. |
 | V10 | Pull request checks were not all passing at the last observation, including CLA policy and web complexity checks. | Do not describe this as ready to merge. Reassess concrete failures before closeout. |
+| V11 | 2026-09-15: local server on port 4377, former remote server on port 4577, and staging all returned 200. Staging sign-in returned 200 and after-sign-in redirected with 307. Phone was reachable and `dev.cmux.ios.xfd2` was installed. | Installation queue now reports `needs-auth`, superseding V07's pending installation state. Mac `auth status` remains signed out. |
+| V12 | 2026-09-15: the native development sign-in endpoint returned HTTP 400 with `EMAIL_PASSWORD_MISMATCH` for the saved personal profile. Installation helper was refreshed and the machine setup check passed. | Setup checks validate profile presence; they do not prove the credentials are accepted. Correct personal credentials are still needed. |
+| V13 | 2026-09-15: three personal-account refresh regressions pass; the same tests fail against the preceding setup script. Shell syntax and help checks pass. The repaired Mac bundle was signed, verified, and relaunched. | No app executable changed. The Mac still reports signed out; neither phone pairing nor Feed interaction is claimed verified. |
 
 ## Gaps and next work
 
@@ -110,7 +115,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | ID | Gap | Next action / acceptance condition |
 | --- | --- | --- |
-| G01 | Latest Mac/phone pair is not ready for the user. | Repair matching backend/account configuration and Mac sign-in. When the phone is reachable, complete installation and trusted pairing, establish a usable connection, and open Feed. Physical reconnection/unlock may require the user. |
+| G01 | Latest Mac/phone pair cannot authenticate. Both apps are installed and server addresses now match; the saved personal password is rejected. | User runs `scripts/setup-team-dev.sh --refresh` from this worktree and enters the correct development account credentials locally. Then rerun the tagged launcher with the personal profile, verify matching Mac account and trusted phone pairing, and open Feed. |
 | G02 | Replied currently reflects terminal key acceptance. | Verify the agent actually starts a turn from the phone path. If the product requires a provider acknowledgement before showing Replied, add that acknowledgement contract; it is not implemented today. |
 | G03 | Original older rows without Reply remain unexplained at the product level. | Inspect those rows' target metadata. Recover a valid live target where possible and decide the unavailable-session presentation. Do not send to an unrelated terminal. |
 | G04 | Stop deduplication uses a two-second heuristic. | Reproduce the two Stopped rows; prove repeated delivery collapses and distinct rapid turns remain visible. Strengthen event identity if the heuristic conflates them. |
@@ -131,12 +136,14 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 - [Mac terminal submission](../Sources/TerminalController.swift), [active-provider submit-key selection](../Sources/TextBoxAgentDetection.swift).
 - [Reply regression tests](../Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileAgentFeedTerminalReplyTests.swift), [Feed state tests](../Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileShellAgentFeedStateTests.swift).
 - [Real terminal harness](../tests_v2/test_mobile_terminal_paste_submit.py), [provider editor harness](../tests_v2/test_mobile_terminal_paste_providers.py), [hosted provider workflow](../.github/workflows/test-feed-reply-providers.yml).
+- [Personal account setup and refresh](../scripts/setup-team-dev.sh), [refresh regression tests](../scripts/setup-team-dev.test.mjs).
 
 ## Change log
 
 | Date | Change |
 | --- | --- |
 | 2026-09-15 | Created the session inventory from user requests, current source, branch history, and recorded verification. Distinguished implementation from evidence, and recorded remaining installation, pairing, submission, UI, and test gaps. No product scope added or removed. |
+| 2026-09-15 | Investigated the user's inability to connect to the Mac. Confirmed working servers, an installed phone app, and rejected personal credentials; aligned the Mac server configuration and refreshed installation tooling. Added F24 for credential recovery within F20, with D15 and V11–V12 recording the repair and remaining blocker. |
 
 ## Dictionary
 
