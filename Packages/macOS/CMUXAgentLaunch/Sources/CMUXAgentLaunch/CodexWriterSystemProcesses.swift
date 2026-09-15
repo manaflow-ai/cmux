@@ -165,21 +165,21 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
     }
 
     private func hasCmuxLog(_ pid: Int32, port: Int) -> Bool {
-        var output = vnode_fdinfowithpath()
+        var output = vnode_fdinfo()
         var error = vnode_fdinfo()
-        let outputSize = Int32(MemoryLayout<vnode_fdinfowithpath>.stride)
+        let outputSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
         let errorSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
-        guard proc_pidfdinfo(pid, STDOUT_FILENO, PROC_PIDFDVNODEPATHINFO, &output, outputSize) == outputSize,
+        guard proc_pidfdinfo(pid, STDOUT_FILENO, PROC_PIDFDVNODEINFO, &output, outputSize) == outputSize,
               proc_pidfdinfo(pid, STDERR_FILENO, PROC_PIDFDVNODEINFO, &error, errorSize) == errorSize,
-              output.pvip.vip_vi.vi_stat.vst_ino == error.pvi.vi_stat.vst_ino,
-              output.pvip.vip_vi.vi_stat.vst_dev == error.pvi.vi_stat.vst_dev,
+              output.pvi.vi_stat.vst_ino == error.pvi.vi_stat.vst_ino,
+              output.pvi.vi_stat.vst_dev == error.pvi.vi_stat.vst_dev,
               error.pvi.vi_stat.vst_uid == geteuid() else { return false }
-        let path = withUnsafeBytes(of: output.pvip.vip_path) {
-            String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self)
-        }
         let expected = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-teams-\(port)-app-server.log").resolvingSymlinksInPath().path
-        return path == expected
+            .appendingPathComponent("cmux-codex-teams-\(port)-app-server.log").path
+        var file = stat()
+        guard lstat(expected, &file) == 0, file.st_mode & S_IFMT == S_IFREG else { return false }
+        return UInt32(bitPattern: file.st_dev) == output.pvi.vi_stat.vst_dev
+            && file.st_ino == output.pvi.vi_stat.vst_ino
     }
 
     private func hasIdleListener(_ pid: Int32, port: Int, descriptors: [proc_fdinfo]) -> Bool {
