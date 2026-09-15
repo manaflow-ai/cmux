@@ -476,9 +476,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // instead of opening a second copy; a
                 // stray pane showing one of its terminals -> focus that pane.
                 // Otherwise the remote workspace opens as its OWN local workspace —
-                // remote and local workspaces never intermingle. D9: open never
-                // creates — an empty workspace row opens nothing here; its "+" and
-                // menu own creation.
                 if let openIn {
                     nodeActions.selectLocalWorkspace(openIn)
                 } else if let shown = CloudTreeNodeBuilder.flattened(node.children).first(where: { child in
@@ -488,8 +485,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if let view = openRow.remoteView {
                         nodeActions.projectRemoteView(openRow.resource.id, view, .tab, true)
                     } else {
-                        // A terminal opens as a tab, not a new column: it joins the
-                        // existing layout instead of widening it every time.
                         nodeActions.project(openRow.resource.id, .tab, true)
                     }
                 } else if let group = node.dragGroup, !group.isEmpty {
@@ -500,9 +495,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .terminal(let row):
                 openTerminalRow(node, row: row)
             case .display(let resource, let openIn, let remoteView):
-                // A workspace's Desktop row opens INSIDE the local workspace showing
-                // that remote workspace — never a jump to a VNC pane in a different
-                // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
                 if let openIn {
                     if let remoteView {
                         nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openIn)
