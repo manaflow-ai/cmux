@@ -461,12 +461,6 @@ jobs:
     defaults:
       run:
         working-directory: web
-    env:
-      # Test doubles require the database variable to exist even when no real
-      # database connection is opened. Production build validation uses the
-      # same deterministic placeholder.
-      DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-      DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -497,6 +491,8 @@ jobs:
           STACK_SECRET_SERVER_KEY: "ci-build-only"
           NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-4000-8000-000000000000"
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "ci-build-only"
+          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
         run: bun run vercel-build
 
       - name: Web tests
