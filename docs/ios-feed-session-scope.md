@@ -80,6 +80,8 @@ These capabilities were already on this feature branch when this session continu
 | D16 | Use a genuine 24-hour developer session for the existing personal account when the saved password is rejected; preserve the phone’s valid session and refresh its pairing ticket. | User explicitly requested the developer command and no user-run setup. Account identity was verified through Stack and both apps passed the same-account RPC gate. This does not change the password; the temporary session will expire. |
 | D17 | Preserve main’s iPhone/iPad navigation structure while adding Feed to each supported destination control. | Merge resolution. Native tabs remain on compact layouts; the existing split-sidebar destination control gains Feed. Existing Feed English/Japanese strings are retained alongside main’s newer translations. |
 
+| D18 | Await the shared terminal submission operation in main’s new macOS notification and relayed-phone reply callers before recording delivery. | Semantic merge repair: the Feed branch made paste/submit asynchronous, so newly merged callers must propagate that contract. Existing partial-paste handling remains unchanged to avoid typing a reply twice. |
+
 ## Provider coverage
 
 The real-editor harness starts actual provider command-line apps with isolated configuration and a local request recorder using test credentials. A pass means the exact submitted prompt reached the provider's outgoing model-request path. It does not test paid inference, real-account authentication, a completed model response, or the iPhone transport/UI.
@@ -118,6 +120,9 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V15 | 2026-09-15: created a genuine developer session for the existing personal account using the configured development Stack server credentials. Mac `auth status` verified `aziz@manaflow.ai` and the expected user/team. | Session is limited to 24 hours. No password was changed, and no tokens were included in logs or this document. |
 | V16 | 2026-09-15: fresh phone pairing established usable workspace RPC in 14,097 ms. A second launch without credentials or a ticket reconnected in 765 ms. | Applies to the pre-main-merge installed apps. Secret-free receipts are stored under `artifacts/task-ios-feed-tab/connection-repair/`; the reinstalled apps must pass again. Feed UI is not visually verified by this gate. |
 | V17 | 2026-09-15: merged latest main (`88945c86fc3`), resolved six conflicts, parsed affected Swift files, validated the project file, and checked wiring for 942 test files. | Syntax/project checks are not compilation. Remote app builds are in progress. |
+
+| V18 | 2026-09-15: 48 of 49 attachment/setup checks passed. The remaining check expected the older receipt shape; its fixture was updated for main’s installed-bundle evidence and the focused rerun passed (five selected tests). The merged localization catalog validates for nine languages. | No application behavior was changed by the fixture update. |
+| V19 | [Refreshed hosted submit-key run](https://github.com/manaflow-ai/cmux/actions/runs/35022290439) found new notification callers using asynchronous terminal paste synchronously. Added an awaited-delivery regression and propagated async through both notification paths. | Compilation blocked test execution. The superseded Mac build and dependent provider run were cancelled; rebuilt evidence is pending. |
 
 ## Gaps and next work
 
@@ -158,6 +163,8 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | 2026-09-15 | Completed developer sign-in and phone pairing without user commands; a credential-free relaunch passed. Added D16 and V15–V16 and removed the user-run setup requirement from G01. |
 | 2026-09-15 | User requested pulling main and reinstalling. Merged 1,646 upstream commits, retained Feed in updated compact and split navigation, and started rebuilding the pair. Added F25, D17, and V17. |
+
+| 2026-09-15 | Reconciled main’s notification reply callers with asynchronous Feed submission, added delayed-success/failure coverage, and expanded the provider workflow to run notification delivery tests. Updated the attachment receipt fixture for main’s evidence metadata. |
 
 ## Dictionary
 

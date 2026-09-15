@@ -69,6 +69,10 @@ jobs:
 
       - name: Check Feed state and provider identity
         run: |
+          swift test --package-path Packages/macOS/CmuxNotifications \
+            --scratch-path "$RUNNER_TEMP/swift-notifications" \
+            --filter NotificationDeliveryCoordinatorTests \
+            2>&1 | tee "$ARTIFACTS/notification-delivery.log"
           swift test --package-path Packages/macOS/CMUXAgentLaunch \
             --scratch-path "$RUNNER_TEMP/swift-agent-launch" \
             --filter WorkstreamStoreTests 2>&1 | tee "$ARTIFACTS/feed-ingestion.log"
