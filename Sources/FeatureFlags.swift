@@ -166,6 +166,8 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
+    // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -288,6 +290,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.cloudMachinesFlag,
         ]
     }()
 
@@ -314,15 +317,12 @@ final class CmuxFeatureFlags {
     var isComputerUseUXEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
-
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
-
     var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[7])
     }
-
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
     }

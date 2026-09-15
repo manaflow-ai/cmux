@@ -136,6 +136,16 @@ export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata
   network?: ProviderNetworkRef;
 };
 
+/** Private guest SSH, with the host key read through the authenticated provider API.
+ * The client keeps its private key; only its public key reaches the control plane. */
+export type SCPEndpoint = {
+  host: string;
+  port: number;
+  username: string;
+  hostPublicKey: string;
+  expiresAtUnix: number;
+};
+
 export type SSHEndpoint = {
   transport: "ssh";
   host: string;
@@ -520,6 +530,7 @@ export interface VMProvider {
   // ensuring sshd is running (some providers need an explicit start step). Only drivers
   // listing `ssh` in attachTransports implement this.
   openSSH?(vmId: string): Promise<SSHEndpoint>;
+  prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown

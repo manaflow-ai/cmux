@@ -131,7 +131,7 @@ final class SurfaceCatalog {
                 return state.workspaceIDs.contains(remoteWorkspaceID)
             },
             reportFailure: { projection, error in
-                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error)
+                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error, machine: projection.resource.machine)
             }
         )
     }
@@ -579,7 +579,7 @@ final class SurfaceCatalog {
     /// Desktop row uses this so "open this workspace's screen" never teleports to a
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
@@ -643,7 +643,8 @@ final class SurfaceCatalog {
                     provider: provider,
                     destination: destination,
                     focus: focus,
-                    waiterID: waiterID
+                    waiterID: waiterID,
+                    adopting: reservation
                 )
             } onCancel: { [weak self] in
                 guard let self else { return }
@@ -660,7 +661,7 @@ final class SurfaceCatalog {
             )
         }
 
-        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
+        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
         guard !Task.isCancelled, providers[id.machine] === provider else {
             provider.discardMaterialization(projection)
             throw CancellationError()
@@ -678,7 +679,8 @@ final class SurfaceCatalog {
         provider: any SurfaceProvider,
         destination: SurfaceDestination,
         focus: Bool,
-        waiterID: UUID
+        waiterID: UUID,
+        adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> SurfaceProjectionMaterialization.Result {
         try await withCheckedThrowingContinuation { continuation in
             guard !Task.isCancelled else {
@@ -714,7 +716,7 @@ final class SurfaceCatalog {
             trackMaterialization(token, for: provider)
             let task = Task { @MainActor [weak self] in
                 do {
-                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus)
+                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))

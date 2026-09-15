@@ -213,7 +213,7 @@ final class MachinesPanelViewModel: ObservableObject {
         case .httpStatus(402, _):
             return .requiresPro
         case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse, .lifecycleUnsupported,
-             .disabledByManagedPolicy:
+             .disabledByManagedPolicy, .cloudMachinesDisabled:
             // A managed policy can race a refresh; keep the generic unreachable state.
             return .unreachable
         }
@@ -262,7 +262,7 @@ final class MachinesPanelViewModel: ObservableObject {
 
     func endOperation() {
         activeOperation = nil
-        if isVisible { refresh() }
+        if wantsPolling { refresh() }
     }
 
     func noteTreeFailure(_ description: String) {
@@ -289,7 +289,8 @@ final class MachinesPanelViewModel: ObservableObject {
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
     private var networkObserver: NSObjectProtocol?
-    private var isVisible = false
+    private var featureFlagObserver: CloudFeatureAvailabilityObserver?
+    private var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
@@ -324,9 +325,14 @@ final class MachinesPanelViewModel: ObservableObject {
                 self?.resetForAuthTransition()
             }
         }
-        // The catalog posts on every resource/projection change (link state,
-        // terminals, panes opening or closing); re-read its snapshot instead of
-        // waiting for the slow poll.
+        featureFlagObserver = CloudFeatureAvailabilityObserver(
+            isEnabled: { CloudMachinesFeature.isEnabled },
+            didChange: { [weak self] enabled in
+                guard let self else { return }
+                if enabled, self.wantsPolling { self.startPolling() }
+                else { self.pausePolling() }
+            }
+        )
         treeChangeObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,
@@ -349,7 +355,7 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if online {
-                    if self.isVisible { self.refresh() }
+                    if self.wantsPolling { self.refresh() }
                 } else {
                     self.clearUnavailableMetrics()
                     self.lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
@@ -428,7 +434,7 @@ final class MachinesPanelViewModel: ObservableObject {
             )
             treeErrorDescription = String(format: format, machineID, MachineCreateOperation.headline(ofOutput: output) ?? output)
         }
-        if isVisible { refresh() }
+        if wantsPolling { refresh() }
     }
 
     /// Publishes the catalog's current value and the local workspace list. Cheap
@@ -475,6 +481,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Older servers omitting the flag retain the desktop-only polling policy
     /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
+        guard CloudMachinesFeature.isEnabled else { return }
         guard statsTask == nil, let client = client ?? VMClient.shared else { return }
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
@@ -486,7 +493,7 @@ final class MachinesPanelViewModel: ObservableObject {
                     group.addTask { (id, try? await client.stats(id: id)) }
                 }
                 for await (id, stats) in group {
-                    guard !Task.isCancelled, let self, self.statsID == requestID,
+                    guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self, self.statsID == requestID,
                           let index = self.machines.firstIndex(where: { $0.id == id }),
                           self.machines[index].capabilities.stats else { continue }
                     // A failed sample is unavailable, never the last live value.
@@ -505,13 +512,14 @@ final class MachinesPanelViewModel: ObservableObject {
     /// failure (404 on a backend without the route, network) clears the readout.
     /// Concurrent callers share the usage client's owned request.
     func refreshUsage() {
+        guard CloudMachinesFeature.isEnabled else { return }
         guard usageTask == nil else { return }
         guard let client = MachineUsageClient.shared else { return }
         usageTask = Task { [weak self] in
             // A failed refresh clears the readout: a stale spend figure is
             // worse than none, and the next poll restores it.
             let usage = (try? await client.teamUsage())?.byMachineID ?? [:]
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self else { return }
             self.applyUsage(usage)
             self.usageTask = nil
         }
@@ -531,6 +539,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshRequestedWhileLoading = false
 
     func refresh() {
+        guard CloudMachinesFeature.isEnabled else { return }
         guard refreshTask == nil else {
             refreshRequestedWhileLoading = true
             return
@@ -542,7 +551,7 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTask = Task { [weak self] in
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) } catch { result = .failure(error) }
-            guard !Task.isCancelled, let self, self.refreshID == requestID else { return }
+            guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self, self.refreshID == requestID else { return }
             self.applyRefresh(result)
             self.refreshTask = nil
             self.refreshID = nil
@@ -554,7 +563,11 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func startPolling() {
-        isVisible = true
+        wantsPolling = true
+        guard CloudMachinesFeature.isEnabled else {
+            pausePolling()
+            return
+        }
         guard pollTask == nil else { return }
         refresh()
         pollTask = Task { [weak self, pollingClock] in
@@ -568,15 +581,19 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func stopPolling() {
-        isVisible = false
+        wantsPolling = false
+        pausePolling()
+    }
+
+    private func pausePolling() {
         refreshID = nil
         statsID = nil
-        refreshRequestedWhileLoading = false
-        refreshTask?.cancel()
-        refreshTask = nil
-        isLoading = false
         pollTask?.cancel()
         pollTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshRequestedWhileLoading = false
+        isLoading = false
         statsTask?.cancel()
         statsTask = nil
         usageTask?.cancel()
@@ -618,7 +635,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
-        stopPolling()
+        pausePolling()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
@@ -646,6 +663,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func applyRefresh(_ result: Result<VMListPage, Error>) {
+        guard CloudMachinesFeature.isEnabled else { return }
         do {
             let page = try result.get()
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })

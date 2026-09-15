@@ -55,6 +55,7 @@ import {
   approveVmCmuxRemoteEnrollment,
   openBaseVm,
   openAttachEndpoint,
+  prepareScpEndpoint,
   openVmPort,
   openVmCmuxRemote,
   openVmSession,
@@ -6904,5 +6905,37 @@ describe("destroyVm home volume cleanup", () => {
     );
 
     expect(markCalls).toBe(2);
+  });
+});
+
+
+describe("private SCP workflow", () => {
+  test("returns the private endpoint without revoking another transfer or recording a bearer lease", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running", billingPlanId: "pro" });
+    const leases: RecordedLease[] = [];
+    const events: RecordedUsageEvent[] = [];
+    const endpoint = { host: "10.1.2.3", port: 22, username: "cmux", hostPublicKey: "guest-key", expiresAtUnix: 123 };
+    const result = await Effect.runPromise(prepareScpEndpoint({ userId: vm.userId, providerVmId: "vm-scp", publicKey: "client-key", callerPlanId: "pro" }).pipe(
+      Effect.provide(Layer.succeed(VmRepository, testWorkflowRepo({ vm, leases, usageEvents: events }))),
+      Effect.provide(Layer.succeed(VmProviderGateway, { ...unusedProviderGateway(),
+        prepareSCP: (_provider, id, key) => { expect(id).toBe("vm-scp"); expect(key).toBe("client-key"); return Effect.succeed(endpoint); },
+        revokeSSHIdentity: () => { throw new Error("must not revoke concurrent access"); },
+      })),
+    ));
+    expect(result).toEqual(endpoint);
+    expect(leases).toHaveLength(0);
+    expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
+  });
+
+  test("refuses an inaccessible VM before installing a public key", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running" });
+    let calls = 0;
+    const result = await Effect.runPromise(prepareScpEndpoint({ userId: "other-user", providerVmId: "vm-scp", publicKey: "client-key", callerPlanId: "pro" }).pipe(
+      Effect.provide(Layer.succeed(VmRepository, { ...testWorkflowRepo({ vm }), findUserVm: () => Effect.succeed(null) })),
+      Effect.provide(Layer.succeed(VmProviderGateway, { ...unusedProviderGateway(), prepareSCP: () => { calls++; return Effect.die("unauthorized"); } })),
+      Effect.flip,
+    ));
+    expect(result._tag).toBe("VmNotFoundError");
+    expect(calls).toBe(0);
   });
 });

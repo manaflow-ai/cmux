@@ -9,9 +9,9 @@ enum MobileHostIdentity {
     private static let stableBundleIdentifier = "com.cmuxterm.app"
     private static let maximumDisplayNameUTF16Length = 128
     private static let maximumDisplayedBuildTagUTF16Length = 64
-    /// Published after the immutable snapshot has been fully initialized.
-    /// Callers on latency-sensitive paths can inspect readiness without
-    /// triggering Swift's once-initialized storage.
+    /// Publishes the initialized snapshot and elects its defaults-mirror writer.
+    /// A synchronous compare-and-set lets reentrant readers avoid joining
+    /// UserDefaults notification delivery on another thread.
     private static let deviceIDReady = AtomicBooleanGate(false)
 
     /// Process-stable host identity used by synchronous transport and terminal paths.
@@ -24,7 +24,7 @@ enum MobileHostIdentity {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
             ? nil
             : UserDefaults(suiteName: stableBundleIdentifier)
-        return deviceID(
+        return resolveDeviceID(
             defaults: .standard,
             sharedIDURL: defaultSharedDeviceIDURL(),
             stableDefaults: stableDefaults,
@@ -35,12 +35,18 @@ enum MobileHostIdentity {
     /// Returns the process-stable host identity without repeating filesystem work.
     static func deviceID() -> String {
         let value = cachedDeviceID
-        deviceIDReady.storeRelease(true)
+        // Defaults may synchronously deliver an observer on the main queue.
+        // Publish after leaving the once initializer, before that observer can
+        // reenter deviceID() and wait on the thread performing this write.
+        if deviceIDReady.compareExchange(expected: false, desired: true) {
+            persistDeviceIDIfNeeded(value, defaults: .standard)
+        }
         return value
     }
 
-    /// Returns the process-stable identity only after background prewarming has
-    /// completed. This check never touches the lazy snapshot while it is cold.
+    /// Returns the identity after its immutable snapshot has been published,
+    /// without joining defaults notification delivery. This check never touches
+    /// the lazy snapshot while it is cold.
     static func deviceIDIfReady() -> String? {
         guard deviceIDReady.loadAcquire() else { return nil }
         return cachedDeviceID
@@ -60,22 +66,38 @@ enum MobileHostIdentity {
         stableDefaults: UserDefaults? = nil,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> String {
+        let id = resolveDeviceID(
+            defaults: defaults,
+            sharedIDURL: sharedIDURL,
+            stableDefaults: stableDefaults,
+            bundleIdentifier: bundleIdentifier
+        )
+        persistDeviceIDIfNeeded(id, defaults: defaults)
+        return id
+    }
+
+    /// Settles the authoritative identity without posting defaults notifications.
+    private static func resolveDeviceID(
+        defaults: UserDefaults,
+        sharedIDURL: URL?,
+        stableDefaults: UserDefaults?,
+        bundleIdentifier: String?
+    ) -> String {
         if let id = readSharedDeviceID(from: sharedIDURL) {
-            persistDeviceIDIfNeeded(id, defaults: defaults)
             return id
         }
 
         if shouldPreferStableDefaults(bundleIdentifier: bundleIdentifier),
            let id = normalizedID(stableDefaults?.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+            return settleSharedDeviceID(id, sharedIDURL: sharedIDURL)
         }
 
         if let id = normalizedID(defaults.string(forKey: deviceIDKey)) {
-            return settleSharedDeviceID(id, defaults: defaults, sharedIDURL: sharedIDURL)
+            return settleSharedDeviceID(id, sharedIDURL: sharedIDURL)
         }
 
         let generated = cmxCanonicalDeviceID(UUID().uuidString)
-        return settleSharedDeviceID(generated, defaults: defaults, sharedIDURL: sharedIDURL)
+        return settleSharedDeviceID(generated, sharedIDURL: sharedIDURL)
     }
 
     private static func defaultSharedDeviceIDURL(fileManager: FileManager = .default) -> URL? {
@@ -122,10 +144,9 @@ enum MobileHostIdentity {
         defaults.set(id, forKey: deviceIDKey)
     }
 
-    private static func settleSharedDeviceID(_ candidate: String, defaults: UserDefaults, sharedIDURL: URL?) -> String {
+    private static func settleSharedDeviceID(_ candidate: String, sharedIDURL: URL?) -> String {
         let candidate = cmxCanonicalDeviceID(candidate)
         guard let sharedIDURL else {
-            persistDeviceIDIfNeeded(candidate, defaults: defaults)
             return candidate
         }
         try? FileManager.default.createDirectory(
@@ -135,14 +156,11 @@ enum MobileHostIdentity {
         let data = Data(candidate.utf8)
         if !FileManager.default.createFile(atPath: sharedIDURL.path, contents: data) {
             if let winner = readSharedDeviceID(from: sharedIDURL) {
-                persistDeviceIDIfNeeded(winner, defaults: defaults)
                 return winner
             }
             try? data.write(to: sharedIDURL, options: .atomic)
         }
-        let settled = readSharedDeviceID(from: sharedIDURL) ?? candidate
-        persistDeviceIDIfNeeded(settled, defaults: defaults)
-        return settled
+        return readSharedDeviceID(from: sharedIDURL) ?? candidate
     }
 
     /// Stable physical-device name. Device-level registry and backup rows use

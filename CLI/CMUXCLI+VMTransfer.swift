@@ -2,29 +2,13 @@ import CmuxSettings
 import CryptoKit
 import Foundation
 
-/// `cmux vm push` / `cmux vm pull` / `cmux vm wait` — file transfer and readiness
-/// primitives for cloud machines, built entirely on the existing `vm.exec` and
-/// `vm.status` socket methods so they work against every provider that supports
-/// exec, with no daemon or SSH requirement on the machine.
-///
-/// Transfer strategy: files move as base64 chunks inside `vm.exec` commands.
-/// Each chunk is one round trip, so throughput is bounded by the exec path, but
-/// the primitive works on a machine that only has a shell + coreutils. Both
-/// directions verify a SHA-256 digest end to end (falling back to a byte-count
-/// check when the machine has no `sha256sum`). Directories travel as tarballs
-/// and extract on the far side.
+/// Cloud file transfer. Push streams through OpenSSH/SFTP over the app's
+/// userspace WireGuard tunnel. Pull retains the existing exec transport.
 extension CMUXCLI {
     /// Raw bytes per exec round trip. Base64 expands this ~4/3, staying well
     /// under control-plane request/response body limits.
     static let vmTransferChunkBytes = 512 * 1024
-    /// Push chunks ride inside the exec command line itself (`printf %s '<b64>'`),
-    /// and Linux caps a single argv string at 128 KiB (MAX_ARG_STRLEN): a 512 KiB
-    /// chunk base64-encodes to ~700 KB and fails with "argument list too long".
-    /// 64 KiB encodes to ~87 KB, comfortably under the cap. Pull is unaffected —
-    /// its chunks flow back through stdout, so it keeps the larger size.
-    static let vmTransferPushChunkBytes = 64 * 1024
-    /// Hard cap for a single push/pull. Exec-chunked transfer is the wrong tool
-    /// past this size; the error message points at better tools.
+    /// Bound local staging and transfer time for one operation.
     static let vmTransferMaxBytes = 256 * 1024 * 1024
     static let vmTransferExecTimeoutMs = 100_000
     static let vmTransferExecResponseTimeout: TimeInterval = 120
@@ -47,8 +31,8 @@ extension CMUXCLI {
                cmux vm push <id> <local-path> [remote-path] --watch [--interval <seconds>] [--exclude <pattern>]...
                cmux vm push --secret <id> <local-file> [remote-path] [--mode <octal>]
 
-        Copy a local file or directory onto a cloud machine over the exec channel
-        (no SSH needed). Directories travel as tarballs; by default \(vmPushDefaultExcludes.joined(separator: ", "))
+        Copy a local file or directory onto a cloud machine over its private
+        WireGuard connection with SSH/SCP. Directories travel as tarballs; by default \(vmPushDefaultExcludes.joined(separator: ", "))
         are skipped. The remote path defaults to the local basename in the exec
         working directory (the machine user's home).
 
@@ -195,7 +179,7 @@ extension CMUXCLI {
             return
         }
         guard modeOption == nil else {
-            throw CLIError(message: "--mode belongs to --secret (exec-channel pushes keep the tarball's own modes)\n\n\(Self.vmPushUsage)")
+            throw CLIError(message: "--mode belongs to --secret (SCP pushes keep the source file modes)\n\n\(Self.vmPushUsage)")
         }
         var intervalSeconds = Self.vmPushWatchDefaultIntervalSeconds
         if let intervalOption {
@@ -263,7 +247,7 @@ extension CMUXCLI {
         )
     }
 
-    /// What one exec-channel push did, for the human summary or the JSON payload.
+    /// What one push did, for the human summary or the JSON payload.
     struct VMPushOutcome {
         let vmID: String
         let localPath: String
@@ -309,7 +293,7 @@ extension CMUXCLI {
         }
     }
 
-    /// One push over the exec channel: pack (directories), upload in base64 chunks,
+    /// One push over the private WireGuard connection with SSH/SCP: pack (directories), upload raw bytes,
     /// verify the digest, extract. Shared by the one-shot command, `--watch`, and the
     /// `vm run` / `vm agent` `--sync` paths.
     func performVMPush(
@@ -321,76 +305,150 @@ extension CMUXCLI {
         excludes: [String],
         client: SocketClient
     ) throws -> VMPushOutcome {
+        let destination = remotePath.hasPrefix("/") ? remotePath : "./" + remotePath
+        guard !destination.utf8.contains(0), !destination.contains("\n"), !destination.contains("\r") else {
+            throw CLIError(message: "Cloud file destination contains an unsupported control character.")
+        }
         let started = Date()
-        let payloadData: Data
-        var stagingTarURL: URL?
+        let transferDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-scp-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: transferDirectory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: transferDirectory) }
+        let localFile = transferDirectory.appendingPathComponent("payload")
         if isDirectory {
             let tarURL = try makeLocalTarball(of: localURL, excludes: excludes)
-            stagingTarURL = tarURL
-            do {
-                payloadData = try Data(contentsOf: tarURL)
-            } catch {
-                // The deferred cleanup below is not installed yet; do not leak a
-                // large staging tarball in the temp directory on a read failure.
-                try? FileManager.default.removeItem(at: tarURL)
-                throw error
-            }
+            defer { try? FileManager.default.removeItem(at: tarURL) }
+            try FileManager.default.moveItem(at: tarURL, to: localFile)
         } else {
-            payloadData = try Data(contentsOf: localURL)
+            let source = localURL.resolvingSymlinksInPath()
+            let sourceAttributes = try FileManager.default.attributesOfItem(atPath: source.path)
+            guard (sourceAttributes[.size] as? NSNumber)?.intValue ?? 0 <= Self.vmTransferMaxBytes else {
+                throw CLIError(message: "\(localPath) exceeds the vm push limit of \(Self.formatByteCount(Self.vmTransferMaxBytes)).")
+            }
+            try FileManager.default.copyItem(at: source, to: localFile)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: (sourceAttributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o644],
+                ofItemAtPath: localFile.path
+            )
         }
+        let attributes = try FileManager.default.attributesOfItem(atPath: localFile.path)
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard byteCount <= Self.vmTransferMaxBytes else {
+            throw CLIError(message: "\(localPath) exceeds the vm push limit of \(Self.formatByteCount(Self.vmTransferMaxBytes)).")
+        }
+        let input = try FileHandle(forReadingFrom: localFile)
+        defer { try? input.close() }
+        var hasher = SHA256()
+        while let chunk = try input.read(upToCount: 1024 * 1024), !chunk.isEmpty { hasher.update(data: chunk) }
+        let localDigest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        let identity = transferDirectory.appendingPathComponent("identity")
+        let generated = CLIProcessRunner.runProcess(executablePath: "/usr/bin/ssh-keygen", arguments: ["-q", "-t", "ed25519", "-N", "", "-C", "cmux-scp", "-f", identity.path], stdinText: "", timeout: 15)
+        guard generated.status == 0 else { throw CLIError(message: "Cloud file transfer could not create its SSH key.") }
+        let publicKey = try String(contentsOf: identity.appendingPathExtension("pub"), encoding: .utf8)
+        var endpoint = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
+        func refreshGrantIfNeeded() throws {
+            guard endpoint.expiresAtUnix - Date().timeIntervalSince1970 < 60 else { return }
+            let renewed = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
+            guard renewed.hostPublicKey == endpoint.hostPublicKey,
+                  renewed.username == endpoint.username else {
+                throw CLIError(message: "Cloud file transfer stopped because the SSH host identity changed.")
+            }
+            endpoint = renewed
+        }
+        try ("cmux-scp " + endpoint.hostPublicKey + "\n").write(to: transferDirectory.appendingPathComponent("known_hosts"), atomically: true, encoding: .utf8)
+        let parent = (destination as NSString).deletingLastPathComponent
+        let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
+        let prepare = "umask 077; mkdir -p -- \(shellQuote(parent.isEmpty ? "." : parent)) && mktemp -d -- \(shellQuote(template))"
+        let remoteDirectory = try runSCPProcess(
+            "/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, prepare],
+            endpoint: endpoint, directory: transferDirectory
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard remoteDirectory.hasPrefix(String(template.dropLast(10))),
+              remoteDirectory.count == template.count,
+              remoteDirectory.suffix(10).allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) else {
+            throw CLIError(message: "Cloud file transfer could not create a staging directory.")
+        }
+        let cleanup = "rm -rf -- \(shellQuote(remoteDirectory))"
         defer {
-            if let stagingTarURL {
-                try? FileManager.default.removeItem(at: stagingTarURL)
-            }
+            do {
+                try refreshGrantIfNeeded()
+                _ = try runSCPProcess("/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, cleanup], endpoint: endpoint, directory: transferDirectory)
+            } catch { cliWriteStderr("Cloud transfer staging cleanup failed.\n") }
         }
-        guard payloadData.count <= Self.vmTransferMaxBytes else {
-            throw CLIError(message: """
-                \(localPath) is \(Self.formatByteCount(payloadData.count)) after packing; \
-                vm push caps out at \(Self.formatByteCount(Self.vmTransferMaxBytes)). \
-                For big trees, clone or download inside the machine instead:
-                  cmux vm exec \(vmID) -- git clone <url>
-                  cmux vm exec \(vmID) -- curl -LO <url>
-                """)
-        }
-
-        let localDigest = SHA256.hash(data: payloadData).map { String(format: "%02x", $0) }.joined()
-        let remoteStaging: String
-        let extractDestination: String?
-        if isDirectory {
-            remoteStaging = "/tmp/cmux-push-\(UUID().uuidString.prefix(8)).tgz"
-            extractDestination = remotePath
-        } else {
-            remoteStaging = remotePath + ".cmux-partial-\(UUID().uuidString.prefix(8))"
-            extractDestination = nil
-        }
-
-        try uploadData(
-            payloadData,
-            to: remoteStaging,
-            finalDestination: extractDestination == nil ? remotePath : nil,
-            vmID: vmID,
-            expectedDigest: localDigest,
-            client: client
+        let remoteStaging = remoteDirectory + "/payload"
+        _ = try runSCPProcess(
+            "/usr/bin/scp", arguments: ["-q", "-P", String(endpoint.port), "--", localFile.path, endpoint.destination + ":" + remoteStaging],
+            endpoint: endpoint, directory: transferDirectory
         )
-
-        if let extractDestination {
-            let quotedTar = shellQuote(remoteStaging)
-            let quotedDest = shellQuote(extractDestination)
-            let extract = "mkdir -p \(quotedDest) && tar -xzf \(quotedTar) -C \(quotedDest) && rm -f \(quotedTar)"
-            let response = try vmTransferExec(command: extract, vmID: vmID, client: client)
-            try requireExecSuccess(response, context: "extracting \(remoteStaging) into \(extractDestination)")
+        // An established SFTP session can outlive its grant. Refresh before
+        // opening the next SSH connection, without replaying the uploaded data.
+        try refreshGrantIfNeeded()
+        let verify = "set -eu; actual=$(sha256sum < \(shellQuote(remoteStaging))); test \"${actual%% *}\" = \(shellQuote(localDigest)); "
+        let finalize: String
+        if isDirectory {
+            // Directory push merges into an existing tree, as before. It does
+            // not claim to atomically replace a directory being used by a shell.
+            finalize = "mkdir -p -- \(shellQuote(destination)); tar --no-same-owner -xzf \(shellQuote(remoteStaging)) -C \(shellQuote(destination))"
+        } else {
+            let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0o644
+            finalize = "chmod \(String(mode & 0o777, radix: 8)) \(shellQuote(remoteStaging)); mv -fT -- \(shellQuote(remoteStaging)) \(shellQuote(destination))"
         }
+        _ = try runSCPProcess("/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, verify + finalize], endpoint: endpoint, directory: transferDirectory)
 
         return VMPushOutcome(
             vmID: vmID,
             localPath: localPath,
             remotePath: remotePath,
             isDirectory: isDirectory,
-            bytes: payloadData.count,
+            bytes: byteCount,
             sha256: localDigest,
             seconds: Int(Date().timeIntervalSince(started).rounded()),
             appliedExcludes: excludes
         )
+    }
+
+    private struct VMSCPTransferEndpoint {
+        let host: String
+        let port: Int
+        let username: String
+        let hostPublicKey: String
+        let expiresAtUnix: TimeInterval
+        var destination: String { "\(username)@\(host)" }
+    }
+
+    private func vmSCPTransferEndpoint(vmID: String, publicKey: String, client: SocketClient) throws -> VMSCPTransferEndpoint {
+        let response = try client.sendV2(method: "vm.scp_info", params: ["id": vmID, "public_key": publicKey], responseTimeout: 100)
+        guard let host = response["host"] as? String, host == "127.0.0.1",
+              let port = response["port"] as? Int, (1...65535).contains(port),
+              let username = response["username"] as? String,
+              username.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
+              let hostPublicKey = response["host_public_key"] as? String,
+              hostPublicKey.range(of: "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil,
+              let expires = response["expires_at_unix"] as? Double,
+              expires.isFinite, expires > Date().timeIntervalSince1970 else {
+            throw CLIError(message: "Cloud SCP requires a private connection and a verified SSH host key.")
+        }
+        return VMSCPTransferEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expires)
+    }
+
+    @discardableResult
+    private func runSCPProcess(_ executable: String, arguments: [String], endpoint: VMSCPTransferEndpoint, directory: URL) throws -> String {
+        let options = [
+            "-F", "/dev/null",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "HostKeyAlias=cmux-scp",
+            "-o", "UserKnownHostsFile=" + directory.appendingPathComponent("known_hosts").path.replacingOccurrences(of: "%", with: "%%"),
+            "-o", "GlobalKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3",
+            "-o", "IdentitiesOnly=yes", "-i", directory.appendingPathComponent("identity").path,
+            "-o", "PreferredAuthentications=publickey", "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ForwardAgent=no",
+        ]
+        let result = CLIProcessRunner.runProcess(executablePath: executable, arguments: options + arguments, stdinText: "", timeout: 10 * 60)
+        guard result.status == 0 else {
+            let detail = String(result.stderr.suffix(2000))
+            throw CLIError(message: "Cloud SSH file transfer failed (exit \(result.status)): \(detail)")
+        }
+        return result.stdout
     }
 
     // MARK: - push --secret (over the link, never the exec channel)
@@ -839,73 +897,7 @@ extension CMUXCLI {
     /// Streams `data` to `stagingPath` on the machine in base64 chunks, then —
     /// when `finalDestination` is set — atomically moves it into place. Verifies
     /// SHA-256 (or size when the machine lacks `sha256sum`) either way.
-    private func uploadData(
-        _ data: Data,
-        to stagingPath: String,
-        finalDestination: String?,
-        vmID: String,
-        expectedDigest: String,
-        client: SocketClient
-    ) throws {
-        let quotedStaging = shellQuote(stagingPath)
-        var initCommand = ": > \(quotedStaging)"
-        if let finalDestination {
-            let parent = (finalDestination as NSString).deletingLastPathComponent
-            if !parent.isEmpty {
-                initCommand = "mkdir -p \(shellQuote(parent)) && " + initCommand
-            }
-        }
-        let initResponse = try vmTransferExec(command: initCommand, vmID: vmID, client: client)
-        try requireExecSuccess(initResponse, context: "preparing \(stagingPath)")
 
-        let totalChunks = max(1, (data.count + Self.vmTransferPushChunkBytes - 1) / Self.vmTransferPushChunkBytes)
-        var offset = 0
-        var chunkIndex = 0
-        var progressLineOpen = false
-        defer {
-            if progressLineOpen { cliWriteStderr("\n") }
-        }
-        while offset < data.count {
-            let end = min(offset + Self.vmTransferPushChunkBytes, data.count)
-            let chunk = data.subdata(in: offset..<end)
-            let encoded = chunk.base64EncodedString()
-            let append = "printf %s '\(encoded)' | base64 -d >> \(quotedStaging)"
-            let response = try vmTransferExec(command: append, vmID: vmID, client: client)
-            try requireExecSuccess(response, context: "writing chunk \(chunkIndex + 1)/\(totalChunks) of \(stagingPath)")
-            offset = end
-            chunkIndex += 1
-            if totalChunks > 1 {
-                let template = CMUXDiffViewerLocalization.string(
-                    "cli.vm.push.progress",
-                    defaultValue: "cmux vm push: %1$d/%2$d chunks"
-                )
-                progressLineOpen = vmTransferProgress(String(format: template, chunkIndex, totalChunks), final: chunkIndex == totalChunks)
-            }
-        }
-
-        let verifyTarget: String
-        var finalizeCommand = ""
-        if let finalDestination {
-            finalizeCommand = "mv \(quotedStaging) \(shellQuote(finalDestination)) && "
-            verifyTarget = finalDestination
-        } else {
-            verifyTarget = stagingPath
-        }
-        let quotedVerify = shellQuote(verifyTarget)
-        finalizeCommand += "if command -v sha256sum >/dev/null 2>&1; then sha256sum \(quotedVerify); else wc -c < \(quotedVerify); fi"
-        let finalizeResponse = try vmTransferExec(command: finalizeCommand, vmID: vmID, client: client)
-        try requireExecSuccess(finalizeResponse, context: "finalizing \(verifyTarget)")
-        let stdout = ((finalizeResponse["stdout"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        try Self.verifyTransferIntegrity(
-            report: stdout,
-            expectedDigest: expectedDigest,
-            expectedBytes: data.count,
-            subject: "\(vmID):\(verifyTarget)"
-        )
-    }
-
-    /// Reads a remote file back in base64 chunks, verifying against a digest
-    /// taken on the machine before the transfer starts.
     private func downloadData(from remotePath: String, vmID: String, client: SocketClient) throws -> Data {
         let quoted = shellQuote(remotePath)
         let precheck = "wc -c < \(quoted) && (command -v sha256sum >/dev/null 2>&1 && sha256sum \(quoted) || true)"

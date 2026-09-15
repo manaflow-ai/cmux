@@ -10,7 +10,12 @@ extension CloudVMState {
     /// them in exports without treating inspection or resize as a conflict.
     func hasSameRevisionedContent(as other: CloudVMState) -> Bool {
         hasSameModeledContent(as: other, includingLiveTerminalMetadata: false)
-            && document.values.filter { $0.key != "clients" } == other.document.values.filter { $0.key != "clients" }
+            // `session` is a transport envelope. Its metadata (connected
+            // client, focus, and daemon labels) can change between two reads
+            // without changing the revisioned workspace graph. The cursor and
+            // modeled collections remain the mutation authority.
+            && document.values.filter { $0.key != "clients" && $0.key != "session" }
+                == other.document.values.filter { $0.key != "clients" && $0.key != "session" }
             && document.collections.filter { $0.key != "clients" && $0.key != "terminals" }
                 == other.document.collections.filter { $0.key != "clients" && $0.key != "terminals" }
             && hasSameTerminalDocument(as: other)

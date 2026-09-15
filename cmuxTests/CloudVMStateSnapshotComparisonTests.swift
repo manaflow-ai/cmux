@@ -35,6 +35,18 @@ struct CloudVMStateSnapshotComparisonTests {
         #expect(before.hasSameRevisionedContent(as: after))
     }
 
+    @Test("Session transport metadata does not reject an equal-cursor refresh")
+    func sessionEnvelopeChurnDoesNotInvalidateRevision() throws {
+        var first = snapshot()
+        first["session"] = ["name": "cmux", "connected_seconds": 1]
+        var second = snapshot()
+        second["session"] = ["name": "cmux", "connected_seconds": 44, "client_count": 2]
+        let before = try state(first)
+        let after = try state(second)
+        #expect(before != after)
+        #expect(before.hasSameRevisionedContent(as: after))
+    }
+
     @Test("Live terminal geometry can change without changing the resource revision")
     func terminalResizeDoesNotInvalidateTheGraph() throws {
         var object = snapshot()

@@ -212,10 +212,7 @@ struct PanelContentView: View {
                     .onTapGesture { onRequestPanelFocus() }
             }
         case .cloudVMLoading:
-            if let pendingPanel = panel as? CloudTerminalPendingPanel {
-                CloudTerminalPendingPanelView(panel: pendingPanel)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let loadingPanel = panel as? CloudVMLoadingPanel {
+            if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

@@ -284,11 +284,13 @@ extension AgentNotificationRegressionTests {
         fixture.source.remoteConfiguration = relayConfiguration(
             destination: "source.example.invalid",
             relayPort: 64_007
-        )
+        ).scopedToOwnerWorkspace(fixture.source.id)
         fixture.destination.remoteConfiguration = relayConfiguration(
             destination: "destination.example.invalid",
             relayPort: 64_008
-        )
+        ).scopedToOwnerWorkspace(fixture.destination.id)
+        let connectionID = UUID()
+        fixture.source.activeRemoteSessionControllerID = connectionID
         let sourceTerminal = try #require(
             fixture.source.panels[fixture.panelId] as? TerminalPanel
         )
@@ -324,12 +326,13 @@ extension AgentNotificationRegressionTests {
                 "surface_id": .string(destinationPanelID.uuidString),
                 "tty_name": .string("pts/30"),
                 "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
                 "terminal_lifecycle_id": .string(
                     destinationTerminal.surface.terminalLifecycleId.uuidString
                 ),
                 "attempt_id": .string(destinationAttemptID.uuidString),
             ]
-        )))
+        )), expectedCode: "remote_relay_workspace_denied")
         #expect(
             !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
                 .contains(destinationPanelID)
@@ -343,6 +346,7 @@ extension AgentNotificationRegressionTests {
                 "surface_id": .string(fixture.panelId.uuidString),
                 "tty_name": .string("pts/31"),
                 "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
                 "terminal_lifecycle_id": .string(
                     sourceTerminal.surface.terminalLifecycleId.uuidString
                 ),
@@ -409,7 +413,7 @@ extension AgentNotificationRegressionTests {
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: nil,
-            relayToken: nil,
+            relayToken: String(repeating: "b", count: 64),
             localSocketPath: nil,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
@@ -453,12 +457,12 @@ extension AgentNotificationRegressionTests {
         #expect(code == "not_found")
     }
 
-    private func assertTTYReportRejected(_ result: ControlCallResult?) {
+    private func assertTTYReportRejected(_ result: ControlCallResult?, expectedCode: String = "not_found") {
         guard case .err(let code, _, _) = result else {
             Issue.record("Expected relay TTY report rejection, got \(String(describing: result))")
             return
         }
-        #expect(code == "not_found")
+        #expect(code == expectedCode)
     }
 
 }

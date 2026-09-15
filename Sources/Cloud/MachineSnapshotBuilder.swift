@@ -184,4 +184,3 @@ enum MachineSnapshotBuilder {
         )
     }
 }
-
