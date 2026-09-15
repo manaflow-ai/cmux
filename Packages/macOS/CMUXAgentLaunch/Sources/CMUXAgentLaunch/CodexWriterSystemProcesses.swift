@@ -125,7 +125,7 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
         return info
     }
 
-    private func fileDescriptors(_ pid: Int32) -> [proc_fdinfo]? {
+    func fileDescriptors(_ pid: Int32) -> [proc_fdinfo]? {
         let required = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard required >= 0, required < 16_000_000 else { return nil }
         let stride = MemoryLayout<proc_fdinfo>.stride

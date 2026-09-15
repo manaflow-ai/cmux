@@ -5,6 +5,23 @@ import Testing
 
 @Suite("Codex writer recovery safety")
 struct CodexWriterSafetyTests {
+    @Test("recognizes the actual watcher launch arguments including global options")
+    func watcherGlobalArguments() {
+        for prefix in [["--socket", "/tmp/cmux.sock"], ["--socket", "/tmp/cmux.sock", "--password", "a b"]] {
+            let arguments = ["/opt/bin/cmux"] + prefix + ["__codex-teams-watch", "--workspace-id", "workspace", "--app-server-url", "ws://127.0.0.1:59152"]
+            let watcher = CodexWriterProcessEvidence(
+                pid: 12345, parentPID: 1, command: arguments.joined(separator: " "),
+                executablePath: "/opt/bin/cmux", arguments: arguments
+            )
+            #expect(watcher.watcherAppServerPort == 59152)
+        }
+    }
+
+    @Test("libproc descriptor failure is not an empty successful snapshot")
+    func descriptorFailure() {
+        #expect(CodexWriterSystemProcesses().fileDescriptors(Int32.max) == nil)
+    }
+
     @Test("parses only explicit recovery arguments")
     func recoveryArguments() {
         let identifier = UUID().uuidString
