@@ -197,7 +197,13 @@ enum TmuxSessionReaper {
         orphans(live: liveSessions(), ownedSessions: ownedSessions)
     }
 
-    private static func run(_ launchPath: String, _ arguments: [String]) -> String? {
+    /// Run a command and return its stdout, or nil on failure or timeout.
+    ///
+    /// Never uses `waitUntilExit`: it spins the current run loop, and on the main
+    /// thread that re-entered SwiftUI layout mid-update and froze the app for hours.
+    /// Output is drained on a background queue and the wait is a plain semaphore, so a
+    /// hung child costs at most `timeout` and is then terminated.
+    static func run(_ launchPath: String, _ arguments: [String], timeout: TimeInterval = 3) -> String? {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: launchPath)
@@ -205,14 +211,26 @@ enum TmuxSessionReaper {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
         } catch {
             return nil
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        var data = Data()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+
+        guard exited.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            return nil
+        }
+        guard drained.wait(timeout: .now() + 1) == .success else { return nil }
         guard process.terminationStatus == 0 else { return nil }
         return String(data: data, encoding: .utf8)
     }

@@ -2407,6 +2407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     /// Last lane set written by `recordActiveLaneSnapshot`, to skip redundant writes.
     private var lastRecordedLanes: [ActiveLaneSnapshot.Lane]?
+    private var laneSnapshotInFlight = false
     private var laneSnapshotTimer: DispatchSourceTimer?
     /// The lane set found on disk at launch — what a restore offers to bring back.
     ///
@@ -4683,7 +4684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.schedule(deadline: .now() + 30, repeating: 30, leeway: .seconds(5))
         timer.setEventHandler { [weak self] in
             guard let self, !self.isTerminatingApp else { return }
-            self.recordActiveLaneSnapshot()
+            self.recordActiveLaneSnapshotInBackground()
         }
         laneSnapshotTimer = timer
         timer.resume()
@@ -5431,6 +5432,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Resolved against the live tmux session list rather than registration alone: see
     /// `ActiveLaneSnapshot.lanes(from:live:)` for why registration is not usable on its own.
     func currentActiveLanes() -> [ActiveLaneSnapshot.Lane] {
+        let candidates = activeLaneCandidates()
+        guard !candidates.isEmpty else { return [] }
+        return ActiveLaneSnapshot.lanes(
+            from: candidates,
+            live: TmuxSessionReaper.liveSessionsWithPaths()
+        )
+    }
+
+    /// The in-memory half of lane capture: every workspace as a candidate. Cheap, and
+    /// the only part that has to run on the main thread.
+    private func activeLaneCandidates() -> [ActiveLaneSnapshot.Candidate] {
         var candidates: [ActiveLaneSnapshot.Candidate] = []
         var seen: Set<UUID> = []
         for context in mainWindowContexts.values {
@@ -5447,21 +5459,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
-        guard !candidates.isEmpty else { return [] }
-        return ActiveLaneSnapshot.lanes(
-            from: candidates,
-            live: TmuxSessionReaper.liveSessionsWithPaths()
-        )
+        return candidates
+    }
+
+    /// Timer form of `recordActiveLaneSnapshot`: gather candidates on the main thread,
+    /// list tmux sessions on a background queue, and write back on the main thread.
+    ///
+    /// Listing tmux shells out, so it must never block the main thread. When it did, a
+    /// wedged `tmux list-sessions` left the whole app unresponsive.
+    private func recordActiveLaneSnapshotInBackground() {
+        let candidates = activeLaneCandidates()
+        guard !candidates.isEmpty, !laneSnapshotInFlight else { return }
+        laneSnapshotInFlight = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let live = TmuxSessionReaper.liveSessionsWithPaths()
+            let lanes = ActiveLaneSnapshot.lanes(from: candidates, live: live)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.laneSnapshotInFlight = false
+                self.persistLaneSnapshot(lanes)
+            }
+        }
     }
 
     /// Persist the current lane set, so a restart can offer to bring it back.
     ///
-    /// Cheap by construction: it reads registrations already held in memory and never
-    /// shells out to tmux, which is what makes it safe to run on the autosave tick as
-    /// well as at termination. The tick is the one that matters — a panic or a power cut
-    /// never reaches `applicationWillTerminate`.
+    /// Synchronous, for termination only: the periodic tick uses
+    /// `recordActiveLaneSnapshotInBackground`. The tmux listing here is bounded by
+    /// `TmuxSessionReaper.run`'s timeout, so quitting cannot hang on it.
     func recordActiveLaneSnapshot() {
-        let lanes = currentActiveLanes()
+        persistLaneSnapshot(currentActiveLanes())
+    }
+
+    private func persistLaneSnapshot(_ lanes: [ActiveLaneSnapshot.Lane]) {
         // The lane set changes only when a pane opens or closes, while the tick that
         // calls this runs constantly. Comparing first keeps the steady state free of
         // disk writes, which is what makes it safe on the typing-sensitive autosave path.
