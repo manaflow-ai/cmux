@@ -952,12 +952,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
-        if row < 0 {
-            cancelSelectionIntent()
-            restoreVisibleCellPaint()
-            actions?.clearWorkspaceSelection()
-            return
-        }
         guard rows.indices.contains(row) else { return }
         // Capture modifiers from the clicking EVENT at action time: a
         // deferred or coalesced apply must not re-read the keyboard later,
@@ -2051,6 +2045,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func doubleClickEmptyArea() {
         actions?.createWorkspaceAtEnd()
+    }
+
+    func clearWorkspaceSelection() {
+        cancelSelectionIntent()
+        restoreVisibleCellPaint()
+        actions?.clearWorkspaceSelection()
     }
 
     func createEmptyWorkspaceGroup() {
