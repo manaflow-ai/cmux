@@ -42,7 +42,9 @@ extension CloudWorkspaceRenameService {
         let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
         if let pending = catalog.pendingCloudRenameName(for: key), pending != remote.name { return }
         // Equal confirmations preserve user provenance across refresh.
-        if workspace.customTitle == remote.name, workspace.effectiveCustomTitleSource == .user { return }
+        // A user title without a pending write is also authoritative: it may
+        // have been entered while creation/discovery was in flight.
+        if workspace.effectiveCustomTitleSource == .user { return }
         guard workspace.customTitle != remote.name || workspace.effectiveCustomTitleSource != .remote else { return }
         let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
         _ = manager?.setCustomTitle(tabId: workspace.id, title: remote.name, source: .remote,
