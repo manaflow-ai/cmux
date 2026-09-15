@@ -5,6 +5,31 @@ import Testing
 
 @MainActor
 @Suite struct AuthCoordinatorCloudTokenTests {
+    @Test func cloudRequestDuringBootstrapAllowsPersonalAutoLogin() async throws {
+        let user = CMUXAuthUser(id: "personal", primaryEmail: "person@example.invalid", displayName: nil)
+        let client = FakeAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, launch: AuthLaunchOptions(
+            clearAuthRequested: false,
+            mockDataEnabled: false,
+            environment: [
+                "CMUX_UITEST_STACK_EMAIL": "person@example.invalid",
+                "CMUX_UITEST_STACK_PASSWORD": "synthetic"
+            ],
+            includesDevAuth: true,
+            replaceStoredSessionWithAutoLogin: true
+        ))
+
+        // Cloud starts synchronously after auth.start() on the launch actor.
+        // Its bootstrap wait must not become token work that sign-in joins.
+        coordinator.start()
+        let tokens = try await coordinator.currentTokens()
+
+        #expect(coordinator.currentUser == user)
+        #expect(await client.signedInWithCredential?.email == "person@example.invalid")
+        #expect(!tokens.accessToken.isEmpty)
+        #expect(!tokens.refreshToken.isEmpty)
+    }
+
     @Test func definitivelyRejectedRefreshIsUnauthorized() async {
         let client = FakeAuthClient(access: "expired", refresh: "rejected")
         await client.setRejectsRefreshOnAccess(true)
@@ -72,14 +97,14 @@ import Testing
         #expect(deadline.hasExpired())
     }
 
-    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock()) -> AuthCoordinator {
+    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock(), launch: AuthLaunchOptions = .plain()) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "tokens"),
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "team"),
-            anchor: FakeAnchor(), config: .test, launch: .plain(),
+            anchor: FakeAnchor(), config: .test, launch: launch,
             timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout), clock: clock
         )
     }
