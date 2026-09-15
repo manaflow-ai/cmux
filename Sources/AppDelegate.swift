@@ -10689,12 +10689,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Share the phone composer's literal paste and provider-aware submit
         // key. Appending CR to paste text inserts a newline in agent editors.
-        _ = TerminalController.shared.v2MobileTerminalPaste(params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceId,
-            "text": text,
-            "submit_key": "return",
-        ])
+        Task { @MainActor in
+            _ = await TerminalController.shared.v2MobileTerminalPaste(params: [
+                "workspace_id": workspaceId,
+                "surface_id": surfaceId,
+                "text": text,
+                "submit_key": "return",
+            ])
+        }
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
