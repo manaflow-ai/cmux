@@ -50,4 +50,5 @@ extension SurfaceCatalog {
         requestCloudWorkspaceProjection(localWorkspaceID)
         cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
 }
+
 }
