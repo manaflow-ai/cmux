@@ -17,9 +17,9 @@ final class CloudPaneCreationFailureStore {
     }
 
     /// Publishes a newly formatted failure, replacing any older card for this workspace.
-    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil) {
+    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         guard activeRequestID == requestID else { return }
-        failure = CloudPaneCreationFailure(machine: machine, error: error, context: context)
+        failure = CloudPaneCreationFailure(machine: machine, error: error, context: context, sourcePanelID: sourcePanelID)
     }
 
     /// Removes a card only when the caller is acting on the currently displayed failure.

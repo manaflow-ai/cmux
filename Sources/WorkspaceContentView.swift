@@ -437,7 +437,9 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(CloudPaneCreationFailurePresentation(
             failureStore: workspace.cloudPaneCreationFailureStore,
-            isWorkspaceVisible: isWorkspaceVisible
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureStore.failure?.sourcePanelID
+                .flatMap { workspace.terminalPanel(for: $0)?.hostedView }
         ))
     }
     private func syncBonsplitNotificationBadges() {

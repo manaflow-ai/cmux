@@ -663,6 +663,17 @@ struct cmuxApp: App {
                     Button("Cloud Tree Style Gallery…") {
                         CloudTreeStyleGalleryWindowController.shared.show()
                     }
+                    Menu("Cloud Terminal Error Style") {
+                        Button("Compact") {
+                            UserDefaults.standard.set("compact", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                        Button("Dialog") {
+                            UserDefaults.standard.set("dialog", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                        Button("Inline") {
+                            UserDefaults.standard.set("inline", forKey: "cloudPaneFailurePrototypeStyle")
+                        }
+                    }
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",

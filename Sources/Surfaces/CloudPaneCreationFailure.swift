@@ -4,15 +4,17 @@ import Foundation
 struct CloudPaneCreationFailure: Identifiable, Equatable {
     let id: UUID
     let machine: SurfaceMachineID
+    let sourcePanelID: UUID?
     let title: String
     let errorText: String
     let recoveryText: String
     let diagnosticReference: String?
 
     /// Builds a privacy-safe, localized snapshot from a provider error.
-    init(machine: SurfaceMachineID, error: Error, context: CloudOperationContext? = nil) {
+    init(machine: SurfaceMachineID, error: Error, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         id = UUID()
         self.machine = machine
+        self.sourcePanelID = sourcePanelID
         title = String(
             format: String(
                 localized: "cloudPane.newTerminalFailed.title",

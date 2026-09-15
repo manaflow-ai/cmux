@@ -95,7 +95,7 @@ extension Workspace {
         let requestID = cloudPaneCreationFailureStore.beginRequest()
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
         let onFailure: CloudTerminalCreationCoordinator.Failure = { [weak self] error, context in
-            self?.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID, context: context)
+            self?.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID, context: context, sourcePanelID: sourcePanelID)
         }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
             Task { @MainActor in
@@ -209,11 +209,11 @@ extension Workspace {
 
     /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil) {
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID, context: context)
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID, context: context, sourcePanelID: sourcePanelID ?? focusedPanelId)
     }
 
 }
