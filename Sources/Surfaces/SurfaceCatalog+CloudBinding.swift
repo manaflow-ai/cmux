@@ -36,9 +36,11 @@ extension SurfaceCatalog {
                 previousCustomTitleSource: sourceBeforeBind
             )
         }
-        if let state = cloudStates[machine],
+        if let workspace = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID),
+           let state = cloudStates[machine],
            (cloudStateObservations[machine] ?? .current).freshness == .current {
-            cloudWorkspaceRenameService.reconcileRemoteState(
+            cloudWorkspaceRenameService.reconcileRemoteWorkspaceName(
+                workspace: workspace,
                 machine: machine,
                 state: state,
                 catalog: self,
