@@ -917,6 +917,7 @@ object{
     fg:ColorHex|null,
     bg:ColorHex|null,
     cursor:ColorHex|null,
+    overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
     selection_bg:ColorHex|null,
     selection_fg:ColorHex|null,
     palette?:object{[index:string]:ColorHex},
@@ -927,6 +928,21 @@ object{
 ```
 
 Meaning: Initial VT replay for an attached PTY surface. Replaying `data` into a fresh Ghostty VT terminal with the supplied cell size reproduces current state. Protocol v9 clients restore `kitty_image_aliases` after `data`. Protocol v10 clients apply the limits, consume `data` through `replay_cursor_offset`, install the `*_replay_next_image_id` cursors, consume the remaining `data`, restore aliases, then install the `*_next_image_id` cursors before live output. The primary and alternate cursor values are independent. `colors` is captured with the replay and reports effective foreground, background, cursor, and selection colors, including authored defaults and active OSC overrides. Protocol v7 adds sparse `palette`, whose decimal string keys identify authored OSC 4 overrides; omitted indexes retain the frontend theme palette, and older servers omit the field. The additive protocol-v6 `cursor_style` and `cursor_blink` fields report the surface's current DECSCUSR-derived cursor state when available, then fall back to the session defaults. A field is `null` when no value is authored or available. Ghostty's VT replay formatter does not emit DECSCUSR, so attach clients must apply the cursor metadata instead of inferring shape or blink from `data`.
+
+The additive `overrides` object distinguishes application-authored OSC 10/11/12
+state from the effective `fg`, `bg`, and `cursor` fields. A viewer with its own
+theme uses `overrides` for those three colors and the existing sparse `palette`
+for OSC 4. Each is a full replacement: null special colors and absent palette
+indexes reset to that viewer's configured defaults. An override equal to a
+shared default remains authored until OSC 104/110/111/112 or RIS resets it.
+Shared session-default changes never populate `overrides`. Older servers omit
+the object; their effective special colors do not expose this distinction.
+The same object travels on resize, output sidecars, and colors-changed events.
+It is emitted only for byte attachments whose connection advertised
+`terminal-color-overrides-v1` through `set-client-info` before attaching. The
+choice is captured for that attachment's lifetime. Other clients retain the
+previous exact color-object shape, including clients with strict SDK decoders.
+Older servers safely ignore the unknown client capability and omit the object.
 
 Example:
 
@@ -996,6 +1012,7 @@ object{
   fg:ColorHex|null,
   bg:ColorHex|null,
   cursor?:ColorHex|null,
+  overrides?:object{fg:ColorHex|null,bg:ColorHex|null,cursor:ColorHex|null},
   selection_bg:ColorHex|null,
   selection_fg:ColorHex|null,
   palette?:object{[index:string]:ColorHex},

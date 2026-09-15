@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "обзор",
-      "team": "команда"
+      "team": "команда",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "Загрузка…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -1231,7 +1250,7 @@
       "plusButtonScreenshotAlt": "Меню правого клика кнопки плюс в cmux показывает Worktree Agents, New Terminal и New Browser",
       "plusButtonScreenshotCaption": "Меню правого клика следует порядку из ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Пользовательские действия кнопки плюс",
-      "newWorkspaceButtonDesc": "Используйте <action>ui.newWorkspace.action</action>, чтобы переопределить действие кнопки плюс. Используйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (или alias <rightClick>rightClick</rightClick>), чтобы задать упорядоченное меню правого клика. Пункты меню могут быть ID действий, объектами действий или <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Используйте <action>ui.newWorkspace.action</action>, чтобы переопределить действие кнопки плюс. Используйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (или alias <rightClick>rightClick</rightClick>), чтобы задать упорядоченное меню правого клика. Пункты меню могут быть ID действий, объектами действий или <separator>{ \"type\": \"separator\" }</separator>. Если не задано, меню содержит cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) с текущими сочетаниями клавиш. Облачные пункты отображаются только при включённой функции Cloud Machines.",
       "newWorkspaceWorktreeNote": "В этом примере обычный клик по плюсу запускает действие <action>worktree-agents</action>. Команда рабочей области из <commands>commands</commands> использует видимый терминал настройки, чтобы сначала создать Git <worktree>worktree</worktree>. Codex и Claude запускаются одновременно, ждут файл состояния для этой рабочей области, затем переходят в созданный каталог перед exec.",
       "simpleCommands": "Простые команды",
       "simpleCommandsDesc": "Простая команда выполняет команду shell в текущем сфокусированном терминале:",
@@ -3868,5 +3887,12 @@
         "action": "Управлять тарифом"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Электронная почта",
+    "emailUnavailable": "адрес электронной почты недоступен",
+    "organization": "Организация",
+    "personalAccount": "личный аккаунт",
+    "switchAccountButton": "Использовать другой аккаунт"
   }
 }

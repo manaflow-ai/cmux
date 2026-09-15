@@ -142,7 +142,7 @@ test("builds when a web or shared build input changes", () => {
   const generatedChange = commit("generated relay change");
   expect(ignoreBuild(configChange, generatedChange)).toBe(1);
   expect(ignoreBuild("missing-sha", generatedChange)).toBe(1);
-}, 15_000);
+}, 15000);
 
 test("skips changes that cannot affect the deployed web output", () => {
   const base = commit("base");

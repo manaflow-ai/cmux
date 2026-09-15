@@ -12,7 +12,6 @@ import Darwin
 #if canImport(Security)
 import Security
 #endif
-
 struct WindowInfo {
     let index: Int
     let id: String
@@ -20,7 +19,6 @@ struct WindowInfo {
     let selectedWorkspaceId: String?
     let workspaceCount: Int
 }
-
 struct NotificationInfo {
     let id: String
     let workspaceId: String
@@ -32,7 +30,6 @@ struct NotificationInfo {
     let createdAt: String?
     let tabTitle: String?
 }
-
 struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
@@ -43,14 +40,12 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
     let title: String?
 }
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
     case needsInput
     case error
 }
-
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -61,7 +56,6 @@ private func agentHookDebugLog(
     let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
     let line = "\(timestamp) \(message())\n"
     guard let data = line.data(using: .utf8) else { return }
-
     if let handle = FileHandle(forWritingAtPath: logPath) {
         defer { try? handle.close() }
         guard (try? handle.seekToEnd()) != nil else { return }
@@ -70,7 +64,6 @@ private func agentHookDebugLog(
         FileManager.default.createFile(atPath: logPath, contents: data)
     }
 }
-
 private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
@@ -3713,12 +3706,12 @@ final class SocketClient {
                     close()
                     throw CLIError(message: timeoutMessage)
                 }
-                let terminalEvents = Int16(POLLHUP | POLLERR | POLLNVAL)
-                if descriptor.revents & terminalEvents != 0 {
+                if descriptor.revents & Int16(POLLNVAL) != 0 {
                     close()
-                    throw CLIError(message: failureMessage)
+                    let message = String(format: String(localized: "cli.socket.error.failedToWriteWithErrno", defaultValue: "Failed to write to socket (%1$@, errno %2$d)"), String(cString: strerror(EBADF)), EBADF); throw CLIError(message: message)
                 }
-                guard descriptor.revents & Int16(POLLOUT) != 0 else {
+                // Let a protected write resolve HUP/ERR to errno for telemetry.
+                guard descriptor.revents & Int16(POLLOUT | POLLHUP | POLLERR) != 0 else {
                     continue
                 }
 
@@ -4320,7 +4313,7 @@ struct CMUXCLI {
     ) throws {
         try vmOpenShell(
             id: vmId,
-            workspaceName: "vm:\(vmId)",
+            workspaceName: nil,
             windowRaw: windowRaw,
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
@@ -4975,6 +4968,9 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        if try runGuideCommand(command: command, commandArgs: commandArgs, jsonOutput: jsonOutput) {
+            return
+        }
         let isCursorShellHookCommand = command == "hooks"
             && commandArgs.first?.lowercased() == "cursor"
             && ["shell-exec", "shell-done", "shell-failed"].contains(
@@ -5130,8 +5126,7 @@ struct CMUXCLI {
         // value is always the requested path, so SocketClient reports its
         // normal connection error and errno below.
         var resolvedSocketPath = socketResolution.selectedPath ?? socketPath
-        if socketPathSource == .implicitDefault,
-           let rerouteNotice = socketResolution.rerouteNotice {
+        if socketPathSource == .implicitDefault, !(command == "hooks" && hooksInvocationCanProceedWithoutLiveSocket(commandArgs: commandArgs, environment: processEnv)), let rerouteNotice = socketResolution.rerouteNotice {
             cliWriteStderr(rerouteNotice + "\n")
         }
 
@@ -5772,7 +5767,7 @@ struct CMUXCLI {
                     print(prompt)
                 }
                 if let skillPath = response["skill_path"] as? String {
-                    FileHandle.standardError.write(Data("skill: \(skillPath)\n".utf8))
+                    cliWriteStderr("skill: \(skillPath)\n")
                 }
 
             case "stats", "top":
@@ -5790,6 +5785,9 @@ struct CMUXCLI {
                     break
                 }
                 print(Self.formatVMStatsLine(id: vmId, payload: response))
+
+            case "resize":
+                try runVMResizeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "pause", "resume":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
@@ -6012,7 +6010,7 @@ struct CMUXCLI {
                 Self.clearVMCreateIdempotency(idempotency)
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
@@ -6121,7 +6119,7 @@ struct CMUXCLI {
                 print("  snapshot: \(snapshotId ?? "native fork")")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -6164,7 +6162,7 @@ struct CMUXCLI {
                 print("Restored Cloud VM \(id)")
                 try vmOpenShell(
                     id: id,
-                    workspaceName: "vm:\(id)",
+                    workspaceName: nil,
                     windowRaw: targetWindow,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
@@ -6253,7 +6251,7 @@ struct CMUXCLI {
                 }
                 try vmOpenShell(
                     id: vmId,
-                    workspaceName: "vm:\(vmId)",
+                    workspaceName: nil,
                     windowRaw: windowOpt ?? windowId,
                     forceSSH: true,
                     shouldPinWorkspaceToTop: false,
@@ -12692,6 +12690,17 @@ struct CMUXCLI {
 
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
+        if remoteRelayPort != nil {
+            // Relay-controlled input is delivered to the local OpenSSH PTY.
+            // Disable OpenSSH escape commands so a remote caller cannot turn
+            // `surface.send_text`/`send_key` into `~!` local command execution,
+            // suspend the SSH client, or enter its local command line.
+            let resolver = SSHAgentSocketResolver()
+            merged = resolver.removingOptions(named: "EscapeChar", from: merged)
+            merged = resolver.removingOptions(named: "EnableEscapeCommandline", from: merged)
+            merged.append("EscapeChar=none")
+            merged.append("EnableEscapeCommandline=no")
+        }
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
             merged.append("StrictHostKeyChecking=accept-new")
         }
@@ -14116,6 +14125,7 @@ struct CMUXCLI {
         var attempt = 0
         let maxAttempts = 8
         while true {
+            try ensureCloudFeatureEnabledForPty()
             let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
             let startedAt = Date()
             var bridgeError: Error?
@@ -14146,7 +14156,7 @@ struct CMUXCLI {
                 ),
                 attempt
             )
-            FileHandle.standardError.write(Data("\r\n\(reconnectingLine)\r\n".utf8))
+            cliWriteStderr("\r\n\(reconnectingLine)\r\n")
             Thread.sleep(forTimeInterval: min(pow(2.0, Double(attempt - 1)), 15))
             do {
                 config = try mintVMPtyReconnectConfig(
@@ -14196,7 +14206,6 @@ struct CMUXCLI {
             attachmentId: endpoint.attachmentId
         )
     }
-
     private func runVMPtyConnect(commandArgs: [String]) throws {
         // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
         // pre-minted config, before any socket gate could refuse it, so it
@@ -14207,6 +14216,7 @@ struct CMUXCLI {
                 defaultValue: "Cloud Machines are disabled by your administrator."
             ))
         }
+        try ensureCloudFeatureEnabledForPty()
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -14229,7 +14239,6 @@ struct CMUXCLI {
         }()
         try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
-
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session")
@@ -17369,41 +17378,13 @@ struct CMUXCLI {
         }
 
         if subcommand == "download" {
-            let sid = try requireSurface()
-            let argsForDownload: [String]
-            if subArgs.first?.lowercased() == "wait" {
-                argsForDownload = Array(subArgs.dropFirst())
-            } else {
-                argsForDownload = subArgs
-            }
-
-            let (pathOpt, rem1) = parseOption(argsForDownload, name: "--path")
-            let (timeoutMsOpt, rem2) = parseOption(rem1, name: "--timeout-ms")
-            let (timeoutSecOpt, rem3) = parseOption(rem2, name: "--timeout")
-
-            var params: [String: Any] = ["surface_id": sid]
-            if let path = pathOpt ?? nonFlagArgs(rem3).first {
-                params["path"] = path
-            }
-            if let timeoutMsOpt {
-                guard let timeoutMs = Int(timeoutMsOpt) else {
-                    throw CLIError(message: "--timeout-ms must be an integer")
-                }
-                params["timeout_ms"] = timeoutMs
-            } else if let timeoutSecOpt {
-                guard let seconds = Double(timeoutSecOpt) else {
-                    throw CLIError(message: "--timeout must be a number")
-                }
-                params["timeout_ms"] = max(1, Int(seconds * 1000.0))
-            }
-
-            let defaultDownloadWaitTimeoutMs = 10_000
-            let maxDownloadWaitTimeoutMs = 120_000
-            let requestedTimeoutMs = (params["timeout_ms"] as? Int) ?? defaultDownloadWaitTimeoutMs
-            let effectiveTimeoutMs = min(requestedTimeoutMs, maxDownloadWaitTimeoutMs)
-            let responseTimeout = Double(max(1, effectiveTimeoutMs)) / 1000.0 + 5.0
-            let payload = try client.sendV2(method: "browser.download.wait", params: params, responseTimeout: responseTimeout)
-            output(payload, fallback: "OK")
+            try runBrowserDownloadCommand(
+                surfaceRaw: surfaceRaw,
+                subArgs: subArgs,
+                client: client,
+                jsonOutput: effectiveJSONOutput,
+                idFormat: effectiveIDFormat
+            )
             return
         }
 
@@ -18355,8 +18336,12 @@ struct CMUXCLI {
                 localized: "cli.cloud.domains.helpDescription",
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
+            let resizeDescription = String(
+                localized: "cli.vm.resize.helpDescription",
+                defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
+            )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -18367,6 +18352,7 @@ struct CMUXCLI {
             and can require one macOS approval. Missing tunnel support fails closed.
 
             Subcommands:
+              guide | --skill           \(Self.guideDescription)
               ls                        List your cloud VMs.
               domains                   \(domainsDescription)
               workspace new <machine> [--name <name>] [--reuse]
@@ -18465,6 +18451,8 @@ struct CMUXCLI {
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
               stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
+              resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
+                                        \(resizeDescription)
               tui <id> [--window <id|ref|index>]
                                         Open a workspace attached through the machine's
                                         cmux-tui remote daemon (enrolls this Mac on first use).
@@ -20368,7 +20356,7 @@ struct CMUXCLI {
                 nth: [--index <n> | <n>] [--selector <css> | <css>]
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
-              download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
               profiles <list|add|rename|clear|delete> [...]
               import [--interactive|--non-interactive|-y|--yes] [--from <browser>] [--profile <name>] [--all-profiles] [--to-profile <name|uuid>] [--create-profile] [--domain <domain>]
               \(String(localized: "cli.browser.cookies.help", defaultValue: "cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--http-only] [--all]"))
@@ -20977,7 +20965,6 @@ struct CMUXCLI {
                 }
             }
         }
-
         return RightSidebarCLIArguments(
             positional: positional,
             workspace: workspace,
@@ -20985,7 +20972,6 @@ struct CMUXCLI {
             noFocus: noFocus
         )
     }
-
     private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
@@ -21969,6 +21955,8 @@ struct CMUXCLI {
         if let tty = surface["tty"] as? String, !tty.isEmpty {
             parts.append("tty=\(tty)")
         }
+        if let health = surface["render_health"] as? String,
+           health == "awaiting_frame" || health == "not_rendering" || health == "shell_exited" { parts.append("[\(health)]") }
         if surfaceType.lowercased() == "browser",
            let url = surface["url"] as? String,
            !url.isEmpty {
@@ -41289,6 +41277,8 @@ export default CMUXSessionRestore;
           --password takes precedence, then CMUX_SOCKET_PASSWORD, then the password saved in Settings.
 
         Agent Help:
+          cmux guide | cmux --skill
+          cmux cloud guide | cmux cloud --skill
           Change cmux settings with `cmux docs settings` and `cmux settings path`; add Dock controls with `cmux docs dock`.
           Before editing, back up any existing cmux.json file to a timestamped .bak copy.
           Use printed curl commands to fetch the latest docs/schema; prefer Ghostty config for terminal behavior Ghostty already supports.
@@ -41296,6 +41286,7 @@ export default CMUXSessionRestore;
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
         Commands:
+          guide | --skill
           welcome
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
@@ -41333,7 +41324,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|self|status|stats|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
@@ -41479,7 +41470,7 @@ export default CMUXSessionRestore;
           browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
-          browser download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
           browser profiles <list|add|rename|clear|delete> [...]
           browser profiles clear <profile|--all> [--force]
           browser import [...]

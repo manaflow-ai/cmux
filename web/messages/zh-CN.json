@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
-      "team": "团队"
+      "team": "团队",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "加载中…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -1231,7 +1250,7 @@
       "plusButtonScreenshotAlt": "cmux 加号按钮右键菜单显示 Worktree Agents、New Terminal 和 New Browser",
       "plusButtonScreenshotCaption": "右键菜单遵循 ui.newWorkspace.contextMenu 中的顺序。",
       "newWorkspaceButton": "加号按钮的自定义动作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。",
       "newWorkspaceWorktreeNote": "此示例让普通加号点击运行 <action>worktree-agents</action> 操作。来自 <commands>commands</commands> 的工作区命令会先使用可见的设置终端创建 Git <worktree>worktree</worktree>。Codex 和 Claude 同时启动，等待该工作区专用的状态文件，然后在 exec 前进入创建的目录。",
       "simpleCommands": "简单命令",
       "simpleCommandsDesc": "简单命令在当前聚焦的终端中运行 shell 命令：",
@@ -3868,5 +3887,12 @@
         "action": "管理方案"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "电子邮件",
+    "emailUnavailable": "电子邮件地址不可用",
+    "organization": "组织",
+    "personalAccount": "个人账户",
+    "switchAccountButton": "使用其他账号"
   }
 }

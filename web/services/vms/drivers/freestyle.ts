@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
   type AttachTransport,
@@ -45,7 +46,9 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -141,7 +144,6 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
-
 /**
  * Every guest command the driver runs is administrative — systemd, sudoers, the
  * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
@@ -195,8 +197,8 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch: typeof fetch = (input, init) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
+  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
+    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -889,7 +891,7 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
-  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
 
   /** ``create`` honors requested memory through the grow-only size ladder. */
@@ -905,6 +907,24 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+  }
+
+  async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
+    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), async () => {
+      const key = parseSshPublicKey(publicKey);
+      const vm = this.deps.client().vms.ref(vmId);
+      const data = await vm.data();
+      const host = freestylePortAddress(data, vmId);
+      const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
+      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
+      if (!result || result.exitCode !== 0) {
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      }
+      let hostPublicKey: string;
+      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
+      return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
+    });
   }
 
   async create(options: CreateOptions): Promise<VMHandle> {
@@ -964,7 +984,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId, options.promptIdentity);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
@@ -1153,7 +1173,7 @@ export class FreestyleProvider implements VMProvider {
           const vm = fs.vms.ref(vmId);
           const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
           const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
-          if (current?.exitCode !== 0) await this.installGuestCli(vm);
+          if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1328,7 +1348,7 @@ export class FreestyleProvider implements VMProvider {
           // remains best-effort for a transient resume race. The new machine's
           // edge rule is supplied inline, so its route is still fail-closed.
           try {
-            await this.installGuestCli(vm);
+            await this.installGuestCli(vm, vmId);
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
@@ -1383,22 +1403,24 @@ export class FreestyleProvider implements VMProvider {
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
+          const promptSetup = options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "";
           let bundleResult = await this.execResult(
             vm,
-            cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
+            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
             DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
           );
           let healed = false;
           if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
-            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+            bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
             // The healthy fast path skips the heal, so this is where a machine
             // that predates hook installation gets its Claude Code and Codex
             // hooks (best effort inside).
             await this.ensureAgentHooks(vm, vmId);
+            await this.ensureResourceReporter(vm, vmId);
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1580,7 +1602,7 @@ export class FreestyleProvider implements VMProvider {
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string, installGuestCli = true): Promise<void> {
     // Keep the shim present even when the baked daemon is already healthy.
-    if (installGuestCli) await this.installGuestCli(vm);
+    if (installGuestCli) await this.installGuestCli(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) {
       await this.ensureAgentHooks(vm, vmId);
@@ -1635,6 +1657,15 @@ export class FreestyleProvider implements VMProvider {
     await this.execOrThrow(vm, vmId, cmuxTuiAgentHooksInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
   }
 
+  /** Advisory telemetry must not prevent the machine or its CLI from working. */
+  private async ensureResourceReporter(vm: Vm, vmId: string): Promise<void> {
+    try {
+      await this.execOrThrow(vm, vmId, guestResourceReporterInstallCommand(), 5_000);
+    } catch (error) {
+      console.warn(`[freestyle] ${vmId}: resource reporter not installed: ${errorMessage(error)}`);
+    }
+  }
+
   /**
    * Installs the in-VM `cmux` shim with an upload-then-rename. The temporary
    * path avoids following a pre-existing `/usr/local/bin/cmux` symlink and the
@@ -1642,12 +1673,13 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm): Promise<void> {
+  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`,
+        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+          + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });
@@ -1659,6 +1691,7 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
+    await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

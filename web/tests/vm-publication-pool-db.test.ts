@@ -27,15 +27,15 @@ describe("publication authorization capacity", () => {
       await held;
     });
     await ready;
-    let backgroundFinished = false;
-    void background.then(
-      () => { backgroundFinished = true; },
-      () => { backgroundFinished = true; },
-    );
     try {
-      await publicationDatabaseRuntime()
-        .then(runtime => runtime.runPromise(Effect.flatMap(Database, db => db.execute(sql`select 1`))));
-      expect(backgroundFinished).toBe(false);
+      const runtime = await publicationDatabaseRuntime();
+      const completed = await runtime.runPromise(
+        Effect.flatMap(Database, db => db.execute(sql`select 1`)).pipe(
+          Effect.as(true),
+          Effect.timeout("1 second"),
+        ),
+      );
+      expect(completed).toBe(true);
     } finally {
       release();
       await background;

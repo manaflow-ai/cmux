@@ -614,51 +614,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
-    func testVMDevSyncPushesTheFolderBeforeBuildingTheWorkspace() throws {
-        let fixture = try vmDevFixture("site", files: [
-            "package.json": #"{"scripts": {"dev": "vite"}}"#,
-            "src/main.ts": "console.log('hi')\n",
-            "node_modules/left-pad/index.js": "module.exports = 1\n",
-        ])
+    func testVMDevSyncDoesNotBuildTheWorkspaceWhenSCPPreparationFails() throws {
+        let fixture = try vmDevFixture("site", files: ["package.json": #"{"scripts":{"dev":"vite"}}"#])
         defer { try? FileManager.default.removeItem(at: fixture.root) }
-        let sink = VMDevPushSink()
-        let summary = Self.vmDevJSONText(Self.vmDevApplySummary)
         let (result, log) = try runVMDev(
-            "vm-dev-sync",
-            arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--no-open"],
-            home: fixture.home
-        ) { method, params in
+            "vm-dev-sync", arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--no-open"], home: fixture.home
+        ) { method, _ in
             switch method {
             case "vm.status": return ["status": "running"]
-            case "vm.exec":
-                let command = (params["command"] as? String) ?? ""
-                if command.contains("cmux layout apply") {
-                    return ["exit_code": 0, "stdout": summary, "stderr": ""]
-                }
-                if command.contains("| base64 -d >>"), let chunk = Self.vmDevBase64Payload(inCommand: command) {
-                    sink.append(chunk)
-                    return ["exit_code": 0, "stdout": "", "stderr": ""]
-                }
-                if command.contains("sha256sum") {
-                    return ["exit_code": 0, "stdout": "\(sink.digest())  /tmp/staging\n", "stderr": ""]
-                }
-                return ["exit_code": 0, "stdout": "", "stderr": ""]
-            case "vm.tree": return ["machines": [["id": "brave-otter", "remote_workspaces": []]], "resources": []]
+            case "vm.scp_info": return [:] // Missing authenticated host key is a hard failure.
             default: return nil
             }
         }
-        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        let commands = log.execCommands()
-        // The push (init, chunks, digest, extract into the remote path) runs before the
-        // workspace exists; the layout apply is the last exec.
-        let extractIndex = try XCTUnwrap(commands.firstIndex { $0.contains("tar -xzf") && $0.contains("-C work/site") }, commands.description)
-        let applyIndex = try XCTUnwrap(commands.firstIndex { $0.contains("cmux layout apply") })
-        XCTAssertLessThan(extractIndex, applyIndex)
-        let applyExecIndex = try XCTUnwrap(log.methods.lastIndex(of: "vm.exec"))
-        let lastPushExecIndex = try XCTUnwrap(log.methods.indices.filter { log.methods[$0] == "vm.exec" }.dropLast().last)
-        XCTAssertLessThan(lastPushExecIndex, applyExecIndex, "every push exec precedes layout apply: \(log.methods)")
-        XCTAssertTrue(result.stdout.contains("synced 2 files → brave-otter:work/site"), "node_modules is excluded by the push defaults: \(result.stdout)")
-        XCTAssertTrue(result.stdout.contains("dev: npm install && npm run dev (port 5173)"), result.stdout)
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertTrue(result.stderr.contains("verified SSH host key"), result.stderr)
+        XCTAssertTrue(log.methods.contains("vm.scp_info"), log.methods.description)
+        XCTAssertFalse(log.methods.contains("vm.exec"), "a failed upload must not start the workspace")
     }
 
     // MARK: - Failing early

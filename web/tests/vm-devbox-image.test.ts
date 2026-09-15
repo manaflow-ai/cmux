@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+declare const Bun: {
+  readonly TOML: { parse(input: string): unknown };
+};
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -104,6 +108,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -119,6 +124,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -165,7 +171,7 @@ describe("devbox image template", () => {
   });
 
   test("every shell file parses", () => {
-    for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-terminfo.sh"]) {
+    for (const name of ["cmux-bashrc", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }

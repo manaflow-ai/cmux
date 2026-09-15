@@ -15,11 +15,11 @@ import Foundation
 // and false for desktop/port opens; the catalog never activates the app either way.
 extension TerminalController {
     private nonisolated func cloudDisabledSocketError(id: Any?) -> String? {
-        guard ManagedDevicePolicy().isEnforced(.disableCloud) else { return nil }
+        guard ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() else { return nil }
         return v2Error(
             id: id,
             code: "cloud_disabled",
-            message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator.")
+            message: CloudMachinesFeature.disabledMessage
         )
     }
 
@@ -101,11 +101,11 @@ extension TerminalController {
 
     // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
 
-    /// `vm.tree {id?, refresh?}`: the catalog payload restricted to cloud machines.
     nonisolated func socketWorkerVMTreeResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
+        if Self.surfaceBool(params["sidebar"]) == true { return socketWorkerCloudSidebarResponse(id: id, params: params) }
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {
@@ -192,8 +192,8 @@ extension TerminalController {
     /// `vm.desktop_open {id, workspace_id?, focus?, …dest}` → `{surface_id, workspace_id, url, open_url}`;
     /// an empty object when the machine has no desktop.
     nonisolated func socketWorkerVMDesktopOpenResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open requires `id`. Run `cmux vm ls` to find one.")
@@ -225,8 +225,8 @@ extension TerminalController {
 
     /// `vm.port_open {id, port, workspace_id?, …dest}` → `{surface_id, workspace_id, url, open_url}`.
     nonisolated func socketWorkerVMPortOpenResponse(id: Any?, params: [String: Any]) -> String {
-        if ManagedDevicePolicy().isEnforced(.disableCloud) {
-            return v2Error(id: id, code: "cloud_disabled", message: String(localized: "cloud.managed.disabled", defaultValue: "Cloud Machines are disabled by your administrator."))
+        if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
+            return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
         }
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.port_open requires `id`. Run `cmux vm ls` to find one.")
@@ -958,40 +958,6 @@ extension TerminalController {
     /// Creates a terminal on `machine` through its provider and, when a destination is given,
     /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
     /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
-    nonisolated static func surfaceNewTerminal(
-        machine: SurfaceMachineID,
-        command: [String]?,
-        cwd: String?,
-        name: String?,
-        remoteWorkspaceID: String?,
-        destination: SurfaceDestination?,
-        focus: Bool
-    ) async throws -> [String: Any] {
-        let catalog = await SurfaceCatalog.shared
-        guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
-        var payload: [String: Any] = [
-            "resource": resource.id.rawValue,
-            "terminal_id": resource.id.key,
-            "machine": machine.rawValue,
-            "remote_workspace_id": resource.remoteWorkspace?.id ?? NSNull(),
-        ]
-        if let destination {
-            let opened = try await catalog.project(
-                resource.id,
-                into: destination,
-                focus: focus,
-                reuseExisting: false,
-                remoteView: resource.remoteViews?.count == 1 ? resource.remoteViews?.first : nil
-            )
-            payload["workspace_id"] = opened.projection.workspaceID.uuidString
-            payload["surface_id"] = opened.projection.panelID.uuidString
-        }
-        return payload
-    }
-
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
     /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
     /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected
