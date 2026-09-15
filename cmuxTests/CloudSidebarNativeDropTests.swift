@@ -10,6 +10,42 @@ import Testing
 @MainActor
 @Suite("Cloud folder native drops")
 struct CloudSidebarNativeDropTests {
+    @Test("A projection-capable terminal can reorder inside its parent without opening a pane")
+    func terminalOrganizationKeepsProjectionCapability() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = fixture.snapshot()
+        var resource = snapshot.resources[0]
+        let originalView = try #require(resource.remoteViews?.first)
+        resource.remoteViews?.append(SurfaceRemoteView(tabID: "tab_other", workspace: originalView.workspace))
+        let resources = [resource] + Array(snapshot.resources.dropFirst())
+        _ = fixture.catalog.replaceResources(resources, on: fixture.machine, info: snapshot.machines[0], from: fixture.provider)
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: fixture.catalog.snapshot, localWorkspaces: [], includeLocalMachine: false
+        )
+        let coordinator = fixture.coordinator
+        coordinator.apply(nodes: nodes)
+        let outline = try #require(coordinator.outlineView)
+        let parent = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") })
+        let ids = parent.children.map(\.id)
+        #expect(ids.count == 2)
+        let source = try #require(parent.children.last)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        let writer = try #require(coordinator.outlineView(outline, pasteboardWriterForItem: source))
+        #expect(board.writeObjects([writer]))
+        #expect(fixture.transferRegistry.resolve(from: board) != nil)
+        let session = CloudSidebarDraggingSession(pasteboard: board)
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
+        #expect(parent.children.map(\.id) == Array(ids.reversed()))
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
+        coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
+        #expect(fixture.transferRegistry.resolve(from: board) == nil)
+    }
+
     @Test("Cloud reorder draws the left sidebar line and clears rejected and exited destinations")
     func sidebarIndicatorLifecycle() throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -68,7 +104,9 @@ struct CloudSidebarNativeDropTests {
         #expect(coordinator.deferredNodes == nil)
         let current = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
         #expect(current.children.map(\.searchableTitle) == (accepted ? ["fresh-2", "fresh-1"] : ["fresh-1", "fresh-2"]))
-        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.allSatisfy { $0.isHidden })
+        let indicators = outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }
+        let indicatorsHidden = indicators.allSatisfy { $0.isHidden }
+        #expect(indicatorsHidden)
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
     }
 
@@ -157,9 +195,18 @@ struct CloudSidebarNativeDropTests {
         coordinator.apply(nodes: fixture.nodes(titles: ["new-1", "new-2", "new-3"]))
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
+        let acceptedAt = ContinuousClock.now
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
         let optimistic = try #require(CloudSidebarOrganizationTree(nodes: coordinator.nodes).parent(of: source.id))
         #expect(optimistic.children.map(\.id) == [ids[2], ids[0], ids[1]], "Accepted drops update the outline before endedAt")
+        let displayedFolders = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CloudTreeNode }
+            .filter { ids.contains($0.id) }.map(\.id)
+        #expect(displayedFolders == [ids[2], ids[0], ids[1]], "Native rows must match before the source completes")
+        let elapsed = acceptedAt.duration(to: .now)
+        #if compiler(>=6.2)
+        Attachment.record("\(elapsed)", named: "accepted-drop-to-visible-order.txt")
+        #endif
+        #expect(coordinator.isDragging, "Immediate presentation does not release the live source capability")
         #expect(coordinator.deferredNodes == nil)
         coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
         #expect(!coordinator.isDragging)

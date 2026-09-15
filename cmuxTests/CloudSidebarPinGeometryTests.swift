@@ -28,12 +28,12 @@ struct CloudSidebarPinGeometryTests {
         #expect(abs(large.maxX - small.maxX) <= 1)
     }
 
-    @Test("Narrow pinned folders retain the full accessible title and selection")
-    func longFolderTitle() throws {
+    @Test("Pinned folders retain the full accessible title and selection", arguments: [220.0, 380.0], [false, true])
+    func longFolderTitle(width: Double, hovered: Bool) throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let title = "workspace-with-a-long-name-that-must-truncate-visually"
-        fixture.window.setContentSize(NSSize(width: 220, height: 560))
+        fixture.window.setContentSize(NSSize(width: width, height: 560))
         fixture.coordinator.apply(nodes: fixture.nodes(titles: [title, "workspace-2"]))
         #expect(fixture.coordinator.organize(.pin, nodeID: fixture.folderID("ws_1")))
         let outline = try #require(fixture.coordinator.outlineView)
@@ -41,12 +41,13 @@ struct CloudSidebarPinGeometryTests {
         let row = outline.row(forItem: folder)
         outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         let cell = try #require(outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(hovered)
         #expect(cell.accessibilityLabel() == title)
         #expect(folder.isPinned)
         #expect(outline.selectedRow == row)
-        try fixture.attachScreenshot(named: "pinned-long-folder-narrow-selected")
+        try fixture.attachScreenshot(named: "pinned-long-folder-\(Int(width))-hover-\(hovered)-selected")
         outline.deselectAll(nil)
-        try fixture.attachScreenshot(named: "pinned-long-folder-narrow-unselected")
+        try fixture.attachScreenshot(named: "pinned-long-folder-\(Int(width))-hover-\(hovered)-unselected")
     }
 
     @Test("Disclosure and hosted identity stay compact in the real outline")
@@ -62,6 +63,90 @@ struct CloudSidebarPinGeometryTests {
         let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
         let gap = outline.convert(host.bounds, from: host).minX - outline.frameOfOutlineCell(atRow: row).maxX
         #expect(gap >= 0 && gap <= 4, "Rendered disclosure-to-content gap: \(gap)")
+    }
+
+    @Test("Reused native workspace cells keep the pin on the leading edge", arguments: [false, true], [false, true])
+    func reusedCellLeadingPin(selected: Bool, hovered: Bool) throws {
+        for width in [220.0, 380.0] {
+            try checkReusedCell(width: width, selected: selected, hovered: hovered)
+        }
+    }
+
+    private func checkReusedCell(width: Double, selected: Bool, hovered: Bool) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 560))
+        fixture.coordinator.apply(nodes: fixture.nodes(titles: ["x", "workspace-2"]))
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(
+            CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first {
+                $0.id == fixture.folderID("ws_1")
+            }
+        )
+        let row = outline.row(forItem: folder)
+        if selected {
+            outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        } else {
+            outline.deselectAll(nil)
+        }
+        let cell = try #require(
+            outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? CloudTreeCellView
+        )
+        cell.setHovered(hovered)
+        fixture.container.layoutSubtreeIfNeeded()
+        let unpinned = try render(cell, node: folder, fixture: fixture)
+        folder.isPinned = true
+        let pinned = try render(cell, node: folder, fixture: fixture)
+        let pixels = try #require(differenceBounds(unpinned, pinned))
+        let scale = CGFloat(pinned.pixelsWide) / cell.bounds.width
+        let change = CGRect(x: pixels.minX / scale, y: pixels.minY / scale, width: pixels.width / scale, height: pixels.height / scale)
+        // A leading pin shifts only the compact identity cluster. A trailing
+        // accessory would put changed pixels at the far edge of this short row.
+        #expect(change.minX < 80)
+        #expect(change.maxX < 100, "Pin/content changes must stay in the leading identity cluster: \(change)")
+        #expect(cell.accessibilityLabel() == "x")
+        let state = "\(Int(width))-selected-\(selected)-hover-\(hovered)"
+        #if compiler(>=6.2)
+        Attachment.record(try #require(unpinned.representation(using: .png, properties: [:])), named: "native-unpinned-\(state).png")
+        Attachment.record(try #require(pinned.representation(using: .png, properties: [:])), named: "native-pinned-\(state).png")
+        Attachment.record("pin-change-bounds-points: \(change)", named: "native-pin-measurement-\(state).txt")
+        #endif
+
+        folder.isPinned = false
+        let restored = try render(cell, node: folder, fixture: fixture)
+        #expect(restored.tiffRepresentation == unpinned.tiffRepresentation)
+    }
+
+    private func render(
+        _ cell: CloudTreeCellView,
+        node: CloudTreeNode,
+        fixture: CloudSidebarOrderingFixture
+    ) throws -> NSBitmapImageRep {
+        cell.configure(node: node, machineActions: fixture.coordinator.machineActions, nodeActions: fixture.coordinator.nodeActions)
+        cell.layoutSubtreeIfNeeded()
+        cell.displayIfNeeded()
+        let bitmap = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+        cell.cacheDisplay(in: cell.bounds, to: bitmap)
+        return bitmap
+    }
+
+    private func differenceBounds(_ lhs: NSBitmapImageRep, _ rhs: NSBitmapImageRep) throws -> CGRect? {
+        guard lhs.pixelsWide == rhs.pixelsWide, lhs.pixelsHigh == rhs.pixelsHigh else { return nil }
+        var bounds: CGRect?
+        for y in 0..<lhs.pixelsHigh {
+            for x in 0..<lhs.pixelsWide {
+                guard let a = lhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      let b = rhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let delta = abs(a.redComponent - b.redComponent)
+                    + abs(a.greenComponent - b.greenComponent)
+                    + abs(a.blueComponent - b.blueComponent)
+                    + abs(a.alphaComponent - b.alphaComponent)
+                guard delta > 0.18 else { continue }
+                let point = CGRect(x: x, y: y, width: 1, height: 1)
+                bounds = bounds.map { $0.union(point) } ?? point
+            }
+        }
+        return bounds
     }
 
     private func contentBounds(width: Double, pinned: Bool, percent: Int) throws -> CGRect {

@@ -58,6 +58,8 @@ extension CloudTreeOutlineView.Coordinator {
 
     /// Internal moves never cross a parent or pin partition. In particular, a
     /// folder drag must not become a remote tab.move and detach a running pane.
+    /// Projection-capable leaves also reorder here; their export capability is
+    /// consumed only by pane destinations, never by this organization action.
     private func organizationDrop(_ outlineView: NSOutlineView, info: any NSDraggingInfo,
                                   item: Any?, index: Int) -> CloudSidebarOrganizationDrop? {
         guard let source = info.draggingSource as? NSOutlineView, source === outlineView,
