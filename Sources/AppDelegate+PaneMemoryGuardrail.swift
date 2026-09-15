@@ -23,7 +23,7 @@ extension AppDelegate {
         }
     }
 
-    private func startMemoryPressureMonitorIfNeeded() {
+    func startMemoryPressureMonitorIfNeeded() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
