@@ -12,6 +12,59 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeveloperSettingsReplaysWhatsNewRange() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let replayRow = app.buttons["MobileSettingsReplayWhatsNew"]
+        for _ in 0..<10 where !replayRow.exists || !replayRow.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(replayRow.isHittable)
+        tap(replayRow, in: app)
+        let show = app.buttons["MobileWhatsNewReplayShow"]
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        capture("Developer What's New range picker")
+        tap(show, in: app)
+        let continueButton = app.buttons["MobileWhatsNewContinue"]
+        XCTAssertTrue(continueButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["On this iPhone"].exists)
+        capture("Developer replay - pairing sheet")
+        app.staticTexts["On this iPhone"].swipeLeft()
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        capture("Developer replay - older sheet after swipe")
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+
+        let first = app.buttons["MobileWhatsNewReplayFirst"]
+        tap(first, in: app)
+        tap(app.buttons["connections.v1"].firstMatch, in: app)
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["On this iPhone"].exists)
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+        tap(show, in: app)
+        XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
+        tap(continueButton, in: app)
+        XCTAssertTrue(show.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
