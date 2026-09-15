@@ -44,7 +44,7 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-private struct WorkspaceGroupNewWorkspaceTarget {
+struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
     let placement: WorkspaceGroupNewPlacement
