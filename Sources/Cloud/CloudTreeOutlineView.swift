@@ -115,8 +115,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
-            pending.transferRegistry.end(pending.registration)
-            SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
+            pending.registration.end()
         }
         private func discardAllPendingDrags(
             preserving preservedWriter: CloudTreeSurfaceDragPasteboardWriter? = nil
@@ -157,8 +156,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             supersededDragSequenceNumber = activeDragSequenceNumber
             if let activeDrag {
                 self.activeDrag = nil
-                activeDrag.transferRegistry.end(activeDrag.registration)
-                SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+                activeDrag.end()
             }
             activeDragWriter?.releaseSourceGraph()
             activeDragWriter = nil
@@ -196,8 +194,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             if let activeDrag {
                 self.activeDrag = nil
-                activeDrag.transferRegistry.end(activeDrag.registration)
-                SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+                activeDrag.end()
             }
             activeDragWriter?.releaseSourceGraph()
             activeDragWriter = nil
@@ -228,7 +225,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
-            if isDragging {
+            apply(nodes: nodes, allowDuringNativeDrag: false)
+        }
+
+        /// Applies a snapshot immediately after a destination accepted a drop.
+        /// AppKit's source session may send `endedAt` later, but the destination
+        /// is complete and the user should see the new order now.
+        func applyOrganization(nodes: [CloudTreeNode]) {
+            deferredNodes = nil
+            apply(nodes: nodes, allowDuringNativeDrag: true)
+        }
+
+        private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
+            if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
                 return
             }
@@ -838,37 +847,28 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? CloudTreeNode, node.isDragSource || node.canOrganize,
-                  let group = node.dragGroup, let lead = group.resources.first,
-                  let transferRegistry = tabDragTransferRegistry() else { return nil }
+            guard let node = item as? CloudTreeNode,
+                  let registration = CloudTreeDragRegistration(
+                    node: node, registry: node.isDragSource ? tabDragTransferRegistry() : nil
+                  ) else { return nil }
             // Do not mutate the outline while AppKit is asking for this
             // writer. The `willBeginAt` callback below is the next native
             // boundary and performs any superseded-source reclamation after
             // this data-source callback has returned.
-            let dragID = SurfaceResourceDragRegistry.shared.register(group)
-            guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
-                .register(with: transferRegistry) else {
-                SurfaceResourceDragRegistry.shared.discard(id: dragID)
-                return nil
-            }
             let writer = CloudTreeSurfaceDragPasteboardWriter(
-                dragID: dragID,
                 registration: registration,
                 sourceView: outlineView,
                 coordinator: self,
-                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil,
-                exposesProjection: node.isDragSource
+                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil
             )
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
-                dragID: dragID,
                 registration: registration,
-                transferRegistry: transferRegistry,
                 sourceView: outlineView,
                 writer: writer
             )
             latestPendingDragWriter = writer
 #if DEBUG
-            cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) lead=\(lead)")
+            cmuxDebugLog("surfaces.drag.begin drag=\(registration.id.uuidString.prefix(5)) node=\(node.id)")
 #endif
             return writer
         }
@@ -923,11 +923,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             discardAllPendingDrags(preserving: pendingWriter)
             // The promoted registration was removed with the pending map;
             // retain it as the active session's sole capability.
-            activeDrag = ActiveDrag(
-                id: pending.dragID,
-                registration: pending.registration,
-                transferRegistry: pending.transferRegistry
-            )
+            activeDrag = pending.registration
             activeDragWriter = pendingWriter
             activeDragSession = session
             activeDragSourceView = outlineView as? CloudTreeNSOutlineView
@@ -1001,8 +997,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             // The registration is paired with the exact source that promoted
             // this session; do not consult a potentially rebuilt environment.
-            activeDrag.transferRegistry.end(activeDrag.registration)
-            SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+            activeDrag.end()
             self.activeDrag = nil
         }
     }
