@@ -42,7 +42,6 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
     /// the popover is painted at its right edge.
     func testNativeXCUITHoverRevealsPopoverAtPaneEdge() throws {
         let app = try launchApp(additionalLaunchArguments: ["-NSAppSleepDisabled", "YES"])
-        let sid = try openFixture("hover-popover")
         if app.state != .runningForeground {
             app.activate()
         }
@@ -50,6 +49,7 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             app.wait(for: .runningForeground, timeout: 8),
             "Expected the app to be foregrounded for native pointer routing. state=\(app.state.rawValue)"
         )
+        let sid = try openFixture("hover-popover")
 
         let browserPane = app.otherElements["BrowserPanelContent.\(sid)"].firstMatch
         XCTAssertTrue(
