@@ -195,6 +195,11 @@ private struct WorkspaceShellRenderPresentation {
     let notificationUnreadCount: Int
     let notificationFeedStatus: MobileNotificationFeedStatus
     let selectedNotificationFeedMacDeviceIDs: Set<String>?
+    let agentFeedItems: [MobileAgentFeedItem]
+    let agentFeedStatus: MobileNotificationFeedStatus
+    let agentFeedNeedsInputCount: Int
+    let agentFeedPendingReplyRequestIDs: Set<String>
+    let agentFeedPendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let toolbarMachineSnapshots: WorkspaceMachineSnapshots
     let canCreateWorkspaceForSelection: Bool
 }
@@ -423,6 +428,7 @@ struct WorkspaceShellView: View {
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
+            feedNeedsInputCount: presentation.agentFeedNeedsInputCount,
             taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
                 ? nil
                 : taskComposerAction
@@ -430,6 +436,10 @@ struct WorkspaceShellView: View {
             workspaceTabContent(
                 presentation: presentation
             )
+        } feed: {
+            NavigationStack {
+                agentFeedStoreView(for: presentation)
+            }
         } notifications: {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
@@ -940,6 +950,8 @@ struct WorkspaceShellView: View {
         let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
+            case .feed:
+                agentFeedStoreView(for: presentation)
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -958,7 +970,7 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
-            if splitSidebarDestination == .notifications {
+            if splitSidebarDestination == .notifications || splitSidebarDestination == .feed {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
@@ -1026,6 +1038,7 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
             )
         }
@@ -1051,6 +1064,7 @@ struct WorkspaceShellView: View {
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
+        let feedTitle: String
         let notificationsTitle: String
 
         var body: some View {
@@ -1059,6 +1073,11 @@ struct WorkspaceShellView: View {
                     .workspaces,
                     title: workspacesTitle,
                     accessibilityID: "MobileSplitSidebarWorkspaces"
+                )
+                destinationButton(
+                    .feed,
+                    title: feedTitle,
+                    accessibilityID: "MobileSplitSidebarFeed"
                 )
                 destinationButton(
                     .notifications,
@@ -1375,11 +1394,26 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
+            agentFeedItems: store.agentFeedItems,
+            agentFeedStatus: store.agentFeedStatus,
+            agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
+            agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
+            agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
             canCreateWorkspaceForSelection: scope.canCreateWorkspace(
                 base: canCreateWorkspace,
                 switchPending: pendingMacSwitchID != nil
             )
+        )
+    }
+
+    private func agentFeedStoreView(for presentation: WorkspaceShellRenderPresentation) -> AgentFeedStoreView {
+        AgentFeedStoreView(
+            store: store,
+            items: presentation.agentFeedItems,
+            status: presentation.agentFeedStatus,
+            pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
+            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs
         )
     }
 
@@ -1513,6 +1547,9 @@ struct WorkspaceShellView: View {
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
+        case .feed:
+            // The Feed has no search-result navigation lane yet.
+            break
         case .notifications:
             guard notificationsStackIsOnScreen else { return }
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
@@ -1589,6 +1626,7 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
+        case .feed: .feed
         case .notifications: .notifications
         case .search: .search
         }

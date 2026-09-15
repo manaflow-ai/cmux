@@ -2593,7 +2593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return .retryable
             }
-            switch controller.v2MobileTerminalPaste(params: routedParams) {
+            switch await controller.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
                 // `terminal.paste` applies the text before it attempts the
                 // named key. A false `submitted` flag is therefore a partial
@@ -11021,29 +11021,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
+        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
+              let surfaceId = notification.userInfo?["surfaceId"] as? String,
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        // Share the phone composer's literal paste and provider-aware submit
+        // key. Appending CR to paste text inserts a newline in agent editors.
+        Task { @MainActor in
+            _ = await TerminalController.shared.v2MobileTerminalPaste(params: [
+                "workspace_id": workspaceId,
+                "surface_id": surfaceId,
+                "text": text,
+                "submit_key": "return",
+            ])
         }
-        // Terminal-mode Return is CR. sendNamedKey "Return" also works
-        // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
@@ -18168,7 +18161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         Task { @MainActor [weak self] in
-            self?.notificationDelivery.handleNotificationResponse(response)
+            await self?.notificationDelivery.handleNotificationResponse(response)
             completionHandler()
         }
     }

@@ -24,6 +24,9 @@ extension WorkspaceShellView {
         switch selectedPrimaryTab {
         case .workspaces:
             return compactNavigationPath.last
+        case .feed:
+            // The Feed tab hosts no workspace detail.
+            return nil
         case .notifications:
             return notificationNavigationPath.last
         case .search:

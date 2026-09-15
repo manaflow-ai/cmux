@@ -7,14 +7,17 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
+    Feed: View,
     Notifications: View,
     Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
+    let feedNeedsInputCount: Int
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
+    let feed: Feed
     let notifications: Notifications
     let search: Search
 
@@ -22,16 +25,20 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
+        feedNeedsInputCount: Int = 0,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
+        @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
+        self.feedNeedsInputCount = feedNeedsInputCount
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
+        self.feed = feed()
         self.notifications = notifications()
         self.search = search()
     }
@@ -82,6 +89,10 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
+                feed
+                    .tabItem { feedLabel }
+                    .tag(MobilePrimaryTab.feed)
+                    .badge(feedNeedsInputCount)
                 notifications
                     .tabItem { notificationsLabel }
                     .tag(MobilePrimaryTab.notifications)
@@ -129,12 +140,27 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
+        Tab(value: MobilePrimaryTab.feed) {
+            feed
+        } label: {
+            feedLabel
+        }
+        .badge(feedNeedsInputCount)
+
         Tab(value: MobilePrimaryTab.notifications) {
             notifications
         } label: {
             notificationsLabel
         }
         .badge(notificationUnreadCount)
+    }
+
+    private var feedLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+            systemImage: "waveform"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabFeed")
     }
 
     private var workspacesLabel: some View {
