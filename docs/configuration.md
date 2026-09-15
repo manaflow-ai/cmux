@@ -120,14 +120,12 @@ on OS releases with a validated ABI; if the API or validation is unavailable,
 cmux uses a complete, de-duplicated descendant process tree. An incomplete
 listing is treated as unavailable and cannot authorize hibernation. Relative
 percentages (warning at 50% and critical at 70% of installed physical memory,
-with an optional 20%/10% available-memory corroboration) decide when to offer
-the idle-only pass. They are signals, not a memory ceiling or a limit on cmux.
+with an optional 20%/10% available-memory corroboration) decide only when to
+offer the idle-only pass. They are signals, not a memory ceiling or a limit on cmux.
 
-Memory-pressure diagnostics stay in internal logs and do not create user
-notifications. While the same complete warning or critical aggregate pressure
-remains through the existing confirmation window, cmux considers every
-currently eligible idle, non-visible agent through the ordinary lossless
-Agent Hibernation lifecycle. The scheduled
+While the same complete pressure remains through the existing
+confirmation window, cmux considers every currently eligible idle, non-visible
+agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
 routine pass retains its oldest-activity ordering; the pressure pass considers
 all eligible agents, so its encounter order does not limit or prioritize which
 agents are eligible. The existing `idle` lifecycle state, terminal-input check,

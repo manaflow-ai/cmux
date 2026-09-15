@@ -15,6 +15,8 @@ extension AgentNotificationRegressionTests {
         defer { fixture.restore() }
         let store = fixture.store
         let monitor = MemoryPressureMonitor.shared
+        let originalResponders = monitor.registry.respondersByID
+        let originalAggregatePressureCleared = monitor.onAggregatePressureCleared
         let controller = AgentHibernationController.shared
         let originalEvaluation = controller.memoryPressureEvaluation
         let originalConfirmations = controller.confirmations
@@ -29,6 +31,8 @@ extension AgentNotificationRegressionTests {
         UserDefaults.standard.set(true, forKey: reorderKey)
         defer {
             monitor.stop()
+            monitor.registry.respondersByID = originalResponders
+            monitor.onAggregatePressureCleared = originalAggregatePressureCleared
             controller.memoryPressureEvaluation?.task.cancel()
             controller.memoryPressureEvaluation = originalEvaluation
             controller.confirmations = originalConfirmations
