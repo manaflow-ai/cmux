@@ -3584,10 +3584,6 @@ impl Terminal {
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
-        let replay_rows = range.end - range.start + 1;
-        let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
-        let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
                 continue;
@@ -3603,45 +3599,14 @@ impl Terminal {
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
-                let expected_breaks =
-                    usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
-                while emitted_breaks < expected_breaks {
-                    if bytes.len().saturating_add(2) > format_max_bytes {
-                        return Ok(None);
-                    }
-                    bytes.extend_from_slice(b"\r\n");
-                    emitted_breaks = emitted_breaks.saturating_add(1);
-                }
-            }
             if placement_rows.anchors.contains(&segment_end)
                 || (insert_at_start && segment_end == range.start)
             {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
-                }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
-            }
-        }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
-            let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
-            for _ in emitted_breaks..expected_breaks {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
-                }
-                bytes.extend_from_slice(b"\r\n");
             }
         }
         if let Some(suffix) = suffix {
@@ -3776,7 +3741,10 @@ impl Terminal {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            // Replays must preserve soft-wrap continuation. The target terminal
+            // has the same width, so omitting soft-wrap breaks lets it recreate
+            // the same rows while keeping hyperlinks and plain URLs contiguous.
+            unwrap: true,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),
