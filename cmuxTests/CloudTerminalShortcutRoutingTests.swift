@@ -117,6 +117,20 @@ struct CloudTerminalShortcutRoutingTests {
         assertOnlyCloudPanelsAdded(h)
     }
 
+    @Test("Cloud reconnect clears a stale materialization card before refresh")
+    func reconnectClearsStaleMaterializationFailure() throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        h.workspace.setCloudMaterializationFailure(
+            surfaceID: h.source,
+            detail: "previous attempt failed",
+            reference: "operation=old"
+        )
+        #expect(h.workspace.cloudMaterializationFailures[h.source] != nil)
+        #expect(h.workspace.reconnectCloudTerminalSurface(surfaceId: h.source))
+        #expect(h.workspace.cloudMaterializationFailures[h.source] == nil)
+    }
+
     @Test("Explicit local materialization remains available without implicit fallback")
     func explicitLocalMaterialization() throws {
         let h = try CloudShortcutTestHarness()
