@@ -2055,6 +2055,7 @@
 		7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */; };
 		7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */; };
 		7490A0017490A0017490A001 /* MemoryPressureMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */; };
+		126510000000000000000001 /* MemoryPressureNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126510000000000000000002 /* MemoryPressureNotificationTests.swift */; };
 		7490C0057490C0057490C005 /* MemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0057490D0057490D005 /* MemoryPressureResponder.swift */; };
 		7490C0067490C0067490C006 /* MemoryPressureResponderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0067490D0067490D006 /* MemoryPressureResponderRegistry.swift */; };
 		7490C0097490C0097490C009 /* MemoryPressureSeverity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0097490D0097490D009 /* MemoryPressureSeverity.swift */; };
@@ -5805,6 +5806,7 @@
 		7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintThresholds.swift; sourceTree = "<group>"; };
 		7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureMonitor.swift; sourceTree = "<group>"; };
 		7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureMonitorTests.swift; sourceTree = "<group>"; };
+		126510000000000000000002 /* MemoryPressureNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureNotificationTests.swift; sourceTree = "<group>"; };
 		7490D0057490D0057490D005 /* MemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureResponder.swift; sourceTree = "<group>"; };
 		7490D0067490D0067490D006 /* MemoryPressureResponderRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureResponderRegistry.swift; sourceTree = "<group>"; };
 		7490D0097490D0097490D009 /* MemoryPressureSeverity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureSeverity.swift; sourceTree = "<group>"; };
@@ -10929,6 +10931,7 @@
 					A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */,
 					6313FACE0000000000000001 /* PaneMemoryGuardrailTests.swift */,
 					7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */,
+					126510000000000000000002 /* MemoryPressureNotificationTests.swift */,
 					C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */,
 				46438523E2764A18B697CC4B /* ManagedPolicySettingsImportTests.swift */,
 				F0128D58A0B34955A144D263 /* ManagedPolicyRemoteControlTests.swift */,
@@ -15281,6 +15284,7 @@
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,
 					7490A0017490A0017490A001 /* MemoryPressureMonitorTests.swift in Sources */,
+					126510000000000000000001 /* MemoryPressureNotificationTests.swift in Sources */,
 				606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */,
 					C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */,
 				6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */,
