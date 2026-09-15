@@ -43,6 +43,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         return base + min(max(jitterUnitInterval, 0), 1) * base * 0.25
     }
 
+    private nonisolated static var hostReleaseTrack: String {
+        #if DEBUG
+        return "dev"
+        #else
+        return (Bundle.main.bundleIdentifier ?? "").contains("nightly") ? "nightly" : "stable"
+        #endif
+    }
+
     enum SettingsPhase: Equatable { case idle, activating, active, failed }
     private let managedDevicePolicy: ManagedDevicePolicy
     private let pairingEnabled: @MainActor () -> Bool
@@ -338,7 +346,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     accountID: scope.session.accountID,
                     identityGeneration: device.identityGeneration,
                     appVersion: device.metadata.appVersion,
-                    releaseTrack: "default"),
+                    releaseTrack: Self.hostReleaseTrack),
                 identity: LegacyCompatibilityService.compatibilityIdentity(from: identity),
                 accessTokenPair: { [weak auth] in
                     guard let auth else { return nil }
