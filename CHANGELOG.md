@@ -2,6 +2,23 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.24] - 2026-09-15
+
+### Changed
+- CLI authorization now lets you switch accounts without losing the original confirmation request.
+- Terminal panes keep their committed renderer and PTY size until pane or window geometry settles, preventing garbled TUI output during resize.
+
+### Fixed
+- Codex `--yolo` no longer calls the removed `cmux_codex_resume_session_id` helper -- thanks @mgol for the report!
+- Computer Use onboarding and preference notifications no longer deadlock.
+- New configurations leave the Runaway Memory Guardrail disabled by default while preserving explicit opt-ins.
+
+### Thanks to 3 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@mgol](https://github.com/mgol)
+
 ## [0.64.23] - 2026-09-14
 
 ### Added

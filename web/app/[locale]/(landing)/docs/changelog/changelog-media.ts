@@ -26,6 +26,26 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.24": {
+    title: "CLI Account Switching, Reliable Terminal Resizing, Codex Startup Fixes",
+    features: [
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "Change the browser account during CLI authorization while keeping the original confirmation request intact.",
+      },
+      {
+        title: "Stable Terminal Resizing",
+        description:
+          "Terminal panes keep their committed renderer and PTY size until pane or window geometry settles, so TUI output stays intact while you resize.",
+      },
+      {
+        title: "Cleaner Agent Startup",
+        description:
+          "Codex no longer calls a removed resume helper, and Computer Use onboarding and preference notifications no longer deadlock.",
+      },
+    ],
+  },
   "0.64.23": {
     title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
     features: [
