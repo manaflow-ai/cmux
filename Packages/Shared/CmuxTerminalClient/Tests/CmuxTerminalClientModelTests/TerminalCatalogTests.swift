@@ -25,6 +25,18 @@ import Testing
         }
     }
 
+    @Test func workspaceListDecodesWrappedRows() throws {
+        let json = Data(#"{"workspaces":[{"id":"ws_1","name":"Project","root":"/home/ubuntu/project"}]}"#.utf8)
+        let workspaces = try TerminalCatalogDecoding.workspaces(fromListResult: json)
+        #expect(workspaces == [RemoteWorkspaceSummary(id: "ws_1", name: "Project", root: "/home/ubuntu/project")])
+        #expect(workspaces[0].preferredName == "Project")
+    }
+
+    @Test func createReturnsTheWorkspaceID() throws {
+        let json = Data(#"{"value":{"kind":"workspace","workspace_id":"ws_new"}}"#.utf8)
+        #expect(try TerminalCatalogDecoding.createdWorkspaceID(fromCreateResult: json) == "ws_new")
+    }
+
     @Test func outputEventsMapKindsAndRejectUnknownOnes() {
         #expect(TerminalOutputEvent(kind: 1, bytes: Data([0x24]), cols: 80, rows: 24) == .snapshot(replay: Data([0x24]), cols: 80, rows: 24))
         #expect(TerminalOutputEvent(kind: 2, bytes: Data([0x41]), cols: 0, rows: 0) == .output(Data([0x41])))
@@ -33,4 +45,3 @@ import Testing
         #expect(TerminalOutputEvent(kind: 9, bytes: Data(), cols: 0, rows: 0) == nil)
     }
 }
-

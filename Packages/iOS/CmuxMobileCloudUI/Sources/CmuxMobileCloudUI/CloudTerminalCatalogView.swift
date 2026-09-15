@@ -28,6 +28,12 @@ struct CloudTerminalCatalogView: View {
         }
         .navigationTitle(machine.preferredName)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: CloudTerminalRoute.self) { route in
+            CloudTerminalScreen(machine: route.machine, terminal: route.terminal, controller: controller)
+        }
+        .navigationDestination(for: CloudWorkspaceRoute.self) { route in
+            CloudWorkspaceDetailView(machine: route.machine, workspace: route.workspace, controller: controller)
+        }
         .task(id: controller.tunnel) {
             if connection == nil { connection = controller.connection(for: machine) }
         }
@@ -37,6 +43,7 @@ struct CloudTerminalCatalogView: View {
 /// The catalog list for a resolved connection.
 struct CloudTerminalCatalogContent: View {
     @State var connection: CloudMachineConnection
+    var workspaceID: String? = nil
 
     var body: some View {
         List {
@@ -48,6 +55,7 @@ struct CloudTerminalCatalogContent: View {
             default:
                 terminalsSection
             }
+            workspacesSection
             createSection
         }
         .listStyle(.insetGrouped)
@@ -57,7 +65,10 @@ struct CloudTerminalCatalogContent: View {
 
     private var terminalsSection: some View {
         Section {
-            let terminals = connection.terminals.elements
+            let terminals = connection.terminals.elements.filter { terminal in
+                guard let workspaceID else { return true }
+                return terminal.workspaceID == workspaceID
+            }
             if terminals.isEmpty {
                 Text(L10n.string("mobile.cloud.terminals.empty", defaultValue: "No terminals yet. Create one below."))
                     .foregroundStyle(.secondary)
@@ -70,6 +81,38 @@ struct CloudTerminalCatalogContent: View {
             }
         } header: {
             Text(L10n.string("mobile.cloud.terminals.header", defaultValue: "Terminals"))
+        }
+    }
+
+    private var workspacesSection: some View {
+        Section {
+            let workspaces = connection.workspaces.elements
+            if workspaces.isEmpty {
+                Text(L10n.string("mobile.cloud.workspaces.empty", defaultValue: "No remote workspaces yet."))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(workspaces) { workspace in
+                    NavigationLink(value: CloudWorkspaceRoute(machine: connection.machine, workspace: workspace)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(workspace.preferredName)
+                            if let root = workspace.root {
+                                Text(root).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            Button {
+                Task { await connection.createWorkspace() }
+            } label: {
+                HStack {
+                    Label(L10n.string("mobile.cloud.workspaces.new", defaultValue: "New remote workspace"), systemImage: "plus")
+                    if connection.isCreatingWorkspace { Spacer(); ProgressView() }
+                }
+            }
+            .disabled(connection.isCreatingWorkspace)
+        } header: {
+            Text(L10n.string("mobile.cloud.workspaces.header", defaultValue: "Remote workspaces"))
         }
     }
 
@@ -108,6 +151,63 @@ struct CloudTerminalCatalogContent: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("CloudTerminalsLoading")
+    }
+}
+
+/// Workspace detail uses the same terminal surface as the machine catalog,
+/// while retaining the remote workspace identity for direct VM operations.
+struct CloudWorkspaceDetailView: View {
+    let machine: CloudMachine
+    let workspace: CloudWorkspaceSummary
+    let controller: CloudSessionController
+    @State private var connection: CloudMachineConnection?
+
+    var body: some View {
+        Group {
+            if let connection {
+                CloudTerminalCatalogContent(connection: connection, workspaceID: workspace.id)
+            } else if case .ready = controller.tunnel {
+                ProgressView()
+            } else {
+                CloudTunnelUnavailableView()
+            }
+        }
+        .navigationTitle(workspace.preferredName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: controller.tunnel) {
+            if connection == nil { connection = controller.connection(for: machine) }
+        }
+    }
+}
+
+/// The shared workspace-list picker surface when a Cloud machine is selected
+/// in the shell's computer picker. It keeps the same terminal and workspace
+/// rows as the machine detail, while the VM identity remains direct.
+public struct CloudWorkspacePickerList: View {
+    let machine: CloudMachine
+    let controller: CloudSessionController
+    @State private var connection: CloudMachineConnection?
+
+    public init(machine: CloudMachine, controller: CloudSessionController) {
+        self.machine = machine
+        self.controller = controller
+    }
+
+    public var body: some View {
+        Group {
+            if let connection {
+                CloudTerminalCatalogContent(connection: connection)
+            } else if case .ready = controller.tunnel {
+                ProgressView()
+            } else {
+                CloudTunnelUnavailableView()
+            }
+        }
+        .navigationTitle(machine.preferredName)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: controller.tunnel) {
+            if connection == nil { connection = controller.connection(for: machine) }
+        }
     }
 }
 #endif

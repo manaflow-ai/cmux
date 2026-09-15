@@ -14,6 +14,18 @@ public struct CloudTerminalRoute: Hashable, Sendable {
     }
 }
 
+/// A remote workspace projected from a Cloud machine. The machine id and
+/// workspace id are retained together so navigation never routes through Mac.
+public struct CloudWorkspaceRoute: Hashable, Sendable {
+    public var machine: CloudMachine
+    public var workspace: CloudWorkspaceSummary
+
+    public init(machine: CloudMachine, workspace: CloudWorkspaceSummary) {
+        self.machine = machine
+        self.workspace = workspace
+    }
+}
+
 /// The whole Cloud flow in its own navigation stack: section, catalog,
 /// terminal. Presented full screen from ``CloudEntryRow``.
 ///
@@ -56,6 +68,9 @@ public struct CloudFlowView: View {
                 }
                 .navigationDestination(for: CloudTerminalRoute.self) { route in
                     CloudTerminalScreen(machine: route.machine, terminal: route.terminal, controller: controller)
+                }
+                .navigationDestination(for: CloudWorkspaceRoute.self) { route in
+                    CloudWorkspaceDetailView(machine: route.machine, workspace: route.workspace, controller: controller)
                 }
         }
         .onAppear { controller.sectionDidAppear() }

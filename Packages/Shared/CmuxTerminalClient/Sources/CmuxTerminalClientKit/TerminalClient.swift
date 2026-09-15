@@ -127,6 +127,26 @@ public final class TerminalClient: @unchecked Sendable {
         return try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: Data(bytes: text, count: strlen(text)))
     }
 
+    public func listWorkspaces(timeout: Duration = .seconds(15)) throws -> [RemoteWorkspaceSummary] {
+        var error = [CChar](repeating: 0, count: 1024)
+        guard let text = cmux_terminal_client_list_workspaces(raw, &error, error.count, timeout.milliseconds) else {
+            throw TerminalClientError.failed(String(cString: error))
+        }
+        defer { cmux_terminal_client_string_free(text) }
+        return try TerminalCatalogDecoding.workspaces(fromListResult: Data(bytes: text, count: strlen(text)))
+    }
+
+    /// Creates a remote workspace with one starter terminal and returns its id.
+    public func createWorkspace(name: String? = nil, timeout: Duration = .seconds(15)) throws -> String {
+        var error = [CChar](repeating: 0, count: 1024)
+        let text = name.withOptionalCString { namePointer in
+            cmux_terminal_client_create_workspace(raw, namePointer, &error, error.count, timeout.milliseconds)
+        }
+        guard let text else { throw TerminalClientError.failed(String(cString: error)) }
+        defer { cmux_terminal_client_string_free(text) }
+        return try TerminalCatalogDecoding.createdWorkspaceID(fromCreateResult: Data(bytes: text, count: strlen(text)))
+    }
+
     public func attach(terminalID: String, timeout: Duration = .seconds(15)) throws {
         var error = [CChar](repeating: 0, count: 1024)
         guard cmux_terminal_client_attach_with_timeout(raw, terminalID, &error, error.count, timeout.milliseconds) else {

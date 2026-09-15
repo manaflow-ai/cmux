@@ -2826,6 +2826,78 @@ pub unsafe extern "C" fn cmux_terminal_client_create_terminal(
     }
 }
 
+/// Lists the daemon's remote workspaces as returned by `workspace.list`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_list_workspaces(
+    client: *mut CmuxTerminalClient,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    let result = client
+        .resource_operation(
+            "workspace.list",
+            serde_json::Map::new(),
+            false,
+            timeout_from_millis(timeout_milliseconds),
+        )
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Creates a remote workspace. The optional name is sent as the workspace
+/// title; the daemon owns the workspace identity and root path.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_create_workspace(
+    client: *mut CmuxTerminalClient,
+    name: *const c_char,
+    error_buffer: *mut c_char,
+    error_capacity: usize,
+    timeout_milliseconds: u64,
+) -> *mut c_char {
+    if client.is_null() {
+        copy_utf8("client is null", error_buffer, error_capacity);
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller guarantees a live handle.
+    let client = unsafe { &*client };
+    // SAFETY: null is permitted; otherwise NUL-terminated per the contract.
+    let name = match unsafe { optional_str_from_ffi(name, "name") } {
+        Ok(name) => name,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            return std::ptr::null_mut();
+        }
+    };
+    let mut params = serde_json::Map::new();
+    params.insert("initial_content".into(), json!("terminal"));
+    if let Some(name) = name {
+        params.insert("name".into(), json!(name));
+    }
+    let result = client
+        .resource_operation("workspace.create", params, true, timeout_from_millis(timeout_milliseconds))
+        .and_then(|value| json_to_c_string(&value));
+    match result {
+        Ok(text) => text,
+        Err(error) => {
+            copy_utf8(&error, error_buffer, error_capacity);
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Frees a string returned by this library.
 ///
 /// # Safety

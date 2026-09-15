@@ -1,4 +1,5 @@
 import CmuxMobilePairedMac
+import CmuxMobileCloudUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -139,6 +140,9 @@ struct WorkspaceListView: View {
     /// workspace refreshes cannot recreate the native search presentation.
     var searchText = ""
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
+    #if os(iOS)
+    @Environment(\.cloudSessionController) private var cloudSessionController
+    #endif
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     /// Presents the view-options card (sort tiles + filter rows).
@@ -533,11 +537,23 @@ struct WorkspaceListView: View {
             uniquingKeysWith: { first, _ in first }
         )
         #if os(iOS)
-        let baseList = workspaceTable(
-            groupedItems: currentDisplayedGroupedListItems,
-            workspacesByID: currentWorkspacesByID
-        )
-            .modifier(WorkspaceListBarUnderlap())
+        let baseList: AnyView
+        if let selectedCloudMachine, let cloudSessionController {
+            baseList = AnyView(
+                CloudWorkspacePickerList(
+                    machine: selectedCloudMachine,
+                    controller: cloudSessionController
+                )
+            )
+        } else {
+            baseList = AnyView(
+                workspaceTable(
+                    groupedItems: currentDisplayedGroupedListItems,
+                    workspacesByID: currentWorkspacesByID
+                )
+                .modifier(WorkspaceListBarUnderlap())
+            )
+        }
         #else
         let baseList = List {
             switch connectionChrome {

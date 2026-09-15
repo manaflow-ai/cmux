@@ -146,6 +146,17 @@ char *cmux_terminal_client_create_terminal(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+char *cmux_terminal_client_list_workspaces(
+    CmuxTerminalClient *client,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
+char *cmux_terminal_client_create_workspace(
+    CmuxTerminalClient *client,
+    const char *name,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 void cmux_terminal_client_string_free(char *text);
 
 // Input functions copy their input before returning. A false result means the

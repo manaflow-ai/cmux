@@ -16,11 +16,32 @@ public struct CloudTerminalSummary: Sendable, Equatable, Identifiable, Hashable 
     public var id: String
     /// The terminal's name, when it has one.
     public var name: String?
+    public var workspaceID: String?
 
     /// Creates a row.
-    public init(id: String, name: String? = nil) {
+    public init(id: String, name: String? = nil, workspaceID: String? = nil) {
         self.id = id
         self.name = name
+        self.workspaceID = workspaceID
+    }
+}
+
+/// A workspace owned by a Cloud daemon. Its machine id is carried separately
+/// by `CloudMachineConnection`, so this id is stable across clients.
+public struct CloudWorkspaceSummary: Sendable, Equatable, Identifiable, Hashable {
+    public var id: String
+    public var name: String?
+    public var root: String?
+
+    public init(id: String, name: String? = nil, root: String? = nil) {
+        self.id = id
+        self.name = name
+        self.root = root
+    }
+
+    public var preferredName: String {
+        if let name, !name.isEmpty { return name }
+        return root?.split(separator: "/").last.map(String.init) ?? id
     }
 }
 
@@ -40,6 +61,10 @@ public enum CloudTerminalOutputEvent: Sendable, Equatable {
 ///
 /// Methods block on the link, so conformers run them off the main actor.
 public protocol CloudTerminalSession: AnyObject, Sendable {
+    /// The daemon's remote workspaces.
+    func listWorkspaces() async throws -> [CloudWorkspaceSummary]
+    /// Creates a workspace with one starter terminal and returns its id.
+    func createWorkspace(name: String?) async throws -> String
     /// The daemon's terminals.
     func listTerminals() async throws -> [CloudTerminalSummary]
     /// Creates a workspace holding one terminal and returns the terminal id.
@@ -55,6 +80,13 @@ public protocol CloudTerminalSession: AnyObject, Sendable {
     func resize(cols: Int, rows: Int)
     /// Closes the link.
     func disconnect()
+}
+
+public extension CloudTerminalSession {
+    func listWorkspaces() async throws -> [CloudWorkspaceSummary] { [] }
+    func createWorkspace(name: String?) async throws -> String {
+        throw CloudAPIError.malformedResponse("remote workspace creation is unavailable")
+    }
 }
 
 /// Opens links with a persistent device identity.

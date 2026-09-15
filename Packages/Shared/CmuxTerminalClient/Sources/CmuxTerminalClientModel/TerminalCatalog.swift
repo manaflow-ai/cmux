@@ -5,10 +5,31 @@ public import Foundation
 public struct TerminalSummary: Sendable, Equatable, Codable {
     public var id: String
     public var name: String?
+    public var workspaceID: String?
 
-    public init(id: String, name: String? = nil) {
+    public init(id: String, name: String? = nil, workspaceID: String? = nil) {
         self.id = id
         self.name = name
+        self.workspaceID = workspaceID
+    }
+}
+
+/// A workspace owned by the remote cmux daemon. This is the stable identity
+/// used by Cloud clients when they project a workspace locally.
+public struct RemoteWorkspaceSummary: Sendable, Equatable, Codable, Identifiable {
+    public var id: String
+    public var name: String?
+    public var root: String?
+
+    public init(id: String, name: String? = nil, root: String? = nil) {
+        self.id = id
+        self.name = name
+        self.root = root
+    }
+
+    public var preferredName: String {
+        if let name, !name.isEmpty { return name }
+        return root?.split(separator: "/").last.map(String.init) ?? id
     }
 }
 
@@ -19,6 +40,35 @@ public struct TerminalCatalogDecoding {
     /// `terminal.list` returns an array of terminal snapshots.
     public static func terminals(fromListResult data: Data) throws -> [TerminalSummary] {
         try JSONDecoder().decode([TerminalSummary].self, from: data)
+    }
+
+    /// `workspace.list` is returned as `{ "workspaces": [...] }` by the
+    /// cmux protocol. A bare array is accepted for older daemons.
+    public static func workspaces(fromListResult data: Data) throws -> [RemoteWorkspaceSummary] {
+        if let wrapped = try? JSONDecoder().decode(WorkspaceListResponse.self, from: data) {
+            return wrapped.workspaces
+        }
+        return try JSONDecoder().decode([RemoteWorkspaceSummary].self, from: data)
+    }
+
+    /// Extracts the workspace id from `workspace.create`'s mutation result.
+    public static func createdWorkspaceID(fromCreateResult data: Data) throws -> String {
+        struct MutationResult: Decodable {
+            struct CreatedPath: Decodable {
+                var kind: String?
+                var workspace_id: String?
+            }
+            var value: CreatedPath?
+        }
+        let result = try JSONDecoder().decode(MutationResult.self, from: data)
+        guard let id = result.value?.workspace_id, !id.isEmpty else {
+            throw TerminalCatalogError.missingCreatedWorkspace
+        }
+        return id
+    }
+
+    private struct WorkspaceListResponse: Decodable {
+        var workspaces: [RemoteWorkspaceSummary]
     }
 
     /// `workspace.create` with `initial_content: terminal` returns
@@ -42,6 +92,7 @@ public struct TerminalCatalogDecoding {
 
 public enum TerminalCatalogError: Error, Equatable, Sendable {
     case missingCreatedTerminal
+    case missingCreatedWorkspace
 }
 
 /// Raw output kinds, mirroring `CMUX_TERMINAL_OUTPUT_*` in the C header.

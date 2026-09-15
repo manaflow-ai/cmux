@@ -37,6 +37,13 @@ public final class CloudSessionController {
     /// presentation modifier on a list row does not present reliably.
     public var isFlowPresented = false
 
+    /// Cloud machines selected for the shared Computers/workspace picker.
+    /// A fresh install shows every machine. Once the user changes one switch,
+    /// the selected set is persisted locally and survives relaunches.
+    public var visibleMachines: [CloudMachine] {
+        machines.elements.filter(isMachineVisible)
+    }
+
     private let service: any CloudVMServing
     private let identityResolver: CloudDeviceIdentityResolver
     private let tunnelStarter: any CloudTunnelStarting
@@ -44,6 +51,8 @@ public final class CloudSessionController {
     private let stateDirectory: URL
     private let deviceName: String
     private let approvalClock: any Clock<Duration>
+    private let visibilityDefaults: UserDefaults
+    private let visibilityDefaultsKey = "mobile.cloud.visibleMachineIDs.v1"
 
     private var liveTunnel: (any CloudTunnel)?
     private var identity: CloudDeviceIdentity?
@@ -71,7 +80,8 @@ public final class CloudSessionController {
         stateDirectory: URL,
         deviceName: String,
         approvalClock: any Clock<Duration> = ContinuousClock(),
-        systemVPN: CloudSystemVPNController? = nil
+        systemVPN: CloudSystemVPNController? = nil,
+        visibilityDefaults: UserDefaults = .standard
     ) {
         self.service = service
         self.identityResolver = CloudDeviceIdentityResolver(store: identityStore)
@@ -81,6 +91,7 @@ public final class CloudSessionController {
         self.deviceName = deviceName
         self.approvalClock = approvalClock
         self.systemVPN = systemVPN
+        self.visibilityDefaults = visibilityDefaults
     }
 
     // MARK: - Lifecycle
@@ -179,6 +190,27 @@ public final class CloudSessionController {
     }
 
     // MARK: - Machines
+
+    /// Returns whether a machine is included in the shared computer picker.
+    public func isMachineVisible(_ machine: CloudMachine) -> Bool {
+        guard let stored = visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String] else {
+            return true
+        }
+        return stored.contains(machine.id)
+    }
+
+    /// Includes or excludes a Cloud machine from the shared picker. The
+    /// default state is all machines visible, so the first toggle materializes
+    /// the current catalog before applying the user's change.
+    public func setMachineVisible(_ machine: CloudMachine, visible: Bool) {
+        var ids = Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? machines.elements.map(\.id))
+        if visible {
+            ids.insert(machine.id)
+        } else {
+            ids.remove(machine.id)
+        }
+        visibilityDefaults.set(Array(ids).sorted(), forKey: visibilityDefaultsKey)
+    }
 
     /// Reload the machine list.
     public func refreshMachines() {

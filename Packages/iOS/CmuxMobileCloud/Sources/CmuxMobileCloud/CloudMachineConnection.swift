@@ -16,6 +16,10 @@ public final class CloudMachineConnection {
     public let machine: CloudMachine
     /// The catalog.
     public private(set) var terminals: CloudListPhase<CloudTerminalSummary> = .idle
+    /// The daemon's remote workspaces.
+    public private(set) var workspaces: CloudListPhase<CloudWorkspaceSummary> = .idle
+    /// Whether a remote workspace is being created.
+    public private(set) var isCreatingWorkspace = false
     /// Whether a terminal is being created.
     public private(set) var isCreatingTerminal = false
     /// The most recent create/attach error, cleared on the next success.
@@ -62,14 +66,34 @@ public final class CloudMachineConnection {
             guard let self else { return }
             do {
                 let session = try await connectedSession()
-                let rows = try await session.listTerminals()
+                async let terminalRows = session.listTerminals()
+                async let workspaceRows = session.listWorkspaces()
+                let (rows, workspaceRowsValue) = try await (terminalRows, workspaceRows)
                 guard !Task.isCancelled else { return }
                 self.terminals = .loaded(rows)
+                self.workspaces = .loaded(workspaceRowsValue)
                 self.lastError = nil
             } catch {
                 guard !Task.isCancelled else { return }
                 self.terminals = .failed(CloudSessionFailure.classify(error, stage: .link), previous: self.terminals.elements)
+                self.workspaces = .failed(CloudSessionFailure.classify(error, stage: .link), previous: self.workspaces.elements)
             }
+        }
+    }
+
+    /// Create a remote workspace with a starter terminal.
+    @discardableResult
+    public func createWorkspace(name: String? = nil) async -> String? {
+        isCreatingWorkspace = true
+        defer { isCreatingWorkspace = false }
+        do {
+            let id = try await connectedSession().createWorkspace(name: name)
+            lastError = nil
+            refreshTerminals()
+            return id
+        } catch {
+            lastError = CloudSessionFailure.classify(error, stage: .link)
+            return nil
         }
     }
 

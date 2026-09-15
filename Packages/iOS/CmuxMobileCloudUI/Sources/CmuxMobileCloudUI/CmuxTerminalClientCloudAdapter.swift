@@ -63,8 +63,18 @@ final class KitSession: CloudTerminalSession, @unchecked Sendable {
 
     init(client: TerminalClient) { self.client = client }
 
+    func listWorkspaces() async throws -> [CloudWorkspaceSummary] {
+        try client.listWorkspaces().map { CloudWorkspaceSummary(id: $0.id, name: $0.name, root: $0.root) }
+    }
+
+    func createWorkspace(name: String?) async throws -> String {
+        try client.createWorkspace(name: name)
+    }
+
     func listTerminals() async throws -> [CloudTerminalSummary] {
-        try client.listTerminals().map { CloudTerminalSummary(id: $0.id, name: $0.name) }
+        try client.listTerminals().map {
+            CloudTerminalSummary(id: $0.id, name: $0.name, workspaceID: $0.workspaceID)
+        }
     }
 
     func createTerminal(name: String?) async throws -> String {
