@@ -5231,6 +5231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isVisible: Bool
         let workspaceCount: Int
         let selectedWorkspaceId: UUID?
+        /// The workspace-set window name, when the window has one. Stable across
+        /// relaunches, unlike `windowId`, so another machine can address the window by it.
+        let name: String?
+        let frame: NSRect?
     }
 
     struct WindowMoveTarget: Identifiable {
@@ -5265,9 +5269,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isKeyWindow: window?.isKeyWindow ?? false,
                 isVisible: window?.isVisible ?? false,
                 workspaceCount: ctx.tabManager.tabs.count,
-                selectedWorkspaceId: ctx.tabManager.selectedTabId
+                selectedWorkspaceId: ctx.tabManager.selectedTabId,
+                name: ctx.windowSetName,
+                frame: window?.frame
             )
         }
+    }
+
+    /// Name a main window (nil or empty clears it). Returns false when no such window.
+    func setMainWindowName(windowId: UUID, name: String?) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+            return false
+        }
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            context.windowSetName = nil
+        } else {
+            restoreWindowSetName(trimmed, to: context)
+        }
+        return true
+    }
+
+    /// Move and resize a main window. Returns false when no such window.
+    func setMainWindowFrame(windowId: UUID, frame: NSRect) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+              let window = context.window ?? windowForMainWindowId(windowId) else {
+            return false
+        }
+        window.setFrame(frame, display: true)
+        return true
     }
 
     /// Every tmux session currently claimed by an open workspace, across all windows.

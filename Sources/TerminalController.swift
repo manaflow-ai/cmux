@@ -2093,6 +2093,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WindowFocus(params: params))
         case "window.create":
             return v2Result(id: id, self.v2WindowCreate(params: params))
+        case "window.set_name":
+            return v2Result(id: id, self.v2WindowSetName(params: params))
+        case "window.set_frame":
+            return v2Result(id: id, self.v2WindowSetFrame(params: params))
         case "window.close":
             return v2Result(id: id, self.v2WindowClose(params: params))
 
@@ -2894,6 +2898,8 @@ class TerminalController {
             "workspace_count": workspaceNodes.count,
             "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
             "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "name": v2OrNull(summary.name),
+            "frame": v2FramePayload(summary.frame),
             "workspaces": workspaceNodes
         ]
     }
@@ -2987,6 +2993,9 @@ class TerminalController {
             "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
+            "current_directory": v2OrNull(workspace.currentDirectory),
+            "custom_color": v2OrNull(workspace.customColor),
+            "instance_index": workspace.instanceIndex,
             "panes": panes
         ]
     }
@@ -3303,7 +3312,9 @@ class TerminalController {
                 "visible": item.isVisible,
                 "workspace_count": item.workspaceCount,
                 "selected_workspace_id": v2OrNull(item.selectedWorkspaceId?.uuidString),
-                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: item.selectedWorkspaceId)
+                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: item.selectedWorkspaceId),
+                "name": v2OrNull(item.name),
+                "frame": v2FramePayload(item.frame)
             ]
         }
         return .ok(["windows": payload])
@@ -3338,9 +3349,18 @@ class TerminalController {
             ])
     }
 
-    private func v2WindowCreate(params _: [String: Any]) -> V2CallResult {
+    private func v2WindowCreate(params: [String: Any]) -> V2CallResult {
+        let name = v2RawString(params, "name")
+        let frame = v2FrameParam(params["frame"])
+        if params["frame"] != nil && frame == nil {
+            return .err(code: "invalid_params", message: "frame must be {x, y, width, height}", data: nil)
+        }
         guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
             return .err(code: "internal_error", message: "Failed to create window", data: nil)
+        }
+        v2MainSync {
+            if let name { _ = AppDelegate.shared?.setMainWindowName(windowId: windowId, name: name) }
+            if let frame { _ = AppDelegate.shared?.setMainWindowFrame(windowId: windowId, frame: frame) }
         }
         // The new window should become key, but setActiveTabManager defensively.
         if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
@@ -3350,6 +3370,49 @@ class TerminalController {
             "window_id": windowId.uuidString,
             "window_ref": v2Ref(kind: .window, uuid: windowId)
         ])
+    }
+
+    private func v2FrameParam(_ raw: Any?) -> NSRect? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        func number(_ key: String) -> Double? {
+            (dict[key] as? NSNumber)?.doubleValue
+        }
+        guard let x = number("x"), let y = number("y"),
+              let width = number("width"), let height = number("height"),
+              width > 0, height > 0 else { return nil }
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func v2FramePayload(_ frame: NSRect?) -> Any {
+        guard let frame else { return NSNull() }
+        return ["x": frame.origin.x, "y": frame.origin.y, "width": frame.width, "height": frame.height]
+    }
+
+    /// Name or rename a window, so a second machine can match it by name. `name: null` clears.
+    private func v2WindowSetName(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let name = v2RawString(params, "name")
+        let found = v2MainSync { AppDelegate.shared?.setMainWindowName(windowId: windowId, name: name) } ?? false
+        guard found else {
+            return .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+        }
+        return .ok(["window_id": windowId.uuidString, "name": v2OrNull(name)])
+    }
+
+    private func v2WindowSetFrame(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let frame = v2FrameParam(params["frame"]) else {
+            return .err(code: "invalid_params", message: "frame must be {x, y, width, height}", data: nil)
+        }
+        let found = v2MainSync { AppDelegate.shared?.setMainWindowFrame(windowId: windowId, frame: frame) } ?? false
+        guard found else {
+            return .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
+        }
+        return .ok(["window_id": windowId.uuidString])
     }
 
     private func v2WindowClose(params: [String: Any]) -> V2CallResult {
@@ -3385,7 +3448,8 @@ class TerminalController {
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
-            "custom_color": v2OrNull(workspace.customColor)
+            "custom_color": v2OrNull(workspace.customColor),
+            "instance_index": workspace.instanceIndex
         ]
         if let index {
             payload["index"] = index
