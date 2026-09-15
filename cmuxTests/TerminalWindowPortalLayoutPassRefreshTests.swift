@@ -73,8 +73,9 @@ extension TerminalWindowPortalLifecycleTests {
         let endTarget = NSSize(width: 220, height: 150)
         anchor.setFrameSize(endTarget)
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            surface.hostedView.surfaceView.frame.size != committedRendererSize
+        }, "The resize-end pass must publish the final renderer geometry")
         let rendererSizeAfterEnd = surface.hostedView.surfaceView.frame.size
         XCTAssertNotEqual(rendererSizeAfterEnd, committedRendererSize)
 
@@ -84,8 +85,10 @@ extension TerminalWindowPortalLifecycleTests {
         let settledTarget = NSSize(width: 196, height: 132)
         anchor.setFrameSize(settledTarget)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            surface.hostedView.frame.size == settledTarget &&
+                surface.hostedView.surfaceView.frame.size != rendererSizeAfterEnd
+        })
 
         XCTAssertEqual(surface.hostedView.frame.size, settledTarget)
         XCTAssertNotEqual(
@@ -141,8 +144,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) { surface.debugForceRefreshCount() > 0 })
         XCTAssertGreaterThan(
             surface.debugForceRefreshCount(),
             0,

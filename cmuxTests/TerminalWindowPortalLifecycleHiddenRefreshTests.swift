@@ -373,8 +373,10 @@ extension TerminalWindowPortalLifecycleTests {
         )
         anchor.setFrameSize(finalTarget)
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            surface.hostedView.frame.size == finalTarget &&
+                surface.hostedView.surfaceView.frame.size != committedRendererSize
+        }, "Resize end must commit the final pane and renderer geometry")
 
         XCTAssertEqual(surface.hostedView.frame.size, finalTarget)
         XCTAssertNotEqual(
