@@ -418,8 +418,7 @@ jobs:
     name: GhosttyKit release check
     permissions:
       contents: read
-    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
-    # workflow_dispatch keeps the same guard available for explicit CI runs.
+    # Validate the pinned dependency before any selected platform build.
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -2689,10 +2688,14 @@ jobs:
               if data["result"] not in allowed
           }
 
-          for name in ("changes", "workflow-guard-tests", "linux-preflight", "tests"):
+          for name in ("changes", "workflow-guard-tests", "ghosttykit-release-check", "linux-preflight", "tests"):
               if needs.get(name, {}).get("result") != "success":
                   bad[name] = needs.get(name, {}).get("result", "missing")
+
           routes = needs.get("changes", {}).get("outputs", {})
+          if "true" in (routes.get("web"), routes.get("macos")):
+              if needs.get("diff-sidecar-check", {}).get("result") != "success":
+                  bad["diff-sidecar-check"] = needs.get("diff-sidecar-check", {}).get("result", "missing")
           for name, route in {
               "web-typecheck": "web",
               "web-production-build": "web",
