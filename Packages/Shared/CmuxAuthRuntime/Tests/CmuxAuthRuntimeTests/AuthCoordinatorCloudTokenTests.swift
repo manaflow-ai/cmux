@@ -37,6 +37,35 @@ import Testing
         await #expect(throws: AuthError.unauthorized) { try await coordinator.currentTokens() }
     }
 
+    @Test(arguments: [false, true])
+    func cloudBootstrapWaitEndsWithoutCancellingStartup(cancel: Bool) async throws {
+        let entered = TestPhaseSignal()
+        let release = TestPhaseSignal()
+        let clock = ManualTestClock()
+        let coordinator = makeCoordinator(
+            client: FakeAuthClient(), timeout: .seconds(2), clock: clock,
+            isTokenStorageAvailable: {
+                await entered.markStarted()
+                await release.waitUntilStarted()
+                return true
+            }
+        )
+        coordinator.start()
+        let caller = Task { try await coordinator.currentTokens() }
+        await entered.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        if cancel {
+            caller.cancel()
+            await #expect(throws: CancellationError.self) { try await caller.value }
+        } else {
+            clock.advance(by: .seconds(2))
+            await #expect(throws: AuthError.timedOut) { try await caller.value }
+        }
+        await release.markStarted()
+        await coordinator.awaitBootstrapped()
+        #expect(!coordinator.isAuthenticated)
+    }
+
     @Test func cancelledCloudCallerDoesNotReturnCredentials() async throws {
         let client = FakeAuthClient(access: "access", refresh: "refresh")
         let coordinator = makeCoordinator(client: client)
@@ -97,7 +126,7 @@ import Testing
         #expect(deadline.hasExpired())
     }
 
-    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock(), launch: AuthLaunchOptions = .plain()) -> AuthCoordinator {
+    private func makeCoordinator(client: any AuthClient, timeout: Duration = .seconds(1), clock: any Clock<Duration> = ContinuousClock(), launch: AuthLaunchOptions = .plain(), isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true }) -> AuthCoordinator {
         let store = FakeKeyValueStore()
         return AuthCoordinator(
             client: client,
@@ -105,7 +134,8 @@ import Testing
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "team"),
             anchor: FakeAnchor(), config: .test, launch: launch,
-            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout), clock: clock
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(1), network: timeout), clock: clock,
+            isTokenStorageAvailable: isTokenStorageAvailable
         )
     }
 }

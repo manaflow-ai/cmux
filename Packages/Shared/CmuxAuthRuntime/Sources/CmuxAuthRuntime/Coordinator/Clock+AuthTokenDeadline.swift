@@ -5,6 +5,7 @@ extension Clock where Duration == Swift.Duration {
         let end = now.advanced(by: duration)
         return AuthTokenDeadline(
             hasExpired: { self.now >= end },
+            remaining: { max(.zero, self.now.duration(to: end)) },
             wait: { try await self.sleep(until: end, tolerance: nil) }
         )
     }

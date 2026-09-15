@@ -10,8 +10,20 @@ extension AuthCoordinator {
     ///   when available storage has no recoverable session.
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         try Task.checkCancellation()
-        return try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
+        let deadline = clock.authTokenDeadline(after: timeouts.network)
+        // Bootstrap owns sign-in, which joins existing token work. Waiting for
+        // bootstrap is read-only and must stay outside that ownership registry.
+        try await withAuthPhaseTimeout(
+            .accessToken, duration: timeouts.network, clock: clock, log: log,
+            registry: phaseTimeoutRegistry,
+            blocksRetriesWhileTimedOutOperationActive: false,
+            deadline: deadline
+        ) {
             await self.awaitBootstrapped()
+        }
+        try Task.checkCancellation()
+        guard !deadline.hasExpired() else { throw AuthError.timedOut }
+        return try await runTokenTouchingPhase(.accessToken, timeout: deadline.remaining()) {
             return try await self.captureCloudTokens()
         }
     }
