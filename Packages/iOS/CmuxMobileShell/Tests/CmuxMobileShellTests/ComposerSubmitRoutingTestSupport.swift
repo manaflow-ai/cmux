@@ -40,6 +40,8 @@ actor RoutingHostRouter {
     struct PasteRecord: Sendable {
         var surfaceID: String
         var text: String
+        var workspaceID: String? = nil
+        var submitKey: String? = nil
     }
     struct AttachmentUploadRecord: Sendable {
         var fileName: String
@@ -57,6 +59,11 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private var feedPasteSubmitted = true
+
+    func setFeedPasteSubmitted(_ submitted: Bool) {
+        feedPasteSubmitted = submitted
+    }
     private(set) var attachmentUploads: [AttachmentUploadRecord] = []
     private var rejectAttachmentUpload = false
     let terminalInputRecorder = RoutingTerminalInputRecorder()
@@ -240,6 +247,8 @@ actor RoutingHostRouter {
         var uploadOffset: Int?
         var uploadLast: Bool?
         var uploadTotalBytes: Int?
+        var workspaceID: String?
+        var submitKey: String?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -449,11 +458,17 @@ actor RoutingHostRouter {
                 return try? Self.errorFrame(id: id, message: "paste_image rejected")
             }
             return try? Self.resultFrame(id: id, result: [:])
-        case "terminal.paste":
+        case "terminal.paste", "mobile.terminal.paste":
             let surfaceID = info.surfaceID ?? ""
             let text = info.text ?? ""
-            pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
-            return try? Self.resultFrame(id: id, result: [:])
+            pastes.append(PasteRecord(
+                surfaceID: surfaceID, text: text,
+                workspaceID: info.workspaceID, submitKey: info.submitKey
+            ))
+            return try? Self.resultFrame(
+                id: id,
+                result: method == "mobile.terminal.paste" ? ["submitted": feedPasteSubmitted] : [:]
+            )
         case "mobile.task.attachment.upload":
             let fileName = info.fileName ?? ""
             let last = info.uploadLast ?? false
@@ -584,7 +599,9 @@ private actor RoutingTransport: CmxByteTransport {
                 fileName: params?["file_name"] as? String,
                 uploadOffset: params?["offset"] as? Int,
                 uploadLast: params?["last"] as? Bool,
-                uploadTotalBytes: params?["total_bytes"] as? Int
+                uploadTotalBytes: params?["total_bytes"] as? Int,
+                workspaceID: params?["workspace_id"] as? String,
+                submitKey: params?["submit_key"] as? String
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {
