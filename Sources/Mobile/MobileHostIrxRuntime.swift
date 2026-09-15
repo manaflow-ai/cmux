@@ -64,6 +64,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var relayAddressWatchGeneration: Int?
     private var permissionExpiryTask: Task<Void, Never>?
     private var acceptLoop: Task<Void, Never>?
+    private var lastLoggedControlState: String?
     private var admission: V2InboundAdmissionAuthority?
     private var registry: IrxServerSessionRegistry?
     private var identity: IrxIdentity?
@@ -225,6 +226,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         acceptLoop?.cancel(); acceptLoop = nil
         admission = nil; registry = nil; identity = nil
         controlService = nil; endpointSupervisor = nil; cachedState = nil
+        lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
@@ -338,6 +340,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     private func apply(_ snapshot: V2ControlSnapshot, token: UUID) async {
         guard isCurrent(token), let admission else { return }
+        let status = String(describing: snapshot.status)
+        let failure = snapshot.failure?.diagnosticCode ?? "none"
+        let state = status + ":" + failure
+        if state != lastLoggedControlState {
+            lastLoggedControlState = state
+            Self.journal.record("v2-control", "state-changed", ["status": status, "failure": failure,
+                "environment": snapshot.cache.identity.environment,
+                "project": snapshot.cache.identity.projectID])
+        }
         // The service publishes an empty initial observation before loading disk.
         guard snapshot.cache.device != nil || cachedState?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cachedState?.relayCredentials
