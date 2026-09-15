@@ -14,13 +14,9 @@ final class cmuxUITests: XCTestCase {
     /// Exercise the same acceptance actions exposed by every lab presentation.
     @MainActor
     func testTailscaleLabAcceptsGroupedRoutesAcrossLayouts() {
-        let app = XCUIApplication()
-        app.launchEnvironment = [
-            "CMUX_UITEST_PATH_DISCOVERY_LAB": "1",
-            "CMUX_UITEST_MOCK_DATA": "1",
-        ]
-        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launch()
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
         defer { app.terminate() }
 
         func element(_ id: String) -> XCUIElement {
@@ -48,6 +44,10 @@ final class cmuxUITests: XCTestCase {
             add(attachment)
         }
 
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+        reveal("MobileSettingsPathDiscoveryLab").tap()
         XCTAssertTrue(element("MobileMacDiscoveryStrategyLab").waitForExistence(timeout: 8))
         XCTAssertTrue(element("MobileTailscaleSavedRoute-iroh").exists)
         XCTAssertTrue(element("MobileTailscaleSavedRoute-saved").exists)
