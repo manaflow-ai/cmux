@@ -32,7 +32,17 @@ struct CloudInitialWorkspaceNamingTests {
                 machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
             #expect(fixture.workspace.title == "Cloud VM")
 
-            #expect(fixture.provider.install(fixture.provider.graph))
+            fixture.catalog.replaceCloudState(
+                fixture.provider.graph,
+                resources: CmuxTuiSnapshotParser.resources(from: fixture.provider.graph),
+                info: fixture.provider.info
+            )
+            fixture.renameService.reconcileRemoteState(
+                machine: fixture.provider.machine,
+                state: fixture.provider.graph,
+                catalog: fixture.catalog,
+                observation: .current
+            )
             try fixture.expectParity("terminal", workspaceName: "Same workspace")
             #expect(fixture.provider.writes.isEmpty)
             #expect(fixture.manager.tabs.count == 1)
