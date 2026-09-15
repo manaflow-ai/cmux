@@ -19,7 +19,7 @@ let swiftSettings: [SwiftSetting] = [
 let package = Package(
     name: "CmuxMobileCloud",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
