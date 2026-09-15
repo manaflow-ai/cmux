@@ -138,6 +138,57 @@ test("production control session and relay paths use the same ticket authority",
   expect(relayResult.body.credentials[0].relayURL).toBe("https://relay.test");
 });
 
+test("workspace snapshots persist through the product path and reject revision gaps", async () => {
+  const snapshot = {
+    workspaces: [{ id: "ws-control", name: "Control", index: 0, focused: true }],
+    terminals: [{ id: "term-control", title: "Shell", workspaceId: "ws-control", cwd: "/work", agent: null }],
+  };
+  const put = { schemaId: "workspace.snapshot.v1", requestId: "workspace-put", vmId: "control-device", generation: "0", revision: 0, snapshot };
+  const putSetup = await setupFor(put.requestId, put);
+  const stored = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(putSetup) },
+    body: JSON.stringify(put),
+  });
+  expect(stored.response.status).toBe(200);
+  expect(stored.body.schemaId).toBe("workspace.snapshot.result.v1");
+  expect(stored.body.snapshot).toEqual(snapshot);
+
+  const get = { schemaId: "workspace.get.v1", requestId: "workspace-get", vmId: "control-device" };
+  const getSetup = await setupFor(get.requestId, get);
+  const fetched = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(getSetup) },
+    body: JSON.stringify(get),
+  });
+  expect(fetched.response.status).toBe(200);
+  expect(fetched.body.schemaId).toBe("workspace.snapshot.result.v1");
+  expect(fetched.body.revision).toBe(0);
+  expect(fetched.body.snapshot).toEqual(snapshot);
+
+  const list = { schemaId: "workspace.list.v1", requestId: "workspace-list" };
+  const listSetup = await setupFor(list.requestId, list);
+  const listed = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(listSetup) },
+    body: JSON.stringify(list),
+  });
+  expect(listed.response.status).toBe(200);
+  expect(listed.body.schemaId).toBe("workspace.list.result.v1");
+  expect(listed.body.workspaces).toHaveLength(1);
+  expect(listed.body.workspaces[0].vmId).toBe("control-device");
+
+  const gap = { ...put, requestId: "workspace-gap", revision: 2 };
+  const gapSetup = await setupFor(gap.requestId, gap);
+  const rejected = await json("https://iroh.test/v2/requests", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}`, "x-cmux-v2-setup": setupHeader(gapSetup) },
+    body: JSON.stringify(gap),
+  });
+  expect(rejected.response.status).toBe(409);
+  expect(rejected.body.code).toBe("resync_required");
+});
+
 test("native socket setup delivers directory and relay responses", async () => {
   const setup = await setupFor("socket-open", undefined);
   const ready = await mf.ready;
@@ -148,7 +199,7 @@ test("native socket setup delivers directory and relay responses", async () => {
   });
   await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
   await new Promise<void>((resolve, reject) => { socket.once("pong", () => resolve()); socket.once("error", reject); socket.ping(); });
-  const request = (schemaId: string, requestId: string) => new Promise<any>((resolve, reject) => {
+  const request = (schemaId: string, requestId: string, extra: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeout);
       socket.off("message", onMessage);
@@ -167,11 +218,16 @@ test("native socket setup delivers directory and relay responses", async () => {
     socket.on("message", onMessage);
     socket.once("error", onError);
     socket.once("close", onClose);
-    socket.send(JSON.stringify({ schemaId, requestId }));
+    socket.send(JSON.stringify({ schemaId, requestId, ...extra }));
   });
   try {
     expect((await request("directory.request.v1", "socket-directory")).schemaId).toBe("directory.result.v1");
     expect((await request("relay.request.v1", "socket-relay")).schemaId).toBe("relay.result.v1");
+    const workspace = await request("workspace.snapshot.v1", "socket-workspace", {
+      vmId: "control-device", generation: "0", revision: 1,
+      snapshot: { workspaces: [{ id: "ws-socket", name: "Socket", index: 0, focused: true }], terminals: [] },
+    });
+    expect(workspace.schemaId).toBe("workspace.snapshot.result.v1");
   } finally {
     socket.close();
   }

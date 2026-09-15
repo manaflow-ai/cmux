@@ -16,10 +16,9 @@ import {
 } from "./dashboard-account-menu";
 import { DashboardShell } from "./dashboard-shell";
 
-// The shell is static. Every session read sits behind its own Suspense
-// boundary, so navigations into and between dashboard pages paint the
-// sidebar and page frames from the prefetched app shell.
-export const instant = true;
+// A dashboard shell must never stream to a signed-out visitor. The auth guard
+// runs before the shell so an expired cookie redirects without a visible flash.
+export const instant = false;
 
 export default async function DashboardLayout({
   children,
@@ -30,6 +29,7 @@ export default async function DashboardLayout({
 }) {
   const { locale } = await params;
   if (!isStackConfigured()) redirect("/");
+  await DashboardSessionGuard({ locale });
 
   return (
     <StackProvider app={getStackServerApp()}>
@@ -43,9 +43,6 @@ export default async function DashboardLayout({
               </Suspense>
             }
           >
-            <Suspense fallback={null}>
-              <DashboardSessionGuard locale={locale} />
-            </Suspense>
             {children}
           </DashboardShell>
         </DashboardQueryProvider>

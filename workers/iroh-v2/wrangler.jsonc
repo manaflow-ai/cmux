@@ -36,10 +36,7 @@
       "API_TICKET_CURRENT_KEY_ID",
       "RELAY_SIGNING_KEY",
       "RELAY_KEY_ID",
-      "RELAY_URLS",
-      "DATABASE_URL",
-      "AXIOM_TOKEN",
-      "SENTRY_DSN"
+      "RELAY_URLS"
     ]
   },
   "migrations": [
@@ -68,7 +65,8 @@
         "STACK_API_URL": "https://api.stack-auth.com",
         "AXIOM_DATASET": "iroh-v2",
         "AXIOM_INGEST_URL": "https://api.axiom.co/v1/datasets/iroh-v2/ingest",
-        "SENTRY_ENVIRONMENT": "development"
+        "SENTRY_ENVIRONMENT": "development",
+        "DASHBOARD_ALLOWED_ORIGINS": "[\"https://cmux.com\",\"https://www.cmux.com\",\"http://localhost:4175\",\"http://127.0.0.1:4175\",\"https://cmux-dev-backend-1.tail137216.ts.net:4405\",\"https://cmux-dev-backend-1.tail137216.ts.net:4618\"]"
       },
       "durable_objects": {
         "bindings": [
@@ -91,12 +89,15 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "RELAY_URLS"
         ]
-      }
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
+          "id": "9d38cb41666442928bfc2821bdee38de"
+        }
+      ]
     },
     "staging": {
       "name": "cmux-iroh-v2-staging",
@@ -128,12 +129,15 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "RELAY_URLS"
         ]
-      }
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
+          "id": "ac65e946d9ef412f829a88684540bede"
+        }
+      ]
     },
     "production": {
       "name": "cmux-iroh-v2",
@@ -165,12 +169,18 @@
           "API_TICKET_CURRENT_KEY_ID",
           "RELAY_SIGNING_KEY",
           "RELAY_KEY_ID",
-          "RELAY_URLS",
-          "DATABASE_URL",
-          "AXIOM_TOKEN",
-          "SENTRY_DSN"
+          "RELAY_URLS"
         ]
-      }
+      },
+      "hyperdrive": [
+        {
+          "binding": "HYPERDRIVE_CONNECTED_WORKSPACES",
+          "id": "d048be5c21ad47aaa1db5afab15abe75"
+        }
+      ]
     }
+  },
+  "placement": {
+    "region": "aws:us-west-2"
   }
 }

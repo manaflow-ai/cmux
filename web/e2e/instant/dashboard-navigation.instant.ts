@@ -7,6 +7,7 @@ for (const destination of [
   "/dashboard/coderouter",
   "/dashboard/testflight",
   "/dashboard/cloud",
+  "/dashboard/vms",
 ] as const) {
   test(`${destination} redirects a signed-out visitor before the shell`, async ({
     page,

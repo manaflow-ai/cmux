@@ -42,11 +42,15 @@ public struct MobileIrohV2Configuration: Sendable {
         #endif
         // Persist only explicitly supplied v2 overrides for env-less simulator relaunches.
         for key in ["CMUX_IROH_V2_ENVIRONMENT", "CMUX_IROH_V2_BASE_URL", "CMUX_IROH_V2_FORCE_RELAY"] {
-            if let value = values[key] { defaults.set(value, forKey: "cmux.iroh.v2.config." + key) }
+            if let value = values[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                defaults.set(value, forKey: "cmux.iroh.v2.config." + key)
+            }
         }
         func override(_ key: String) -> String? {
-            values[key] ?? defaults.string(forKey: "cmux.iroh.v2.config." + key)
-                ?? bundle.object(forInfoDictionaryKey: key) as? String
+            [values[key], defaults.string(forKey: "cmux.iroh.v2.config." + key),
+             bundle.object(forInfoDictionaryKey: key) as? String]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty }
         }
         let requestedEnvironment = override("CMUX_IROH_V2_ENVIRONMENT")
         // Never let a typo route a release build to the development Worker.
@@ -55,8 +59,8 @@ public struct MobileIrohV2Configuration: Sendable {
         } ?? defaultEnvironment
         let origin: String
         switch environment {
-        case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
-        case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
+        case "production": origin = "https://cmux-iroh-v2.cmux-presence-worker.workers.dev"
+        case "staging": origin = "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev"
         default: origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
         }
         func validOrigin(_ candidate: String?) -> URL? {
