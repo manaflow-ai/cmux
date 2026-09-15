@@ -404,7 +404,7 @@ export async function sendApnsNotification(
       });
       continue;
     }
-    bodies.set(t.deviceToken, body);
+    bodies.set(apnsTargetBodyKey(t), body);
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
   }
 
@@ -476,6 +476,10 @@ function selectRecipientPayload(
   const tuple = candidates[0]!.tuple as Record<string, unknown> | undefined;
   if (tuple?.iosBuildID !== target.bundleId) return null;
   return { ...input, encryptedPayloads: candidates };
+}
+
+function apnsTargetBodyKey(target: ApnsTarget): string {
+  return [target.deviceToken, target.bundleId, target.installationId, target.pushKeyId].join("\0");
 }
 
 /**
@@ -779,7 +783,7 @@ async function sendHostTargets(
     client,
     jwt,
     hostTargets[0]!,
-    bodies.get(hostTargets[0]!.deviceToken)!,
+    bodies.get(apnsTargetBodyKey(hostTargets[0]!))!,
     deadlineMs,
     connectionError,
     collapseId,
@@ -801,7 +805,7 @@ async function sendHostTargets(
         client,
         jwt,
         hostTargets[index]!,
-        bodies.get(hostTargets[index]!.deviceToken)!,
+        bodies.get(apnsTargetBodyKey(hostTargets[index]!))!,
         deadlineMs,
         connectionError,
         collapseId,

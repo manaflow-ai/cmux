@@ -20,7 +20,7 @@ final class NotificationService: UNNotificationServiceExtension {
                   bundleID: Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios",
                   accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
               ) else {
-            finish(UNMutableNotificationContent())
+            finish(content)
             return
         }
         let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }

@@ -561,9 +561,13 @@ final class PhonePushClient {
         cancelInMemoryQueue()
         identityPrewarm.reset()
         pendingPersistenceSnapshot = []
+        pushRecipients = []
         activeIdentity = identity
         await clearPersistedQueue()
         guard self.auth === auth else { return }
+        if identity != nil {
+            await refreshPushRecipients(auth: auth)
+        }
         deliveryQueue.start()
     }
     private func schedulePersistence(
