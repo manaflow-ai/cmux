@@ -290,7 +290,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The pane container view hosting this surface (concrete view injected
     /// through ``TerminalSurfaceViewProviding``).
     public let paneHost: any TerminalSurfacePaneHosting
-    let surfaceView: any TerminalSurfaceNativeViewing; var surfaceSizeUpdatesDeferred = false
+    let surfaceView: any TerminalSurfaceNativeViewing
     var lastPixelWidth: UInt32 = 0
     var lastPixelHeight: UInt32 = 0
     var lastUncappedPixelWidth: UInt32 = 0
@@ -306,6 +306,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    var surfaceSizeUpdatesDeferred = false
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -838,7 +839,6 @@ extension TerminalSurface: TerminalSurfacing {}
 /// exclusively owned by the request from creation until `close()` runs.
 private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
     let window: NSWindow
-
     @MainActor
     func close() {
         window.contentView = nil
