@@ -118,7 +118,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(!first.hasShadow)
     }
 
-    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
+    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() {
         let expandedSize = CGSize(width: 600, height: 440)
         let companionSize = ComputerUsePermissionCompanionLayout.size
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
@@ -152,18 +152,15 @@ struct ComputerUseOnboardingWindowTests {
                 window.setFrame(placementFrame, display: true, animate: false)
                 #expect(window.frame == placementFrame)
             }
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(1))
-            while window.frame.size != expectedSize || contentView.frame.size != expectedSize {
+            // Exercise repeated layout invalidations. Each pass is synchronous
+            // and must preserve the frame, even after an earlier pass matched.
+            for _ in 0..<12 {
                 contentView.invalidateIntrinsicContentSize()
                 contentView.needsLayout = true
                 contentView.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
-                if window.frame.size == expectedSize && contentView.frame.size == expectedSize {
-                    break
-                }
-                guard clock.now < deadline else { break }
-                await Task.yield()
+                #expect(window.frame.size == expectedSize)
+                #expect(contentView.frame.size == expectedSize)
             }
 
             #expect(window.frame.size == expectedSize)

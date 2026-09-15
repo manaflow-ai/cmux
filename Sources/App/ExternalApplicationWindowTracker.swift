@@ -304,7 +304,7 @@ final class ExternalApplicationWindowTracker {
         }.first
     }
 
-    private nonisolated static func snapshot(
+    nonisolated static func snapshot(
         from entry: [String: Any],
         expectedWindowID: CGWindowID?,
         processIdentifier: pid_t,
