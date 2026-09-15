@@ -72,6 +72,34 @@ import Testing
         #expect(byBranch["feature/recent-two"]?.number == 2502)
     }
 
+    @Test func pullRequestMapDropsStaleClosedHeadPullRequestForLongLivedBaseBranch() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequests = [
+            item(number: 959, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/959", updatedAt: "2026-03-06T12:00:00Z", headRefName: "develop", baseRefName: "main"),
+            item(number: 2502, state: "OPEN", url: "https://github.com/manaflow-ai/cmux/pull/2502", updatedAt: "2026-04-20T12:00:00Z", headRefName: "feature/recent-two", baseRefName: "develop"),
+        ]
+
+        let byBranch = PullRequestProbeService.pullRequestMapByNormalizedBranch(from: pullRequests, now: now)
+        #expect(byBranch["develop"] == nil)
+        #expect(byBranch["feature/recent-two"]?.number == 2502)
+    }
+
+    @Test func pullRequestMapKeepsFreshClosedHeadPullRequest() throws {
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let pullRequest = item(number: 960, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/960", updatedAt: "2026-04-20T10:00:00Z", headRefName: "feature/just-closed", baseRefName: "main")
+
+        let byBranch = PullRequestProbeService.pullRequestMapByNormalizedBranch(from: [pullRequest], now: now)
+        #expect(byBranch["feature/just-closed"]?.number == 960)
+    }
+
+    @Test func preferredPullRequestSkipsStaleClosedPullRequest() throws {
+        // The per-branch `head=` lookup resolves through preferredPullRequest,
+        // so a long-closed PR must not come back as the branch's badge there.
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let staleClosed = item(number: 959, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/959", updatedAt: "2026-03-06T12:00:00Z", headRefName: "develop")
+        #expect(PullRequestProbeService.preferredPullRequest(from: [staleClosed], now: now) == nil)
+    }
+
     // MARK: refresh policy
 
     @Test func shouldSkipLookupOnlyForExactMainAndMaster() {
