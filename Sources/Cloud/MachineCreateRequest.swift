@@ -13,6 +13,9 @@ struct MachineCreateRequest: Equatable {
     let name: String?
     /// The CLI arguments after `cmux`, e.g. `vm new --desktop --size 24576`.
     let arguments: [String]
+    /// Stable identity of the initiating window. Completion selects only in
+    /// this window and never activates a different one.
+    let selectionWindowID: UUID? = nil
 
     var isBaseSetup: Bool {
         if case .base = mode { return true }
