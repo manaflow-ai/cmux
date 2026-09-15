@@ -138,8 +138,8 @@ struct SessionSplitContainerLayoutCodec {
         let desiredTabs = desiredPanelIDs.compactMap { panelIDMap[$0] ?? $0 }
             .compactMap(tabIDForPanelID)
         guard desiredTabs.count == desiredPanelIDs.count else { return false }
-        let livePanelIDs = Set(controller.allPaneIds.flatMap { controller.tabs(inPane: $0).compactMap { tabIDForPanelID($0.id) } })
-        guard livePanelIDs.isSubset(of: Set(desiredTabs)) else { return false }
+        let liveTabIDs = Set(controller.allPaneIds.flatMap { controller.tabs(inPane: $0).map(\.id) })
+        guard liveTabIDs.isSubset(of: Set(desiredTabs)) else { return false }
         for pane in controller.allPaneIds where pane != root {
             for tab in controller.tabs(inPane: pane) {
                 _ = controller.moveTab(tab.id, toPane: root)
