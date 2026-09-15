@@ -317,7 +317,8 @@ final class CloudTuiManualMirrorSession {
             // from becoming the remote PTY's geometry claim.
             await Task.yield()
             guard !Task.isCancelled else { return }
-            self?.surface?.retryRendererPresentationAfterActivity(); self?.sampleRuntimeSize()
+            self?.surface?.retryRendererPresentationAfterActivity()
+            self?.sampleRuntimeSize()
         }
     }
     private func sampleRuntimeSize() {
@@ -492,7 +493,6 @@ final class CloudTuiManualMirrorSession {
         guard presentationEpisodeTask == nil, presentationStage == .silent else { return }
         startPresentationEpisode(elapsed: .zero)
     }
-
     /// Starts the stage timer as if the episode began `elapsed` ago. An
     /// optimistic pane reserved before its terminal existed hands over the time it
     /// already spent waiting, so adoption does not restart the grace.
