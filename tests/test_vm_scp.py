@@ -83,8 +83,10 @@ LogLevel ERROR
         lock = threading.Lock()
         requests = []
         wrong_host_key = False
+        short_grant = False
 
         def serve_connection(conn):
+            nonlocal short_grant
             with conn, conn.makefile("rwb") as stream:
                 for line in stream:
                     if line.startswith(b"auth "):
@@ -99,10 +101,12 @@ LogLevel ERROR
                         assert public_key.startswith("ssh-ed25519 ") and "\n" not in public_key
                         with lock, authorized.open("a") as out:
                             out.write(f'restrict,command="{wrapper}" {public_key}\n')
+                            lifetime = 30 if short_grant else 900
+                            short_grant = False
                         result = {
                             "host": "127.0.0.1", "port": port, "username": getpass.getuser(),
                             "host_public_key": public_key.rsplit(" ", 1)[0] if wrong_host_key else host_key,
-                            "expires_at_unix": int(time.time()) + 900,
+                            "expires_at_unix": int(time.time()) + lifetime,
                         }
                         response = {"id": request["id"], "ok": True, "result": result}
                     else:
@@ -147,6 +151,17 @@ LogLevel ERROR
             assert (guest / remote).read_bytes() == payload.read_bytes()
             assert (guest / remote).stat().st_mode & 0o777 == 0o751
             print("PASS binary file, shell characters, missing parents, mode", flush=True)
+
+            short_grant = True
+            before_requests = len(requests)
+            result = push(payload, "renewed/payload.bin")
+            assert result.returncode == 0, result.stderr
+            renewal = requests[before_requests:]
+            assert len(renewal) == 2, "near-expiry grant was not renewed before finalization"
+            assert renewal[0]["params"]["public_key"] == renewal[1]["params"]["public_key"]
+            assert (guest / "renewed/payload.bin").read_bytes() == payload.read_bytes()
+            assert not list(guest.rglob(".cmux-push.*"))
+            print("PASS near-expiry grant renewed with the same key before finalization", flush=True)
 
             tree = root / "tree"
             tree.mkdir()
