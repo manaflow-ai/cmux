@@ -194,7 +194,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         guard
               let installation = try? PhonePushKeyStore.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
-                  accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
+                  accessGroup: configuredKeychainAccessGroup()
               ) else { return nil }
         let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
             .compactMap { try? JSONDecoder().decode(PhonePushEncryptedPayload.self, from: $0) }
@@ -219,6 +219,15 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         var merged = original
         merged.merge(payload) { _, new in new }
         return merged
+    }
+
+    private nonisolated static func configuredKeychainAccessGroup() -> String? {
+        guard let value = (Bundle.main.object(
+            forInfoDictionaryKey: "CMUXKeychainAccessGroup"
+        ) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              !value.contains("$(") else { return nil }
+        return value
     }
 
     @MainActor
