@@ -102,6 +102,41 @@ struct CloudReadRequestCoordinatorTests {
         #expect(await owner.entries.isEmpty)
     }
 
+    @Test("A short waiter cannot shorten another caller's deadline", arguments: [false, true], [false, true])
+    func independentDeadlines(queued: Bool, deliverTimers: Bool) async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let gate = CloudReadResponseGate()
+        if queued {
+            let retired = Task { try await owner.read(key()) { await gate.read(response()) } }
+            try await eventually { await gate.requests == 1 }
+            retired.cancel()
+            _ = await retired.result
+        }
+        let long = Task { try await owner.read(key(), deadline: .seconds(20)) { await gate.read(response()) } }
+        try await eventually {
+            let entry = await owner.entries.values.first
+            return queued ? entry?.pending?.waiters.count == 1 : entry?.waiters.count == 1
+        }
+        let short = Task { try await owner.read(key(), deadline: .seconds(1)) { await gate.read(response()) } }
+        try await eventually {
+            let entry = await owner.entries.values.first
+            return queued ? entry?.pending?.waiters.count == 2 : entry?.waiters.count == 2
+        }
+        clock.advance(by: .seconds(2), deliverTimers: deliverTimers)
+        if deliverTimers {
+            _ = await short.result
+            let entry = await owner.entries.values.first
+            #expect(queued ? entry?.pending?.waiters.count == 1 : entry?.waiters.count == 1)
+        }
+        await gate.release()
+        do { _ = try await short.value; Issue.record("short waiter exceeded its deadline") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(try await long.value.http.statusCode == 200)
+        #expect(await gate.requests == (queued ? 2 : 1))
+        #expect(await owner.entries.isEmpty)
+    }
+
     @Test("Response-first delivery after a simulated wake still expires")
     func responseAfterDeadline() async throws {
         let clock = CloudReadManualClock()
