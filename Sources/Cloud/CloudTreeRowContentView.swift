@@ -59,21 +59,21 @@ struct CloudTreeRowContentView: View {
     private var row: AnyView {
         switch kind {
         case .machine(let machine, _):
-            AnyView(CloudTreeMachineRowContent(machine: machine, style: style))
+            return AnyView(CloudTreeMachineRowContent(machine: machine, style: style))
         case .pendingMachine(let operation):
-            AnyView(CloudTreePendingMachineRowContent(operation: operation, style: style))
+            return AnyView(CloudTreePendingMachineRowContent(operation: operation, style: style))
         case .localMachine(let row):
-            AnyView(CloudTreeLocalMachineRowContent(row: row, style: style))
+            return AnyView(CloudTreeLocalMachineRowContent(row: row, style: style))
         case .terminalsPool(_, let count):
-            AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil))
+            return AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style, helpAction: nil))
         case .displaysPool(_, let count):
-            AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil))
+            return AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style, helpAction: nil))
         case .workspacesGroup:
-            AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil))
+            return AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style, helpAction: nil))
         case .workspace(_, let workspace, _, _, _):
             // No open marker here (none on any row since #11069); the row's open
             // verb reads "Go to Workspace" when it is already showing locally.
-            AnyView(CloudTreeLeafRow(
+            return AnyView(CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
@@ -81,7 +81,7 @@ struct CloudTreeRowContentView: View {
                 titleWeight: workspace.focused ? .medium : .regular
             ))
         case .localWorkspace(let row):
-            AnyView(CloudTreeLeafRow(
+            return AnyView(CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
@@ -89,9 +89,9 @@ struct CloudTreeRowContentView: View {
                 titleWeight: row.isSelected ? .medium : .regular
             ))
         case .terminal(let row):
-            AnyView(CloudTreeTerminalRowContent(row: row, style: style))
+            return AnyView(CloudTreeTerminalRowContent(row: row, style: style))
         case .display(let resource, _, let remoteView):
-            AnyView(CloudTreeLeafRow(
+            return AnyView(CloudTreeLeafRow(
                 style: style,
                 icon: "display",
                 tint: CloudTreeIconPalette.display,
@@ -100,9 +100,9 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeRowContentView.text(for: resource)
             ))
         case .browsersGroup:
-            AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil))
+            return AnyView(CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style, helpAction: nil))
         case .browser(let row):
-            AnyView(CloudTreeLeafRow(
+            return AnyView(CloudTreeLeafRow(
                 style: style,
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
@@ -110,14 +110,14 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             ))
         case .portsGroup:
-            AnyView(CloudTreeGroupRowContent(
+            return AnyView(CloudTreeGroupRowContent(
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
                 count: nil,
                 style: style,
                 helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
             ))
         case .port(let resource, let url, _):
-            AnyView(CloudTreeLeafRow(
+            return AnyView(CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
@@ -128,7 +128,7 @@ struct CloudTreeRowContentView: View {
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             ))
         case .placeholder(_, let placeholder):
-            AnyView(CloudTreePlaceholderContent(placeholder: placeholder, style: style))
+            return AnyView(CloudTreePlaceholderContent(placeholder: placeholder, style: style))
         }
     }
     /// Formats terminal totals for group and machine summaries.
