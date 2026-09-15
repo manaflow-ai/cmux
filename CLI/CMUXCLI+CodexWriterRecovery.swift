@@ -165,7 +165,7 @@ extension CMUXCLI {
     ) -> String? {
         let report = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
             .inspect(sessionID: sessionID, codexHome: codexHome)
-        guard report.lock.state == .active else { return nil }
+        guard report.lock.state == CodexWriterLockInspection.State.active else { return nil }
         return Self.codexWriterReportMessage(sessionID: sessionID, report: report)
     }
 }
