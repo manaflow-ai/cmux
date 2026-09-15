@@ -79,6 +79,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
         "system.capabilities",
+        "system.socket_capability_lease",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -353,6 +354,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let mainThreadCallableSocketWorkerMethods: Set<String> = [
         "system.ping",
         "system.capabilities",
+        "system.socket_capability_lease",
         "surface.report_pwd",
         "surface.report_git_branch",
         "surface.clear_git_branch",
