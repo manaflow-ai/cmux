@@ -222,14 +222,14 @@ extension TerminalSurface {
     /// Test-only helper to install a runtime surface pointer directly.
     ///
     /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
-    /// so the native callback wiring remains enabled by default. App-host
-    /// XCTest fixtures link the real GhosttyKit and sometimes use a synthetic
-    /// pointer only to exercise Swift teardown ownership; those callers must
-    /// disable native callback setup so a fake address never crosses the C ABI.
+    /// so clipboard, font, and renderer callback wiring remains enabled by
+    /// default. Callers with a custom callback context can disable renderer
+    /// setup and register their callbacks explicitly.
     @MainActor
     public func installRuntimeSurfaceForTesting(
         _ runtimeSurface: ghostty_surface_t,
-        configureNativeCallbacks: Bool = true
+        configureNativeCallbacks: Bool = true,
+        configureRendererCallbacks: Bool = true
     ) {
         let callbackContext: Unmanaged<
             GhosttySurfaceCallbackContext
@@ -238,12 +238,23 @@ extension TerminalSurface {
                 surfaceCallbackContext {
             callbackContext = existingContext
         } else {
+            let callbackTarget = TerminalSurfaceCallbackTarget(surface: self)
             callbackContext =
                 Unmanaged.passRetained(
                     GhosttySurfaceCallbackContext(
                         surfaceHost: surfaceView,
                         surfaceController: self,
-                        terminalLifecycleID: terminalLifecycleId
+                        terminalLifecycleID: terminalLifecycleId,
+                        rendererFramePresented: { _, token in
+                            MainActor.assumeIsolated {
+                                callbackTarget.surface?.rendererFrameDidPresent(token: token)
+                            }
+                        },
+                        rendererFrameFailed: { _, token, status in
+                            MainActor.assumeIsolated {
+                                callbackTarget.surface?.rendererFrameDidFail(token: token, status: status)
+                            }
+                        }
                     )
                 )
             surfaceCallbackContext = callbackContext
@@ -251,17 +262,36 @@ extension TerminalSurface {
         surface = runtimeSurface
         portalLifecycleState = .live
         runtimeSurfaceFreedOutOfBandForTesting = false
-        guard configureNativeCallbacks else { return }
-        _ = callbackContext.takeUnretainedValue()
-            .bindRuntimeClipboardSurface(
-                runtimeSurface,
-                generation: runtimeSurfaceGeneration
+        if configureNativeCallbacks {
+            _ = callbackContext.takeUnretainedValue()
+                .bindRuntimeClipboardSurface(
+                    runtimeSurface,
+                    generation: runtimeSurfaceGeneration
+                )
+            cacheControllingTTYIdentity(for: runtimeSurface)
+            installFontSizeActionObservation(
+                on: runtimeSurface,
+                callbackContext: callbackContext
             )
-        cacheControllingTTYIdentity(for: runtimeSurface)
-        installFontSizeActionObservation(
-            on: runtimeSurface,
-            callbackContext: callbackContext
-        )
+        }
+        if configureRendererCallbacks {
+            precondition(
+                ghostty_surface_set_render_presented_callback(
+                    runtimeSurface,
+                    terminalRendererPresentedCallback,
+                    callbackContext.toOpaque()
+                ),
+                "test runtime surface rejected its presentation callback"
+            )
+            precondition(
+                ghostty_surface_set_render_failed_callback(
+                    runtimeSurface,
+                    terminalRendererFailedCallback,
+                    callbackContext.toOpaque()
+                ),
+                "test runtime surface rejected its presentation failure callback"
+            )
+        }
     }
 #endif
 }

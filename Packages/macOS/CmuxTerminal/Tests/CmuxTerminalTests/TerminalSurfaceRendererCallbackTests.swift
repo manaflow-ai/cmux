@@ -11,7 +11,7 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)
@@ -35,7 +35,7 @@ import Testing
     }
 
     @Test func registeredFailureCallbackForwardsTokenAndTriggersOneRecoveryProbe() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)
@@ -64,7 +64,7 @@ import Testing
     }
 
     @Test func shellExitHealthSurvivesRendererRebuildAndPresentation() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)

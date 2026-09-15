@@ -217,10 +217,14 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
-        let recoveryToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        #expect(failPresentation(
+            on: surface,
+            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
+        ))
+        #expect(failPresentation(
+            on: surface,
+            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
+        ))
         #expect(surface.renderHealth == .notRendering)
     }
 
@@ -430,29 +434,6 @@ private func rendererReleaseWasOccluded() -> Bool
 
     private func rendererRealizedCalls() -> [Bool] {
         (0..<rendererRealizedCallCount()).map(rendererRealizedCallValue)
-    }
-
-    private func acknowledgePresentation(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else { return }
-        surface.rendererFrameDidPresent(token: token)
-    }
-
-    private func installRendererCallbackContext(
-        on surface: TerminalSurface,
-        scheduler: FakeRendererRealizationScheduler
-    ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
-            surfaceHost: surface.surfaceView,
-            surfaceController: surface,
-            terminalLifecycleID: surface.terminalLifecycleId,
-            rendererMailboxDidDrain: { surfaceID in
-                MainActor.assumeIsolated {
-                    scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
-                }
-            }
-        ))
-        surface.surfaceCallbackContext = callbackContext
-        return callbackContext
     }
 
     private func makeSurface(

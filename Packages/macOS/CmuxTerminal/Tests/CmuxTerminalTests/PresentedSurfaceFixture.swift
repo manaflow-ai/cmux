@@ -9,6 +9,9 @@ private func beginRendererRealizedTracking(_ surface: UnsafeMutableRawPointer)
 @_silgen_name("cmux_test_ghostty_renderer_realized_reset")
 private func resetRendererRealizedTracking()
 
+@_silgen_name("cmux_test_ghostty_renderer_present")
+private func presentRendererFrame(_ surface: UnsafeMutableRawPointer) -> Bool
+
 /// A surface with a live runtime pointer attached to a real (test) window with
 /// usable drawable geometry, presented unless the window starts hidden.
 @MainActor
@@ -18,7 +21,10 @@ struct PresentedSurfaceFixture {
     let window: NSWindow
     let runtimeSurface: UnsafeMutableRawPointer
 
-    init(windowVisibleAtCreation: Bool = true) {
+    init(
+        windowVisibleAtCreation: Bool = true,
+        configureRendererCallbacks: Bool = true
+    ) {
         registry = TerminalSurfaceRegistry()
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -73,10 +79,13 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate()
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
+        surface.installRuntimeSurfaceForTesting(
+            runtimeSurface,
+            configureRendererCallbacks: configureRendererCallbacks
+        )
+        if configureRendererCallbacks {
+            surface.rendererRuntimeSurfaceDidCreate()
+            _ = presentRendererFrame(runtimeSurface)
         }
     }
 
@@ -89,8 +98,8 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
+        if let runtimeSurface = surface.surface {
+            _ = presentRendererFrame(runtimeSurface)
         }
     }
 }
