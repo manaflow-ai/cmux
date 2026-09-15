@@ -38,23 +38,43 @@ extension AppDelegate {
     /// Runs one pane-resize step against the focused split tree. Menu actions,
     /// command-palette commands, and key events all call this method so the
     /// focused Dock and main workspace share the same mutation path.
+    private func focusedDockStoreForResize(
+        direction: ResizeDirection,
+        preferredWindow: NSWindow?
+    ) -> DockSplitStore? {
+        switch direction {
+        case .left:
+            focusedDockStoreForShortcut(
+                action: .resizePaneLeft,
+                preferredWindow: preferredWindow
+            )
+        case .right:
+            focusedDockStoreForShortcut(
+                action: .resizePaneRight,
+                preferredWindow: preferredWindow
+            )
+        case .up:
+            focusedDockStoreForShortcut(
+                action: .resizePaneUp,
+                preferredWindow: preferredWindow
+            )
+        case .down:
+            focusedDockStoreForShortcut(
+                action: .resizePaneDown,
+                preferredWindow: preferredWindow
+            )
+        }
+    }
+
     @discardableResult
     func performResizePaneShortcut(
         direction: ResizeDirection,
         preferredWindow: NSWindow? = nil
     ) -> Bool {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
-        let action: KeyboardShortcutSettings.Action = {
-            switch direction {
-            case .left: .resizePaneLeft
-            case .right: .resizePaneRight
-            case .up: .resizePaneUp
-            case .down: .resizePaneDown
-            }
-        }()
 
-        if let dock = focusedDockStoreForShortcut(
-            action: action,
+        if let dock = focusedDockStoreForResize(
+            direction: direction,
             preferredWindow: targetWindow
         ) {
             dock.noteKeyboardFocusIntent(window: targetWindow)
