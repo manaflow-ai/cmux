@@ -448,13 +448,14 @@ struct MachinesPanelView: View {
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
+            selection: AppDelegate.shared?.cloudTreeSelection(for: tabManager) ?? .empty,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            onMachineSelectionChange: { [weak tabManager] selection in
-                AppDelegate.shared?.setNewWorkspaceMachineSelection(selection, in: tabManager)
+            onSelectionChange: { [weak tabManager] selection in
+                AppDelegate.shared?.setCloudTreeSelection(selection, in: tabManager)
             }
         )
         .accessibilityIdentifier("CloudMachinesTree")

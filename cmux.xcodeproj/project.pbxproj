@@ -889,6 +889,7 @@
 		CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */; };
 		46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */; };
 		A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481200000000000000002 /* CloudTreeRowUpdate.swift */; };
+		C12676000000000000000006 /* CloudTreeSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12676000000000000000005 /* CloudTreeSelection.swift */; };
 		7E2EB619B840BCED615D6550 /* CloudTreeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D690BCAE82EB05A6790086AE /* CloudTreeStyle.swift */; };
 		C16B6FB2E23E52FB6F4FA4A7 /* CloudTreeStyleGalleryWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E4DB2770E4B0CBF4C388E5 /* CloudTreeStyleGalleryWindow.swift */; };
 		C986A0010000000000000001 /* CloudTreeSurfaceDragPasteboardWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0020000000000000001 /* CloudTreeSurfaceDragPasteboardWriter.swift */; };
@@ -2195,7 +2196,6 @@
 		548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */; };
 		44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */; };
 		A1122301A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */; };
-		C12676000000000000000004 /* NewWorkspaceMachineContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12676000000000000000003 /* NewWorkspaceMachineContext.swift */; };
 		C12676000000000000000002 /* NewWorkspaceMachineContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12676000000000000000001 /* NewWorkspaceMachineContextTests.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
@@ -4756,6 +4756,7 @@
 		53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowContentView.swift; sourceTree = "<group>"; };
 		333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeRowHeight.swift"; sourceTree = "<group>"; };
 		A12481200000000000000002 /* CloudTreeRowUpdate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowUpdate.swift; sourceTree = "<group>"; };
+		C12676000000000000000005 /* CloudTreeSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeSelection.swift; sourceTree = "<group>"; };
 		D690BCAE82EB05A6790086AE /* CloudTreeStyle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeStyle.swift; sourceTree = "<group>"; };
 		46E4DB2770E4B0CBF4C388E5 /* CloudTreeStyleGalleryWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeStyleGalleryWindow.swift; sourceTree = "<group>"; };
 		C986A0020000000000000001 /* CloudTreeSurfaceDragPasteboardWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeSurfaceDragPasteboardWriter.swift; sourceTree = "<group>"; };
@@ -5952,7 +5953,6 @@
 		7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineSheetPresenter.swift; sourceTree = "<group>"; };
 		28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewMachineSheetPresenting.swift"; sourceTree = "<group>"; };
 		A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceButtonHitAreaUITests.swift; sourceTree = "<group>"; };
-		C12676000000000000000003 /* NewWorkspaceMachineContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMachineContext.swift; sourceTree = "<group>"; };
 		C12676000000000000000001 /* NewWorkspaceMachineContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMachineContextTests.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
@@ -9456,7 +9456,7 @@
 				A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */,
 				A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */,
 				AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */,
-				C12676000000000000000003 /* NewWorkspaceMachineContext.swift */,
+				C12676000000000000000005 /* CloudTreeSelection.swift */,
 				1DF23874CA9E46EFB0708B3D /* cmuxApp+CloudWorkspace.swift */,
 				C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */,
 				737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */,
@@ -12618,6 +12618,7 @@
 				CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */,
 				46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */,
 				A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */,
+				C12676000000000000000006 /* CloudTreeSelection.swift in Sources */,
 				7E2EB619B840BCED615D6550 /* CloudTreeStyle.swift in Sources */,
 				C16B6FB2E23E52FB6F4FA4A7 /* CloudTreeStyleGalleryWindow.swift in Sources */,
 				C986A0010000000000000001 /* CloudTreeSurfaceDragPasteboardWriter.swift in Sources */,
@@ -13339,7 +13340,6 @@
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */,
 				44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */,
-				C12676000000000000000004 /* NewWorkspaceMachineContext.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,

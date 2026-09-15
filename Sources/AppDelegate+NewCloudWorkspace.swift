@@ -71,16 +71,21 @@ extension AppDelegate {
 
     /// Records the Machines tree selection for the owning window. The active
     /// focus coordinator decides later whether this selection is authoritative.
-    func setNewWorkspaceMachineSelection(_ selection: NewWorkspaceMachineContext.Selection, in tabManager: TabManager?) {
+    func setCloudTreeSelection(_ selection: CloudTreeSelection, in tabManager: TabManager?) {
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else { return }
-        context.newWorkspaceMachineSelection = selection
+        context.cloudTreeSelection = selection
+    }
+
+    func cloudTreeSelection(for tabManager: TabManager?) -> CloudTreeSelection {
+        guard let tabManager else { return .empty }
+        return mainWindowContext(for: tabManager)?.cloudTreeSelection ?? .empty
     }
 
     /// Resolves the target before any async Cloud operation starts.
-    func newWorkspaceMachineContext(for context: MainWindowContext) -> NewWorkspaceMachineContext {
-        NewWorkspaceMachineContext(
-            selection: context.newWorkspaceMachineSelection,
+    func newWorkspaceMachineContext(for context: MainWindowContext) -> CloudWorkspaceMachineContext {
+        CloudWorkspaceMachineContext(
+            selection: context.cloudTreeSelection.machine,
             selectedWorkspaceCloudMachineID: context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID,
             machinesPanelOwnsFocus: context.keyboardFocusCoordinator.activeRightSidebarMode == .machines
         )
