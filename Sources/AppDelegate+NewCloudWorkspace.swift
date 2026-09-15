@@ -1,9 +1,80 @@
 import AppKit
 import Foundation
 
+/// The machine target captured for one New Workspace invocation. A selection
+/// in the focused Machines panel takes precedence; otherwise the active
+/// workspace's Cloud binding supplies the machine. No selection means local.
+struct NewWorkspaceMachineContext: Equatable {
+    let machine: SurfaceMachineID
+
+    init(
+        selectedCloudMachineID: String?,
+        selectedWorkspaceCloudMachineID: String?,
+        machinesPanelOwnsFocus: Bool
+    ) {
+        if machinesPanelOwnsFocus,
+           let selectedCloudMachineID = Self.normalized(selectedCloudMachineID) {
+            machine = .cloud(selectedCloudMachineID)
+        } else if let selectedWorkspaceCloudMachineID = Self.normalized(selectedWorkspaceCloudMachineID) {
+            machine = .cloud(selectedWorkspaceCloudMachineID)
+        } else {
+            machine = .local
+        }
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let value = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
+    }
+}
+
 // MARK: - Cloud creation actions
 
 extension AppDelegate {
+    /// Records the selected Cloud machine for the owning window. The focus
+    /// coordinator decides whether this value is authoritative at invocation.
+    func setSelectedCloudMachine(_ machine: SurfaceMachineID?, in tabManager: TabManager?) {
+        guard let tabManager,
+              let context = mainWindowContext(for: tabManager) else { return }
+        context.selectedCloudMachineID = machine?.cloudMachineID
+    }
+
+    func newWorkspaceMachineContext(for context: MainWindowContext) -> NewWorkspaceMachineContext {
+        NewWorkspaceMachineContext(
+            selectedCloudMachineID: context.selectedCloudMachineID,
+            selectedWorkspaceCloudMachineID: context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID,
+            machinesPanelOwnsFocus: context.keyboardFocusCoordinator.activeRightSidebarMode == .machines
+        )
+    }
+
+    /// Starts one keyed Cloud create on the exact machine captured at the
+    /// shortcut boundary. Machine removal fails closed in the coordinator.
+    @discardableResult
+    func performNewCloudWorkspaceOnMachineAction(
+        machineID: String,
+        focus: Bool,
+        debugSource: String = "newWorkspace.cloud",
+        destination: CloudWorkspaceGroupDestination? = nil
+    ) -> Bool {
+        guard let coordinator = cloudWorkspaceCoordinator,
+              let operationController = cloudWorkspaceOperationController,
+              coordinator.isAvailable else { return false }
+        let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !capturedMachineID.isEmpty else { return false }
+        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)") {
+            guard let workspaceID = try await coordinator.createOnMachine(machineID: capturedMachineID, focus: focus),
+                  !Task.isCancelled,
+                  coordinator.isAvailable else { return }
+            destination?.apply(workspaceID: workspaceID)
+#if DEBUG
+            cmuxDebugLog(
+                "newWorkspace.cloud.completed source=\(debugSource) machine=\(capturedMachineID) " +
+                    "workspace=\(workspaceID.uuidString.prefix(8))"
+            )
+#endif
+        }
+    }
+
     /// Creates a workspace on the persisted default machine through the app-owned operation controller.
     @discardableResult
     func performNewCloudWorkspaceOnDefaultMachineAction(
