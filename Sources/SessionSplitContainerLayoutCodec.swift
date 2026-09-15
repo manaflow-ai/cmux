@@ -157,9 +157,7 @@ struct SessionSplitContainerLayoutCodec {
                 controller.focusPane(leaf.paneId)
                 controller.selectTab(tabID)
             }
-            if leaf.snapshot.isFullWidthTabMode == true {
-                _ = controller.setFullWidthTabMode(true, inPane: leaf.paneId)
-            }
+            _ = controller.setFullWidthTabMode(leaf.snapshot.isFullWidthTabMode == true, inPane: leaf.paneId)
         }
         for tabID in scaffold.placeholderTabIds {
             _ = controller.closeTab(tabID)
