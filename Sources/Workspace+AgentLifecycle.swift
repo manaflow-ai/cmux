@@ -383,9 +383,16 @@ extension Workspace {
 
     func resendRestoredStartupInputIfStillIdle(panelId: UUID) {
         let shellState = panelShellActivityStates[panelId] ?? .unknown
+        let hasLiveAgent = restoredAgentSnapshotsByPanelId[panelId].map {
+            restoredAgentHasLiveProcess($0, panelId: panelId)
+        } == true || agentHookBindingHasLiveProcess(panelId: panelId)
         guard !isRetiredFromOwningTabManager,
               let terminal = panels[panelId] as? TerminalPanel,
-              let input = restoredAgentLifecycle.takeStartupInputForResend(panelId: panelId, shellState: shellState),
+              let input = restoredAgentLifecycle.takeStartupInputForResend(
+                  panelId: panelId,
+                  shellState: shellState,
+                  hasLiveAgent: hasLiveAgent
+              ),
               terminal.surface.surface != nil else { return }
         _ = terminal.sendInputResult(input)
     }

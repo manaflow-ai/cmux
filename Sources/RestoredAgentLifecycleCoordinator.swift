@@ -235,14 +235,24 @@ final class RestoredAgentLifecycleCoordinator {
     /// the grace period and the launch never entered its command phase. A
     /// prompt-then-command sequence that settled into `.autoResumeCommandRunning`
     /// yields `nil`, and only one replay is ever handed out per restored launch.
+    /// Fresh evidence of the matching live agent retires the retry even when
+    /// shell integration never reported the command starting.
     func takeStartupInputForResend(
         panelId: UUID,
-        shellState: PanelShellActivityState
+        shellState: PanelShellActivityState,
+        hasLiveAgent: Bool = false
     ) -> String? {
         armedStartupInputResendPanelIds.remove(panelId)
-        guard shellState == .promptIdle, awaitsStartupInput(panelId: panelId) else {
+        guard awaitsStartupInput(panelId: panelId) else { return nil }
+        // Shell command-start reports can be missing (for example with Bash 3.2).
+        // Positive process evidence supersedes a cached idle prompt. Forget the
+        // selector permanently so a later prompt cannot type it into the agent.
+        if hasLiveAgent {
+            clearStartupInput(panelId: panelId)
+            setResumeState(.autoResumeCommandRunning, panelId: panelId)
             return nil
         }
+        guard shellState == .promptIdle else { return nil }
         return pendingStartupInputsByPanelId.removeValue(forKey: panelId)
     }
 
