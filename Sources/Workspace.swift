@@ -1006,7 +1006,7 @@ extension Workspace {
         }
         if let layout = entry.layout,
            let restoredLayout = SessionSplitContainerLayoutCodec(controller: bonsplitController)
-            .pruned(layout, keeping: Set(panels.keys)) {
+            .pruned(layout, keeping: Set(panels.keys).subtracting([panelId]).union([entry.snapshot.id])) {
             _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
                 restoredLayout,
                 panelIDMap: [entry.snapshot.id: panelId],
@@ -1050,7 +1050,7 @@ extension Workspace {
         }
         if let layout = entry.layout,
            let restoredLayout = SessionSplitContainerLayoutCodec(controller: bonsplitController)
-            .pruned(layout, keeping: Set(panels.keys)) {
+            .pruned(layout, keeping: Set(panels.keys).subtracting([panelId]).union([entry.snapshot.id])) {
             _ = SessionSplitContainerLayoutCodec(controller: bonsplitController).restoreExistingLayout(
                 restoredLayout,
                 panelIDMap: [entry.snapshot.id: panelId],
