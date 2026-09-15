@@ -1196,6 +1196,26 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+# A tagged launch is a dogfood surface, so it must have an explicit identity
+# before the app is started.  Keeping this gate here covers agents that call
+# reload.sh directly instead of the higher-level dev-setup wrapper.
+if [[ "$LAUNCH" -eq 1 && -n "$TAG" && -z "$AUTH_PROFILE" ]]; then
+  AUTH_PROFILE="personal"
+  if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+    for candidate in "${HOME:-}/.secrets/cmuxterm-dev.env" "${HOME:-}/.secrets/cmux.env"; do
+      if [[ -f "$candidate" ]]; then
+        AUTH_CREDENTIALS_FILE="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$AUTH_CREDENTIALS_FILE" || ! -f "$AUTH_CREDENTIALS_FILE" ]]; then
+    echo "error: tagged launches require authenticated dev credentials" >&2
+    echo "error: configure ~/.secrets/cmuxterm-dev.env with scripts/setup-team-dev.sh" >&2
+    exit 2
+  fi
+fi
+
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
   cmux_dev_secrets_validate_file "$AUTH_CREDENTIALS_FILE"
   AUTH_CREDENTIALS_FILE="$(cd "$(dirname "$AUTH_CREDENTIALS_FILE")" && pwd -P)/$(basename "$AUTH_CREDENTIALS_FILE")"

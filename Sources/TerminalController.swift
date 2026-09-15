@@ -26,6 +26,8 @@ import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
 
+private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
+
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -1872,6 +1874,70 @@ class TerminalController {
                 return .ok([
                     "closed_connection_ids": closed.map(\.uuidString),
                     "closed_count": closed.count,
+                ])
+            }
+        case "debug.mobile.transport.reconnect_loop":
+            guard let duration = request.params["duration_seconds"] as? NSNumber,
+                  let interval = request.params["interval_seconds"] as? NSNumber else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds and interval_seconds are required"
+                )
+            }
+            let durationSeconds = duration.doubleValue
+            let intervalSeconds = interval.doubleValue
+            guard durationSeconds > 0, durationSeconds <= 1_800,
+                  intervalSeconds >= 0.25, intervalSeconds <= 300 else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds must be 0<value<=1800 and interval_seconds must be 0.25...300"
+                )
+            }
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: durationSeconds + 30) {
+                let startedAt = ContinuousClock.now
+                let clock = ContinuousClock()
+                var cycles = 0
+                var closedConnectionIDs: [String] = []
+                while startedAt.duration(to: ContinuousClock.now) < .seconds(durationSeconds) {
+                    guard !Task.isCancelled else { break }
+                    let closed = await MobileHostConnectionRegistry.shared
+                        .debugCloseConnections(connectionID: selectedConnectionID)
+                    cycles += 1
+                    closedConnectionIDs.append(contentsOf: closed.map(\.uuidString))
+                    mobileReconnectDebugLog.info(
+                        "debug.reconnect_loop cycle=\(cycles) closed=\(closed.count) interval_s=\(intervalSeconds)"
+                    )
+                    let elapsed = startedAt.duration(to: ContinuousClock.now)
+                    let elapsedComponents = elapsed.components
+                    let elapsedSeconds = Double(elapsedComponents.seconds)
+                        + Double(elapsedComponents.attoseconds) / 1_000_000_000_000_000_000
+                    let remaining = durationSeconds - elapsedSeconds
+                    guard remaining > 0 else { break }
+                    let delay = min(intervalSeconds, remaining)
+                    try? await clock.sleep(for: .seconds(delay))
+                }
+                return .ok([
+                    "duration_seconds": durationSeconds,
+                    "interval_seconds": intervalSeconds,
+                    "cycles": cycles,
+                    "closed_connection_ids": closedConnectionIDs,
+                    "closed_count": closedConnectionIDs.count,
                 ])
             }
 #endif
@@ -12315,6 +12381,7 @@ class TerminalController {
           reset_bonsplit_underflow_count  - Reset bonsplit underflow counter (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
+          debug.mobile.transport.reconnect_loop - Repeatedly close mobile transports for a bounded duration (test-only)
         """
 #endif
         return text

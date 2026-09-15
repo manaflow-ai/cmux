@@ -13450,6 +13450,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         return .rawBytes
                     }
                     terminalOutputTransport = fallback
+                    if fallback != .renderGrid {
+                    }
                     // Preserve learned capabilities during transient status decode failures.
                     scheduleHostIdentityAdoptionIfNeeded(client: client)
                     return fallback
@@ -13528,6 +13530,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             terminalOutputTransport = fallback
+            if fallback != .renderGrid {
+            }
             reconcileTerminalLanesForOutputTransport()
             // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
