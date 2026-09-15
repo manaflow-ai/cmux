@@ -77,7 +77,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
 
   const input = parseRegistrationInput(request, body.value);
   if (!input.ok) return input.response;
-  const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey } = input.value;
+  const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey, isLegacy } = input.value;
 
   const db = cloudDb();
 
@@ -94,19 +94,24 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
-      const [existingInstallation] = await tx
-        .select({
-          id: deviceTokens.id,
-          userId: deviceTokens.userId,
-          deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
-        })
-        .from(deviceTokens)
-        .where(and(
-          eq(deviceTokens.bundleId, bundle.bundleId),
-          eq(deviceTokens.installationId, installationId),
-        ))
-        .limit(1)
-        .for("update");
+      let existingInstallation:
+        | { id: string; userId: string; deliveryLeaseUntil: Date | null }
+        | undefined;
+      if (!isLegacy) {
+        [existingInstallation] = await tx
+          .select({
+            id: deviceTokens.id,
+            userId: deviceTokens.userId,
+            deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+          })
+          .from(deviceTokens)
+          .where(and(
+            eq(deviceTokens.bundleId, bundle.bundleId),
+            eq(deviceTokens.installationId, installationId),
+          ))
+          .limit(1)
+          .for("update");
+      }
 
       const [existingToken] = await tx
         .select({
@@ -196,9 +201,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             bundleId: bundle.bundleId,
             environment: bundle.environment,
             platform,
-            installationId,
-            pushKeyId,
-            pushPublicKey,
+            installationId: isLegacy ? "legacy" : installationId,
+            pushKeyId: isLegacy ? "legacy" : pushKeyId,
+            pushPublicKey: isLegacy ? null : pushPublicKey,
             updatedAt: new Date(),
           })
           .where(eq(deviceTokens.id, rowToUpdate.id));
@@ -209,9 +214,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           bundleId: bundle.bundleId,
           environment: bundle.environment,
           platform,
-          installationId,
-          pushKeyId,
-          pushPublicKey,
+          installationId: isLegacy ? "legacy" : installationId,
+          pushKeyId: isLegacy ? "legacy" : pushKeyId,
+          pushPublicKey: isLegacy ? null : pushPublicKey,
         });
       }
 
@@ -234,6 +239,7 @@ type RegistrationInput = {
   installationId: string;
   pushKeyId: string;
   pushPublicKey: string;
+  isLegacy: boolean;
 };
 
 function parseRegistrationInput(
@@ -265,14 +271,14 @@ function parsePushKeyFields(
   installationId: string,
   pushKeyId: string,
   pushPublicKey: string,
-): Pick<RegistrationInput, "installationId" | "pushKeyId" | "pushPublicKey"> | null {
+): Pick<RegistrationInput, "installationId" | "pushKeyId" | "pushPublicKey" | "isLegacy"> | null {
   if (!installationId && !pushKeyId && !pushPublicKey) {
-    return { installationId: "legacy", pushKeyId: "legacy", pushPublicKey: "" };
+    return { installationId: "legacy", pushKeyId: "legacy", pushPublicKey: "", isLegacy: true };
   }
   if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
     return null;
   }
-  return { installationId, pushKeyId, pushPublicKey };
+  return { installationId, pushKeyId, pushPublicKey, isLegacy: false };
 }
 
 function registrationResponse(registration: {

@@ -132,7 +132,7 @@ final class PhoneReplyInboxCoordinator {
             }
             guard let decrypted = decrypt(
                 reply,
-                accountID: client.authenticatedAccountID()
+                accountID: await MainActor.run { client.authenticatedAccountID() }
             ) else {
                 retryableCount += 1
                 continue

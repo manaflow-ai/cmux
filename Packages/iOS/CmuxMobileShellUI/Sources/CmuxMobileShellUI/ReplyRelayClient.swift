@@ -152,7 +152,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
                   plaintext: plaintextData,
                   tuple: tuple,
                   recipientPublicKey: peer.publicKey,
-                  keyID: "reply-\(identity.keyID)",
+                  keyID: peer.keyID,
                   senderKeyID: identity.keyID,
                   senderPrivateKey: identity.privateKey,
                   installationID: macInstallationID
