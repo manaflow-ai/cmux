@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -1172,17 +1173,6 @@ struct MacComputerDetailView: View {
                     }
                     .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
                 }
-                if selectedMethod == .tailscale, !tailscaleSuggestions.isEmpty {
-                    Section {
-                        ForEach(MobileComputerRouteGroup.suggestions(tailscaleSuggestions)) { group in
-                            suggestionGroupRow(group)
-                        }
-                    } header: {
-                        Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
-                    } footer: {
-                        Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."))
-                    }
-                }
 
                 Button {
                     pingAllRoutes(routes)
@@ -1201,6 +1191,17 @@ struct MacComputerDetailView: View {
                 }
                 .disabled(isPinging)
                 .accessibilityIdentifier("MobileComputerPingButton")
+            }
+            if selectedMethod == .tailscale, !tailscaleSuggestions.isEmpty {
+                Section {
+                    ForEach(MobileComputerRouteGroup.suggestions(tailscaleSuggestions)) { group in
+                        suggestionGroupRow(group)
+                    }
+                } header: {
+                    Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
+                } footer: {
+                    Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."))
+                }
             }
         } header: {
             Text(L10n.string("mobile.computers.section.routes", defaultValue: "Routes the phone can dial"))
