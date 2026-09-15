@@ -143,6 +143,29 @@ def main():
             time.sleep(0.005)
         stdout, stderr = process.communicate(timeout=5)
         result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        # A tool acknowledgement proves dispatch, not that WindowServer has
+        # consumed mouse-up. Keep the failed trace too if this deadline expires.
+        release_deadline = time.monotonic() + 2
+        while True:
+            final = {
+                "t": time.monotonic() - started,
+                "pointer": pointer.snapshot(),
+                "feed": read_feed(args.feed, args.session),
+            }
+            samples.append(final)
+            feed = final["feed"] or {}
+            if (
+                not final["pointer"]["pressed"]
+                and feed.get("visible")
+                and math.hypot(
+                    feed["x"] - final["pointer"]["x"],
+                    feed["y"] - final["pointer"]["y"],
+                ) <= 2
+            ):
+                break
+            if time.monotonic() >= release_deadline:
+                break
+            time.sleep(0.005)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps({
             "command": command, "stdout": stdout, "stderr": stderr, "samples": samples,
