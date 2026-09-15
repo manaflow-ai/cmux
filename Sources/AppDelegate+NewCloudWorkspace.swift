@@ -40,17 +40,7 @@ extension AppDelegate {
                 return true
             }()
             if !hasExplicitConfiguredAction {
-                let destination: CloudWorkspaceGroupDestination? = {
-                    guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID,
-                          let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
-                    return CloudWorkspaceGroupDestination(
-                        tabManager: context.tabManager,
-                        groupId: group.groupId,
-                        placement: group.placement,
-                        referenceWorkspaceId: group.referenceWorkspaceId,
-                        initialWorkspaceId: nil
-                    )
-                }()
+                let destination = cloudWorkspaceGroupDestination(in: context, machineID: machineID)
                 return performNewCloudWorkspaceOnMachineAction(
                     machineID: machineID,
                     focus: context.tabManager.selectedTabId != nil,
@@ -107,7 +97,7 @@ extension AppDelegate {
               coordinator.isAvailable else { return false }
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else { return false }
-        return operationController.start(key: "new-cloud-workspace", {
+        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)", {
             guard let workspaceID = try await coordinator.createOnMachine(
                 machineID: capturedMachineID, focus: focus, windowID: windowID
             ), !Task.isCancelled, coordinator.isAvailable else { return }
@@ -191,7 +181,10 @@ extension AppDelegate {
         let focus = context?.tabManager.selectedTabId != nil
         // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
         // events while the remote receipt is still being discovered/attached.
-        return operationController.start(key: "new-cloud-workspace") {
+        let operationKey = coordinator.defaultMachineStore.machineID.map {
+            "new-cloud-workspace.machine:\($0)"
+        } ?? "new-cloud-workspace.default"
+        return operationController.start(key: operationKey) {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
                   !Task.isCancelled,
                   coordinator.isAvailable else { return }

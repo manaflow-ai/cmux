@@ -105,4 +105,36 @@ struct CloudWorkspaceCoordinatorTests {
             try await coordinator.createOnMachine(machineID: "machine-a", focus: false)
         }
     }
+
+    @Test func defaultAndSelectedCommandsCoalesceOnlyTheSameMachine() async throws {
+        let store = DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        store.machineID = "machine-a"
+        let started = AsyncStream<Void>.makeStream()
+        var releaseA: CheckedContinuation<Void, Never>?
+        var targets: [String] = []
+        let coordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: store,
+            allowsOperation: { true },
+            loadMachines: {
+                [CloudMachineDescriptor(id: "machine-a", isDesktop: true), CloudMachineDescriptor(id: "machine-b", isDesktop: false)]
+            },
+            createWorkspace: { id, _ in
+                targets.append(id)
+                if id == "machine-a" {
+                    await withCheckedContinuation { continuation in
+                        releaseA = continuation
+                        started.continuation.yield(())
+                    }
+                }
+                return UUID()
+            }
+        )
+        let first = Task { try await coordinator.createOnDefaultMachine(focus: true) }
+        for await _ in started.stream { break }
+        #expect(try await coordinator.createOnMachine(machineID: "machine-a", focus: true) == nil)
+        #expect(try await coordinator.createOnMachine(machineID: "machine-b", focus: true) != nil)
+        releaseA?.resume()
+        _ = try await first.value
+        #expect(targets == ["machine-a", "machine-b"])
+    }
 }

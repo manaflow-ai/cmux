@@ -44,7 +44,7 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct WorkspaceGroupNewWorkspaceTarget {
+private struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
     let placement: WorkspaceGroupNewPlacement
@@ -9403,7 +9403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
+    private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
         let tabManager = context.tabManager
         guard let selectedWorkspaceId = tabManager.selectedTabId,
               let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
@@ -9422,6 +9422,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             placement: configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
+    }
+
+    func cloudWorkspaceGroupDestination(in context: MainWindowContext, machineID: String) -> CloudWorkspaceGroupDestination? {
+        guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID, let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+        return CloudWorkspaceGroupDestination(tabManager: context.tabManager, groupId: group.groupId, placement: group.placement, referenceWorkspaceId: group.referenceWorkspaceId, initialWorkspaceId: nil)
     }
 
     private func closeInitialWorkspaceIfNeeded(
