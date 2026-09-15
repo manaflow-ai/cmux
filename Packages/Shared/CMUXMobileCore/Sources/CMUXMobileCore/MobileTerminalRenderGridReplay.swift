@@ -581,13 +581,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
     }
 
     private func appendVTPrintable(_ scalar: UnicodeScalar, to bytes: inout Data) {
-        switch scalar.value {
-        case 0x20...0x7E,
-             0xA0...0x10FFFF:
-            appendUTF8(scalar, to: &bytes)
-        default:
-            bytes.append(0x20)
-        }
+        appendUTF8(MobileTerminalRenderGridText.replayScalar(scalar), to: &bytes)
     }
 
     private func appendUTF8(_ scalar: UnicodeScalar, to bytes: inout Data) {

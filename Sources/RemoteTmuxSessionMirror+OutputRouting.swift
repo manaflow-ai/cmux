@@ -261,12 +261,15 @@ extension RemoteTmuxSessionMirror {
         paneId: Int,
         target: (columns: Int, rows: Int)
     ) -> Bool {
-        guard let frame = terminalSurface(forPane: paneId)?.mobileRenderGridFrame(
-            stateSeq: 0,
-            scrollbackLines: 0,
-            includeTheme: false
-        )?.frame else { return false }
-        return frame.columns >= target.columns && frame.rows >= target.rows
+        guard let surface = terminalSurface(forPane: paneId)?.liveSurfaceForGhosttyAccess(
+            reason: "remoteTmuxPaneSeed.gridReadiness"
+        ) else { return false }
+        // Readiness needs settled grid dimensions, independent of whether an
+        // application has committed its next screen image. The metrics query
+        // rejects resize skew without exporting text or waiting for a redraw.
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return false }
+        return Int(metrics.columns) >= target.columns && Int(metrics.rows) >= target.rows
     }
 
     private func drainPendingPaneSeedDelivery(paneId: Int) {

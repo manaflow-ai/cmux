@@ -15749,15 +15749,24 @@ class TerminalController {
         } else {
             scrollbackLines = TerminalController.mobileReplayScrollbackLineBudget
         }
-        let renderGrid = mobileTerminalRenderGridFrame(
+        guard let renderGrid = mobileTerminalRenderGridFrame(
             terminalTarget: terminalTarget,
             surfaceID: surfaceId,
             seq: seq,
             scrollbackLines: scrollbackLines,
             anchor: anchor
-        )
+        ) else {
+            // A snapshot may be temporarily unavailable while the terminal
+            // application holds synchronized output open. Reuse the existing
+            // retryable transition response; exporting raw VT here would
+            // bypass the same commit boundary the grid exporter just enforced.
+            return .err(
+                code: "viewport_transition",
+                message: "Terminal screen update is still in progress",
+                data: nil
+            )
+        }
         if let expectedViewport,
-           let renderGrid,
            !MobileTerminalReplayViewportFence.accepts(
                capturedColumns: renderGrid.columns,
                capturedRows: renderGrid.rows,
@@ -15783,77 +15792,19 @@ class TerminalController {
             )
         }
         #if DEBUG
-        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
+        cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=true seq=\(seq) hasState=\(state != nil)")
         #endif
-        var payload: [String: Any] = [
+        guard let renderGridObject = try? renderGrid.jsonObject() else {
+            return .err(code: "internal_error", message: "Could not encode terminal screen", data: nil)
+        }
+        return .ok([
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": surfaceId.uuidString,
             "seq": seq,
-        ]
-        if let renderGrid,
-           let renderGridObject = try? renderGrid.jsonObject() {
-            payload["columns"] = renderGrid.columns
-            payload["rows"] = renderGrid.rows
-            payload["render_grid"] = renderGridObject
-        } else {
-            if let expectedViewport {
-                guard let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(
-                    reason: "mobileTerminalReplay.viewportFence"
-                ) else {
-                    return .err(
-                        code: "viewport_transition",
-                        message: "Terminal viewport is still resizing",
-                        data: nil
-                    )
-                }
-                let size = ghostty_surface_size(surface)
-                let capturedColumns = max(Int(size.columns), 1)
-                let capturedRows = max(Int(size.rows), 1)
-                guard MobileTerminalReplayViewportFence.accepts(
-                    capturedColumns: capturedColumns,
-                    capturedRows: capturedRows,
-                    expectedColumns: expectedViewport.columns,
-                    expectedRows: expectedViewport.rows
-                ) else {
-                    #if DEBUG
-                    cmuxDebugLog(
-                        "mobile.terminal.replay VIEWPORT_PENDING surface=\(surfaceId.uuidString.prefix(8)) " +
-                        "expected=\(expectedViewport.columns)x\(expectedViewport.rows) " +
-                        "captured=\(capturedColumns)x\(capturedRows) fallback=1"
-                    )
-                    #endif
-                    return .err(
-                        code: "viewport_transition",
-                        message: "Terminal viewport is still resizing",
-                        data: [
-                            "expected_columns": expectedViewport.columns,
-                            "expected_rows": expectedViewport.rows,
-                            "captured_columns": capturedColumns,
-                            "captured_rows": capturedRows,
-                        ]
-                    )
-                }
-            }
-            let snapshotData = readTerminalTextFromVTExportForSnapshot(
-                terminalTarget: terminalTarget,
-                bindingAction: "write_active_file:copy,vt",
-                lineLimit: nil,
-                normalizeLineEndings: false
-            )?.data(using: .utf8) ?? Data()
-            let data = state?.data ?? Data()
-            if let surface = terminalTarget.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalReplay") {
-                let size = ghostty_surface_size(surface)
-                payload["columns"] = max(Int(size.columns), 1)
-                payload["rows"] = max(Int(size.rows), 1)
-            }
-            if !snapshotData.isEmpty {
-                payload["snapshot_format"] = "ghostty.active.vt"
-                payload["snapshot_data_b64"] = snapshotData.base64EncodedString()
-            } else if !data.isEmpty {
-                payload["data_b64"] = data.base64EncodedString()
-            }
-        }
-        return .ok(payload)
+            "columns": renderGrid.columns,
+            "rows": renderGrid.rows,
+            "render_grid": renderGridObject,
+        ])
     }
 
     /// Record (or clear) a paired device's reported terminal grid, recompute

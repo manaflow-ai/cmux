@@ -571,9 +571,9 @@ extension MobileShellComposite {
         }
     }
 
-    /// The Mac returns this while Ghostty is between two viewport sizes. It is
-    /// a readiness signal: the next authoritative render-grid event carries
-    /// the settled geometry and must drive replay recovery.
+    /// The Mac returns this while Ghostty is resizing or an application has
+    /// an unfinished synchronized redraw. The next committed render-grid
+    /// event is the readiness signal that drives replay recovery.
     func isTerminalReplayViewportTransition(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError,
               case let .rpcError(code, _) = connectionError else {

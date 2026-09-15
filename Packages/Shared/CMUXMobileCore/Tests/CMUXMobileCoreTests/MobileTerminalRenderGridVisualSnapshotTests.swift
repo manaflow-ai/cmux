@@ -137,3 +137,20 @@ import Testing
     #expect(try snapshot(text: " ", foreground: "#FFFFFF", inverse: true)
         != snapshot(text: " ", foreground: "#FDFFF1", inverse: true))
 }
+
+@Test func renderGridVisualSnapshotMatchesReplayControlCharacterNormalization() throws {
+    let controls = String(String.UnicodeScalarView(
+        (0...0x9F).filter { $0 < 0x20 || $0 >= 0x7F }.compactMap(UnicodeScalar.init)
+    ))
+    func frame(_ text: String) throws -> MobileTerminalRenderGridFrame {
+        try MobileTerminalRenderGridFrame(
+            surfaceID: "control-cells", stateSeq: 1, columns: controls.unicodeScalars.count + 2, rows: 1,
+            rowSpans: [.init(row: 0, column: 0, text: text, cellWidth: controls.unicodeScalars.count + 2)]
+        )
+    }
+    let source = try frame("A" + controls + "B")
+    let reconstructed = try frame("A" + String(repeating: " ", count: controls.unicodeScalars.count) + "B")
+    #expect(MobileTerminalRenderGridVisualSnapshot(fullFrame: source)
+        == MobileTerminalRenderGridVisualSnapshot(fullFrame: reconstructed))
+    #expect(source.vtReplacementBytes() == reconstructed.vtReplacementBytes())
+}

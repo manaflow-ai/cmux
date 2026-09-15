@@ -1,35 +1,47 @@
 import Foundation
 import Testing
 
+@testable import CmuxMobileTerminal
+
+private final class RecordedWorkOrder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        values.append(value)
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 @Test("scroll priority runs ahead of queued repaint work")
 func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 1)
     let firstStarted = DispatchSemaphore(value: 0)
     let releaseFirst = DispatchSemaphore(value: 0)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = RecordedWorkOrder()
 
     workQueue.async {
         firstStarted.signal()
         releaseFirst.wait()
-        lock.lock()
         order.append("first")
-        lock.unlock()
         completed.signal()
     }
     #expect(firstStarted.wait(timeout: .now() + 1) == .success)
 
     workQueue.async {
-        lock.lock()
         order.append("repaint")
-        lock.unlock()
         completed.signal()
     }
     workQueue.asyncPriority {
-        lock.lock()
         order.append("scroll")
-        lock.unlock()
         completed.signal()
     }
     releaseFirst.signal()
@@ -37,9 +49,7 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
-    lock.lock()
-    let observedOrder = order
-    lock.unlock()
+    let observedOrder = order.snapshot()
     #expect(observedOrder == ["first", "scroll", "repaint"])
 }
 
@@ -47,28 +57,21 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
 func normalWorkIsServicedDuringSustainedScrollPriority() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 2)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = RecordedWorkOrder()
     for index in 0..<5 {
         workQueue.asyncPriority {
-            lock.lock()
             order.append("scroll-\(index)")
-            lock.unlock()
             completed.signal()
         }
     }
     workQueue.async {
-        lock.lock()
         order.append("repaint")
-        lock.unlock()
         completed.signal()
     }
     for _ in 0..<6 {
         #expect(completed.wait(timeout: .now() + 1) == .success)
     }
-    lock.lock()
-    let observedOrder = order
-    lock.unlock()
+    let observedOrder = order.snapshot()
     #expect(observedOrder[4] == "repaint")
 }
 
@@ -76,22 +79,33 @@ func normalWorkIsServicedDuringSustainedScrollPriority() {
 func newInteractionStartsWithScrollPriorityAfterIdle() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 3)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = RecordedWorkOrder()
     for _ in 0..<4 {
         workQueue.asyncPriority {
-            lock.lock(); order.append("scroll"); lock.unlock(); completed.signal()
+            order.append("scroll"); completed.signal()
         }
     }
     for _ in 0..<4 { #expect(completed.wait(timeout: .now() + 1) == .success) }
     workQueue.async {
-        lock.lock(); order.append("repaint"); lock.unlock(); completed.signal()
+        order.append("repaint"); completed.signal()
     }
     workQueue.asyncPriority {
-        lock.lock(); order.append("new-scroll"); lock.unlock(); completed.signal()
+        order.append("new-scroll"); completed.signal()
     }
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
-    lock.lock(); let observedOrder = order; lock.unlock()
+    let observedOrder = order.snapshot()
     #expect(observedOrder.suffix(2).first == "new-scroll")
+}
+
+@Test("geometry mutation advances the generation even at unchanged dimensions")
+func geometryMutationAdvancesGenerationAtUnchangedDimensions() {
+    let workQueue = GhosttySurfaceWorkQueue(generation: 4)
+    let initial = workQueue.noteObservedGrid(columns: 80, rows: 24)
+    workQueue.gridGenerationAtLastRenderGridApply = initial
+
+    workQueue.markGridMutation()
+
+    #expect(workQueue.observedGridGeneration == initial + 1)
+    #expect(workQueue.gridGenerationAtLastRenderGridApply != workQueue.observedGridGeneration)
 }
