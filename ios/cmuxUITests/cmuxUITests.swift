@@ -20,10 +20,13 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         func verifyPairingPage(_ name: String) throws {
-            let screenshot = app.images["MobileWhatsNewMacSettingsScreenshot"].firstMatch
+            let screenshot = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
             XCTAssertTrue(screenshot.waitForExistence(timeout: 15))
-            let title = app.staticTexts["MobileWhatsNewPhoneTitle"].firstMatch
-            let detail = app.staticTexts["MobileWhatsNewPhoneDetail"].firstMatch
+            let title = app.staticTexts["On this iPhone"].firstMatch
+            let detail = app.staticTexts["Sign in to the same cmux account"].firstMatch
             XCTAssertTrue(title.exists)
             XCTAssertTrue(detail.exists)
             XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
@@ -46,10 +49,10 @@ final class cmuxUITests: XCTestCase {
         }
 
         try verifyPairingPage("Pairing update sheet")
-        app.buttons["MobileWhatsNewContinue"].tap()
+        app.buttons["Continue"].tap()
         XCTAssertTrue(app.staticTexts["Per-computer methods"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Auto-Connect is now Iroh"].exists)
-        app.buttons["MobileWhatsNewContinue"].tap()
+        app.buttons["Continue"].tap()
         let newer = app.buttons["MobileWhatsNewEntry-connections.v2"]
         let older = app.buttons["MobileWhatsNewEntry-connections.v1"]
         XCTAssertTrue(newer.waitForExistence(timeout: 5))
