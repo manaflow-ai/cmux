@@ -16,17 +16,19 @@ pub enum DirectoryAccess {
     ManagedOwnerOnly,
 }
 
-/// Creates `path` without following user-controlled symlinks and verifies that
-/// the resulting directory is owned by this process and cannot be replaced by
-/// another user.
+/// Creates `path` and verifies that the resulting directory is owned by this
+/// process and cannot be replaced by another user under its platform policy.
 ///
-/// On Unix, every component is opened relative to the preceding directory
+/// On Unix outside iOS, every component is opened relative to the preceding directory
 /// descriptor with `O_NOFOLLOW`. Missing components are created as mode `0700`.
 /// An existing final directory is validated without changing its permissions
 /// unless the caller explicitly selects `ManagedOwnerOnly`.
 /// Root-owned symlinks in root-owned, non-writable directories are expanded
 /// component by component so standard system aliases such as macOS `/var` and
 /// `/tmp` remain usable without permitting user-controlled aliases.
+/// On iOS the sandbox protects ancestors, which the app may not open. The
+/// final directory is opened directly without following a final symlink and
+/// receives the same ownership and permission checks.
 pub fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -51,8 +53,8 @@ mod unix {
     use std::mem::MaybeUninit;
     use std::os::fd::{AsRawFd, FromRawFd, RawFd};
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    use std::path::{Component, Path};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    use std::path::{Component, Path, PathBuf};
 
     use super::DirectoryAccess;
 
@@ -73,10 +75,10 @@ mod unix {
 
     /// iOS runs every app in its own sandbox container; no other user can
     /// reach, rename, or replace anything above the app's directories, so the
-    /// ancestor walk adds nothing there. It does break the iOS Simulator, whose
-    /// per-device `data` directory is mode 0775 and would be rejected as an
-    /// ancestor writable by other users. The final directory is still required
-    /// to be owner-only. Everywhere else the walk is the guarantee.
+    /// ancestor walk adds nothing there. Physical devices deny opening global
+    /// ancestors such as /var, and the Simulator's per-device `data` directory
+    /// can be mode 0775. The final directory's ownership and access policy are
+    /// still enforced. Everywhere else the walk is the guarantee.
     pub(super) fn ancestor_policy() -> AncestorPolicy {
         #[cfg(target_os = "ios")]
         {
@@ -98,6 +100,21 @@ mod unix {
         policy: AncestorPolicy,
     ) -> io::Result<()> {
         let (absolute, mut pending) = validated_components(path)?;
+        if policy == AncestorPolicy::TrustSandbox {
+            // A trailing slash or '/.' must not turn a final symlink into an
+            // intermediate component and bypass O_NOFOLLOW.
+            let mut normalized = PathBuf::new();
+            if absolute {
+                normalized.push("/");
+            }
+            for component in pending {
+                normalized.push(component);
+            }
+            if normalized.as_os_str().is_empty() {
+                normalized.push(".");
+            }
+            return ensure_sandbox_directory(&normalized, access);
+        }
         let mut directory = open_anchor(absolute)?;
         let mut trusted_symlinks = 0_usize;
         let mut final_component_created = false;
@@ -145,6 +162,25 @@ mod unix {
         }
 
         validate_final(&directory, path, access, final_component_created)
+    }
+
+    fn ensure_sandbox_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        // Let the kernel traverse sandbox-protected ancestors instead of
+        // opening them for reading. O_NOFOLLOW still protects the final node;
+        // validation and any permission tightening use that owned descriptor.
+        let (directory, created) = match open_directory_at(libc::AT_FDCWD, path.as_os_str()) {
+            Ok(directory) => (directory, false),
+            Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
+                if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+                }
+                let created = create_directory_at(libc::AT_FDCWD, path.as_os_str())?;
+                let directory = open_directory_at(libc::AT_FDCWD, path.as_os_str())?;
+                (directory, created)
+            }
+            Err(error) => return Err(error),
+        };
+        validate_final(&directory, path, access, created)
     }
 
     fn validated_components(path: &Path) -> io::Result<(bool, VecDeque<OsString>)> {
@@ -436,6 +472,7 @@ mod tests {
     fn assert_sandbox_directory_behind_unreadable_ancestor(create: bool) {
         // Root bypasses Unix mode checks. Hosted test runners use an ordinary
         // account so this fixture reproduces the iPhone's denied ancestor open.
+        // SAFETY: geteuid has no preconditions.
         if unsafe { libc::geteuid() } == 0 {
             return;
         }
@@ -466,6 +503,61 @@ mod tests {
     }
 
     #[test]
+    fn sandbox_directory_rejects_final_symlinks_including_trailing_components() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("target");
+        let alias = directory.path().join("alias");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        symlink(&target, &alias).unwrap();
+
+        for suffix in ["", "/", "/."] {
+            let path = std::path::PathBuf::from(format!("{}{suffix}", alias.display()));
+            let result = ensure_secure_directory_with_policy(
+                &path,
+                DirectoryAccess::ManagedOwnerOnly,
+                AncestorPolicy::TrustSandbox,
+            );
+            assert!(result.is_err(), "followed final symlink: {}", path.display());
+            assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+    }
+
+    #[test]
+    fn sandbox_directory_rejects_traversal_before_creating_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        let result = ensure_secure_directory_with_policy(
+            &directory.path().join("created/../escaped"),
+            DirectoryAccess::ManagedOwnerOnly,
+            AncestorPolicy::TrustSandbox,
+        );
+        assert!(result.is_err());
+        assert!(!directory.path().join("created").exists());
+    }
+
+    #[test]
+    fn sandbox_directory_enforces_private_permissions_on_the_final_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = ensure_secure_directory_with_policy(
+            directory.path(),
+            DirectoryAccess::OwnerOnly,
+            AncestorPolicy::TrustSandbox,
+        );
+        assert!(result.is_err());
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o755);
+
+        ensure_secure_directory_with_policy(
+            directory.path(),
+            DirectoryAccess::ManagedOwnerOnly,
+            AncestorPolicy::TrustSandbox,
+        )
+        .unwrap();
+        assert_eq!(fs::metadata(directory.path()).unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[test]
     fn creates_nested_owner_controlled_directories_through_ordinary_ancestors() {
         let directory = tempfile::tempdir().unwrap();
         let nested = directory.path().join("one/two/three");
@@ -477,15 +569,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_intermediate_symlinks_before_creating_descendants() {
+    fn enforced_walk_rejects_intermediate_symlinks_before_creating_descendants() {
         let directory = tempfile::tempdir().unwrap();
         let target = directory.path().join("target");
         let alias = directory.path().join("alias");
         fs::create_dir(&target).unwrap();
         symlink(&target, &alias).unwrap();
 
-        let result =
-            ensure_secure_directory(&alias.join("missing"), DirectoryAccess::OwnerControlled);
+        let result = ensure_secure_directory_with_policy(
+            &alias.join("missing"),
+            DirectoryAccess::OwnerControlled,
+            AncestorPolicy::Enforce,
+        );
 
         assert!(result.is_err());
         assert!(!target.join("missing").exists());
