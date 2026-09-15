@@ -48,6 +48,14 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         return observedGridGeneration
     }
 
+    /// Fence a geometry mutation even when it resolves to the same dimensions.
+    /// Ghostty can reflow existing cells during a resize round trip (for
+    /// example, width A → B → A), so dimensions alone are not an identity for
+    /// the grid a delta was diffed against.
+    func markGridMutation() {
+        observedGridGeneration &+= 1
+    }
+
     /// Check the last grid recorded by a geometry or exact render-grid pass.
     /// Must be called from ``queue``. This keeps the direct primary-screen
     /// delta path fenced against stale producer dimensions without another

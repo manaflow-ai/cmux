@@ -2846,6 +2846,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
             // A font change reflows the grid without a `set_size`; record the
             // new grid so render-grid applies fence on the reflow.
+            workQueue.markGridMutation()
             let measured = ghostty_surface_size(surface)
             workQueue.noteObservedGrid(
                 columns: Int(measured.columns),
@@ -4972,12 +4973,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         cols: Int,
         rows: Int,
         cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
+    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s, didMutate: Bool) {
         var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
         var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
 
+        let before = ghostty_surface_size(surface)
         ghostty_surface_set_size(surface, requestedW, requestedH)
+        // `fitSurfaceToGrid` is called only on the serial queue.
+        // Fence this mutation before the final dimensions are observed.
+        // A resize is a grid mutation even when the resulting dimensions are
+        // unchanged. Existing cells may have reflowed during the round trip.
+        // Keep render-grid deltas behind a full replay until this generation
+        // is committed.
+        // The caller records the generation on the same serial queue.
         var actual = ghostty_surface_size(surface)
+        var didMutate = before.width_px != actual.width_px || before.height_px != actual.height_px
 
         // Ghostty's grid calculation subtracts padding and floors partial cells,
         // so the reverse mapping has to be confirmed against Ghostty itself.
@@ -4995,12 +5005,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if Int(actual.rows) < rows {
                 requestedH += 1
             }
+            let before = actual
             ghostty_surface_set_size(surface, requestedW, requestedH)
+            // See the initial resize above: a round trip can reflow cells even
+            // if the final dimensions happen to match the previous grid.
             actual = ghostty_surface_size(surface)
+            didMutate = didMutate || before.width_px != actual.width_px || before.height_px != actual.height_px
             steps += 1
         }
 
-        return (requestedW, requestedH, actual)
+        return (requestedW, requestedH, actual, didMutate)
     }
 
     /// Result of an off-main geometry pass, handed back to the main actor.
@@ -5105,8 +5119,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
             ghostty_surface_set_render_insets(surface, topInsetPx, bottomInsetPx)
+            let beforeGeometry = ghostty_surface_size(surface)
             ghostty_surface_set_size(surface, containerPxW, containerPxH)
             let measured = ghostty_surface_size(surface)
+            var geometryMutated = pushContentScale
+                || beforeGeometry.width_px != measured.width_px
+                || beforeGeometry.height_px != measured.height_px
 
             var cell = CGSize.zero
             if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
@@ -5134,7 +5152,31 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                    var resolved = ghostty_surface_size_s()
+                    let beforeFit = ghostty_surface_size(surface)
+                    let fittedExactly = eff.cols > 0 && eff.rows > 0
+                        && eff.cols <= Int(UInt16.max) && eff.rows <= Int(UInt16.max)
+                        && ghostty_surface_set_grid_size(
+                            surface,
+                            UInt16(eff.cols),
+                            UInt16(eff.rows),
+                            &resolved
+                        )
+                    let exactMutated = fittedExactly
+                        && (beforeFit.width_px != resolved.width_px || beforeFit.height_px != resolved.height_px)
+                    let fitted = fittedExactly
+                        ? (requestedW: resolved.width_px, requestedH: resolved.height_px, actual: resolved, didMutate: exactMutated)
+                        : Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
+                    // Both the exact setter and the bounded fallback mutate
+                    // the terminal grid. One fence covers the whole fit pass,
+                    // including any intermediate width/height probes.
+                    geometryMutated = geometryMutated || fitted.didMutate
+                    if !fittedExactly {
+                        let afterFit = ghostty_surface_size(surface)
+                        geometryMutated = geometryMutated
+                            || beforeFit.width_px != afterFit.width_px
+                            || beforeFit.height_px != afterFit.height_px
+                    }
                     let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
                     let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
                     pinnedSize = CGSize(
@@ -5148,6 +5190,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // resized again) so render-grid applies can fence on any grid
             // change this pass caused.
             let finalMeasured = pinnedSize == nil ? measured : ghostty_surface_size(surface)
+            if geometryMutated {
+                workQueue.markGridMutation()
+            }
             workQueue.noteObservedGrid(
                 columns: Int(finalMeasured.columns),
                 rows: Int(finalMeasured.rows)
