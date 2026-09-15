@@ -802,6 +802,8 @@
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
 		B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438020000000000000002 /* CloudRenameCoordinator.swift */; };
 		C12625A00000000000000002 /* CloudRequestClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000001 /* CloudRequestClock.swift */; };
+		62AB79C10A3F45DF7BDF4476 /* CloudShortcutTestHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B2F4D36122F2BDD25223B98 /* CloudShortcutTestHarness.swift */; };
+		5A462F2D804D0776D16AECAF /* CloudShortcutTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C983501320EC91BF20035AE2 /* CloudShortcutTestProvider.swift */; };
 		5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
 		1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */; };
@@ -848,6 +850,7 @@
 		C12537000000000000000305 /* CloudTerminalPaneReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000306 /* CloudTerminalPaneReservation.swift */; };
 		C12537000000000000000311 /* CloudTerminalPaneReservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000312 /* CloudTerminalPaneReservationTests.swift */; };
 		4AF621B6A97C434F9DC5A035 /* CloudTerminalReconnectOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */; };
+		1216A0AE5F99151D93D60B98 /* CloudTerminalShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8603FC2FCDDE04422570F9EA /* CloudTerminalShortcutRoutingTests.swift */; };
 		C12537000000000000000111 /* CloudTerminalStartupLatencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000112 /* CloudTerminalStartupLatencyTests.swift */; };
 		8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */; };
 		C986A0080000000000000001 /* CloudTreeActiveDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = C986A0070000000000000001 /* CloudTreeActiveDrag.swift */; };
@@ -4670,6 +4673,8 @@
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
 		B12438020000000000000002 /* CloudRenameCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudRenameCoordinator.swift; sourceTree = "<group>"; };
 		C12625A00000000000000001 /* CloudRequestClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRequestClock.swift; sourceTree = "<group>"; };
+		1B2F4D36122F2BDD25223B98 /* CloudShortcutTestHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudShortcutTestHarness.swift; sourceTree = "<group>"; };
+		C983501320EC91BF20035AE2 /* CloudShortcutTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudShortcutTestProvider.swift; sourceTree = "<group>"; };
 		5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAttentionLayoutTests.swift"; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
 		E0A1ACADD0FE494CAFAB930A /* CloudSidebarNotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarNotificationCoordinator.swift"; sourceTree = "<group>"; };
@@ -4716,6 +4721,7 @@
 		C12537000000000000000306 /* CloudTerminalPaneReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneReservation.swift; sourceTree = "<group>"; };
 		C12537000000000000000312 /* CloudTerminalPaneReservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneReservationTests.swift; sourceTree = "<group>"; };
 		030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalReconnectOverlayView.swift; sourceTree = "<group>"; };
+		8603FC2FCDDE04422570F9EA /* CloudTerminalShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalShortcutRoutingTests.swift; sourceTree = "<group>"; };
 		C12537000000000000000112 /* CloudTerminalStartupLatencyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTerminalStartupLatencyTests.swift; sourceTree = "<group>"; };
 		F31EDA1AEA6A437B8E75A489 /* CloudToolPaneTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudToolPaneTests.swift; sourceTree = "<group>"; };
 		C986A0070000000000000001 /* CloudTreeActiveDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeActiveDrag.swift; sourceTree = "<group>"; };
@@ -11069,6 +11075,9 @@
 				B0555304B0555304B0555304 /* DetachedFolderPathLookupCacheTests.swift */,
 				A7E1C4D2B3F09865E217D4C0 /* RemoteTmuxMirrorSplitRoutingTests.swift */,
 				1C58FB3F39EB94D3072C0B51 /* SurfacePaneFactoryFocusTests.swift */,
+				8603FC2FCDDE04422570F9EA /* CloudTerminalShortcutRoutingTests.swift */,
+				1B2F4D36122F2BDD25223B98 /* CloudShortcutTestHarness.swift */,
+				C983501320EC91BF20035AE2 /* CloudShortcutTestProvider.swift */,
 				7738B0017738B0017738B001 /* RemoteTmuxMirrorCLIObservabilityTests.swift */,
 				7738B0027738B0027738B002 /* RemoteTmuxMirrorCLIFailClosedTests.swift */,
 				7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */,
@@ -15031,6 +15040,8 @@
 				C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */,
 				C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */,
 				C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */,
+				62AB79C10A3F45DF7BDF4476 /* CloudShortcutTestHarness.swift in Sources */,
+				5A462F2D804D0776D16AECAF /* CloudShortcutTestProvider.swift in Sources */,
 				5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */,
 				D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */,
 				084B5CE8F32F41B398E4B326 /* CloudSidebarNotificationTests.swift in Sources */,
@@ -15047,6 +15058,7 @@
 				C12537000000000000000203 /* CloudTerminalLayoutCreationTests.swift in Sources */,
 				FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */,
 				C12537000000000000000311 /* CloudTerminalPaneReservationTests.swift in Sources */,
+				1216A0AE5F99151D93D60B98 /* CloudTerminalShortcutRoutingTests.swift in Sources */,
 				C12537000000000000000111 /* CloudTerminalStartupLatencyTests.swift in Sources */,
 				8E2A2A4AACE0400798CBFE81 /* CloudToolPaneTests.swift in Sources */,
 				A12501000000000000000003 /* CloudTreeLayoutMetricsTests.swift in Sources */,
