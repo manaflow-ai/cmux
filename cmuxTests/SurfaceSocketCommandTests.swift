@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -36,7 +37,8 @@ struct SurfaceSocketCommandTests {
             }
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-        #expect(try Self.error(object)["code"] as? String == "not_ready")
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "not_ready")
     }
 
     @Test func vmFailureDoesNotExposeBackendCredentialsOrResponseBodies() async throws {
@@ -49,6 +51,8 @@ struct SurfaceSocketCommandTests {
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_error")
         #expect((error["data"] as? [String: Any])?["http_status"] as? Int == 502)
+        #expect(response.contains("HTTP 502"))
+        #expect(response.contains("unreadable response omitted"))
         #expect(!response.contains("secret"))
         #expect(!response.contains("private.invalid"))
         #expect(!response.contains("response-body-private"))
@@ -233,11 +237,10 @@ struct SurfaceSocketCommandTests {
         let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
         #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
         #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
-        // This Mac's workspace titles ride along, so `vm tree` needs no second call.
-        let workspaces = try #require(all["workspaces"] as? [[String: Any]])
-        let own = try #require(workspaces.first { ($0["id"] as? String) == fixture.workspaceID.uuidString })
-        #expect(own["title"] as? String == fixture.manager.selectedWorkspace?.title)
-        #expect(own["selected"] as? Bool == true)
+        // The catalog payload is cloud-scoped. Local workspace topology is owned by the
+        // native workspace manager and is intentionally not mixed into this response.
+        #expect(all["workspaces"] == nil)
+        #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
 
         // A machine filter narrows every section; cloud-only requests carry no local workspaces.
         let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
@@ -261,7 +264,9 @@ struct SurfaceSocketCommandTests {
         defer { fixture.tearDown() }
         let resource = fixture.termA1.rawValue
 
-        let first = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+        let first = try Self.ok(try await Self.call("surface.project", [
+            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
+        ]))
         #expect(first["reused"] as? Bool == false)
         #expect(first["workspace_id"] as? String == fixture.workspaceID.uuidString, "no target → the selected workspace")
         #expect(fixture.provider.materialized.count == 1)
@@ -269,7 +274,9 @@ struct SurfaceSocketCommandTests {
         #expect(fixture.provider.materialized[0].focus == true)
 
         // The catalog reuses the pane already showing the resource…
-        let again = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+        let again = try Self.ok(try await Self.call("surface.project", [
+            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
+        ]))
         #expect(again["reused"] as? Bool == true)
         #expect(again["surface_id"] as? String == first["surface_id"] as? String)
         #expect(fixture.provider.materialized.count == 1)
@@ -278,7 +285,8 @@ struct SurfaceSocketCommandTests {
         // (a LIVE pane: the workspace's own focused pane).
         let pane = try #require(fixture.livePaneID)
         let split = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "reuse": false, "pane_id": pane, "direction": "left", "focus": false,
+            "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+            "pane_id": pane, "direction": "left", "focus": false,
         ]))
         #expect(split["reused"] as? Bool == false)
         #expect(fixture.provider.materialized.count == 2)
@@ -286,7 +294,10 @@ struct SurfaceSocketCommandTests {
         #expect(fixture.provider.materialized[1].focus == false)
 
         // `placement: tab` on a pane becomes a tab destination.
-        _ = try Self.ok(try await Self.call("surface.project", ["resource": resource, "reuse": false, "pane_id": pane, "placement": "tab"]))
+        _ = try Self.ok(try await Self.call("surface.project", [
+            "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+            "pane_id": pane, "placement": "tab",
+        ]))
         #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
 
         let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
@@ -298,14 +309,17 @@ struct SurfaceSocketCommandTests {
         defer { fixture.tearDown() }
 
         let unknown = try Self.error(try await Self.call("surface.project", ["resource": "\(fixture.machineID)/terminal/term_ghost"]))
-        #expect((unknown["message"] as? String)?.contains("Unknown surface") == true)
+        #expect(unknown["code"] as? String == "vm_error")
+        #expect((unknown["message"] as? String)?.isEmpty == false)
 
         // An explicit workspace that resolves to nothing is an error, never a silent
         // fall-through to the selected workspace.
         let bogus = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "workspace_id": "workspace:999999"]))
         #expect(bogus["code"] as? String == "invalid_params")
-        #expect((bogus["message"] as? String)?.contains("workspace:999999") == true)
-        let bogusPane = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "pane_id": "pane:999999"]))
+        #expect((bogus["message"] as? String)?.isEmpty == false)
+        let bogusPane = try Self.error(try await Self.call("surface.project", [
+            "resource": fixture.termA1.rawValue, "pane_id": UUID().uuidString,
+        ]))
         #expect(bogusPane["code"] as? String == "invalid_params")
         // Well-formed but dead ids are just as unresolvable: a closed pane's UUID, a
         // workspace UUID nobody has, a surface UUID that is not a panel.
@@ -317,6 +331,36 @@ struct SurfaceSocketCommandTests {
 
         let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
         #expect(malformed["code"] as? String == "invalid_params")
+    }
+
+    @Test func projectResolvesAnExplicitSurfaceInAnotherWindow() async throws {
+        let fixture = Fixture()
+        defer { fixture.tearDown() }
+        let app = try #require(AppDelegate.shared)
+        let windowID = app.createMainWindow(shouldActivate: false)
+        defer {
+            app.mainWindow(for: windowID)?.performClose(nil)
+        }
+        let manager = try #require(app.tabManagerFor(windowId: windowID))
+        let workspace = try #require(manager.selectedWorkspace)
+        let surfaceID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
+        TerminalController.shared.setActiveTabManager(fixture.manager)
+
+        let result = try Self.ok(try await Self.call("surface.project", [
+            "resource": fixture.termA1.rawValue,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": surfaceID.uuidString,
+            "direction": "left",
+            "focus": false,
+        ]))
+
+        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+        #expect(fixture.provider.materialized.count == 1)
+        #expect(fixture.provider.materialized[0].destination == .split(
+            workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .left
+        ))
+        #expect(fixture.provider.materialized[0].focus == false)
     }
 
     // MARK: - surface.new_terminal / vm.terminal_new
@@ -478,6 +522,6 @@ struct SurfaceSocketCommandTests {
         let missing = try Self.error(try await Self.call("vm.terminal_close", ["id": fixture.machineID]))
         #expect(missing["code"] as? String == "invalid_params")
         let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
-        #expect((noMachine["message"] as? String)?.contains("No provider") == true)
+        #expect((noMachine["message"] as? String)?.contains("not connected") == true)
     }
 }
