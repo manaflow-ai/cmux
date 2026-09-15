@@ -1,50 +1,34 @@
+import CmuxRemoteWorkspace
 import Foundation
 
 extension Workspace {
-    private nonisolated static let remoteRelayWorkspaceIDKeys: Set<String> = [
-        "CMUX_WORKSPACE_ID",
-        "workspace_id",
-        "preferred_workspace_id",
-        "selected_workspace_id",
-        "before_workspace_id",
-        "after_workspace_id",
-        "from_workspace_id",
-        "to_workspace_id",
-    ]
+    // The canonical remote-relay ID key sets live in
+    // `RemoteRelayCommandPolicy` (the relay package's authorization gate walks
+    // the same keys); alias rewriting must see exactly the keys the policy
+    // scopes, so both sides share one source of truth.
+    private nonisolated static var remoteRelayWorkspaceIDKeys: Set<String> {
+        RemoteRelayCommandPolicy.workspaceIDKeys
+    }
 
-    private nonisolated static let remoteRelaySurfaceIDKeys: Set<String> = [
-        "CMUX_SURFACE_ID",
-        "panel_id",
-        "surface_id",
-        "preferred_panel_id",
-        "preferred_surface_id",
-        "target_panel_id",
-        "target_surface_id",
-        "created_panel_id",
-        "created_surface_id",
-        "before_panel_id",
-        "before_surface_id",
-        "after_panel_id",
-        "after_surface_id",
-    ]
+    private nonisolated static var remoteRelaySurfaceIDKeys: Set<String> {
+        RemoteRelayCommandPolicy.surfaceIDKeys
+    }
 
-    private nonisolated static let remoteRelayAmbiguousIDKeys: Set<String> = [
-        "tab_id",
-    ]
+    private nonisolated static var remoteRelayAmbiguousIDKeys: Set<String> {
+        RemoteRelayCommandPolicy.ambiguousIDKeys
+    }
 
-    private nonisolated static let remoteRelayWorkspaceIDArrayKeys: Set<String> = [
-        "workspace_ids",
-    ]
+    private nonisolated static var remoteRelayWorkspaceIDArrayKeys: Set<String> {
+        RemoteRelayCommandPolicy.workspaceIDArrayKeys
+    }
 
-    private nonisolated static let remoteRelaySurfaceIDArrayKeys: Set<String> = [
-        "panel_ids",
-        "surface_ids",
-    ]
+    private nonisolated static var remoteRelaySurfaceIDArrayKeys: Set<String> {
+        RemoteRelayCommandPolicy.surfaceIDArrayKeys
+    }
 
-    private nonisolated static let remoteRelayAmbiguousIDArrayKeys: Set<String> = [
-        "tab_ids",
-        "tab_id_groups",
-    ]
+    private nonisolated static var remoteRelayAmbiguousIDArrayKeys: Set<String> {
+        RemoteRelayCommandPolicy.ambiguousIDArrayKeys
+    }
 
     nonisolated static func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
@@ -66,7 +50,8 @@ extension Workspace {
         surfaceAliases: [UUID: UUID],
         remoteWorkspaceID: UUID? = nil
     ) -> (commandLine: Data, method: String?) {
-        guard let line = String(data: commandLine, encoding: .utf8) else {
+        guard !workspaceAliases.isEmpty || !surfaceAliases.isEmpty || remoteWorkspaceID != nil,
+              let line = String(data: commandLine, encoding: .utf8) else {
             return (commandLine, nil)
         }
         let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -107,16 +92,6 @@ extension Workspace {
             if let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
                 didRewrite = true
-            }
-            if method == "agent.hook.enqueue" || method == "agent.hook.barrier" {
-                if let remoteWorkspaceID {
-                    params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
-                    didRewrite = true
-                }
-                if params["relay_backed"] as? Bool != true {
-                    params["relay_backed"] = true
-                    didRewrite = true
-                }
             }
             request["params"] = params
         }

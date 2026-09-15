@@ -145,6 +145,8 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // The outline owns all ordinary row interaction. Returning nil here is
+        // what keeps a header click from being swallowed by the SwiftUI host.
         return nil
     }
 }

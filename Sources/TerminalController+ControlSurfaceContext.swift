@@ -36,6 +36,13 @@ extension TerminalController: ControlSurfaceContext {
         routing: ControlRoutingSelectors,
         tabManager: TabManager
     ) -> Workspace? {
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == owner }),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else {
+                return nil
+            }
+            return workspace
+        }
         if let wsId = routing.workspaceID {
             guard !AppDelegate.isWindowDockRoutingId(wsId) else { return nil }
             return tabManager.tabs.first(where: { $0.id == wsId })
@@ -125,12 +132,16 @@ extension TerminalController: ControlSurfaceContext {
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
 
+        let summaries = controlSurfaceSummaries(workspace: ws).filter { summary in
+            routing.remoteRelayOwnerWorkspaceID == nil || ws.isRemoteTerminalContext(summary.surfaceID)
+        }
         return ControlSurfaceListSnapshot(
             workspaceID: ws.id,
             windowID: v2ResolveWindowId(tabManager: tabManager),
-            surfaces: controlSurfaceSummaries(workspace: ws) +
-                controlTopologyDocks(workspace: ws, tabManager: tabManager)
-                .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
+            surfaces: summaries + (routing.remoteRelayOwnerWorkspaceID == nil
+                ? controlTopologyDocks(workspace: ws, tabManager: tabManager)
+                    .flatMap { controlSimulatorAwareDockSurfaceSummaries(dock: $0) }
+                : [])
         )
     }
 
@@ -193,7 +204,13 @@ extension TerminalController: ControlSurfaceContext {
             )
         }
         guard let ws = resolveSurfaceWorkspace(routing: routing, tabManager: tabManager) else { return nil }
-        let containerPanelID = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+        let containerPanelID: UUID?
+        if routing.remoteRelayOwnerWorkspaceID != nil {
+            containerPanelID = ws.activeRemoteTerminalSurfaceIds.sorted { $0.uuidString < $1.uuidString }.first
+                ?? ws.remoteTmuxSessionMirror?.controlPaneLocations().first?.pane.panel.id
+        } else {
+            containerPanelID = ws.focusedPanelId ?? orderedPanels(in: ws).first?.id
+        }
         let projection = containerPanelID.flatMap {
             ws.controlSurfaceProjection(forContainerPanelID: $0)
         }
