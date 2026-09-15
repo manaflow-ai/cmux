@@ -74,6 +74,13 @@ enum TaggedRunBadgeSettings {
 enum AppFocusState {
     static var overrideIsFocused: Bool?
 
+    /// Returns AppKit's activation state for authorization and dismissal gates.
+    ///
+    /// This deliberately does not require the system frontmost process to be
+    /// cmux. AppKit activation is the legacy contract for deciding whether an
+    /// active-focus action may withdraw a notification or show the permission
+    /// prompt; frontmost ownership is a stricter, separate banner-suppression
+    /// concern handled by ``isAppFocused()``.
     static func isAppActive() -> Bool {
         if let overrideIsFocused {
             return overrideIsFocused
@@ -81,11 +88,19 @@ enum AppFocusState {
         return NSApp.isActive
     }
 
+    /// Returns whether cmux owns notification focus for external-delivery
+    /// suppression. Stage Manager can leave ``NSApp.isActive`` stale after
+    /// another application becomes system-frontmost, so both snapshots are
+    /// required here.
     static func isAppFocused() -> Bool {
         if let overrideIsFocused {
             return overrideIsFocused
         }
-        guard NSApp.isActive else { return false }
+        guard ApplicationFrontmostPolicy().isCurrentApplicationFrontmost(
+            appIsActive: NSApp.isActive,
+            frontmostProcessIdentifier: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier
+        ) else { return false }
         guard let keyWindow = NSApp.keyWindow, keyWindow.isKeyWindow else { return false }
         // Only treat the app as "focused" for notification suppression when a main terminal window
         // is key. If Settings/About/debug panels are key, we still want notifications to show.
