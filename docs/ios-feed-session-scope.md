@@ -108,6 +108,7 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V11 | 2026-09-15: local server on port 4377, former remote server on port 4577, and staging all returned 200. Staging sign-in returned 200 and after-sign-in redirected with 307. Phone was reachable and `dev.cmux.ios.xfd2` was installed. | Installation queue now reports `needs-auth`, superseding V07's pending installation state. Mac `auth status` remains signed out. |
 | V12 | 2026-09-15: the native development sign-in endpoint returned HTTP 400 with `EMAIL_PASSWORD_MISMATCH` for the saved personal profile. Installation helper was refreshed and the machine setup check passed. | Setup checks validate profile presence; they do not prove the credentials are accepted. Correct personal credentials are still needed. |
 | V13 | 2026-09-15: three personal-account refresh regressions pass; the same tests fail against the preceding setup script. Shell syntax and help checks pass. The repaired Mac bundle was signed, verified, and relaunched. | No app executable changed. The Mac still reports signed out; neither phone pairing nor Feed interaction is claimed verified. |
+| V14 | 2026-09-15: the prescribed `scripts/mobile-dev-launch.sh --tag xfd2 --device --device-id 4A52829D-6427-599F-A166-4058881D2DF4 --ensure-mac --auth-profile personal --credentials-file ~/.secrets/cmuxterm-dev.env` flow ran. It relaunched the exact tagged Mac, then failed its signed-in account gate for `aziz@manaflow.ai`. | This is the dev flow result, not a normal browser sign-in result. The personal profile still needs a valid credential pair. |
 
 ## Gaps and next work
 
@@ -144,6 +145,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 | --- | --- |
 | 2026-09-15 | Created the session inventory from user requests, current source, branch history, and recorded verification. Distinguished implementation from evidence, and recorded remaining installation, pairing, submission, UI, and test gaps. No product scope added or removed. |
 | 2026-09-15 | Investigated the user's inability to connect to the Mac. Confirmed working servers, an installed phone app, and rejected personal credentials; aligned the Mac server configuration and refreshed installation tooling. Added F24 for credential recovery within F20, with D15 and V11–V12 recording the repair and remaining blocker. |
+| 2026-09-15 | Ran the requested tagged dev launcher instead of normal sign-in. The launcher reached the exact Mac but failed the personal account gate; added V14. |
 
 ## Dictionary
 
