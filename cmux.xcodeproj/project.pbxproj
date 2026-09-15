@@ -1403,6 +1403,7 @@
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
+		B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */; };
 		C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */; };
 		9167FFA2759E9AD60F49616C /* CodexHookCapturedSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1893BDBF86104694F22BC3C /* CodexHookCapturedSocketCommands.swift */; };
 		918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000050 /* CodexHookFailureCandidate.swift */; };
@@ -1593,6 +1594,7 @@
 		A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */; };
 		D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000012 /* DockSplitStore+Reset.swift */; };
 		D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */; };
+		D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */; };
 		D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */; };
 		D86840000000000000000003 /* DockSplitStore+SessionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000004 /* DockSplitStore+SessionSnapshot.swift */; };
 		D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */; };
@@ -3608,6 +3610,7 @@
 		7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */; };
 		D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */; };
 		961900000000000000000001 /* Workspace+RestoredPanelTitleBoundary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 961900000000000000000002 /* Workspace+RestoredPanelTitleBoundary.swift */; };
+		A6AC73020000000000000003 /* Workspace+RestoredStartupInputOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73020000000000000004 /* Workspace+RestoredStartupInputOwnership.swift */; };
 		9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */; };
 		381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
@@ -5166,6 +5169,7 @@
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
+		B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAutoresumeChainTests.swift; sourceTree = "<group>"; };
 		C8711B000000000000000001 /* CodexCodeModeRolloutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexCodeModeRolloutIdentityTests.swift; sourceTree = "<group>"; };
 		D1893BDBF86104694F22BC3C /* CodexHookCapturedSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHookCapturedSocketCommands.swift"; sourceTree = "<group>"; };
 		918100000000000000000050 /* CodexHookFailureCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureCandidate.swift; sourceTree = "<group>"; };
@@ -5353,6 +5357,7 @@
 		AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RemoteTerminalLiveness.swift"; sourceTree = "<group>"; };
 		D86840000000000000000012 /* DockSplitStore+Reset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Reset.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredAgentLifecycle.swift"; sourceTree = "<group>"; };
+		D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredStartupInputOwnership.swift"; sourceTree = "<group>"; };
 		D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000004 /* DockSplitStore+SessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SessionSnapshot.swift"; sourceTree = "<group>"; };
 		D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ShortcutCommands.swift"; sourceTree = "<group>"; };
@@ -7343,6 +7348,7 @@
 		7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
 		D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxTabOrder.swift"; sourceTree = "<group>"; };
 		961900000000000000000002 /* Workspace+RestoredPanelTitleBoundary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RestoredPanelTitleBoundary.swift"; sourceTree = "<group>"; };
+		A6AC73020000000000000004 /* Workspace+RestoredStartupInputOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RestoredStartupInputOwnership.swift"; sourceTree = "<group>"; };
 		9200A0019200A0019200A002 /* Workspace+RestoredWorkingDirectoryGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RestoredWorkingDirectoryGuard.swift"; sourceTree = "<group>"; };
 		52ACFA4197424088998A76C0 /* Workspace+RightSidebarToolDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RightSidebarToolDrop.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
@@ -8861,6 +8867,7 @@
 				F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				A6AC73020000000000000004 /* Workspace+RestoredStartupInputOwnership.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
 				9923B0029923B0029923B002 /* PendingTerminalStartupRestore.swift */,
@@ -10144,6 +10151,7 @@
 				D86840000000000000000008 /* SessionSplitContainerLayoutCodec.swift */,
 				D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */,
 				D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */,
+				D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */,
 				D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */,
 				D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */,
 				D86840000000000000000012 /* DockSplitStore+Reset.swift */,
@@ -10409,6 +10417,7 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */,
 				A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */,
 				A54730000000000000000003 /* RestoredStartupInputResendTests.swift */,
 				A54730000000000000000005 /* DeferredAgentResumeIndexFallbackTests.swift */,
@@ -12924,6 +12933,7 @@
 				A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */,
 				D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */,
 				D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */,
+				D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */,
 				D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */,
 				D86840000000000000000003 /* DockSplitStore+SessionSnapshot.swift in Sources */,
 				D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */,
@@ -14339,6 +14349,7 @@
 				7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */,
 				D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */,
 				961900000000000000000001 /* Workspace+RestoredPanelTitleBoundary.swift in Sources */,
+				A6AC73020000000000000003 /* Workspace+RestoredStartupInputOwnership.swift in Sources */,
 				9200A0019200A0019200A001 /* Workspace+RestoredWorkingDirectoryGuard.swift in Sources */,
 				381B026EFFAB40449AF805E8 /* Workspace+RightSidebarToolDrop.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
@@ -15105,6 +15116,7 @@
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
+				B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
 				9167FFA2759E9AD60F49616C /* CodexHookCapturedSocketCommands.swift in Sources */,
 				D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */,

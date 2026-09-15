@@ -519,6 +519,26 @@ should_inject_codex_hooks() {
     return 0
 }
 
+# Codex does not emit its own SessionStart hook for an explicit `resume <id>`
+# launch. The wrapper is the only layer that knows both the resumed session id
+# and the new live process, so replay that lifecycle event after exporting the
+# launch identity below. Picker/`--last` resumes have no id at exec time and
+# remain dependent on Codex's own lifecycle event once it selects a session.
+cmux_codex_resume_session_id() {
+    local seen_resume=false arg
+    for arg in "$@"; do
+        if [[ "$seen_resume" == true ]]; then
+            if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                printf '%s' "$arg"
+                return 0
+            fi
+        elif [[ "$arg" == "resume" ]]; then
+            seen_resume=true
+        fi
+    done
+    return 1
+}
+
 IN_CMUX=0
 if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
     IN_CMUX=1
@@ -614,6 +634,28 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     )"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
+
+# Fresh launches deliberately wait for Codex's real SessionStart payload so no
+# fallback identity is created. Explicit resumes do not emit that event, so
+# enqueue one with the known session id and current pid. The app's Codex hook
+# admission is idempotent for the same session and updates the persisted binding
+# to this generation's process; failures are best-effort and never block Codex.
+cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
+if [[ -n "$cmux_codex_resume_sid" \
+      && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+    cmux_codex_resume_json_session_id="$(cmux_computer_use_json_escape "$cmux_codex_resume_sid")"
+    cmux_codex_resume_json_cwd="$(cmux_computer_use_json_escape "$PWD")"
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_json_session_id\",\"cwd\":\"$cmux_codex_resume_json_cwd\"}"
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
+                --socket "$CMUX_SOCKET_PATH" hooks enqueue codex session-start >/dev/null 2>&1 || true
+    else
+        printf '%s' "$cmux_codex_resume_payload" \
+            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
+                hooks enqueue codex session-start >/dev/null 2>&1 || true
+    fi
+fi
 
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
 # list (NUL-separated). Non-decision commands perform a bounded foreground
