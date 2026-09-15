@@ -2,13 +2,11 @@ import AppKit
 import Bonsplit
 import CmuxPanes
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Cmd+T / Cmd+D in a pane that projects a cloud terminal create the machine's new
 /// terminal through ``SurfacePaneFactory`` (`Workspace+CloudPaneRouting`). The factory
 /// drives the socket `surface.create` / `surface.split` handlers, which honor a focus
@@ -182,7 +180,69 @@ import Testing
         workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
-
+    @Test("A failed Cloud route never falls back to a local terminal")
+    func failedCloudRouteDoesNotCreateLocalPanel() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("missing-provider-\(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(
+            id: "ws-missing-provider", name: "missing", index: 0, focused: true
+        )
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-missing-provider", workspace: remoteWorkspace)],
+            port: nil,
+            url: nil
+        )
+        let info = SurfaceMachineInfo(
+            id: machine,
+            name: "missing",
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .unavailable,
+            linkError: "cloud_api_unavailable",
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        catalog.replaceUnavailableCloudState(on: machine, resources: [resource], info: info)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-missing-provider"
+        ))
+        defer {
+            catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
+            catalog.replaceUnavailableCloudState(on: machine, resources: [], info: info)
+        }
+        let panelCount = workspace.panels.count
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: sourcePanelID,
+            orientation: .horizontal,
+            focus: false
+        )
+        #expect(outcome.isAccepted == false)
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+        let surfaceOutcome = workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false)
+        #expect(surfaceOutcome.isAccepted == false)
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+    }
     /// Ensures a suspended older request cannot replace a newer request's failure.
     @Test("Superseded cloud pane failures are ignored")
     func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
