@@ -1394,9 +1394,19 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        let firstFrameTimeoutNanoseconds: UInt64 = switch authorization {
+        case .irohAdmission:
+            // Iroh owns admission and native connection liveness. A delayed
+            // first control frame is valid while the admitted session is
+            // settling, so an application timer must not retire it.
+            0
+        case .stackBearer:
+            MobileHostConnection.defaultFirstFrameTimeoutNanoseconds
+        }
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
                 await Self.connectionAuthorizationError(
