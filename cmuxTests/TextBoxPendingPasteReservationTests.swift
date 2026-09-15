@@ -403,7 +403,7 @@ struct TextBoxPendingPasteReservationTests {
         )
         let detectedAttachmentRange = (textView.string as NSString).range(
             of: String(
-                UnicodeScalar(NSTextAttachment.character)!
+                UnicodeScalar(UInt32(0xFFFC))!
             )
         )
         let attachmentRange = try #require(
