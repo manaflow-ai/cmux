@@ -140,31 +140,6 @@ struct MachinesPanelView: View {
         if includesCloud {
             controlBar
         }
-        if includesCloud && tunnelStatus.status?.state != .up {
-            Button {
-                AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: tabManager)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "network")
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(tunnelStatus.status?.state == .up
-                            ? String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
-                            : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"))
-                            .cmuxFont(size: 12, weight: .medium)
-                        Text(String(localized: "cloud.vpn.setup.entry.subtitle", defaultValue: "Optional private IP access for other apps"))
-                            .cmuxFont(size: 11)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("CloudVPNSetupEntryButton")
-        }
         if includesCloud {
             MachinesPanelBanners(
                 tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
@@ -786,7 +761,6 @@ struct MachinesPanelView: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
-    let setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
