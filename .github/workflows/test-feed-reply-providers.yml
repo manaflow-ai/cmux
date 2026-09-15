@@ -22,8 +22,6 @@ jobs:
     env:
       BUILD_TAG: ${{ inputs.tag }}
       BUILD_RUN: ${{ inputs.build_run }}
-      ARTIFACTS: ${{ github.workspace }}/reply-evidence
-      PROVIDER_TOOLS: ${{ runner.temp }}/reply-provider-tools
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -35,7 +33,9 @@ jobs:
           [[ "$BUILD_TAG" != "default" ]]
           [[ "$BUILD_RUN" =~ ^[0-9]+$ ]]
           [[ "$(uname -m)" == arm64 ]]
-          mkdir -p "$ARTIFACTS" "$PROVIDER_TOOLS"
+          mkdir -p "$GITHUB_WORKSPACE/reply-evidence" "$RUNNER_TEMP/reply-provider-tools"
+          echo "ARTIFACTS=$GITHUB_WORKSPACE/reply-evidence" >> "$GITHUB_ENV"
+          echo "PROVIDER_TOOLS=$RUNNER_TEMP/reply-provider-tools" >> "$GITHUB_ENV"
           echo "CMUX_SOCKET_PATH=/tmp/cmux-debug-$BUILD_TAG.sock" >> "$GITHUB_ENV"
 
       - name: Wait for the requested build

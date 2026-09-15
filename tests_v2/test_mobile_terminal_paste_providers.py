@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import shutil
 import threading
 import time
@@ -32,19 +33,49 @@ project.mkdir()
 home = root / "home"
 home.mkdir()
 requests = []
+requests_lock = threading.Lock()
 
 class Recorder(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
     def do_POST(self):
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode(errors="replace")
+        if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
+            chunks = []
+            while True:
+                size = int(self.rfile.readline().split(b";")[0], 16)
+                if not size:
+                    self.rfile.readline()
+                    break
+                chunks.append(self.rfile.read(size))
+                self.rfile.read(2)
+            raw_body = b"".join(chunks)
+        else:
+            raw_body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = raw_body.decode(errors="replace")
         try:
             payload = json.loads(body)
         except ValueError:
             payload = body
-        requests.append({"path": self.path, "body": payload})
-        (root / "requests.json").write_text(json.dumps(requests, indent=2))
+        with requests_lock:
+            requests.append({"path": self.path, "body": payload})
+            temporary = root / "requests.tmp"
+            temporary.write_text(json.dumps(requests, indent=2))
+            temporary.replace(root / "requests.json")
+        if args.provider == "cursor" and self.path.startswith("/aiserver.") and "cmux-reply-" not in body:
+            # Cursor's published protobuf schema: GetUsableModels.models (1)
+            # contains ModelDetails.model_id (1) and display strings (3,4,5).
+            model = b"\x0a\x04auto\x1a\x04auto\x22\x04Auto\x2a\x04Auto"
+            response = b""
+            if self.path.endswith(("/GetUsableModels", "/GetDefaultModelForCli")):
+                response = b"\x0a" + bytes([len(model)]) + model
+            elif self.path.endswith("/AvailableModels"):
+                response = b"\x0a\x04auto"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/proto")
+            self.end_headers()
+            self.wfile.write(response)
+            return
         if self.path == "/auth/exchange_user_api_key":
             payload = base64.urlsafe_b64encode(json.dumps({"sub": "fixture-user", "exp": int(time.time()) + 3600}).encode()).decode().rstrip("=")
             response = {"accessToken": "e30." + payload + ".fixture", "refreshToken": "fixture-refresh"}
@@ -64,6 +95,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 endpoint = f"http://127.0.0.1:{server.server_port}"
 nodebin = Path(shutil.which("node") or "/usr/bin/node").parent
 bin = base / "provider-editors/node_modules/.bin"
+agent_recorder = None
 env = {
     "HOME": str(home), "PATH": f"{nodebin}:/usr/bin:/bin:/usr/sbin:/sbin",
     "TERM": "xterm-256color", "LANG": "en_US.UTF-8",
@@ -105,11 +137,52 @@ elif args.provider == "opencode":
     command = [str(bin / "opencode"), "--model", "fixture/fixture-model", str(project)]
     ready = "Ask anything"
 elif args.provider == "cursor":
-    env.update(CI="1", CURSOR_AGENT_CLI_LOCAL_MODE="true", CURSOR_LOCAL_AGENT_API_KEY="fixture-key",
+    # Cursor uses HTTP/2 for the agent stream even when its config API uses
+    # HTTP/1. Capture the actual Run request without altering the editor.
+    recorder_source = r'''
+const http2 = require("node:http2");
+const fs = require("node:fs");
+const zlib = require("node:zlib");
+const server = http2.createServer();
+server.on("stream", (stream, headers) => {
+  const chunks = [];
+  stream.on("error", () => {});
+  stream.on("data", chunk => {
+    chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+    let body = bytes.toString("utf8");
+    for (let offset = 0; offset + 5 <= bytes.length;) {
+      const flags = bytes[offset];
+      const length = bytes.readUInt32BE(offset + 1);
+      if (offset + 5 + length > bytes.length) break;
+      let message = bytes.subarray(offset + 5, offset + 5 + length);
+      if (flags & 1) {
+        try { message = zlib.gunzipSync(message); } catch {}
+      }
+      body += message.toString("utf8");
+      offset += 5 + length;
+    }
+    fs.appendFileSync(process.argv[1], JSON.stringify({path: headers[":path"], body}) + "\n");
+  });
+  stream.on("end", () => {
+    if (!stream.destroyed) {
+      stream.respond({":status": 400, "content-type": "application/json"});
+      stream.end(JSON.stringify({code: "invalid_argument", message: "Submission captured"}));
+    }
+  });
+});
+server.listen(0, "127.0.0.1", () => process.stdout.write(String(server.address().port) + "\n"));
+'''
+    agent_recorder = subprocess.Popen(
+        [str(nodebin / "node"), "-e", recorder_source, str(root / "agent-requests.jsonl")],
+        stdout=subprocess.PIPE, text=True,
+    )
+    agent_endpoint = "http://127.0.0.1:" + agent_recorder.stdout.readline().strip()
+    env.update(CI="1", AGENT_CLI_CREDENTIAL_STORE="memory", CURSOR_API_KEY="fixture-key",
                CURSOR_API_ENDPOINT=endpoint, CURSOR_CONFIG_DIR=str(home / ".cursor"))
-    command = [str(base / "cursor/cursor-agent"), "--workspace", str(project), "--authless",
-               "--base-url", endpoint + "/v1", "--model", "fixture-model"]
-    ready = "fixture-model"
+    command = [str(base / "cursor/cursor-agent"), "--workspace", str(project),
+               "--agent-endpoint", agent_endpoint, "--model", "auto", "--trust"]
+    ready = "Cursor Agent"
 else:
     env.update(GROK_HOME=str(home), XAI_API_KEY="fixture-key", GROK_DISABLE_AUTOUPDATER="1",
                GROK_XAI_API_BASE_URL=endpoint + "/v1")
@@ -150,8 +223,20 @@ try:
     })
     assert result.get("submitted") is True, result
     for _ in range(100):
+        model_requests = requests
+        if args.provider == "cursor":
+            path = root / "agent-requests.jsonl"
+            model_requests = []
+            if path.exists():
+                for line in path.read_text().splitlines():
+                    try:
+                        model_requests.append(json.loads(line))
+                    except ValueError:
+                        pass  # The recorder may still be appending the last line.
         if any(text in json.dumps(r["body"], ensure_ascii=False).replace("\\n", "\n")
-               and "countTokens" not in r["path"] for r in requests):
+               and any(method in r["path"] for method in
+                       ("/chat/completions", "/responses", ":streamGenerateContent", "/Run"))
+               for r in model_requests):
             print(f"PASS {args.provider} {'multiline' if args.multiline else 'single-line'}: exact prompt reached model HTTP request")
             break
         screen = call(socket, "surface.read_text", {"workspace_id": workspace, "surface_id": surface})
@@ -161,4 +246,7 @@ try:
         raise AssertionError(f"{args.provider} did not submit; see {root}")
 finally:
     call(socket, "workspace.close", {"workspace_id": workspace})
+    if agent_recorder is not None:
+        agent_recorder.terminate()
+        agent_recorder.wait(timeout=5)
     server.shutdown()
