@@ -2161,7 +2161,7 @@ fn validate_trusted_route(route: &Url, routes: Option<&[IpNetwork]>) -> Result<(
     if !matches!(route.scheme(), "ws" | "wss") {
         return Err("trusted Cloud route must use a WebSocket inside WireGuard".into());
     }
-    let address = match route.host() {
+    let address: std::net::IpAddr = match route.host() {
         Some(url::Host::Ipv4(address)) => address.into(),
         Some(url::Host::Ipv6(address)) => address.into(),
         _ => return Err("trusted Cloud route must use a literal tunnel IP address".into()),
