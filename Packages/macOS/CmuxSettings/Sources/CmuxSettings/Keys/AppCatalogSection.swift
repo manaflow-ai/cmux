@@ -17,7 +17,7 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     public let appIcon = DefaultsKey<AppIconMode>(
         id: "app.appIcon",
-        defaultValue: .automatic,
+        defaultValue: .system,
         userDefaultsKey: "appIconMode"
     )
 
