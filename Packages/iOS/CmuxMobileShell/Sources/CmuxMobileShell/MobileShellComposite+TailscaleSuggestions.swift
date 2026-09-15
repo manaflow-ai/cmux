@@ -60,7 +60,7 @@ extension MobileShellComposite {
         guard let group = tailscaleSuggestionCache.groups(for: key, scope: scope, now: appDiagnosticNow())
             .first(where: { $0.routes == routes }) else { return false }
         var wrote = false
-        await performSerializedPairedMacWrite {
+        await performSerializedPairedMacWrite(ifStillCurrent: nil) {
             guard await self.isScopeCurrent(scope),
                   self.tailscaleSuggestionCache.groups(for: key, scope: scope, now: self.appDiagnosticNow())
                     .contains(group) else { return }
