@@ -273,6 +273,7 @@ public final class MobilePushCoordinator {
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
 
+    @MainActor
     public func currentAuthenticatedAccountID() -> String? {
         authenticatedAccountIDProvider()
     }

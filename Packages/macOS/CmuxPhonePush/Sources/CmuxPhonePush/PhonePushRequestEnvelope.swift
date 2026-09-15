@@ -236,7 +236,15 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     ) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.utf16.count > maximumUTF16Units else { return trimmed }
-        return String(decoding: trimmed.utf16.prefix(maximumUTF16Units), as: UTF16.self)
+        var bounded = String()
+        var consumedUnits = 0
+        for character in trimmed {
+            let characterUnits = String(character).utf16.count
+            guard consumedUnits + characterUnits <= maximumUTF16Units else { break }
+            bounded.append(character)
+            consumedUnits += characterUnits
+        }
+        return bounded
     }
 
     private static func boundedIdentifier(_ value: String?) throws -> String? {

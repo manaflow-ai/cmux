@@ -100,6 +100,7 @@ final class PhonePushClient {
     }
     private var pendingEncryption: [PendingEncryption] = []
     private var recipientRefreshTask: Task<Void, Never>?
+    private var recipientRefreshGeneration = UUID()
     private var lastRecipientRefreshEpochSeconds = 0
     
     let identityPrewarm = PhonePushIdentityPrewarm()
@@ -151,6 +152,7 @@ final class PhonePushClient {
         pendingEncryption.removeAll()
         recipientRefreshTask?.cancel()
         recipientRefreshTask = nil
+        recipientRefreshGeneration = UUID()
         activeIdentity = nil
         startIdentityPrewarmIfNeeded()
         authLifecycleTask = Task { [weak self, weak auth] in
@@ -435,6 +437,7 @@ final class PhonePushClient {
         pendingEncryption.removeAll()
         recipientRefreshTask?.cancel()
         recipientRefreshTask = nil
+        recipientRefreshGeneration = UUID()
         identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         schedulePersistence([])
@@ -512,6 +515,8 @@ final class PhonePushClient {
                 || clock.nowEpochSeconds - lastRecipientRefreshEpochSeconds >= 30 else {
             return
         }
+        let generation = UUID()
+        recipientRefreshGeneration = generation
         recipientRefreshTask = Task { [weak self] in
             guard let self else { return }
             for attempt in 0..<3 {
@@ -527,6 +532,7 @@ final class PhonePushClient {
                     try? await self.clock.sleep(for: .seconds(2 << attempt))
                 }
             }
+            guard self.recipientRefreshGeneration == generation else { return }
             self.recipientRefreshTask = nil
             if !self.pendingEncryption.isEmpty {
                 try? await self.clock.sleep(for: .seconds(30))
@@ -747,6 +753,7 @@ final class PhonePushClient {
         pendingEncryption.removeAll()
         recipientRefreshTask?.cancel()
         recipientRefreshTask = nil
+        recipientRefreshGeneration = UUID()
         identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         pushRecipients = []
