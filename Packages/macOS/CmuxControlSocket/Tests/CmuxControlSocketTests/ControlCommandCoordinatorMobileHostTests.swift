@@ -89,12 +89,14 @@ struct ControlCommandCoordinatorMobileHostTests {
 
     // MARK: - handleMobileHost (processV2Command surface)
 
-    @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() {
+    @Test func v2SurfaceRoutesPasteAndAliasThroughSeam() async {
         let (coordinator, context) = makeCoordinator()
-        #expect(coordinator.handle(request("mobile.terminal.paste")) != nil)
+        #expect(await coordinator.handleMobileHostAsync(request("mobile.terminal.paste"), context: context) != nil)
         #expect(context.lastMarker == "terminal.paste")
-        #expect(coordinator.handle(request("terminal.paste")) != nil)
+        #expect(await coordinator.handleMobileHostAsync(request("terminal.paste"), context: context) != nil)
         #expect(context.lastMarker == "terminal.paste")
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.terminal.paste") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "terminal.paste") == .socketWorker(mainThreadCallable: false))
     }
 
     @Test func v2SurfaceRoutesChatSessionsDumpThroughSeam() {
