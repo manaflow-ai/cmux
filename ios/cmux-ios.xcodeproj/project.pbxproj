@@ -206,6 +206,7 @@
 				8B41F6842DEDD25C001A66F9 /* cmuxFeature */,
 				8B7E20032DF3A00100A66F90 /* CMUXMobileCore */,
 				8B7E20062DF3A00100A66F90 /* CmuxMobileTransport */,
+				D4E2A00A0000000000000001 /* CmuxPhonePush */,
 			);
 			productName = cmux;
 			productReference = 8B41F6452DEDD0D5001A66F9 /* cmux.app */;

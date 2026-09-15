@@ -158,7 +158,10 @@ public struct SystemReplyRelayClient: ReplyRelaying {
                   installationID: macInstallationID
               ),
               let candidateData = try? JSONEncoder().encode(candidate) else { return false }
-        let encryptedData = await envelopeCache.valueOrInsert(for: reply.replyId, candidate: candidateData)
+        let encryptedData = await envelopeCache.valueOrInsert(
+            for: "\(reply.replyId)|\(peer.keyID)",
+            candidate: candidateData
+        )
         var body: [String: Any] = [
             "replyId": reply.replyId,
             "macDeviceId": reply.macDeviceId,

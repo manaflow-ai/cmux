@@ -96,6 +96,7 @@ final class PhonePushClient {
         let identity: AuthenticatedSessionIdentity
         let targetBundleIdentifier: String
         let prioritizeDismiss: Bool
+        let expiresAtEpochSeconds: Int
     }
     private var pendingEncryption: [PendingEncryption] = []
     private var recipientRefreshTask: Task<Void, Never>?
@@ -496,7 +497,8 @@ final class PhonePushClient {
                 payload: payload,
                 identity: identity,
                 targetBundleIdentifier: targetBundleIdentifier,
-                prioritizeDismiss: prioritizeDismiss
+                prioritizeDismiss: prioritizeDismiss,
+                expiresAtEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds
             )
         )
         scheduleRecipientRefresh()
@@ -513,6 +515,8 @@ final class PhonePushClient {
         recipientRefreshTask = Task { [weak self] in
             guard let self else { return }
             for attempt in 0..<3 {
+                self.pruneExpiredPendingEncryption()
+                guard !self.pendingEncryption.isEmpty else { break }
                 guard let auth = self.auth else { break }
                 await self.refreshPushRecipients(auth: auth)
                 if !self.pushRecipients.isEmpty {
@@ -533,6 +537,7 @@ final class PhonePushClient {
     }
 
     private func flushPendingEncryption() {
+        pruneExpiredPendingEncryption()
         guard !pendingEncryption.isEmpty,
               let identity = auth?.authenticatedSessionIdentity else { return }
         let pending = pendingEncryption
@@ -566,6 +571,11 @@ final class PhonePushClient {
             }
         }
         pendingEncryption.insert(contentsOf: deferred, at: 0)
+    }
+
+    private func pruneExpiredPendingEncryption() {
+        let now = clock.nowEpochSeconds
+        pendingEncryption.removeAll { $0.expiresAtEpochSeconds <= now }
     }
 
     private struct PhonePushRecipientResponse: Decodable {
