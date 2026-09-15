@@ -131,6 +131,15 @@ extension MobileIrxRuntimeComposition {
 
     func apply(_ snapshot: V2ControlSnapshot, scope: AuthenticatedTeamScope, epoch currentEpoch: UInt64) async {
         guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
+        let status = String(describing: snapshot.status)
+        let failure = snapshot.failure?.diagnosticCode ?? "none"
+        let state = status + ":" + failure
+        if state != lastLoggedControlState {
+            lastLoggedControlState = state
+            journal.record("v2-control", "state-changed", ["status": status, "failure": failure,
+                "environment": configuration.environment, "host": configuration.baseURL.host ?? "",
+                "project": configuration.projectID])
+        }
         // The service publishes its empty initial state before reading the same cache.
         guard snapshot.cache.device != nil || cache?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cache?.relayCredentials
@@ -251,6 +260,8 @@ extension MobileIrxRuntimeComposition {
         let oldDirectSupervisor = directEndpointSupervisor
         let oldEngines = Array(enginesByPeer.values)
         control = nil; endpointSupervisor = nil; directEndpointSupervisor = nil; identity = nil; cache = nil
+        lastLoggedControlState = nil
+        lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
         publish()
