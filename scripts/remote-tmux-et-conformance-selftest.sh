@@ -215,7 +215,7 @@ LOG=$(run_against "$FAKE_GOOD" no-line-limit)
 expect good login-shell     present '✅ a login shell resolves tmux' "$LOG"
 record_verdict login-shell good "$LOG" '(a login shell resolves tmux|tmux did not resolve)'
 record_verdict control-mode good "$LOG" '(control mode entered|no %begin over this transport)'
-record_verdict stream-answers good "$LOG" '(real data crossed|nothing but the handshake)' 
+record_verdict stream-answers good "$LOG" '(real data crossed|nothing but the handshake)'
 expect good control-mode    present '✅ control mode entered' "$LOG"
 expect good stream-answers  present '✅ real data crossed the control stream' "$LOG"
 # A healthy transport must produce a clean run. Without this the oracle reported "ok" for a run
@@ -225,7 +225,7 @@ expect good stream-answers  present '✅ real data crossed the control stream' "
 # is told so with NO_LINE_LIMIT rather than being left to invent a finding.
 expect good clean-run       present '0 failed check\(s\)' "$LOG"
 # survival is skipped in brokered mode; nothing to record
-# record_verdict survival good "$LOG" '(session survives the transport dying|session outlived the clients|session did not outlive)' 
+# record_verdict survival good "$LOG" '(session survives the transport dying|session outlived the clients|session did not outlive)'
 
 # --- 2. The precondition gate. This is the check that stops the harness inventing findings.
 head2 nofwd "the broker ignores -c, so nothing runs"
@@ -244,7 +244,7 @@ expect nofwd no-verdicts-at-all absent '(✅|❌)' "$LOG"
 head2 nologin "the remote shell has no tmux on PATH"
 LOG=$(run_against "$FAKE_NOLOGIN" no-line-limit)
 expect nologin login-shell  present '❌ tmux did not resolve' "$LOG"
-record_verdict login-shell nologin "$LOG" '(a login shell resolves tmux|tmux did not resolve)' 
+record_verdict login-shell nologin "$LOG" '(a login shell resolves tmux|tmux did not resolve)'
 
 # --- 4. A 600-byte limit the harness was never told about.
 head2 limit "commands over 600 bytes are truncated; the harness must find that number"
@@ -268,13 +268,13 @@ expect limit budget-too-big present 'commands will be truncated' "$LOG"
 head2 noctrl "the handshake and protocol lines never arrive"
 LOG=$(run_against "$FAKE_NOCTRL" no-line-limit)
 expect noctrl control-mode  present '❌ no %begin over this transport' "$LOG"
-record_verdict control-mode noctrl "$LOG" '(control mode entered|no %begin over this transport)' 
+record_verdict control-mode noctrl "$LOG" '(control mode entered|no %begin over this transport)'
 
 # --- 6. Handshake fine, payload never carried.
 head2 noreply "control mode comes up but carries no data"
 LOG=$(run_against "$FAKE_NOREPLY" no-line-limit)
 expect noreply stream-answers present '❌ nothing but the handshake crossed the stream' "$LOG"
-record_verdict stream-answers noreply "$LOG" '(real data crossed|nothing but the handshake)' 
+record_verdict stream-answers noreply "$LOG" '(real data crossed|nothing but the handshake)'
 
 # --- 7. Session dies with its client.
 head2 nosurvive "the session does not outlive the transport"
@@ -286,7 +286,7 @@ LOG=$(run_against "$FAKE_NOSURVIVE" no-line-limit)
 # the old wording would be asserting a verdict the harness correctly declines to give.
 expect nosurvive survival-skipped present 'not checked in brokered mode: nothing here ends the stream' "$LOG"
 # survival is skipped in brokered mode; nothing to record
-# record_verdict survival nosurvive "$LOG" '(session survives the transport dying|session outlived the clients|session did not outlive)' 
+# record_verdict survival nosurvive "$LOG" '(session survives the transport dying|session outlived the clients|session did not outlive)'
 
 # ---------------------------------------------------------------------------
 # Coverage: a check that answered the same way everywhere has not been shown to discriminate.
