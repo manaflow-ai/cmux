@@ -213,6 +213,85 @@ struct WorkspaceGroupCycleShortcutTests {
         }
     }
 
+    @Test func blankSidebarClickClearsSelectionBeforeGroupingShortcut() async throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let originalStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
+            prefix: "cmux-blank-sidebar-group"
+        )
+        KeyboardShortcutSettings.resetAll()
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        defer {
+            KeyboardShortcutSettings.resetAll()
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            appDelegate.debugResetShortcutRoutingStateForTesting()
+        }
+        let windowId = appDelegate.createMainWindow()
+        defer { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let window = try #require(context.window)
+        let manager = context.tabManager
+        let focusedId = try #require(manager.selectedTabId)
+        window.makeKeyAndOrderFront(nil)
+
+        // Wait for the real ContentView-to-table wiring. Never manufacture an
+        // empty model selection: that bypasses the broken blank-click route.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var table: SidebarWorkspaceTableViewImpl?
+        while ContinuousClock.now < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            table = window.contentView.flatMap { workspaceTable(in: $0) }
+            if let table, table.numberOfRows > 0,
+               manager.sidebarSelectedWorkspaceIds == [focusedId] {
+                break
+            }
+            await Task.yield()
+        }
+        let sidebar = try #require(table)
+        try #require(sidebar.numberOfRows > 0)
+        try #require(manager.sidebarSelectedWorkspaceIds == [focusedId])
+        let lastRow = sidebar.rect(ofRow: sidebar.numberOfRows - 1)
+        let point = NSPoint(x: sidebar.visibleRect.midX, y: lastRow.maxY + 24)
+        try #require(sidebar.visibleRect.contains(point))
+        try #require(sidebar.row(at: point) == -1)
+        let windowPoint = sidebar.convert(point, to: nil)
+        let down = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: windowPoint, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber, context: nil,
+            eventNumber: 12498, clickCount: 1, pressure: 1
+        ))
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp, location: windowPoint, modifierFlags: [],
+            timestamp: down.timestamp + 0.01,
+            windowNumber: window.windowNumber, context: nil,
+            eventNumber: 12499, clickCount: 1, pressure: 0
+        ))
+        window.postEvent(up, atStart: true)
+        sidebar.mouseDown(with: down)
+
+        // The next key event must see the completed click synchronously,
+        // before a SwiftUI onChange callback or another render pass.
+        #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
+        #expect(manager.selectedTabId == focusedId)
+        let responderAfterClick = window.firstResponder
+        let event = try #require(groupingKeyEvent(window: window))
+        let handled = appDelegate.debugHandleCustomShortcut(event: event)
+        #expect(handled)
+        #expect(manager.workspaceGroups.count == 1)
+        #expect(manager.selectedTabId == focusedId)
+        #expect(manager.sidebarSelectedWorkspaceIds.isEmpty)
+        #expect(window.firstResponder === responderAfterClick)
+    }
+
+    private func workspaceTable(in view: NSView) -> SidebarWorkspaceTableViewImpl? {
+        if let table = view as? SidebarWorkspaceTableViewImpl { return table }
+        for subview in view.subviews {
+            if let table = workspaceTable(in: subview) { return table }
+        }
+        return nil
+    }
+
     private func withGroupingShortcutWindow(
         _ body: (AppDelegate, NSWindow, TabManager) throws -> Void
     ) throws {
