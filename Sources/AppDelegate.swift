@@ -10739,11 +10739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMenuBarVisibilityObserver() {
         guard menuBarVisibilityObserver == nil else { return }
-        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        menuBarVisibilityObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.syncApplicationPresentationPreferences()
             }
@@ -10766,11 +10762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMobileHostSettingsObserver() {
         guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        mobileHostSettingsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.syncMobileHostService()
             }

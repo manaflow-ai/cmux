@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxTestSupport
 
@@ -59,7 +60,7 @@ final class WindowDecorationsController {
         for name in TitlebarWindowGeometryNotifications.names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
-        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             self?.applyDefaultsDrivenDecorationChangeIfNeeded()
         })
     }
