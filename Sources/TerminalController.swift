@@ -1781,6 +1781,7 @@ class TerminalController {
             return v2RemoteTmuxState(id: request.id, params: request.params)
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
+        case "remote.tmux.new_workspace": return v2RemoteTmuxNewWorkspace(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
         case "remote.tmux.pane_surfaces":
             return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
@@ -2528,6 +2529,9 @@ class TerminalController {
         case "close_window":
             return closeWindow(args)
 
+        case "resize_window":
+            return resizeWindow(args)
+
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
 
@@ -3245,7 +3249,7 @@ class TerminalController {
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_launching",
             "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
-            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
+            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.new_workspace", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",
@@ -13080,6 +13084,43 @@ class TerminalController {
             setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
+    }
+
+    /// `resize_window <window_id> <width|-> <height|->` — `-` keeps that dimension.
+    /// Both `-` is a frame read: nothing changes and the current size comes back.
+    /// Reports the window FRAME size (title bar included), matching what
+    /// `resizeMainWindow` sets and returns.
+    private func resizeWindow(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        // Exactly three: the grammar has no optional tail, and silently ignoring extra
+        // tokens turns a malformed command into a successful resize.
+        guard parts.count == 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
+        guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
+
+        // A dimension must survive the CGFloat math and the Int in the reply:
+        // Int(Double.nan) traps at runtime, so nothing non-finite may pass, and
+        // zero or negative sizes are refusals AppKit would express as clamping.
+        func parseDimension(_ raw: String, name: String) -> (value: Double?, error: String?) {
+            if raw == "-" { return (nil, nil) }
+            guard let value = Double(raw), value.isFinite, value > 0, value <= 100_000 else {
+                return (nil, "ERROR: Invalid \(name)")
+            }
+            return (value, nil)
+        }
+        let width = parseDimension(parts[1], name: "width")
+        if let error = width.error { return error }
+        let height = parseDimension(parts[2], name: "height")
+        if let error = height.error { return error }
+
+        let size = v2MainSync {
+            AppDelegate.shared?.resizeMainWindow(
+                windowId: windowId,
+                width: width.value.map { CGFloat($0) },
+                height: height.value.map { CGFloat($0) }
+            )
+        }
+        guard let size = size ?? nil else { return "ERROR: Window not found" }
+        return "OK \(Int(size.width)) \(Int(size.height))"
     }
 
     private func closeWindow(_ arg: String) -> String {

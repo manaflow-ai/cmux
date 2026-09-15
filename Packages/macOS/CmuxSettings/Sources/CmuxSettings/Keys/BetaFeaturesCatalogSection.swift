@@ -96,5 +96,27 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Remote host origin colors: tint each remote workspace's sidebar row and
+    /// tab with a stable per-host color (hashed from the host name into the
+    /// workspace palette, collisions taking the next color) so servers are easy
+    /// to tell apart and a given host shows the same color in every window. A
+    /// user's manual workspace color always wins. Defaults off; while off, remote
+    /// workspaces render with no origin tint.
+    public let remoteTmuxOriginColors = DefaultsKey<Bool>(
+        id: "remoteTmux.originColors.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.originColors.beta.enabled"
+    )
+
+    /// Aggregates all of a host's sessions through one shared `tmux -CC` connection
+    /// (required for hosts that permit a single concurrent SSH connection) instead of
+    /// one connection per session. The workspace model is identical either way.
+    /// Defaults off; while off, the per-session GA transport is used.
+    public let remoteTmuxMultiplexer = DefaultsKey<Bool>(
+        id: "remoteTmux.multiplexer.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.multiplexer.beta.enabled"
+    )
+
     public init() {}
 }

@@ -2102,8 +2102,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published var shouldRenderWebView: Bool = false {
         didSet {
+            // Reclassify on every assignment, not just on change: a render-deferred
+            // panel assigns false over false and still needs its pending URL
+            // classified. refreshWebViewLifecycleState() no-ops when nothing moved.
+            refreshWebViewLifecycleState()
             if oldValue != shouldRenderWebView {
-                refreshWebViewLifecycleState()
                 applyConfiguredWebViewBackground()
             }
         }
@@ -3853,10 +3856,6 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = initialRequest.url
             shouldRenderWebView = renderInitialNavigation
-            // A panel born with a URL is never `.newTab`: seed the state here
-            // because the deferred path returns without a visibility or
-            // navigation transition to refresh it later.
-            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if let url = initialRequest.url,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
@@ -3879,10 +3878,6 @@ final class BrowserPanel: Panel, ObservableObject {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
             currentURL = url
             shouldRenderWebView = renderInitialNavigation
-            // A panel born with a URL is never `.newTab`: seed the state here
-            // because the deferred path returns without a visibility or
-            // navigation transition to refresh it later.
-            refreshWebViewLifecycleState()
             guard renderInitialNavigation else { return }
             if adoptedPrewarmedWebView {
                 // Already navigated while hidden; record for recovery paths.
@@ -6221,11 +6216,14 @@ extension BrowserPanel {
     }
 
     /// Routes the context-menu tab action through configured external rules.
+    /// Choosing a menu item is the user's own gesture, so the user-event
+    /// guard is satisfied by construction here.
     func openContextMenuLinkInNewTab(url: URL) {
         switch externalNavigationHandler.openConfiguredExternallyResult(
             url,
             navigationType: .linkActivated,
-            targetFrameIsMain: true
+            targetFrameIsMain: true,
+            hasUserActivation: true
         ) {
         case .opened:
             return
@@ -8517,7 +8515,8 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             switch externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
-                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+                shouldPerformDownload: navigationAction.shouldPerformDownload
             ) {
             case .opened:
                 return nil

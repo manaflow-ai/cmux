@@ -394,6 +394,10 @@ jobs:
       - name: Validate pbxproj objectVersion pin and normalization
         run: ./scripts/check-pbxproj.sh
 
+      - name: Lint remote-tmux for time-based waits
+        run: |
+          ./scripts/lint-remote-tmux-no-polling.test.sh
+          ./scripts/lint-remote-tmux-no-polling.sh
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
 
@@ -453,6 +457,9 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRIES: "0"
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
+
+      - name: Validate the crash-report scan
+        run: python3 scripts/crash-reports-since.py --self-test
 
   web-typecheck:
     needs: changes
@@ -801,6 +808,26 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
+            test
+
+      - name: Run remote agent restore cwd regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep remote restore's trusted-cwd boundary on a
+          # non-tolerant focused invocation so a local path cannot leak into a
+          # remote resume command while the broad shard still reports success.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteAgentRestoreWorkingDirectoryTests \
             test
 
       - name: Run agent chat transcript lifecycle regressions
@@ -1420,7 +1447,9 @@ jobs:
               # hiding the actual unit test summary.
               # The app-host wrapper also serializes GUI XCTest ownership per Mac,
               # while still allowing shards on separate Macs to run in parallel.
-              scripts/ci/run-in-console-session.sh \
+              CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING=1 \
+                CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=2700 \
+                scripts/ci/run-in-console-session.sh \
                 scripts/ci/run-app-host-xcodebuild.sh \
                 -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
                 -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
@@ -1468,10 +1497,27 @@ jobs:
             } | tee "$batch_output"
             batch_status="${PIPESTATUS[0]}"
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
+            # classify-app-host-test-result.sh grades every batch, including one
+            # that exited 0. A batch passes only when it executed tests, no app
+            # host died during it, and its status is 0 or an ordinary XCTest
+            # failure status (65/125) whose failures were all expected. Reserved
+            # wrapper statuses and unknown failures cannot be hidden by a stale
+            # "(0 unexpected)" summary. For a nonzero status the output
+            # classifier additionally requires every XCTest summary in the batch
+            # to be clean, so an earlier unexpected failure is not masked by a
+            # later summary.
+            if scripts/ci/classify-app-host-test-result.sh \
+                "$batch_status" "$batch_output" >/dev/null \
+              && { [ "$batch_status" -eq 0 ] \
+                || python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; }; then
+              if [ "$batch_status" -ne 0 ]; then
                 echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+              fi
+              return 0
+            fi
+            if [ "$batch_status" -eq 0 ]; then
+              echo "App-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} exited 0 without passing its grading"
+              return 1
             fi
             return "$batch_status"
           }
@@ -1489,16 +1535,21 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
+          # macOS writes crash reports to one fixed directory, so this shard cannot have its own.
+          # Recording what is already there gives the same thing by subtraction: anything
+          # cmux-named that appears later belongs to this run.
+          CRASH_SNAPSHOT="$RUNNER_TEMP/cmux-crash-snapshot-shard-${{ matrix.shard }}.txt"
+          CRASH_KEPT="$RUNNER_TEMP/cmux-crashes-shard-${{ matrix.shard }}"
+          python3 scripts/crash-reports-since.py --snapshot "$CRASH_SNAPSHOT"
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1507,17 +1558,108 @@ jobs:
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
           fi
+
+          # A dead app host is never a pass, whatever the summary says. When the host dies the
+          # runner relaunches it and the summary line then describes only the tests the LAST
+          # launch managed. Measured on this repo: a shard printing "Test run with 0 tests in 1
+          # suite passed" while two hosts had died, and job logs carrying 24 restarts. Those
+          # verdicts are not green, they are absent.
+          HOST_DEATHS=$(grep -c "Restarting after unexpected exit, crash, or test timeout" "$TEST_OUTPUT" || true)
+          if [ "${HOST_DEATHS:-0}" -ne 0 ]; then
+            echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
+            echo "Tests that started but never reported (the last one named is where a host died):"
+            # Both harnesses, because they announce tests in different shapes and this shard may be
+            # either. swift-testing prints "Test foo() started"; XCTest prints
+            # "Test Case '-[Suite testFoo]' started". Matching only the first form made this list
+            # empty for a shard of XCTest suites — which is most of them — and an empty list reads
+            # as "nothing was lost" at the exact moment something was.
+            comm -23 \
+              <({ grep -oE "Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed 's/^Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' started" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' started$//"
+                } | sort -u) \
+              <({ grep -oE "(✔|✘) Test [A-Za-z0-9_]+\(\)" "$TEST_OUTPUT" | sed -E 's/^(✔|✘) Test //'
+                  grep -oE "Test Case '-\[[A-Za-z0-9_.]+ [A-Za-z0-9_]+\]' (passed|failed)" "$TEST_OUTPUT" \
+                    | sed -E "s/^Test Case '-\[//; s/\]' (passed|failed)$//"
+                } | sort -u) \
+              | head -20 || true
+            exit 1
+          fi
+
+          # The restart line above is the runner noticing a host it has to replace, so it misses a
+          # crash with nothing left to restart — one during teardown, after the last verdict is
+          # already printed. That crash is still an over-release, and it reads as a clean shard.
+          # The process's own crash report is the evidence. Reports that appeared since the
+          # snapshot belong to this run, and each is copied out because macOS prunes that
+          # directory and the copy is what survives into the artifact.
+          #
+          # A report above zero proves a crash; zero does not prove none, because ReportCrash
+          # writes asynchronously and can land after this runs. So this backs the restart check
+          # up instead of replacing it.
+          #
+          # Attribution assumes this job has the crash directory to itself, which holds because
+          # the macOS runners are ephemeral per-job Tart VMs (docs/ci-runners.md). On a shared,
+          # persistent runner another job's cmux crash could land in the window and fail this
+          # shard too — a false failure, never a false pass, since a report that predates the
+          # snapshot is excluded and one that appears during the run is always attributed.
+          #
+          # The scan's own failure is a failure. Swallowing its exit status would turn a renamed
+          # script or a missing interpreter into empty output, which reads as "nothing crashed".
+          set +e
+          CRASHES=$(python3 scripts/crash-reports-since.py --new-since "$CRASH_SNAPSHOT" --copy-to "$CRASH_KEPT")
+          CRASH_SCAN_RC=$?
+          set -e
+          if [ "$CRASH_SCAN_RC" -ne 0 ]; then
+            echo "::error::the crash-report scan failed (exit ${CRASH_SCAN_RC}); refusing to read that as a clean shard"
+            exit 1
+          fi
+          if [ -n "$CRASHES" ]; then
+            echo "::error::a cmux process crashed during this shard, even if every verdict printed"
+            echo "$CRASHES" | sed 's/^/  /'
+            exit 1
+          fi
+
+          # A run that executed nothing is not a pass either. A selector naming a file rather than
+          # a suite, or a suite that no longer exists, leaves xcodebuild reporting success having
+          # done no work at all.
+          #
+          # Both harnesses have to be counted. swift-testing prints a line per test; XCTest prints
+          # none of those and only reports "Executed N tests" — a shard of XCTest suites therefore
+          # looks empty if you count swift-testing lines alone.
+          SWIFT_TESTS=$(grep -c "✔ Test \|✘ Test " "$TEST_OUTPUT" || true)
+          XCTESTS=$(grep -oE "Executed [0-9]+ test" "$TEST_OUTPUT" | grep -oE "[0-9]+" | sort -rn | head -1 || true)
+          TESTS_SEEN=$(( ${SWIFT_TESTS:-0} + ${XCTESTS:-0} ))
+          if [ "$TESTS_SEEN" -eq 0 ]; then
+            echo "::error::no tests executed for this shard; its selectors matched nothing"
+            exit 1
+          fi
+          echo "shard executed ${TESTS_SEEN} tests with no host deaths"
 
           if [ "$EXIT_CODE" -ne 0 ]; then
             # Expected failures are normalized inside run_unit_test_batch. Any
             # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
+            # run with no trustworthy summary and must stay red. Reclassifying the
+            # whole log here would read an earlier batch's clean summary for a
+            # batch that crashed before printing its own.
             echo "App-host unit-test batch failed with status ${EXIT_CODE}"
             exit "$EXIT_CODE"
           fi
+
+      - name: Keep the unit test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-unit-shard-${{ matrix.shard }}-output
+          # Without this, "which test failed on CI" is unanswerable after the fact: the job log is a
+          # filtered excerpt, and neither the xcodebuild output nor an xcresult was kept.
+          path: |
+            ${{ runner.temp }}/cmux-unit-output-shard-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/cmux-unit-shard-${{ matrix.shard }}.args
+            ${{ runner.temp }}/cmux-crashes-shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

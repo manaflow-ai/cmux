@@ -326,12 +326,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             switch method {
             case "vm.ssh_info":
+                // The app reports provider errors as `vm_error` and carries the
+                // provider's own code in `data.backend_code`, which is what the
+                // CLI's cmux-remote fallback reads.
                 return self.v2Response(
                     id: id,
                     ok: false,
                     error: [
-                        "code": "vm_attach_transport_unsupported",
+                        "code": "vm_error",
                         "message": "Freestyle provider SSH is unmanaged; use cmux-remote for a managed session.",
+                        "data": [
+                            "backend_code": "vm_attach_transport_unsupported",
+                            "http_status": 501,
+                        ],
                     ]
                 )
             case "vm.cmux_remote_info":
@@ -342,6 +349,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "route": "ws://10.0.0.8:1337/v1/link",
                         "token": "route-token",
                         "session": "cloud",
+                        // A machine this CLI has not opened before is only dialed when
+                        // the app reports that it serves the trusted listener.
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -351,6 +361,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     result: [
                         "workspace_id": "workspace-cloud",
                         "workspace_ref": "workspace:cloud",
+                    ]
+                )
+            case "surface.catalog":
+                // A freshly created machine is connected and has no remote
+                // workspaces yet, so the CLI opens a new terminal on it.
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "machines": [[
+                            "id": vmID,
+                            "link_state": "connected",
+                            "remote_workspaces": [[String: Any]](),
+                        ]],
+                        "resources": [[String: Any]](),
                     ]
                 )
             case "workspace.cloud_vm_bind":
@@ -399,12 +424,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("terminal=term_cloud"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["vm.ssh_info", "vm.cmux_remote_info", "workspace.create", "workspace.cloud_vm_bind", "surface.new_terminal", "workspace.cloud_vm_bind", "workspace.select"]
+            ["vm.ssh_info", "vm.cmux_remote_info", "workspace.create", "workspace.cloud_vm_bind", "surface.catalog", "surface.new_terminal", "workspace.cloud_vm_bind", "workspace.select"]
         )
         let bindCommands = state.commands
             .compactMap { self.jsonObject($0) }
             .filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
-        XCTAssertEqual(bindCommands.count, 2)
+        guard bindCommands.count == 2 else {
+            XCTFail("expected two workspace.cloud_vm_bind requests, got \(bindCommands.count)")
+            return
+        }
         XCTAssertNil((bindCommands[0]["params"] as? [String: Any])?["remote_workspace_id"])
         XCTAssertEqual(
             (bindCommands[1]["params"] as? [String: Any])?["remote_workspace_id"] as? String,

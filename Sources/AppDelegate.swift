@@ -2152,9 +2152,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        // A mirror that owes tmux a goodbye is owned cleanup too. Without this the app can quit
+        // with the deferred phase never running, and the remote half keeps the tmux client —
+        // along with the per-window size claims that pin those windows for everyone else.
+        let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
+            || mirrorsOwingDetach > 0
         guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
@@ -2166,6 +2171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "mirrorsOwingDetach": String(mirrorsOwingDetach),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
@@ -2173,6 +2179,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Before anything else: let go of the remote tmux clients, and wait for the
+                // server to say it heard us. Everything after this stops transports, which is
+                // what would otherwise swallow the goodbye.
+                await self.remoteTmuxController.detachAllAwaitingExit()
                 await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
@@ -6746,6 +6756,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
+    /// Resizes a main window, keeping its top-left corner fixed: a height change grows or
+    /// shrinks downward, a width change rightward. The dimensions set and returned are
+    /// the window FRAME size (title bar and chrome included), not the content
+    /// rect. Passing nil for both dimensions reads the frame without changing it.
+    ///
+    /// A height change is the input to the terminal's no-reflow resize path, and
+    /// nothing else in the debug surface can produce one: splits change the
+    /// layout inside a fixed window, and driving the real window from a script
+    /// needs Accessibility permission the automation host does not have. Tests
+    /// for resize behavior have to be able to say "make this window shorter".
+    func resizeMainWindow(windowId: UUID, width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let window = windowForMainWindowId(windowId) else { return nil }
+        // Both dimensions nil is a read. setFrame is still a mutation even when the frame is
+        // unchanged -- it posts the frame-change notifications observers act on -- so the
+        // read path must not call it.
+        guard width != nil || height != nil else { return window.frame.size }
+        var frame = window.frame
+        let top = frame.maxY
+        // AppKit does not apply minSize to setFrame, only to interactive resizing, so a
+        // caller asking for 1x1 would otherwise get it. Clamp to the same floor a person
+        // dragging the frame would hit.
+        if let width { frame.size.width = max(width, window.minSize.width) }
+        if let height { frame.size.height = max(height, window.minSize.height) }
+        frame.origin.y = top - frame.size.height
+        window.setFrame(frame, display: true)
+        return window.frame.size
+    }
+
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         let didClose: Bool
         if let window = mainWindowForClose(windowId: windowId) {
@@ -8448,6 +8486,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Creates a new LOCAL terminal workspace even in a remote-tmux mirror window.
+    /// Plain New Workspace (⌘N) in a mirror window spawns a remote tmux session on
+    /// the active tab's host; this is the explicit escape hatch to open local work
+    /// alongside mirrors — it skips the remote-routing branch and otherwise shares
+    /// the same window routing, placement, and naming.
+    @discardableResult
+    func performNewLocalWorkspaceAction(
+        tabManager preferredTabManager: TabManager? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "newLocalWorkspace"
+    ) -> Bool {
+        performNewWorkspaceCreationAction(
+            initialSurface: .terminal,
+            preferredTabManager: preferredTabManager,
+            event: event,
+            debugSource: debugSource,
+            forceLocal: true
+        )
+    }
+
     /// Creates a new workspace whose initial surface is a browser pane in its
     /// default new-tab state with the address bar focused. Shares the window
     /// routing, placement, and naming semantics of `performNewWorkspaceAction`.
@@ -8625,7 +8683,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialBrowserTransparentBackground: Bool = false,
         applyCreationTitleAsCustomTitle: Bool = true,
         focusInitialBrowserAddressBarOnCreate: Bool = true,
-        createdWorkspaceHandler: ((Workspace) -> Void)? = nil
+        createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
+        forceLocal: Bool = false
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
         let livePreferredContext: MainWindowContext? = {
@@ -8652,11 +8711,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let initialWorkspace = context.tabManager.selectedWorkspace
                 switch initialSurface {
                 case .terminal:
-                    _ = executeConfiguredNewWorkspaceActionIfAvailable(
-                        in: context,
-                        debugSource: debugSource,
-                        replacingInitialWorkspace: initialWorkspace
-                    )
+                    // "New Local Workspace" means a PLAIN local terminal
+                    // workspace; the configured override must not substitute
+                    // another action for it.
+                    if !forceLocal {
+                        _ = executeConfiguredNewWorkspaceActionIfAvailable(
+                            in: context,
+                            debugSource: debugSource,
+                            replacingInitialWorkspace: initialWorkspace
+                        )
+                    }
                 case .browser:
                     // The fresh window boots with a terminal workspace; add the
                     // browser workspace and close that initial one so the
@@ -8694,11 +8758,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // On a remote-tmux mirror workspace, a new terminal workspace means
+        // "create a new tmux session on that workspace's host" — route it to the
+        // remote and mirror it back instead of creating a local workspace. The
+        // browser variant always stays local, and `forceLocal` (the "New Local
+        // Workspace" command) is the explicit escape hatch for opening local
+        // work alongside mirrors.
+        if initialSurface == .terminal,
+           !forceLocal,
+           let context,
+           remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+            return true
+        }
+
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+           !forceLocal,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -15164,6 +15242,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newLocalWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newLocalWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.ctrlCmdN")
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .newCloudWorkspace) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudWorkspace \(debugShortcutRouteSnapshot(event: event))")
@@ -17623,7 +17709,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
+                // Same routing as Cmd+N: on an active mirror workspace the
+                // built-in action creates a session on that mirror's host.
+                if !remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+                    guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
+                }
                 onExecuted?()
                 return true
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)

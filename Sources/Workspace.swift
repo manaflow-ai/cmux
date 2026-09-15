@@ -593,7 +593,7 @@ extension Workspace {
                           let bindingSessionId = Self.normalizedResumeBindingValue(resumeBinding.checkpointId) else {
                         return false
                     }
-                    if restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
+                    if resumeBinding.recordsRunningPersistentSSHAgent(in: persistentSSHResumeContext(panelID: panelId)) == true || restoredAgentLifecycleConfirmsRunning(resumeBinding, panelId: panelId) {
                         return true
                     }
                     let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
@@ -1753,7 +1753,23 @@ extension Workspace {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    return workingDirectory
+                    // Keep directory-keyed agents in the launch namespace while
+                    // id-keyed agents may follow the latest remote runtime cwd.
+                    // Snapshot agent paths are eligible only when the panel's
+                    // remote-directory provenance says they are trusted.
+                    let hasTrustedRemoteDirectory = snapshot.directoryIsTrustedRemoteReport == true
+                    let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
+                        ? savedWorkingDirectory
+                        : nil
+                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
+                        ? (restorableAgent.workingDirectory
+                            ?? restorableAgent.launchCommand?.workingDirectory)
+                        : nil
+                    return AgentResumeWorkingDirectory().resolve(
+                        kind: restorableAgent.kind.rawValue,
+                        runtimeCwd: trustedRuntimeWorkingDirectory,
+                        launchWorkingDirectory: trustedAgentWorkingDirectory
+                    )
                 }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
@@ -1839,7 +1855,7 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
@@ -1875,9 +1891,11 @@ extension Workspace {
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
+                        // Same rule as the immediate remote resume above: only the trusted
+                        // remote cwd, never the recorded directory as a fallback.
                         restorableAgent.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                     } else {
                         restorableAgent.resumeStartupInput(
@@ -6698,8 +6716,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    /// Set on the "Sign in to <host>" workspace cmux opens by itself when a remote-tmux
+    /// reconnect cannot authenticate.
+    ///
+    /// It exists to run one `ssh` and is meaningless afterwards: a restored terminal is a
+    /// fresh shell, so a restored copy cannot authenticate anything. Worse, a restored copy
+    /// is invisible to the per-host "one login at a time" rule, which tracks the workspace
+    /// it created — so the next outage adds another, once per relaunch.
+    var isRemoteTmuxAuthLogin: Bool = false
+
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
+        if isRemoteTmuxAuthLogin { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn:
@@ -14561,7 +14589,12 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                owningTabManager?.addWorkspaceIfActive()
+                // Same routing as Cmd+N: on an active mirror workspace the
+                // button creates a session on that mirror's host.
+                if let manager = owningTabManager,
+                   AppDelegate.shared?.remoteTmuxController.handleNewWorkspaceRequested(in: manager) != true {
+                    manager.addWorkspaceIfActive()
+                }
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
