@@ -47,11 +47,7 @@ export async function generateMetadata({
 }
 
 export function generateStaticParams() {
-  // One representative locale validates every page at build time. Enumerating
-  // all locales multiplies every child route (including agents and changelog
-  // versions) by 20. Cache Components renders omitted locales on demand;
-  // LocaleLayout still validates them against the complete supported list.
-  return [{ locale: routing.defaultLocale }];
+  return routing.locales.map((locale) => ({ locale }));
 }
 
 export default async function LocaleLayout({
