@@ -652,8 +652,8 @@ struct WorkspaceShellView: View {
             whatsNewWebLoads = [:]
         }) {
             // Presentation sizing lives inside the sheet: fitted to content
-            // for the common single-page case, full height only for web
-            // pages, multi-page catch-up, and accessibility type.
+            // for each selected native page, full height for web pages and
+            // accessibility type.
             MobileWhatsNewSheet(
                 pages: whatsNewSheetPages,
                 allowedWebHosts: whatsNewCenter?.allowedWebHosts ?? [],

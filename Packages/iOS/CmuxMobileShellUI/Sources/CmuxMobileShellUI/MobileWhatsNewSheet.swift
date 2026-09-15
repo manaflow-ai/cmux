@@ -8,12 +8,8 @@ import SwiftUI
 /// several updates gets one sheet covering all of them. Every page stays
 /// readable later in Settings > What's New.
 ///
-/// The common single-page case renders as a compact, content-fitted card
-/// (owner contract: no scrolling at standard type sizes on any iPhone and no
-/// trailing white space); the Auto-Connect migration sheet pioneered the
-/// measurement mechanics. Accessibility type sizes, web pages, and the
-/// multi-page catch-up keep a full-height sheet, where scrolling is the
-/// correct behavior.
+/// Native pages report their natural height independently of the viewport.
+/// The selected page owns the sheet height, including during catch-up swipes.
 struct MobileWhatsNewSheet: View {
     let pages: [MobileWhatsNewPage]
     let allowedWebHosts: Set<String>
@@ -24,14 +20,13 @@ struct MobileWhatsNewSheet: View {
     let dismiss: () -> Void
     @State private var pageIndex = 0
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var contentHeight: CGFloat = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pageHeights: [String: CGFloat] = [:]
+    @State private var footerHeight: CGFloat = 0
 
-    /// Fixed-viewport presentations: the TabView catch-up and web pages need
-    /// full height, and accessibility sizes legitimately scroll.
     private var usesFullHeight: Bool {
         if dynamicTypeSize.isAccessibilitySize { return true }
-        if pages.count > 1 { return true }
-        switch pages.first?.body {
+        switch selectedPage?.body {
         case .web:
             return true
         default:
@@ -40,78 +35,73 @@ struct MobileWhatsNewSheet: View {
         return false
     }
 
-    var body: some View {
-        Group {
-            if pages.count > 1 {
-                VStack(spacing: 0) {
-                    TabView(selection: $pageIndex) {
-                        ForEach(Array(pages.enumerated()), id: \.element.listID) { index, page in
-                            fullHeightPage(page)
-                                .tag(index)
-                        }
-                    }
-                    .tabViewStyle(.page(indexDisplayMode: .always))
-                    .indexViewStyle(.page(backgroundDisplayMode: .always))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    continueButton
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let page = pages.first {
-                switch page.body {
-                case .features, .pairingSetup:
-                    if dynamicTypeSize.isAccessibilitySize {
-                        fullHeightPageWithContinue(page)
-                    } else {
-                        // Content-fitted card: compact density measured at
-                        // its natural height; the scroll tier only takes over
-                        // when the screen caps the sheet below that height.
-                        ViewThatFits(in: .vertical) {
-                            measuredSinglePage(page)
-                            ScrollView {
-                                measuredSinglePage(page)
-                            }
-                            .scrollBounceBehavior(.basedOnSize)
-                        }
-                    }
-                default:
-                    fullHeightPageWithContinue(page)
-                }
-            }
-        }
-        .background(PlatformPalette.systemBackground)
-        .modifier(MobileWhatsNewFullHeightContent(enabled: usesFullHeight))
-        .accessibilityIdentifier("MobileWhatsNewSheet")
-        .modifier(MobileWhatsNewPresentationSizing(
-            contentHeight: contentHeight,
-            usesFullHeight: usesFullHeight
-        ))
+    private var selectedPage: MobileWhatsNewPage? {
+        pages.indices.contains(pageIndex) ? pages[pageIndex] : nil
     }
 
-    /// The measured single-page body: content at natural height (fixedSize)
-    /// plus the Continue button, reported to drive the fitted detent. The
-    /// report is proposal-independent, so the detent cannot oscillate.
-    private func measuredSinglePage(_ page: MobileWhatsNewPage) -> some View {
+    private var pageHeight: CGFloat? {
+        guard !usesFullHeight, let selectedPage else { return nil }
+        return pageHeights[selectedPage.listID]
+    }
+
+    private var contentHeight: CGFloat? {
+        pageHeight.map { $0 + footerHeight }
+    }
+
+    private var selection: Binding<Int> {
+        Binding(get: { pageIndex }, set: { index in
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                pageIndex = index
+            }
+        })
+    }
+
+    var body: some View {
         VStack(spacing: 0) {
-            MobileWhatsNewContent(page: page, layout: .compact)
-                .fixedSize(horizontal: false, vertical: true)
+            if pages.count > 1 {
+                TabView(selection: selection) {
+                    ForEach(Array(pages.enumerated()), id: \.element.listID) { index, page in
+                        measuredPage(page)
+                            .tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .always))
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+                .frame(idealHeight: pageHeight, maxHeight: pageHeight, alignment: .top)
+            } else if let page = pages.first {
+                measuredPage(page)
+                    .frame(idealHeight: pageHeight, maxHeight: pageHeight, alignment: .top)
+            }
             continueButton
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    footerHeight = height
+                }
         }
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { newHeight in
-            guard newHeight.isFinite, newHeight > 0 else { return }
-            contentHeight = newHeight
-        }
+        .frame(idealWidth: 608, maxWidth: 608)
+        .background(PlatformPalette.systemBackground)
+        .accessibilityIdentifier("MobileWhatsNewSheet")
+        .presentationSizing(.fitted)
+        .presentationDetents([contentHeight.map { .height($0) } ?? .large])
+        .presentationContentInteraction(.scrolls)
+        .presentationDragIndicator(.visible)
     }
 
     @ViewBuilder
-    private func fullHeightPage(_ page: MobileWhatsNewPage) -> some View {
+    private func measuredPage(_ page: MobileWhatsNewPage) -> some View {
         switch page.body {
-        case .features:
-            MobileWhatsNewFittingPage(page: page)
-        case .pairingSetup:
+        case .features, .pairingSetup:
             ScrollView {
                 MobileWhatsNewContent(page: page, layout: .compact)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Leave space for the system page control inside TabView.
+                    .padding(.bottom, pages.count > 1 ? 36 : 0)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        guard height.isFinite, height > 0 else { return }
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                            pageHeights[page.listID] = height
+                        }
+                    }
             }
             .scrollBounceBehavior(.basedOnSize)
         case .web(let url):
@@ -121,15 +111,6 @@ struct MobileWhatsNewSheet: View {
                 preloadedLoad: webLoads[page.listID]
             )
         }
-    }
-
-    private func fullHeightPageWithContinue(_ page: MobileWhatsNewPage) -> some View {
-        fullHeightPage(page)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                continueButton
-                    .background(PlatformPalette.systemBackground)
-            }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var continueButton: some View {
@@ -154,47 +135,9 @@ struct MobileWhatsNewSheet: View {
     /// dismissing early (swipe) skips content but never re-shows it.
     private func advance() {
         if pageIndex < pages.count - 1 {
-            withAnimation {
-                pageIndex += 1
-            }
+            selection.wrappedValue += 1
         } else {
             dismiss()
-        }
-    }
-}
-
-private struct MobileWhatsNewFullHeightContent: ViewModifier {
-    let enabled: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if enabled {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            content
-        }
-    }
-}
-
-/// Fits the sheet to its measured content height for the common single-page
-/// standard-type case; full height only where a fixed viewport is required.
-private struct MobileWhatsNewPresentationSizing: ViewModifier {
-    let contentHeight: CGFloat
-    let usesFullHeight: Bool
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        if usesFullHeight {
-            content
-                .presentationSizing(.page)
-                .presentationDetents([.large])
-                .presentationContentInteraction(.scrolls)
-                .presentationDragIndicator(.visible)
-        } else {
-            content
-                .presentationSizing(.fitted)
-                .presentationDetents([.height(contentHeight)])
         }
     }
 }

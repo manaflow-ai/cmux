@@ -3,7 +3,6 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
-import UIKit
 
 /// Density for the What's New page. `regular` is the HIG template look;
 /// `compact` tightens fonts and spacing so the whole page still fits without
@@ -16,7 +15,7 @@ enum MobileWhatsNewPageLayout {
     var topPadding: CGFloat {
         switch self {
         case .regular: 40
-        case .compact: 12
+        case .compact: 32
         }
     }
 
@@ -247,45 +246,21 @@ struct MobileWhatsNewPairingSetupContent: View {
             .padding(.horizontal, 24)
     }
 
-    @ViewBuilder
     private var screenshotImage: some View {
-        if let image = MobileWhatsNewMacSettingsScreenshotResource.image {
-            Image(uiImage: image)
-                .interpolation(.high)
-                .resizable()
-                .aspectRatio(
-                    MobileWhatsNewMacSettingsScreenshotResource.aspectRatio,
-                    contentMode: .fit
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
-                }
-                .accessibilityLabel(L10n.string(
-                    "mobile.whatsNew.pairing.screenshotLabel",
-                    defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
-                ))
-                .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
-        } else {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.secondary.opacity(0.08))
-                .aspectRatio(
-                    MobileWhatsNewMacSettingsScreenshotResource.aspectRatio,
-                    contentMode: .fit
-                )
-                .overlay {
-                    Text(L10n.string(
-                        "mobile.onboarding.pairing.macDetail",
-                        defaultValue: "Settings > Mobile > Enable iOS pairing"
-                    ))
-                    .font(layout.detailFont)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(12)
-                }
-                .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshotMissing")
-        }
+        Image("MacSettingsMobilePairing", bundle: .module)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+            }
+            .accessibilityLabel(L10n.string(
+                "mobile.whatsNew.pairing.screenshotLabel",
+                defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            ))
+            .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
     }
 
     private var accountRequirement: some View {
@@ -414,24 +389,4 @@ struct MobileWhatsNewAnnouncementBadge: View {
     }
 }
 
-private enum MobileWhatsNewMacSettingsScreenshotResource {
-    // Crop the captured settings group to its heading and first row's text.
-    // Keep the original pixels; neither the switch nor later rows is shown.
-    private static let cropRect = CGRect(x: 36, y: 22, width: 584, height: 164)
-    static let aspectRatio: CGFloat = cropRect.width / cropRect.height
-
-    static let image: UIImage? = {
-        guard let url = Bundle.module.url(
-            forResource: "MacSettingsMobilePairing",
-            withExtension: "png"
-        ) else {
-            return nil
-        }
-        guard let source = UIImage(contentsOfFile: url.path),
-              let cropped = source.cgImage?.cropping(to: cropRect) else {
-            return nil
-        }
-        return UIImage(cgImage: cropped, scale: source.scale, orientation: source.imageOrientation)
-    }()
-}
 #endif
