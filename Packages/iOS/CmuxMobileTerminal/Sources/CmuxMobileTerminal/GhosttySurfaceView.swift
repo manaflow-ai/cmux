@@ -4966,57 +4966,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
-    nonisolated private static func fitSurfaceToGrid(
-        _ surface: ghostty_surface_t,
-        cols: Int,
-        rows: Int,
-        cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s, didMutate: Bool) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
-
-        let before = ghostty_surface_size(surface)
-        ghostty_surface_set_size(surface, requestedW, requestedH)
-        // `fitSurfaceToGrid` is called only on the serial queue.
-        // Fence this mutation before the final dimensions are observed.
-        // A resize is a grid mutation even when the resulting dimensions are
-        // unchanged. Existing cells may have reflowed during the round trip.
-        // Keep render-grid deltas behind a full replay until this generation
-        // is committed.
-        // The caller records the generation on the same serial queue.
-        var actual = ghostty_surface_size(surface)
-        var didMutate = before.width_px != actual.width_px || before.height_px != actual.height_px
-
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
-        var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
-        while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
-            if Int(actual.columns) < cols {
-                requestedW += 1
-            }
-            if Int(actual.rows) < rows {
-                requestedH += 1
-            }
-            let before = actual
-            ghostty_surface_set_size(surface, requestedW, requestedH)
-            // See the initial resize above: a round trip can reflow cells even
-            // if the final dimensions happen to match the previous grid.
-            actual = ghostty_surface_size(surface)
-            didMutate = didMutate || before.width_px != actual.width_px || before.height_px != actual.height_px
-            steps += 1
-        }
-
-        return (requestedW, requestedH, actual, didMutate)
-    }
-
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
@@ -5066,7 +5015,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
 
         // Capture all main-actor inputs as values, then do every libghostty
-        // WRITE (set_content_scale / set_size / fit) and its readback on the
+        // WRITE (content scale / render insets / final size) and readback on the
         // serial surface queue. These calls push to libghostty's renderer
         // mailbox with a blocking `.forever` push; on the main thread they
         // hang it until the scene-update watchdog (0x8BADF00D) kills the app.
@@ -5117,91 +5066,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         workQueue.async { [weak self] in
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
+                let scaled = ghostty_surface_size(surface)
+                workQueue.noteObservedGrid(columns: Int(scaled.columns), rows: Int(scaled.rows))
             }
             ghostty_surface_set_render_insets(surface, topInsetPx, bottomInsetPx)
-            let beforeGeometry = ghostty_surface_size(surface)
-            ghostty_surface_set_size(surface, containerPxW, containerPxH)
-            let measured = ghostty_surface_size(surface)
-            var geometryMutated = pushContentScale
-                || beforeGeometry.width_px != measured.width_px
-                || beforeGeometry.height_px != measured.height_px
 
-            var cell = CGSize.zero
-            if measured.columns > 0, measured.rows > 0, measured.width_px > 0, measured.height_px > 0 {
-                cell = CGSize(
-                    width: CGFloat(measured.width_px) / CGFloat(measured.columns),
-                    height: CGFloat(measured.height_px) / CGFloat(measured.rows)
-                )
-            }
-
+            // Capacity is a read-only projection of the current metrics into
+            // the container. Never resize the live terminal to measure it:
+            // expanding a pinned primary screen can pull history into it, and
+            // shrinking it back does not restore the previous cells.
+            let capacity = ghostty_surface_size_for_bounds(surface, containerPxW, containerPxH)
+            let cell = CGSize(width: Int(capacity.cell_width_px), height: Int(capacity.cell_height_px))
             var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
-                    && eff.rows <= Int(measured.rows)
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                // The producer's effective grid is the contract for every
-                // authoritative render-grid replay. Even a one-row/column
-                // difference must be fitted locally, otherwise the apply
-                // fence rejects every replay and the lane keeps reopening
-                // behind a fresh recovery cycle. Keep the fit bounded to
-                // grids that actually fit inside the measured surface; a
-                // larger effective grid still needs a normal geometry pass.
-                let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && exactGridFitsInsideNatural
-                if shouldFitEffectiveGrid,
-                   pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    var resolved = ghostty_surface_size_s()
-                    let beforeFit = ghostty_surface_size(surface)
-                    let fittedExactly = eff.cols > 0 && eff.rows > 0
-                        && eff.cols <= Int(UInt16.max) && eff.rows <= Int(UInt16.max)
-                        && ghostty_surface_set_grid_size(
-                            surface,
-                            UInt16(eff.cols),
-                            UInt16(eff.rows),
-                            &resolved
-                        )
-                    let exactMutated = fittedExactly
-                        && (beforeFit.width_px != resolved.width_px || beforeFit.height_px != resolved.height_px)
-                    let fitted = fittedExactly
-                        ? (requestedW: resolved.width_px, requestedH: resolved.height_px, actual: resolved, didMutate: exactMutated)
-                        : Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
-                    // Both the exact setter and the bounded fallback mutate
-                    // the terminal grid. One fence covers the whole fit pass,
-                    // including any intermediate width/height probes.
-                    geometryMutated = geometryMutated || fitted.didMutate
-                    if !fittedExactly {
-                        let afterFit = ghostty_surface_size(surface)
-                        geometryMutated = geometryMutated
-                            || beforeFit.width_px != afterFit.width_px
-                            || beforeFit.height_px != afterFit.height_px
-                    }
-                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
-                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
+            if let eff,
+               eff.cols > 0, eff.rows > 0,
+               eff.cols <= Int(capacity.columns), eff.rows <= Int(capacity.rows),
+               eff.cols < Int(capacity.columns) || eff.rows < Int(capacity.rows) {
+                var resolved = ghostty_surface_size_s()
+                guard ghostty_surface_set_grid_size(surface, UInt16(eff.cols), UInt16(eff.rows), &resolved) else {
+                    // Failed geometry cannot establish a replay baseline.
+                    workQueue.markGridMutation()
+                    Task { @MainActor in completion?(false) }
+                    return
                 }
+                pinnedSize = CGSize(
+                    width: min(CGFloat(resolved.width_px) / scale, containerW),
+                    height: min(CGFloat(resolved.height_px) / scale, containerH)
+                )
+            } else {
+                ghostty_surface_set_size(surface, containerPxW, containerPxH)
             }
-
-            // Record the pass's FINAL grid (the letterbox fit above may have
-            // resized again) so render-grid applies can fence on any grid
-            // change this pass caused.
-            let finalMeasured = pinnedSize == nil ? measured : ghostty_surface_size(surface)
-            if geometryMutated {
-                workQueue.markGridMutation()
-            }
-            workQueue.noteObservedGrid(
-                columns: Int(finalMeasured.columns),
-                rows: Int(finalMeasured.rows)
-            )
+            // Each applied size is observed, including content-scale changes
+            // above. A -> B -> A across operations must invalidate old deltas;
+            // unchanged layout keeps its baseline and its fast delivery path.
+            let finalMeasured = ghostty_surface_size(surface)
+            workQueue.noteObservedGrid(columns: Int(finalMeasured.columns), rows: Int(finalMeasured.rows))
             let natural = TerminalGridSize(
-                columns: Int(measured.columns),
-                rows: Int(measured.rows),
-                pixelWidth: Int(measured.width_px),
-                pixelHeight: Int(measured.height_px)
+                columns: Int(capacity.columns),
+                rows: Int(capacity.rows),
+                pixelWidth: Int(capacity.width_px),
+                pixelHeight: Int(capacity.height_px)
             )
             let result = GeometryResult(
                 cellPixelSize: cell,
