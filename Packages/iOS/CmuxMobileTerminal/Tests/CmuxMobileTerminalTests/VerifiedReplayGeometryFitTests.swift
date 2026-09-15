@@ -257,6 +257,42 @@ struct VerifiedReplayGeometryFitTests {
         }
     }
 
+    @Test("render-grid capture excludes unfinished synchronized screen updates")
+    func captureWaitsForSynchronizedScreenCommit() async throws {
+        let mounted = try await mountSurface()
+        defer { dismantle(mounted) }
+        let view = mounted.view
+        #expect(await view.processOutputAndWait(Data("\u{1B}[2J\u{1B}[HBASELINE".utf8)))
+        #expect(try actualFrame(view, revision: 1).plainRows().first?.hasPrefix("BASELINE") == true)
+
+        // A TUI can split one atomic redraw across several PTY reads. The
+        // exporter must obey the renderer's commit boundary, even though the
+        // parser has already changed the cells behind the displayed frame.
+        #expect(await view.processOutputAndWait(Data(
+            "\u{1B}[?2026h\u{1B}[2J\u{1B}[HPARTIAL_UNCOMMITTED".utf8
+        )))
+        let read = VerifiedReplaySurfaceRead(
+            surface: try #require(view.surface),
+            generation: view.surfaceGeneration,
+            surfaceID: "synchronized-capture",
+            stateSeq: 2,
+            renderEpoch: "synchronized-capture",
+            renderRevision: 2,
+            expectedCursorColor: nil,
+            configuredCursorColor: nil,
+            anchor: .screen
+        )
+        let exported = view.outputQueue.queue.sync { read.exportGridSynchronously() }
+        #expect(exported == nil)
+
+        #expect(await view.processOutputAndWait(Data(
+            "\u{1B}[2J\u{1B}[HCOMMITTED\u{1B}[?2026l".utf8
+        )))
+        let committed = try actualFrame(view, revision: 3)
+        #expect(committed.plainRows().first?.hasPrefix("COMMITTED") == true)
+        #expect(!committed.plainRows().contains { $0.contains("PARTIAL_UNCOMMITTED") })
+    }
+
     private struct MountedSurface {
         let delegate: Delegate
         let view: GhosttySurfaceView
