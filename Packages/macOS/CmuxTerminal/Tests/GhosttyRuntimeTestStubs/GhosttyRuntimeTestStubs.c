@@ -550,7 +550,14 @@ bool ghostty_surface_set_render_presented_callback(
 ) {
     if (surface == NULL || callback == NULL) return false;
     GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
-    if (callbacks == NULL || callbacks->presented != NULL) return false;
+    if (callbacks == NULL) return false;
+    // Fixtures may reinstall callbacks after a synthetic pointer is reused;
+    // keep the test double's registration operation idempotent.
+    if (callbacks->presented != NULL) {
+        callbacks->presented = callback;
+        callbacks->presented_userdata = userdata;
+        return true;
+    }
     callbacks->presented = callback;
     callbacks->presented_userdata = userdata;
     return true;
@@ -562,7 +569,12 @@ bool ghostty_surface_set_render_failed_callback(
 ) {
     if (surface == NULL || callback == NULL) return false;
     GhosttyRuntimeTestRenderCallbacks* callbacks = cmux_test_render_callbacks_for(surface);
-    if (callbacks == NULL || callbacks->failed != NULL) return false;
+    if (callbacks == NULL) return false;
+    if (callbacks->failed != NULL) {
+        callbacks->failed = callback;
+        callbacks->failed_userdata = userdata;
+        return true;
+    }
     callbacks->failed = callback;
     callbacks->failed_userdata = userdata;
     return true;

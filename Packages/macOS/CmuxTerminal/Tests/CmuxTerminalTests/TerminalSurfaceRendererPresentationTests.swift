@@ -46,7 +46,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
@@ -77,7 +77,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
         defer {
             surface.releaseSurfaceForTesting()
@@ -110,7 +110,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -142,7 +142,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -161,7 +161,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         acknowledgePresentation(on: surface)
         defer {
@@ -199,7 +199,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -235,8 +235,9 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -268,7 +269,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -320,7 +321,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -367,7 +368,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -397,7 +398,7 @@ private func rendererReleaseWasOccluded() -> Bool
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface, configureRendererCallbacks: true)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()

@@ -222,14 +222,14 @@ extension TerminalSurface {
     /// Test-only helper to install a runtime surface pointer directly.
     ///
     /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
-    /// so clipboard, font, and renderer callback wiring remains enabled by
-    /// default. Callers with a custom callback context can disable renderer
-    /// setup and register their callbacks explicitly.
+    /// so clipboard and font callback wiring remains enabled by default.
+    /// Renderer callback wiring is opt-in because some teardown fixtures use
+    /// synthetic pointers that are not backed by the renderer test stubs.
     @MainActor
     public func installRuntimeSurfaceForTesting(
         _ runtimeSurface: ghostty_surface_t,
         configureNativeCallbacks: Bool = true,
-        configureRendererCallbacks: Bool = true
+        configureRendererCallbacks: Bool = false
     ) {
         let callbackContext: Unmanaged<
             GhosttySurfaceCallbackContext
