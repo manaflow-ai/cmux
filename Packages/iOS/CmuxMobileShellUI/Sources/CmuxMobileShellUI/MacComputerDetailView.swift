@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
@@ -57,6 +58,8 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
     @State private var pendingLastRouteRemoval: CmxAttachRoute?
+    @State private var tailscaleSuggestions: [CmxAttachRoute] = []
+    @State private var isAcceptingTailscaleSuggestions = false
     /// Drives the Forget confirmation; Forget is the only deletion path for a
     /// Computer whose remaining route is the permanent Iroh identity.
     @State private var showsForgetComputer = false
@@ -325,6 +328,7 @@ struct MacComputerDetailView: View {
             if authorized { showsAddTailscaleConnection = false }
         }
         .task {
+            await refreshTailscaleSuggestions()
             guard let irohSettingsController else { return }
             // Reuse the model but restart observation on every appearance;
             // the previous observe loop died with the previous task.
@@ -336,6 +340,10 @@ struct MacComputerDetailView: View {
             await model.observe(recordingScreenEvents: false)
         }
         .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onChange(of: selectedMethod) { _, method in
+            guard method == .tailscale else { tailscaleSuggestions = []; return }
+            Task { await refreshTailscaleSuggestions() }
+        }
         .sheet(isPresented: $showsPrivatePathEditor) {
             if let irohSettingsModel {
                 MobileIrohCustomPrivatePathEditor(
@@ -1148,8 +1156,8 @@ struct MacComputerDetailView: View {
                 Text(L10n.string("mobile.computers.noRoute", defaultValue: "no route"))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(routes, id: \.id) { route in
-                    routeRow(route)
+                ForEach(MobileComputerRouteGroup.groups(routes)) { group in
+                    routeGroupRow(group)
                 }
                 if routes.contains(where: { $0.kind == .tailscale }) {
                     Button {
@@ -1165,6 +1173,18 @@ struct MacComputerDetailView: View {
                     }
                     .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
                 }
+                if selectedMethod == .tailscale, !tailscaleSuggestions.isEmpty {
+                    Section {
+                        ForEach(MobileComputerRouteGroup.suggestions(tailscaleSuggestions)) { group in
+                            suggestionGroupRow(group)
+                        }
+                    } header: {
+                        Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
+                    } footer: {
+                        Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac over the current authenticated connection. Add a group to enable it for Tailscale Only."))
+                    }
+                }
+
                 Button {
                     pingAllRoutes(routes)
                 } label: {
@@ -1192,37 +1212,92 @@ struct MacComputerDetailView: View {
         }
     }
 
-    /// One route: kind + endpoint, with its latest ping status underneath.
+    /// One grouped path keeps IPv4 and IPv6 addresses for the same peer together.
     @ViewBuilder
-    private func routeRow(_ route: CmxAttachRoute) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(route.kind.mobileConnectionMethodName)
+    private func routeGroupRow(_ group: MobileComputerRouteGroup) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                routeLogo(for: group.kind)
+                Text(routeTitle(for: group.kind))
                     .font(.callout)
                 Spacer(minLength: 8)
-                Text(endpointText(route.endpoint))
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                if route.kind != .iroh {
-                    Button {
-                        removeRoute(route)
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-                    .accessibilityLabel(
-                        L10n.string(
-                            "mobile.connections.route.remove",
-                            defaultValue: "Remove route"
-                        )
-                    )
-                    .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
+                Button { removeRouteGroup(group) } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .accessibilityLabel(L10n.string("mobile.connections.route.remove", defaultValue: "Remove route"))
+                .accessibilityIdentifier("MobileComputerRemoveRoute-\(group.id)")
+            }
+            ForEach(group.routes, id: \.id) { route in
+                HStack {
+                    Text(endpointText(route.endpoint))
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Spacer()
+                    pingStatusLine(for: route)
                 }
             }
-            pingStatusLine(for: route)
         }
+    }
+
+    @ViewBuilder
+    private func suggestionGroupRow(_ group: MobileComputerRouteGroup) -> some View {
+        HStack(spacing: 10) {
+            routeLogo(for: .tailscale)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.string("mobile.computers.suggestedRoute.title", defaultValue: "Tailscale path"))
+                    .font(.callout)
+                Text(group.routes.map { endpointText($0.endpoint) }.joined(separator: " · "))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button {
+                isAcceptingTailscaleSuggestions = true
+                Task {
+                    if await store.acceptTailscaleRouteSuggestions(group.routes, macDeviceID: macDeviceID, instanceTag: instanceTag) {
+                        tailscaleSuggestions.removeAll { $0.endpoint == group.routes.first?.endpoint }
+                    }
+                    isAcceptingTailscaleSuggestions = false
+                }
+            } label: {
+                if isAcceptingTailscaleSuggestions { ProgressView().controlSize(.small) }
+                else { Text(L10n.string("mobile.computers.suggestedRoute.add", defaultValue: "Add")) }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isAcceptingTailscaleSuggestions)
+            .accessibilityIdentifier("MobileComputerAddTailscaleRoute-\(group.id)")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    @ViewBuilder
+    private func routeLogo(for kind: CmxAttachTransportKind) -> some View {
+        if kind == .tailscale { Image("TailscaleLogo", bundle: .module).resizable().scaledToFit().frame(width: 22, height: 22) }
+        else if kind == .iroh { Image("IrohLogo", bundle: .module).resizable().scaledToFit().frame(width: 42, height: 22) }
+        else { Image(systemName: "network").frame(width: 22, height: 22) }
+    }
+
+    private func routeTitle(for kind: CmxAttachTransportKind) -> String {
+        kind == .tailscale ? L10n.string("mobile.connections.route.tailscale", defaultValue: "Tailscale") : kind.mobileConnectionMethodName
+    }
+
+    private func removeRouteGroup(_ group: MobileComputerRouteGroup) {
+        Task {
+            for (index, route) in group.routes.enumerated() {
+                await store.removeRoute(route, macDeviceID: macDeviceID, instanceTag: instanceTag,
+                    deleteComputerIfLastRoute: pairedMac?.routes.count == group.routes.count && index == group.routes.count - 1)
+            }
+        }
+    }
+
+    private func refreshTailscaleSuggestions() async {
+        guard selectedMethod == .tailscale else { return }
+        tailscaleSuggestions = await store.tailscaleRouteSuggestions(macDeviceID: macDeviceID, instanceTag: instanceTag)
+            .filter { route in !(pairedMac?.routes.contains { $0.endpoint == route.endpoint } ?? false) }
     }
 
     private func removeRoute(_ route: CmxAttachRoute) {

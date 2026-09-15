@@ -140,12 +140,15 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         case kind
         case endpoint
         case priority
+        case groupID
     }
 
     public let id: String
     public let kind: CmxAttachTransportKind
     public let endpoint: CmxAttachEndpoint
     public let priority: Int
+    /// Presentation identity joining address families accepted together. Never grants transport authority.
+    public let groupID: String?
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -153,7 +156,8 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             id: container.decode(String.self, forKey: .id),
             kind: container.decode(CmxAttachTransportKind.self, forKey: .kind),
             endpoint: container.decode(CmxAttachEndpoint.self, forKey: .endpoint),
-            priority: container.decodeIfPresent(Int.self, forKey: .priority) ?? 0
+            priority: container.decodeIfPresent(Int.self, forKey: .priority) ?? 0,
+            groupID: container.decodeIfPresent(String.self, forKey: .groupID)
         )
     }
 
@@ -161,12 +165,14 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
         id: String,
         kind: CmxAttachTransportKind,
         endpoint: CmxAttachEndpoint,
-        priority: Int = 0
+        priority: Int = 0,
+        groupID: String? = nil
     ) throws {
         self.id = id
         self.kind = kind
         self.endpoint = endpoint
         self.priority = priority
+        self.groupID = groupID
         try validate()
     }
 

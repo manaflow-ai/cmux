@@ -27,7 +27,8 @@ private struct EnumerationFailingStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {}
 
     struct EnumerationError: Error {}
@@ -988,7 +989,8 @@ private struct ExactScopeFailingStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {}
 
     struct ExactScopeError: Error {}

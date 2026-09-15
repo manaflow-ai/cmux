@@ -236,7 +236,8 @@ public protocol MobilePairedMacStoring: Sendable {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool
     ) async throws
 }
 
@@ -630,5 +631,18 @@ extension MobilePairedMacStoring {
     /// pass the captured scope through the full requirement.
     public func remove(macDeviceID: String) async throws {
         try await remove(macDeviceID: macDeviceID, stackUserID: nil, teamID: nil)
+    }
+}
+
+public extension MobilePairedMacStoring {
+    /// Replace the locally authorized destinations after an explicit pairing-code scan.
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String, instanceTag: String?, stackUserID: String?, teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {
+        try await authorizeUserTailscaleRoutes(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, stackUserID: stackUserID,
+            teamID: teamID, routes: routes, replacingExistingRoutes: true
+        )
     }
 }

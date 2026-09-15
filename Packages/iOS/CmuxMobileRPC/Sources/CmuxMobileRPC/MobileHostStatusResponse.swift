@@ -50,8 +50,12 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
     /// the value was malformed. None of those states is ready.
     public let phonePush: MobileHostPhonePushStatus?
 
+    /// Routes disclosed by the same-account host. Consumers must verify the response identity before use.
+    public let routes: [CmxAttachRoute]
+
     private enum CodingKeys: String, CodingKey {
         case capabilities
+        case routes
         case terminalFidelity = "terminal_fidelity"
         case macDisplayName = "mac_display_name"
         case macDeviceID = "mac_device_id"
@@ -67,6 +71,7 @@ public struct MobileHostStatusResponse: Decodable, Sendable {
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        routes = (try? container.decodeIfPresent([CmxAttachRoute].self, forKey: .routes)) ?? []
         capabilities = (try container.decodeIfPresent([String].self, forKey: .capabilities)) ?? []
         terminalFidelity = try container.decodeIfPresent(String.self, forKey: .terminalFidelity)
         macDisplayName = try container.decodeIfPresent(String.self, forKey: .macDisplayName)

@@ -146,7 +146,8 @@ extension CmxAttachRoute {
             id: id,
             kind: kind,
             endpoint: endpoint.disclosed(for: disclosure, at: now),
-            priority: priority
+            priority: priority,
+            groupID: groupID
         )
     }
 }

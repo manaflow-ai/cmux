@@ -1306,7 +1306,8 @@ private final class FailOnceStore: MobilePairedMacStoring, @unchecked Sendable {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {}
 
     struct TransientError: Error {}
@@ -1421,7 +1422,8 @@ private final class RemoveHookStore: MobilePairedMacStoring, @unchecked Sendable
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {}
 
     let inner: any MobilePairedMacStoring

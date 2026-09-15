@@ -402,7 +402,8 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {
         // Resolve the row's ACTUAL scope like every other exact-instance write:
         // the base store requires an existing row match and silently no-ops
@@ -420,7 +421,8 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
             instanceTag: instanceTag,
             stackUserID: scope.stackUserID,
             teamID: scope.teamID,
-            routes: routes
+            routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
         )
     }
 
