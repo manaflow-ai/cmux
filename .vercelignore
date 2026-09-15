@@ -1,6 +1,7 @@
 # Large directories
 ghostty/
-.git/
+# Keep Git available for web/tools/vercel-ignore-build.sh. Vercel applies
+# these exclusions before that command; removing .git makes every push build.
 
 # Build artifacts
 build/

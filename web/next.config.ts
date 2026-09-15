@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { checkProductionTypes } from "./tools/check-production-types";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -68,6 +69,9 @@ const tuiInstallerHeaderRules = [
 const nextConfig: NextConfig = {
   poweredByHeader,
   typescript: {
+    // The production-compile hook below runs the native compiler and rejects
+    // type errors before page generation. Avoid repeating it with JS tsc.
+    ignoreBuildErrors: true,
     // The full project typecheck runs as its own CI job. Keep test and tool
     // files out of Next's production-build check so the same work is not done
     // twice and application errors still fail the build.
@@ -75,6 +79,11 @@ const nextConfig: NextConfig = {
       process.env.NODE_ENV === "production"
         ? "tsconfig.next.json"
         : "tsconfig.json",
+  },
+  compiler: {
+    runAfterProductionCompile: async ({ projectDir }) => {
+      await checkProductionTypes(projectDir);
+    },
   },
   allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
