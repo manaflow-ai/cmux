@@ -248,7 +248,7 @@ extension ReconnectRouteSelectionTests {
         let first = try #require(fixture.box.get())
         await first.close()
 
-        let recoveredWithoutServer = try await pollUntil(attempts: 100) {
+        let recoveredWithoutServer = try await pollUntil {
             guard let replacement = fixture.store.remoteClient else { return false }
             return replacement !== firstClient && fixture.store.connectionState == .connected
         }
