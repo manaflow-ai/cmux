@@ -114,7 +114,7 @@ PY_CHECK
 check_scope production 401 unauthorized
 check_scope development 403 environment_mismatch
 
-deployment_marker="cmux-prod-guard-$(date +%s)-$$"
+deployment_marker="cmux-prod-guard-$$"
 wrangler deploy --env production --strict --message "$deployment_marker" --tag "$deployment_marker"
 
 probe_failure=0

@@ -12,7 +12,7 @@ async function probe(scenario: string, options: { missingCurl?: boolean } = {}) 
   try {
     await writeFile(join(directory, "bun"), "#!/bin/sh\nexit 0\n", { mode: 0o700 });
     await writeFile(join(directory, "python3"), "#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n", { mode: 0o700 });
-    for (const [command, path] of [["mktemp", "/usr/bin/mktemp"], ["date", "/bin/date"], ["rm", "/bin/rm"], ["cat", "/bin/cat"]]) {
+    for (const [command, path] of [["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"]]) {
       await writeFile(join(directory, command), `#!/bin/sh\nexec ${path} \"$@\"\n`, { mode: 0o700 });
     }
     await writeFile(join(directory, "wrangler"), `#!/usr/bin/env python3
