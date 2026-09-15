@@ -31,8 +31,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private var networkObserver: CloudReadRecoveryObserver?
     private var featureFlagObserver: NSObjectProtocol?
-    private var networkObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
     private let isCloudEnabled: @MainActor () -> Bool
@@ -116,12 +116,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask?.cancel()
     }
 
-    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
-    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
-    nonisolated func terminateWireGuardHubForAppQuit() {
-        wireGuardHub?.terminateForAppQuit()
-    }
-
     /// Live headless links, for the Cloud tunnel's idle policy.
     func connectedCloudLinkCount() async -> Int {
         await links.connectedMachineCount
@@ -166,12 +160,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
         }
-        if let networkObserver { notificationCenter.removeObserver(networkObserver) }
-        networkObserver = notificationCenter.addObserver(forName: .cmuxCloudReadNetworkRecovered, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
-                _ = await self.refresh(force: false)
-            }
+        networkObserver = CloudReadRecoveryObserver(notificationCenter: notificationCenter) { [weak self] in
+            guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
+            _ = await self.refresh(force: false)
         }
         syncPollingToActivationPolicy()
     }
@@ -480,7 +471,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func accessDidEnd() async {
-        if let networkObserver { notificationCenter.removeObserver(networkObserver) }
         networkObserver = nil
         isRetired = true
         accessEpoch &+= 1

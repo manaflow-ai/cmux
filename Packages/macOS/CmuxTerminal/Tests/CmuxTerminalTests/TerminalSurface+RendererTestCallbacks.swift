@@ -9,20 +9,22 @@ extension TerminalSurface {
     @MainActor
     func installRendererTestCallbacks(_ runtime: UnsafeMutableRawPointer) {
         let userdata = Unmanaged.passUnretained(self).toOpaque()
-        #expect(ghostty_surface_set_render_presented_callback(runtime, { userdata, token in
+        let presented = ghostty_surface_set_render_presented_callback(runtime, { userdata, token in
             guard let userdata else { return }
             MainActor.assumeIsolated {
                 Unmanaged<TerminalSurface>.fromOpaque(userdata).takeUnretainedValue().rendererFrameDidPresent(token: token)
             }
-        }, userdata))
-        #expect(ghostty_surface_set_render_failed_callback(runtime, { userdata, token, status in
+        }, userdata)
+        #expect(presented)
+        let failed = ghostty_surface_set_render_failed_callback(runtime, { userdata, token, status in
             guard let userdata else { return }
             MainActor.assumeIsolated {
                 Unmanaged<TerminalSurface>.fromOpaque(userdata).takeUnretainedValue().rendererFrameDidFail(
                     token: token, status: status
                 )
             }
-        }, userdata))
+        }, userdata)
+        #expect(failed)
     }
 
     @MainActor

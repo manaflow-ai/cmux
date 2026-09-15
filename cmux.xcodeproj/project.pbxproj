@@ -826,6 +826,7 @@
 		AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */; };
 		C12625B00000000000000006 /* CloudReadManualClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000005 /* CloudReadManualClock.swift */; };
 		C12625B00000000000000002 /* CloudReadNetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */; };
+		C12636A00000000000000004 /* CloudReadRecoveryObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12636A00000000000000003 /* CloudReadRecoveryObserver.swift */; };
 		C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */; };
 		C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */; };
 		C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000003 /* CloudRefreshURLProtocol.swift */; };
@@ -2054,6 +2055,7 @@
 		E4C9D6A1F2B34E5D8C7A9012 /* MachineCreateOptimisticProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A7B1F4C8E54A6B9D3E7F21 /* MachineCreateOptimisticProjectionTests.swift */; };
 		EC5494EFC3A45E0D2EAF7CD3 /* MachineCreateRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DE6021305BAAE21622C5DFD /* MachineCreateRequest.swift */; };
 		E692C1AAEBB6F25FC0A733ED /* MachineCreateRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45500183C33186986F073F0B /* MachineCreateRowActions.swift */; };
+		C12636A00000000000000002 /* MachinePlanSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12636A00000000000000001 /* MachinePlanSnapshot.swift */; };
 		2C4FF73E6E8B4FFBBF0813D3 /* MachineSnapshotBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97A32F9E792A4C9BB3DABC70 /* MachineSnapshotBuilder.swift */; };
 		4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */; };
 		7690848956F4C55873F767F6 /* MachinesPanelModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */; };
@@ -4816,6 +4818,7 @@
 		5C2A7143303749BE82E51F69 /* CloudProviderRefreshCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProviderRefreshCoordinatorTests.swift; sourceTree = "<group>"; };
 		C12625B00000000000000005 /* CloudReadManualClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadManualClock.swift; sourceTree = "<group>"; };
 		C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadNetworkMonitor.swift; sourceTree = "<group>"; };
+		C12636A00000000000000003 /* CloudReadRecoveryObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRecoveryObserver.swift; sourceTree = "<group>"; };
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinator.swift; sourceTree = "<group>"; };
 		C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinatorTests.swift; sourceTree = "<group>"; };
 		C12625000000000000000003 /* CloudRefreshURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshURLProtocol.swift; sourceTree = "<group>"; };
@@ -5932,6 +5935,7 @@
 		D2A7B1F4C8E54A6B9D3E7F21 /* MachineCreateOptimisticProjectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineCreateOptimisticProjectionTests.swift; sourceTree = "<group>"; };
 		5DE6021305BAAE21622C5DFD /* MachineCreateRequest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineCreateRequest.swift; sourceTree = "<group>"; };
 		45500183C33186986F073F0B /* MachineCreateRowActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineCreateRowActions.swift; sourceTree = "<group>"; };
+		C12636A00000000000000001 /* MachinePlanSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachinePlanSnapshot.swift; sourceTree = "<group>"; };
 		97A32F9E792A4C9BB3DABC70 /* MachineSnapshotBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachineSnapshotBuilder.swift; sourceTree = "<group>"; };
 		031E69302DA348EC747F0B64 /* MachinesPanelBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MachinesPanelBanners.swift"; sourceTree = "<group>"; };
 		78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MachinesPanelModelTests.swift; sourceTree = "<group>"; };
@@ -8428,6 +8432,8 @@
 				333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */,
 				FB831845720B2F8256DC58DA /* CloudTreePlaceholderContent.swift */,
 				D3B2806334130CFF34D8ABA1 /* CloudTreePlaceholder.swift */,
+				C12636A00000000000000001 /* MachinePlanSnapshot.swift */,
+				C12636A00000000000000003 /* CloudReadRecoveryObserver.swift */,
 				68672B3C63D4E348AFA4DEF7 /* MachinesPanelViewModel.swift */,
 		C12625A00000000000000001 /* CloudRequestClock.swift */,
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */,
@@ -12941,6 +12947,7 @@
 				7A0CE1000000000000000304 /* CloudPrivateNetworkUse.swift in Sources */,
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				C12625B00000000000000002 /* CloudReadNetworkMonitor.swift in Sources */,
+				C12636A00000000000000004 /* CloudReadRecoveryObserver.swift in Sources */,
 				C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
@@ -13594,7 +13601,8 @@
 				7F874952678AC9761AE53902 /* MachineCreateOperation.swift in Sources */,
 				EC5494EFC3A45E0D2EAF7CD3 /* MachineCreateRequest.swift in Sources */,
 				E692C1AAEBB6F25FC0A733ED /* MachineCreateRowActions.swift in Sources */,
-		2C4FF73E6E8B4FFBBF0813D3 /* MachineSnapshotBuilder.swift in Sources */,
+				C12636A00000000000000002 /* MachinePlanSnapshot.swift in Sources */,
+				2C4FF73E6E8B4FFBBF0813D3 /* MachineSnapshotBuilder.swift in Sources */,
 				4A6A6A54919FEE7C66D41678 /* MachinesPanelBanners.swift in Sources */,
 				E879C292A2D38E3DDBCB004D /* MachinesPanelView.swift in Sources */,
 				D7E6477A2FC01DCCF353840D /* MachinesPanelViewModel.swift in Sources */,
