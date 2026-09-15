@@ -149,20 +149,15 @@ extension MobileShellComposite {
     }
 
     /// Checks native connection state before promoting a feature failure to
-    /// recovery. Transports without native observation retain their existing
-    /// error-driven recovery; Iroh owns its own dead-peer detection.
+    /// recovery. An event stream can end while Iroh has already replaced the
+    /// underlying path, so the stream ending alone does not justify retiring
+    /// the RPC client. Transports without native observation retain their
+    /// existing error-driven recovery; Iroh owns its own dead-peer detection.
     func recoverDeadConnection(
         trigger: RecoveryTrigger,
         expectedClient: MobileCoreRPCClient
     ) {
         guard remoteClient === expectedClient, connectionState == .connected else { return }
-        if trigger == .eventStreamEnded {
-            // The RPC listener ends only after its required control session
-            // has torn down. Detach it synchronously so another producer
-            // cannot reopen the retired RPC client while recovery starts.
-            recoverClosedControlSession(trigger: trigger, expectedClient: expectedClient)
-            return
-        }
         Task { @MainActor [weak self] in
             let closed = await expectedClient.isTransportClosed()
             guard let self,
@@ -327,6 +322,18 @@ extension MobileShellComposite {
                         // A slow application response after a path change or
                         // resume does not invalidate the native connection.
                         _ = self.completeConnectionRecovery(attempt)
+                        self.markMacConnectionHealthy()
+                        // The probe timed out, so the control request does
+                        // not prove that the terminal event stream survived
+                        // the background transition. Keep the native session
+                        // and repair only the feature lane that can leave a
+                        // mounted Ghostty surface blank.
+                        if resyncAfterHealthy {
+                            self.resyncTerminalOutput(
+                                reason: "connectionRecovery.\(trigger).transportAlive",
+                                restartEventStream: true
+                            )
+                        }
                         self.applyConnectionRecoveryOwnerState()
                         return
                     }
