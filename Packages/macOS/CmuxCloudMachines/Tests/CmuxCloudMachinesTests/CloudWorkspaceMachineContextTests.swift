@@ -25,6 +25,13 @@ struct CloudWorkspaceMachineContextTests {
                 machinesPanelOwnsFocus: true
             ).target == .unavailable
         )
+        #expect(
+            CloudWorkspaceMachineContext(
+                selection: .none,
+                selectedWorkspaceCloudMachineID: "machine-a",
+                machinesPanelOwnsFocus: true
+            ).target == .local
+        )
     }
 
     @Test func workspaceBindingWinsWhenMachinesPanelDoesNotOwnFocus() {
