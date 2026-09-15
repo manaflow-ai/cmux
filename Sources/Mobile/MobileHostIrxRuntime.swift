@@ -585,9 +585,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
-            // The bounded Iroh peer pool stays alive via transport keepalives.
-            // Control-idle timeout is for unowned legacy TCP connections and
-            // must not tear down a healthy multi-lane QUIC session.
+            // Admission has already authenticated this bounded pooled peer.
+            // It may wait for its first RPC while the client finishes setup;
+            // transport keepalives and the pool own its connection lifetime.
+            firstFrameTimeoutNanoseconds: 0,
             idleTimeoutNanoseconds: 0,
             isCurrent: { [weak self] in
                 let runtime = self
