@@ -62,10 +62,15 @@ describe("encrypted production APNs boundary", () => {
   test("encrypted dismiss uses ciphertext without requiring or publishing plaintext notification IDs", () => {
     const parsed = parsedWire({ kind: "dismiss", badgeCount: 0 });
     const body = buildApnsPayload(parsed) as { aps: Record<string, unknown>; cmux: Record<string, unknown> };
-    expect(body.aps).toEqual({ "content-available": 1, "mutable-content": 1, badge: 0 });
+    expect(body.aps).toEqual({
+      "content-available": 1,
+      "mutable-content": 1,
+      alert: { title: "", body: "" },
+      badge: 0,
+    });
     expect(body.cmux.encryptedPayloads).toEqual([envelope()]);
     expect(body.cmux.dismissedIds).toBeUndefined();
-    expect(body.aps.alert).toBeUndefined();
+    expect(body.aps.alert).toEqual({ title: "", body: "" });
   });
 
   test("rejects plaintext fields and malformed or duplicate encrypted recipients", () => {

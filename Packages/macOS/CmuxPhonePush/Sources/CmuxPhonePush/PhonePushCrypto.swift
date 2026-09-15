@@ -252,6 +252,14 @@ public enum PhonePushKeyStore {
             item[kSecReturnData as String] = nil
             if let accessGroup { item[kSecAttrAccessGroup as String] = accessGroup }
             let addStatus = SecItemAdd(item as CFDictionary, nil)
+            if addStatus == errSecDuplicateItem {
+                var existing: CFTypeRef?
+                let readStatus = SecItemCopyMatching(query as CFDictionary, &existing)
+                guard readStatus == errSecSuccess, let existingData = existing as? Data else {
+                    throw PhonePushCryptoError.keychain(readStatus)
+                }
+                return try KeyRecord.decode(existingData).material
+            }
             guard addStatus == errSecSuccess else { throw PhonePushCryptoError.keychain(addStatus) }
             return material
         } else if status == errSecSuccess, let result = result as? Data {

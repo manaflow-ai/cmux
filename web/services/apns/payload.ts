@@ -149,6 +149,10 @@ function buildDismissPayload(input: ApnsNotificationInput): Record<string, unkno
   const aps: Record<string, unknown> = {
     "content-available": 1,
     ...(encrypted ? { "mutable-content": 1 } : {}),
+    // A notification service extension is only invoked for mutable pushes
+    // that carry an alert. Empty strings keep this dismiss push invisible while
+    // allowing the extension to decrypt and apply the dismissal.
+    ...(encrypted ? { alert: { title: "", body: "" } } : {}),
   };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
   const cmux: Record<string, unknown> = encrypted
