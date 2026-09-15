@@ -1126,7 +1126,11 @@ private func sessionRowMenuItems(
     }
     if let cwd = entry.cwd, !cwd.isEmpty {
         Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            Task { @MainActor in
+                await WorkspaceFinderDirectoryOpener.openInFinder(
+                    URL(fileURLWithPath: cwd, isDirectory: true)
+                )
+            }
         } label: {
             Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
         }
