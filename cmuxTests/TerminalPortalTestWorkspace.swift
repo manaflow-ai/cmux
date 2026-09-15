@@ -18,9 +18,8 @@ final class TerminalPortalTestWorkspace {
     init() {
         previousAppDelegate = AppDelegate.shared
         appDelegate = previousAppDelegate ?? AppDelegate()
-        manager = TabManager(autoWelcomeIfNeeded: false)
-        let workspace = manager.selectedWorkspace ?? manager.addWorkspace()
-        id = workspace.id
+        manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: true)
+        id = manager.tabs[0].id
         windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         AppDelegate.shared = appDelegate
     }

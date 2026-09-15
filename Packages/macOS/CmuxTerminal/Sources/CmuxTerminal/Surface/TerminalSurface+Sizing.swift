@@ -1,15 +1,16 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
+public import CmuxTerminalCore
 
 // MARK: - Surface sizing and scale
 
 extension TerminalSurface {
-    /// Defers renderer and PTY sizing until the host commits its final geometry.
-    /// - Parameter deferred: Whether the host currently owns an unfinished resize.
+    /// Assigns the host that authorizes view-driven renderer and PTY sizing.
+    /// - Parameter authority: The current portal, or nil when the surface is detached.
     @MainActor
-    public func setSurfaceSizeUpdatesDeferred(_ deferred: Bool) {
-        surfaceSizeUpdatesDeferred = deferred
+    public func setSurfaceResizeAuthority(_ authority: (any TerminalSurfaceResizeAuthority)?) {
+        surfaceResizeAuthority = authority
     }
 
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
@@ -171,7 +172,7 @@ extension TerminalSurface {
     public func reapplyAssignedGrid() {
         guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
               lastXScale > 0, lastYScale > 0,
-              !surfaceSizeUpdatesDeferred else { return }
+              surfaceResizeAuthority?.isRendererResizeDeferred != true else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
             height: CGFloat(lastUncappedPixelHeight) / lastYScale,
@@ -211,7 +212,7 @@ extension TerminalSurface {
         suppressAssignedGridPin: Bool = false,
         caller: StaticString = #function
     ) -> Bool {
-        guard !surfaceSizeUpdatesDeferred else { return false }
+        guard surfaceResizeAuthority?.isRendererResizeDeferred != true else { return false }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 

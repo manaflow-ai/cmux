@@ -23,7 +23,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -35,8 +35,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         XCTAssertTrue(
             portal.hostView.clipsToBounds,
@@ -219,7 +218,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -231,8 +230,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         let committedSize = surface.debugCurrentPixelSize()
         XCTAssertGreaterThan(committedSize.width, 0)
@@ -328,7 +326,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -340,8 +338,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         let committedRendererSize = surface.hostedView.surfaceView.frame.size
         XCTAssertGreaterThan(committedRendererSize.width, 1)
@@ -400,7 +397,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -412,8 +409,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         portal.isWindowLiveResizeActiveOverrideForTesting = true
         anchor.setFrameSize(NSSize(width: 200, height: 140))
