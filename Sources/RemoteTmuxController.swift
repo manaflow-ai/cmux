@@ -398,6 +398,9 @@ final class RemoteTmuxController {
         // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
         // ssh-tmux transport has no relay, so a local path would be dead on the
         // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        // A multiplexed channel publishes the same pairs into its own real session
+        // rather than the hidden view session the shared stream is attached to; see
+        // ``RemoteTmuxSessionChannel/setMirrorEnvironment(_:)``.
         connection.setMirrorEnvironment([
             "CMUX_WORKSPACE_ID": workspace.id.uuidString,
             "CMUX_TAB_ID": workspace.id.uuidString,

@@ -24,7 +24,12 @@ import Testing
         )
 
         var readyCount = 0
-        _ = channel.addObserver(RemoteTmuxSessionObservers(onReconnectReady: { readyCount += 1 }))
+        _ = channel.addObserver(RemoteTmuxSessionObservers(
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
+            onActivePaneChanged: nil, onSessionChanged: nil, onTopologyChanged: nil,
+            onReconnectReady: { readyCount += 1 }, onExit: nil,
+            onConnectionStateChanged: nil, onAuthRequired: nil
+        ))
 
         source.fireReconnectReady()
         #expect(
@@ -126,7 +131,8 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     }
     @discardableResult func sendKeys(paneId: Int, data: Data) -> Bool { true }
     @discardableResult func sendKey(paneId: Int, key: RemoteTmuxKeyName) -> Bool { true }
-    func beginReconnecting() {}
+    func beginReconnecting(preservingBackoff: Bool) {}
+    func resumeAfterInteractiveAuth() {}
     @discardableResult func seedPane(paneId: Int, clearScrollback: Bool) -> UUID? { nil }
     func unsubscribePanePath(paneId: Int) {}
     func unsubscribePaneReflow(paneId: Int) {}
