@@ -3,11 +3,10 @@
 // (reportDroppedVmAlerts in services/observability/vmAlerts.ts), which pages
 // nobody, so CMUX_ALERTS_SLACK_WEBHOOK_URL stays a required production key.
 //
-// Production has never had a webhook and provisioning one is an operator
-// decision, so a bare requirement made the audit red on every push to main
-// with no way to clear it, and a check nobody can clear guards nothing. The
-// escape hatch is an explicit, plain-text acknowledgement recorded in the
-// deployment env itself: who decided to run without a sink and why. A fresh
+// Production may have a webhook after an operator provisions one. When it is
+// absent, a bare requirement makes the audit red with no recorded owner, so
+// the escape hatch is an explicit, plain-text acknowledgement in the
+// deployment env: who decided to run without a sink and why. A fresh
 // environment with neither key still fails.
 export const ALERT_SINK_KEY = "CMUX_ALERTS_SLACK_WEBHOOK_URL";
 export const ALERT_SINK_UNCONFIGURED_ACK_KEY = "CMUX_ALERTS_SINK_UNCONFIGURED_ACK";

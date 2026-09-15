@@ -1,24 +1,16 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
+public import CmuxTerminalCore
 
 // MARK: - Surface sizing and scale
 
 extension TerminalSurface {
-    /// Holds surface-size writes while a host is committing an interactive
-    /// geometry transaction. The next size reconciliation after this flag is
-    /// cleared supplies the authoritative frame and renderer drawable size.
+    /// Assigns the host that authorizes view-driven renderer and PTY sizing.
+    /// - Parameter authority: The current portal, or nil when the surface is detached.
     @MainActor
-    public func setSurfaceSizeUpdatesDeferred(_ deferred: Bool) {
-        surfaceSizeUpdatesDeferred = deferred
-    }
-
-    /// Reports whether the host has explicitly deferred surface size writes.
-    /// The portal owns this phase so the final resize pass does not depend on
-    /// AppKit's `inLiveResize` value, which may clear before that pass runs.
-    @MainActor
-    private var shouldDeferSurfaceSizeUpdates: Bool {
-        surfaceSizeUpdatesDeferred
+    public func setSurfaceResizeAuthority(_ authority: (any TerminalSurfaceResizeAuthority)?) {
+        surfaceResizeAuthority = authority
     }
 
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
@@ -31,7 +23,6 @@ extension TerminalSurface {
         }
         return UInt32(floored)
     }
-
     @MainActor
     func scaleFactors(for view: any TerminalSurfaceNativeViewing) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
         let scale = max(
@@ -43,7 +34,6 @@ extension TerminalSurface {
         )
         return (scale, scale, scale)
     }
-
     func scaleApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
         abs(lhs - rhs) <= epsilon
     }
@@ -182,7 +172,7 @@ extension TerminalSurface {
     public func reapplyAssignedGrid() {
         guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
               lastXScale > 0, lastYScale > 0,
-              !shouldDeferSurfaceSizeUpdates else { return }
+              surfaceResizeAuthority?.isRendererResizeDeferred != true else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
             height: CGFloat(lastUncappedPixelHeight) / lastYScale,
@@ -222,7 +212,7 @@ extension TerminalSurface {
         suppressAssignedGridPin: Bool = false,
         caller: StaticString = #function
     ) -> Bool {
-        guard !shouldDeferSurfaceSizeUpdates else { return false }
+        guard surfaceResizeAuthority?.isRendererResizeDeferred != true else { return false }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
@@ -388,11 +378,9 @@ extension TerminalSurface {
                 }
             }
         }
-
         if fittedSize.fontChanged && !sizeChanged {
             ghostty_surface_refresh(surface)
         }
-
         // Deferred from above on a DPI increase: now that set_size grew the grid,
         // applying the larger cell only shrinks it back to the final width.
         if deferScaleUntilResized {
@@ -400,7 +388,6 @@ extension TerminalSurface {
             lastXScale = xScale
             lastYScale = yScale
         }
-
         // Remote tmux display surfaces: report every APPLIED resize —
         // including same-grid re-applies, since a resize that lands on new
         // pixels without changing cols×rows still refines the measured
@@ -438,11 +425,9 @@ extension TerminalSurface {
                 manualSizeReportPendingWindowAttach = true
             }
         }
-
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
     }
-
     /// The current monospace cell size in points, or nil if the runtime
     /// surface is not ready. Used by remote tmux mirror sizing.
     @MainActor
@@ -456,7 +441,6 @@ extension TerminalSurface {
             height: Double(size.cell_height_px) / scale
         )
     }
-
     /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
     /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
     /// points and its window's backing scale. Callers separate view layout,
@@ -478,7 +462,6 @@ extension TerminalSurface {
             backingScale: attachedView?.window?.backingScaleFactor
         )
     }
-
     /// Delivers the manual-size report that was skipped because the view was
     /// outside any window when the size applied (see
     /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
@@ -495,7 +478,6 @@ extension TerminalSurface {
         manualSizeReportPendingWindowAttach = false
         report(sample)
     }
-
     /// Which of ``renderedGridCells()``'s nil conditions currently hold —
     /// lets sizing diagnostics name the mechanism (view detached from its
     /// window vs surface not live vs no real grid) instead of a bare nil.
@@ -506,7 +488,6 @@ extension TerminalSurface {
             surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
-
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor
@@ -519,5 +500,4 @@ extension TerminalSurface {
         guard cols > 1, rows > 1 else { return nil }
         return (cols, rows)
     }
-
 }

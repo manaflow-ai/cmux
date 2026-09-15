@@ -126,7 +126,10 @@ struct GhosttyDrawableSizeRetryTests {
         let surfaceView = try #require(findGhosttyNSView(in: hostedView))
         _ = surfaceView.forceRefreshSurface()
         let initialDrawableSize = surfaceView.debugLastDrawableSizeForTesting()
-        hostedView.setWindowLiveResizeActive(true)
+        let portal = WindowTerminalPortal(window: window)
+        defer { portal.tearDown() }
+        hostedView.setPortalResizeAuthority(portal)
+        portal.beginWindowLiveResizePhase()
 
         // GhosttyNSView.viewDidEndLiveResize uses bypass=true. The portal has
         // not committed its final pane frame yet, so this callback must keep

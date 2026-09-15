@@ -9,12 +9,13 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 import {
   enrollVmTunnel,
   isWireGuardPublicKey,
+  listVmAccessGrants,
   listVmTunnels,
   readVmTunnel,
-  revokeVmTunnel,
-  runVmWorkflow,
+  revokeVmAccessGrant,
   type VmTunnelDescriptor,
 } from "../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import {
   optionalClientIdentifier,
   optionalString,
@@ -25,11 +26,11 @@ import {
  * The account's WireGuard tunnels: how a user's own computer becomes a member
  * of the private network their Cloud VMs live on.
  *
- * `POST` enrolls the calling computer and returns a complete `wg-quick` config
- * whose `PrivateKey` line is blank — the caller generated that key and keeps
- * it. Enrolling is idempotent per device, so clients call it on every launch
- * rather than remembering whether they have enrolled; a public key that does
- * not match the record rotates the existing tunnel's keys in place, keeping the
+ * `POST` enrolls one role for the calling computer and returns standard
+ * WireGuard configuration text whose `PrivateKey` line is blank. The caller
+ * generated that key and keeps it. Clients save the completed configuration
+ * locally and call this route again only after the local role state is missing.
+ * A changed public key rotates the existing tunnel's keys in place, keeping the
  * device's address on the network stable.
  *
  * This route is deliberately not gated behind the Pro paywall that machine
@@ -61,37 +62,42 @@ export async function POST(request: Request): Promise<Response> {
           error: "vm_tunnel_invalid_key",
           status: 400,
           message: "clientPublicKey must be a base64-encoded 32-byte WireGuard public key.",
-          action:
-            "Generate a Curve25519 keypair on this computer, keep the private half, and send only " +
-            "the base64 public key. `wg genkey | tee private.key | wg pubkey` produces one.",
+          action: "Let the cmux app generate a new WireGuard keypair on this Mac, then try again.",
           phase: "network",
           details: { field: "clientPublicKey" },
         });
       }
 
-      let deviceFingerprint: string | undefined;
-      try {
-        deviceFingerprint = optionalClientIdentifier(
-          body.deviceFingerprint ?? body.device_fingerprint,
-          "deviceFingerprint",
-        );
-      } catch (err) {
-        return invalidDeviceFingerprint(err);
-      }
-      if (!deviceFingerprint) return missingDeviceFingerprint();
+      const device = enrollmentDeviceFromBody(body);
+      if (!device.ok) return device.response;
+      const { deviceFingerprint, deviceId, tunnelPurpose } = device;
 
       setSpanAttributes(span, {
         "cmux.vm.provider": provider.id,
         "cmux.vm.tunnel.device": deviceFingerprint,
       });
 
-      const tunnel = await runVmWorkflow(enrollVmTunnel({
+      const login = stackSession(request);
+      if (!login) return missingStackSession();
+      const enrolled = await runVmRoute(enrollVmTunnel({
         userId: user.id,
         provider: provider.id,
+        deviceId,
         deviceFingerprint,
+        tunnelPurpose,
         deviceName: deviceName(body),
+        modelIdentifier: boundedMetadata(body.modelIdentifier ?? body.model_identifier),
+        osVersion: boundedMetadata(body.osVersion ?? body.os_version),
+        architecture: boundedMetadata(body.architecture),
+        cmuxVersion: boundedMetadata(body.cmuxVersion ?? body.cmux_version),
+        cmuxBuild: boundedMetadata(body.cmuxBuild ?? body.cmux_build),
+        cmuxChannel: boundedMetadata(body.cmuxChannel ?? body.cmux_channel),
+        stackSessionId: login.id,
+        sessionIssuedAt: login.issuedAt,
         clientPublicKey,
-      }));
+      }), { request });
+      if (!enrolled.ok) return enrolled.response;
+      const tunnel = enrolled.value;
       setSpanAttributes(span, {
         "cmux.vm.tunnel.id": tunnel.tunnelId,
         "cmux.vm.tunnel.created": tunnel.created,
@@ -129,8 +135,13 @@ export async function GET(request: Request): Promise<Response> {
       }
 
       if (!deviceFingerprint) {
-        const tunnels = await runVmWorkflow(listVmTunnels({ userId: user.id }));
-        return jsonResponse({ tunnels });
+        const [devices, tunnels] = await Promise.all([
+          runVmRoute(listVmAccessGrants({ userId: user.id }), { request }),
+          runVmRoute(listVmTunnels({ userId: user.id }), { request }),
+        ]);
+        if (!devices.ok) return devices.response;
+        if (!tunnels.ok) return tunnels.response;
+        return jsonResponse({ devices: devices.value, tunnels: tunnels.value });
       }
 
       const provider = providerFromRequest(request, {});
@@ -139,12 +150,14 @@ export async function GET(request: Request): Promise<Response> {
         "cmux.vm.provider": provider.id,
         "cmux.vm.tunnel.device": deviceFingerprint,
       });
-      const tunnel = await runVmWorkflow(readVmTunnel({
+      const tunnel = await runVmRoute(readVmTunnel({
         userId: user.id,
         provider: provider.id,
         deviceFingerprint,
-      }));
-      return jsonResponse(tunnelPayload(tunnel));
+        tunnelPurpose: parseTunnelPurpose(url.searchParams.get("tunnelPurpose")) ?? "browser",
+      }), { request });
+      if (!tunnel.ok) return tunnel.response;
+      return jsonResponse(tunnelPayload(tunnel.value));
     },
   );
 }
@@ -162,29 +175,29 @@ export async function DELETE(request: Request): Promise<Response> {
 
       const url = new URL(request.url);
       const body = await parseLenientObjectBody(request);
-      let deviceFingerprint: string | undefined;
+      let deviceId: string | undefined;
       try {
-        deviceFingerprint = optionalClientIdentifier(
-          url.searchParams.get("deviceFingerprint") ?? body.deviceFingerprint ?? body.device_fingerprint,
-          "deviceFingerprint",
+        deviceId = optionalClientIdentifier(
+          url.searchParams.get("deviceId") ?? body.deviceId ?? body.device_id,
+          "deviceId",
         );
       } catch (err) {
         return invalidDeviceFingerprint(err);
       }
-      if (!deviceFingerprint) return missingDeviceFingerprint();
-
-      const provider = providerFromRequest(request, body);
-      if (!provider.ok) return provider.response;
+      const accessGrantId = optionalString(
+        url.searchParams.get("accessGrantId") ?? body.accessGrantId ?? body.access_grant_id,
+      );
+      if (!deviceId && !accessGrantId) return missingDeviceId();
       setSpanAttributes(span, {
-        "cmux.vm.provider": provider.id,
-        "cmux.vm.tunnel.device": deviceFingerprint,
+        "cmux.vm.access.device": deviceId ?? "by-grant-id",
       });
-      const result = await runVmWorkflow(revokeVmTunnel({
+      const result = await runVmRoute(revokeVmAccessGrant({
         userId: user.id,
-        provider: provider.id,
-        deviceFingerprint,
-      }));
-      return jsonResponse(result);
+        accessGrantId: accessGrantId ?? undefined,
+        deviceId,
+      }), { request });
+      if (!result.ok) return result.response;
+      return jsonResponse(result.value);
     },
   );
 }
@@ -221,11 +234,50 @@ function deviceName(body: Record<string, unknown>): string | null {
   return raw ? raw.slice(0, MAX_DEVICE_NAME_LENGTH) : null;
 }
 
+function boundedMetadata(value: unknown): string | null {
+  return optionalString(value)?.slice(0, 128) ?? null;
+}
+
+function parseTunnelPurpose(value: unknown): "terminal" | "browser" | null {
+  const raw = optionalString(value);
+  return raw === "terminal" || raw === "browser" ? raw : null;
+}
+
+function stackSession(request: Request): { readonly id: string; readonly issuedAt: Date } | null {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
+  const token = authorization.slice("bearer ".length).trim();
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(Buffer.from(normalized, "base64").toString("utf8"));
+    const id = optionalClientIdentifier(decoded.refresh_token_id, "stackSessionId");
+    const issuedAtSeconds = typeof decoded.iat === "number" ? decoded.iat : null;
+    if (!id || issuedAtSeconds === null || !Number.isFinite(issuedAtSeconds)) return null;
+    return { id, issuedAt: new Date(issuedAtSeconds * 1_000) };
+  } catch {
+    return null;
+  }
+}
+
+function missingStackSession(): Response {
+  return vmErrorResponse({
+    error: "auth_required",
+    status: 401,
+    message: "Cloud network enrollment requires a current cmux login session.",
+    action: "Sign in to cmux, then try again.",
+    phase: "auth",
+  });
+}
+
 function tunnelPayload(tunnel: VmTunnelDescriptor) {
   return {
+    accessGrantId: tunnel.accessGrantId,
     tunnelId: tunnel.tunnelId,
     provider: tunnel.provider,
     deviceFingerprint: tunnel.deviceFingerprint,
+    tunnelPurpose: tunnel.tunnelPurpose,
     deviceName: tunnel.deviceName,
     clientConfig: tunnel.clientConfig,
     clientPublicKey: tunnel.clientPublicKey,
@@ -262,4 +314,59 @@ function missingDeviceFingerprint(): Response {
     phase: "network",
     details: { field: "deviceFingerprint" },
   });
+}
+
+function missingDeviceId(): Response {
+  return vmErrorResponse({
+    error: "invalid_request",
+    status: 400,
+    message: "deviceId is required.",
+    action: "Send this Mac's stable Cloud access device ID.",
+    phase: "network",
+    details: { field: "deviceId" },
+  });
+}
+
+function invalidTunnelPurpose(): Response {
+  return vmErrorResponse({
+    error: "invalid_request",
+    status: 400,
+    message: "tunnelPurpose must be terminal or browser.",
+    action: "Use terminal for the user-space peer or browser for the Network Extension peer.",
+    phase: "network",
+    details: { field: "tunnelPurpose" },
+  });
+}
+
+type EnrollmentDevice =
+  | {
+    readonly ok: true;
+    readonly deviceFingerprint: string;
+    readonly deviceId: string;
+    readonly tunnelPurpose: NonNullable<ReturnType<typeof parseTunnelPurpose>>;
+  }
+  | { readonly ok: false; readonly response: Response };
+
+/** The three client identifiers an enrollment must carry, or the 400 that names the missing one. */
+function enrollmentDeviceFromBody(body: Record<string, unknown>): EnrollmentDevice {
+  let deviceFingerprint: string | undefined;
+  try {
+    deviceFingerprint = optionalClientIdentifier(
+      body.deviceFingerprint ?? body.device_fingerprint,
+      "deviceFingerprint",
+    );
+  } catch (err) {
+    return { ok: false, response: invalidDeviceFingerprint(err) };
+  }
+  if (!deviceFingerprint) return { ok: false, response: missingDeviceFingerprint() };
+  let deviceId: string | undefined;
+  try {
+    deviceId = optionalClientIdentifier(body.deviceId ?? body.device_id, "deviceId");
+  } catch (err) {
+    return { ok: false, response: invalidDeviceFingerprint(err) };
+  }
+  if (!deviceId) return { ok: false, response: missingDeviceId() };
+  const tunnelPurpose = parseTunnelPurpose(body.tunnelPurpose ?? body.tunnel_purpose);
+  if (!tunnelPurpose) return { ok: false, response: invalidTunnelPurpose() };
+  return { ok: true, deviceFingerprint, deviceId, tunnelPurpose };
 }

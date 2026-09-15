@@ -29,6 +29,42 @@ private final class LiveResizeProbeWindow: NSWindow {
 }
 
 extension TerminalWindowPortalLifecycleTests {
+    func testDetachDuringResizeDoesNotPublishUncommittedRestoreGeometry() {
+        assertRetirementKeepsCommittedSize(detach: true)
+    }
+
+    func testHideDuringResizeDoesNotPublishUncommittedRestoreGeometry() {
+        assertRetirementKeepsCommittedSize(detach: false)
+    }
+
+    private func assertRetirementKeepsCommittedSize(detach: Bool) {
+        let window = makeTestWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 340))
+        layoutResizeTestWindow(window)
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        window.contentView?.addSubview(anchor)
+        let portal = makeTrackedPortal(window: window)
+        let surface = makeTrackedTerminalSurface()
+        let hosted = surface.hostedView
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
+        let committed = surface.debugCurrentPixelSize()
+
+        portal.beginWindowLiveResizePhase()
+        hosted.beginPortalGeometrySettlement()
+        // A native view callback has observed a new size, but the portal has
+        // not committed it. Retirement must discard that pending publication.
+        hosted.surfaceView.setFrameSize(NSSize(width: 180, height: 120))
+        let hostedID = ObjectIdentifier(hosted)
+        if detach {
+            portal.detachHostedView(withId: hostedID)
+        } else {
+            portal.hideEntry(forHostedId: hostedID)
+        }
+
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, committed.width)
+        XCTAssertEqual(surface.debugCurrentPixelSize().height, committed.height)
+    }
+
 
     /// A late native didResize notification can arrive after the portal has
     /// committed the end pass while AppKit still reports inLiveResize. That
@@ -45,7 +81,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -57,8 +93,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         let committedRendererSize = surface.hostedView.surfaceView.frame.size
         window.liveResizeActive = true
@@ -73,8 +108,9 @@ extension TerminalWindowPortalLifecycleTests {
         let endTarget = NSSize(width: 220, height: 150)
         anchor.setFrameSize(endTarget)
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            surface.hostedView.surfaceView.frame.size != committedRendererSize
+        }, "The resize-end pass must publish the final renderer geometry")
         let rendererSizeAfterEnd = surface.hostedView.surfaceView.frame.size
         XCTAssertNotEqual(rendererSizeAfterEnd, committedRendererSize)
 
@@ -84,8 +120,10 @@ extension TerminalWindowPortalLifecycleTests {
         let settledTarget = NSSize(width: 196, height: 132)
         anchor.setFrameSize(settledTarget)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) {
+            surface.hostedView.frame.size == settledTarget &&
+                surface.hostedView.surfaceView.frame.size != rendererSizeAfterEnd
+        })
 
         XCTAssertEqual(surface.hostedView.frame.size, settledTarget)
         XCTAssertNotEqual(
@@ -109,7 +147,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -121,8 +159,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         surface.resetDebugForceRefreshCount()
         anchor.setFrameSize(NSSize(width: 220, height: 150))
@@ -141,8 +178,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        XCTAssertTrue(waitUntil(timeout: 2) { surface.debugForceRefreshCount() > 0 })
         XCTAssertGreaterThan(
             surface.debugForceRefreshCount(),
             0,

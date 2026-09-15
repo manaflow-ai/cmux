@@ -3,7 +3,7 @@
 // or, for personal organizations (whose team id is the Stack user id), when
 // the row has no billing team and was created by that user. Destroyed rows
 // stay visible so usage a machine spent before deletion remains attributable.
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
@@ -17,6 +17,10 @@ export type TeamMachine = {
   /** The provider's machine id, the `id` that `GET /api/vm` lists. */
   readonly providerVmId: string | null;
   readonly displayName: string | null;
+  /** Generated three-word name, when the row has one. */
+  readonly slug: string | null;
+  /** The `cloud_vms.status` value; `destroyed` is its boolean shorthand. */
+  readonly status: string;
   readonly destroyed: boolean;
   readonly createdAt: string;
 };
@@ -38,6 +42,7 @@ function machineFromRow(row: {
   id: string;
   providerVmId: string | null;
   displayName: string | null;
+  slug: string | null;
   status: string;
   createdAt: Date;
 }): TeamMachine {
@@ -46,6 +51,8 @@ function machineFromRow(row: {
     vmId: row.id,
     providerVmId: row.providerVmId?.trim() || null,
     displayName: displayName ? displayName : null,
+    slug: row.slug?.trim() || null,
+    status: row.status,
     destroyed: row.status === "destroyed",
     createdAt: row.createdAt.toISOString(),
   };
@@ -62,6 +69,7 @@ export async function findTeamMachine(
       id: cloudVms.id,
       providerVmId: cloudVms.providerVmId,
       displayName: cloudVms.displayName,
+      slug: cloudVms.slug,
       status: cloudVms.status,
       createdAt: cloudVms.createdAt,
     })
@@ -71,19 +79,27 @@ export async function findTeamMachine(
   return row ? machineFromRow(row) : null;
 }
 
+
 export async function listTeamMachines(
   teamId: string,
+  options?: { readonly liveOnly?: boolean },
 ): Promise<readonly TeamMachine[]> {
+  // liveOnly drops destroyed history so it never eats the cap; failed rows
+  // stay, the same rows the Mac's `cmux vm ls` shows.
+  const scope = options?.liveOnly
+    ? and(teamScope(teamId), ne(cloudVms.status, "destroyed"))
+    : teamScope(teamId);
   const rows = await cloudDb()
     .select({
       id: cloudVms.id,
       providerVmId: cloudVms.providerVmId,
       displayName: cloudVms.displayName,
+      slug: cloudVms.slug,
       status: cloudVms.status,
       createdAt: cloudVms.createdAt,
     })
     .from(cloudVms)
-    .where(teamScope(teamId))
+    .where(scope)
     .orderBy(desc(cloudVms.createdAt))
     .limit(MAX_TEAM_MACHINES);
   return rows.map(machineFromRow);

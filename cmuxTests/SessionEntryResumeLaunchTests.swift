@@ -556,4 +556,48 @@ struct SessionEntryResumeLaunchTests {
                 .surface.debugInitialInputForTesting() == launch.initialInput
         )
     }
+
+    @Test("Vault active-session keys follow foreground shell activity")
+    func inPaneSessionKeysDropAfterAgentReturnsToShell() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/vault-active-session",
+            autoWelcomeIfNeeded: false
+        )
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let entry = SessionEntry(
+            id: "codex:active-session",
+            agent: .codex,
+            sessionId: "active-session",
+            title: "Active session",
+            cwd: "/tmp/vault-active-session",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1_800_000_008),
+            fileURL: nil,
+            specifics: .codex(
+                model: nil,
+                approvalPolicy: nil,
+                sandboxMode: nil,
+                effort: nil
+            )
+        )
+        let launch = try #require(entry.resumeLaunch)
+        let snapshot = try #require(launch.startupRestoreAgent)
+        let panel = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true,
+            workingDirectory: launch.workingDirectory,
+            initialInput: launch.initialInput,
+            startupRestoreAgent: snapshot
+        ))
+        let key = VaultLiveSessionKeys.key(for: entry)
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        #expect(SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+
+        workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
+        #expect(!SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: manager).contains(key))
+    }
 }

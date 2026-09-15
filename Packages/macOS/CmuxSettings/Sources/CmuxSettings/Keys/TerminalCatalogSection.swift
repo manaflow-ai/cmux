@@ -179,10 +179,10 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     /// Whether the per-pane runaway-memory guardrail is active. When on, cmux
     /// polls each pane's process-tree memory and warns (badge + dismissible
     /// banner with a kill action) when one crosses the threshold, before the OS
-    /// can OOM-suspend the whole app. On by default.
+    /// can OOM-suspend the whole app. Off by default.
     public let runawayMemoryGuardrailEnabled = DefaultsKey<Bool>(
         id: "terminal.runawayMemoryGuardrail.enabled",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "terminal.runawayMemoryGuardrail.enabled"
     )
 

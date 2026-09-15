@@ -1,0 +1,701 @@
+{
+  "agentSession.web.log.sentCharsFormat": {
+    "source": "Sent %d chars",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.import.complete.importedCookies": {
+    "source": "Imported cookies: %ld",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.import.complete.importedHistory": {
+    "source": "Imported history entries: %ld",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.import.complete.skippedCookies": {
+    "source": "Skipped cookies: %ld",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.import.detected.more.other": {
+    "source": "Detected: %@, +%2$ld more.",
+    "arguments": [
+      2
+    ]
+  },
+  "browser.import.warning.encryptedCookiesSkipped": {
+    "source": "Skipped %ld encrypted cookies that require Keychain decryption.",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.import.warning.keychainDecryptFailed": {
+    "source": "Skipped %ld encrypted %@ cookies because %@ could not be unlocked from Keychain.",
+    "arguments": [
+      1
+    ]
+  },
+  "browser.profile.automation.error.profileInUse": {
+    "source": "Cannot delete cmux browser profile '%@' while %2$d browser panels are using it",
+    "arguments": [
+      2
+    ]
+  },
+  "browser.screenshot.error.renderedContentMismatch": {
+    "source": "The browser screenshot disagreed with rendered text at %1$@; %2$lld text probes were blank after %3$lld attempts.",
+    "arguments": [
+      2,
+      3
+    ]
+  },
+  "cli.comments.list.header.other": {
+    "source": "%1$lld review comments (repo: %2$@)",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.ios.error.ambiguousTargets": {
+    "source": "Found %lld iOS Simulator panes; pass --surface <ref> or --all",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.ios.error.screenshotBatchLimit": {
+    "source": "Found %lld iOS Simulator panes; screenshot --all supports at most 8",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.localTmux.output.foundStale": {
+    "source": "Found %lld stale local tmux sessions; pass --prune to remove them",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.localTmux.output.removedStale": {
+    "source": "Removed %lld stale local tmux sessions",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.memory.output.processCount.other": {
+    "source": "%lld processes",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.sessions.output.more": {
+    "source": "... %lld more. Pass --all or --limit <n>.",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.sidebar.report.reloadSummary": {
+    "source": "Reloaded %1$d valid sidebars. %2$d valid, %3$d invalid.",
+    "arguments": [
+      1,
+      2,
+      3
+    ]
+  },
+  "cli.sidebar.report.summary": {
+    "source": "%1$d valid, %2$d invalid.",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "cli.simulator.error.inputTooLarge": {
+    "source": "simulator input exceeds the %lld-byte UTF-8 limit",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.simulator.error.textTooLong": {
+    "source": "Text exceeds the %lld-byte UTF-8 limit",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.simulator.output.typed": {
+    "source": "Typed %lld characters",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.list.planMeter": {
+    "source": "%1$d of %2$d machines on the %3$@ plan",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.list.planMeter.unlimited": {
+    "source": "%1$d machines on the %2$@ plan, no limit",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.pull.progress": {
+    "source": "cmux vm pull: %1$d/%2$d chunks",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.push.progress": {
+    "source": "cmux vm push: %1$d/%2$d chunks",
+    "arguments": [
+      2
+    ]
+  },
+  "cli.vm.tree.localSummary": {
+    "source": "%1$d terminals · %2$d browsers",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "cli.vm.wait.ready": {
+    "source": "%1$@ is ready (%2$@) after %3$ds",
+    "arguments": [
+      3
+    ]
+  },
+  "cli.workspaceGroup.response.closed.one": {
+    "source": "OK group deleted (closed %lld workspaces)",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.workspaceGroup.response.closed.other": {
+    "source": "OK group deleted (closed %lld workspaces)",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.workspaceGroup.response.dissolved.one": {
+    "source": "OK group dissolved (kept %lld workspaces)",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.workspaceGroup.response.dissolved.other": {
+    "source": "OK group dissolved (kept %lld workspaces)",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.closeWorkspace.message.other": {
+    "source": "Its %d terminals are killed with it.",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.deleteWorkspace.message.other": {
+    "source": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool.",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.error.renameTerminalPartial": {
+    "source": "Terminal rename changed %1$d of %2$d remote tabs. Another change prevented a safe rollback. Refresh and retry.",
+    "arguments": [
+      2
+    ]
+  },
+  "cloudTree.local.browserCount.other": {
+    "source": "%d browsers",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.terminal.views.other": {
+    "source": "%d tabs on the machine show this terminal",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.workspace.terminalCount.other": {
+    "source": "%d terminals",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.closeAnchor.message.many": {
+    "source": "Closing this workspace will ungroup “%1$@” and release %2$lld other workspaces.",
+    "arguments": [
+      2
+    ]
+  },
+  "dialog.closeOtherTabs.message.other": {
+    "source": "This will close %1$lld tabs in this pane:\n%2$@",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.closePane.message.other": {
+    "source": "This will close %1$lld tabs in this pane:\n%2$@",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.closeWorkspaces.message": {
+    "source": "This will close %1$lld workspaces and all of their panels:\n%2$@",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.closeWorkspacesWindow.message": {
+    "source": "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.deleteGroup.message.many": {
+    "source": "Delete the group “%1$@” and close its %2$lld workspaces?",
+    "arguments": [
+      2
+    ]
+  },
+  "dialog.saveWorkspaceLayout.commandTooLongMessage": {
+    "source": "One or more captured commands are longer than %lld UTF-8 bytes and cannot be replayed reliably from a saved layout. Shorten them before saving.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.saveWorkspaceLayout.skippedNote": {
+    "source": "%lld panels have no layout representation (previews, viewers, …) and will be left out.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.sshURL.error.destinationTooLong": {
+    "source": "The SSH target is too long. The maximum length is %lld characters.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.sshURL.error.titleTooLong": {
+    "source": "The workspace title is too long. The maximum length is %lld characters.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.textURL.error.nameTooLong": {
+    "source": "The link name is too long. The maximum length is %lld characters.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.textURL.error.textTooLong": {
+    "source": "The link text is too long. The maximum length is %lld characters.",
+    "arguments": [
+      1
+    ]
+  },
+  "dialog.textURL.error.titleTooLong": {
+    "source": "The link title is too long. The maximum length is %lld characters.",
+    "arguments": [
+      1
+    ]
+  },
+  "feed.textEditorDebug.metrics": {
+    "source": "%1$lld lines · %2$lld chars",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "feed.todos.moreCompleted": {
+    "source": "... +%lld completed",
+    "arguments": [
+      1
+    ]
+  },
+  "feed.todos.summary.done": {
+    "source": "%lld done",
+    "arguments": [
+      1
+    ]
+  },
+  "feed.todos.summary.inProgress": {
+    "source": "%lld in progress",
+    "arguments": [
+      1
+    ]
+  },
+  "feed.todos.summary.open": {
+    "source": "%lld open",
+    "arguments": [
+      1
+    ]
+  },
+  "fileExplorer.search.limit": {
+    "source": "First %d matches",
+    "arguments": [
+      1
+    ]
+  },
+  "fileExplorer.search.matches": {
+    "source": "%d matches",
+    "arguments": [
+      1
+    ]
+  },
+  "fileExplorer.search.searching": {
+    "source": "%d matches, searching",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.empty.planIncludes": {
+    "source": "Your plan includes %d machines",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.empty.upgrade": {
+    "source": "Upgrade to use more than %d machines",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.freeAccess.countdown.daysHours": {
+    "source": "%1$dd %2$dh",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "machines.freeAccess.countdown.hoursMinutes": {
+    "source": "%1$dh %2$dm",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "machines.freeAccess.countdown.minutes": {
+    "source": "%dm",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.freeAccess.help": {
+    "source": "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it.",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.meter.count": {
+    "source": "%1$d of %2$d machines",
+    "arguments": [
+      2
+    ]
+  },
+  "machines.meter.count.unlimited": {
+    "source": "%1$d machines",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.meter.help.atLimit": {
+    "source": "Your plan includes %d machines. Upgrade to create more.",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.new.plan.freeWindow": {
+    "source": "Free plan: this machine stays reachable for %d days. Upgrade to keep it.",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.new.plan.multi": {
+    "source": "%1$d of %2$d machines in use",
+    "arguments": [
+      2
+    ]
+  },
+  "machines.new.plan.unlimited": {
+    "source": "%1$d machines in use",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.row.daysLeft": {
+    "source": "%d days left",
+    "arguments": [
+      1
+    ]
+  },
+  "machines.usage.period.days": {
+    "source": "%dd",
+    "arguments": [
+      1
+    ]
+  },
+  "memory.attribution.multipleWorkspaces": {
+    "source": "%lld workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "menu.history.recentlyClosed.window.workspaceCount": {
+    "source": "%d workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "menu.history.recentlyClosed.window.workspaceCount.other": {
+    "source": "%d workspaces",
+    "arguments": [
+      1
+    ]
+  },
+  "notifications.forwardToPhone.mode.subtitle": {
+    "source": "Away means the screen is locked or asleep, the screensaver is running, or there has been no keyboard or mouse input for %lld minutes.",
+    "arguments": [
+      1
+    ]
+  },
+  "panel.cloudVM.loading.elapsed": {
+    "source": "%ds elapsed",
+    "arguments": [
+      1
+    ]
+  },
+  "panel.cloudVM.loading.failed.elapsed": {
+    "source": "Waited %ds before stopping.",
+    "arguments": [
+      1
+    ]
+  },
+  "relativeTime.days": {
+    "source": "%lldd",
+    "arguments": [
+      1
+    ]
+  },
+  "relativeTime.hours": {
+    "source": "%lldh",
+    "arguments": [
+      1
+    ]
+  },
+  "relativeTime.minutes": {
+    "source": "%lldm",
+    "arguments": [
+      1
+    ]
+  },
+  "relativeTime.weeks": {
+    "source": "%lldw",
+    "arguments": [
+      1
+    ]
+  },
+  "remoteTmux.error.controlSocketPathTooLong": {
+    "source": "SSH control socket path is too long for a Unix domain socket (%lld > %2$lld bytes); home directory path is too long",
+    "arguments": [
+      2
+    ]
+  },
+  "rightSidebar.mode.pendingHelp": {
+    "source": "%@ · %2$lld pending",
+    "arguments": [
+      2
+    ]
+  },
+  "sessionIndex.section.showMoreCount": {
+    "source": "Show %lld more",
+    "arguments": [
+      1
+    ]
+  },
+  "settings.browser.hiddenWebViewDiscardDelay.minutes": {
+    "source": "%lldm",
+    "arguments": [
+      1
+    ]
+  },
+  "settings.browser.hiddenWebViewDiscardDelay.minutesSeconds": {
+    "source": "%1$lldm %2$llds",
+    "arguments": [
+      1,
+      2
+    ]
+  },
+  "settings.browser.hiddenWebViewDiscardDelay.seconds": {
+    "source": "%llds",
+    "arguments": [
+      1
+    ]
+  },
+  "settings.browser.history.subtitleMany": {
+    "source": "%lld saved pages appear in omnibar suggestions.",
+    "arguments": [
+      1
+    ]
+  },
+  "settings.cloudMachines.plan.summary": {
+    "source": "%1$@ · %2$d of %3$d machines",
+    "arguments": [
+      3
+    ]
+  },
+  "settings.cloudMachines.plan.summary.unlimited": {
+    "source": "%1$@ · %2$d machines, no limit",
+    "arguments": [
+      2
+    ]
+  },
+  "sidebar.agentActivity.tooltip.many": {
+    "source": "Loading (%lld active tasks)",
+    "arguments": [
+      1
+    ]
+  },
+  "sidebar.checklist.attachments.other": {
+    "source": "%lld images attached",
+    "arguments": [
+      1
+    ]
+  },
+  "sidebar.checklist.moreItems": {
+    "source": "… %lld more",
+    "arguments": [
+      1
+    ]
+  },
+  "simulator.accessibility.nodeCount": {
+    "source": "Accessibility elements: %lld",
+    "arguments": [
+      1
+    ]
+  },
+  "simulator.accessibility.rootCount": {
+    "source": "Accessibility roots: %lld",
+    "arguments": [
+      1
+    ]
+  },
+  "simulator.failure.textTooLongDetail": {
+    "source": "Text is too long to type (maximum %lld UTF-8 bytes)",
+    "arguments": [
+      1
+    ]
+  },
+  "statusMenu.profiling.attachmentReadyFormat": {
+    "source": "%d profiling files will be zipped and attached.",
+    "arguments": [
+      1
+    ]
+  },
+  "statusMenu.profiling.bodyFormat": {
+    "source": "Recording CPU, SwiftUI, memory, and system traces for %d seconds each. Finalizing may take longer.",
+    "arguments": [
+      1
+    ]
+  },
+  "statusMenu.profiling.remainingFormat": {
+    "source": "About %d seconds remaining",
+    "arguments": [
+      1
+    ]
+  },
+  "statusMenu.tooltip.unread.other": {
+    "source": "%lld unread notifications",
+    "arguments": [
+      1
+    ]
+  },
+  "statusMenu.unreadCount.other": {
+    "source": "%lld unread notifications",
+    "arguments": [
+      1
+    ]
+  },
+  "taskManager.aggregate.processCount.other": {
+    "source": "%lld processes",
+    "arguments": [
+      1
+    ]
+  },
+  "taskManager.killProcess.message.other": {
+    "source": "Ask %lld processes to terminate gracefully. cmux will force-kill remaining processes after a short grace period. PIDs: %@.",
+    "arguments": [
+      1
+    ]
+  },
+  "textbox.diffComments.many": {
+    "source": "%d comments",
+    "arguments": [
+      1
+    ]
+  },
+  "workspaceGroup.unread.a11y": {
+    "source": "%lld unread",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.tree.hiddenTabs": {
+    "source": "(+%d hidden)",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.terminal.badge.hiddenTabs.help.other": {
+    "source": "%d more tabs in this pane, listed beneath this row. The pane shows this tab.",
+    "arguments": [
+      1
+    ]
+  },
+  "cloudTree.workspace.hiddenTabs.other": {
+    "source": "%d more tabs",
+    "arguments": [
+      1
+    ]
+  },
+  "debug.splitButtonLayout.plusClicks": {
+    "source": "Plus clicks: %d",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.remove.one": {
+    "source": "OK removed %1$ld variable on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.remove.many": {
+    "source": "OK removed %1$ld variables on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.set.one": {
+    "source": "OK set %1$ld variable on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.env.set.many": {
+    "source": "OK set %1$ld variables on %2$@: %3$@",
+    "arguments": [
+      1
+    ]
+  },
+  "cli.vm.push.secretDelivered": {
+    "source": "OK %1$@ (%2$ld bytes, mode %3$@) delivered over the link",
+    "arguments": [
+      2
+    ]
+  }
+}

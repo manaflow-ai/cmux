@@ -171,8 +171,16 @@ struct SocketTerminalBindingRegressionTests {
             let payload = try #require(rawPayload as? [String: Any])
             let artifacts = try #require(payload["artifacts"] as? [[String: Any]])
             let paths = Set(artifacts.compactMap { $0["path"] as? String })
-            #expect(paths.contains(canonicalFile.path))
-            #expect(!paths.contains(staleFile.path))
+            // macOS may spell the same temporary directory as `/var` or
+            // `/private/var`; compare resolved paths so the assertion covers
+            // artifact ownership rather than the display spelling.
+            let resolvedPaths = Set(paths.map {
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().path
+            })
+            let resolvedCanonicalPath = canonicalFile.resolvingSymlinksInPath().path
+            let resolvedStalePath = staleFile.resolvingSymlinksInPath().path
+            #expect(resolvedPaths.contains(resolvedCanonicalPath))
+            #expect(!resolvedPaths.contains(resolvedStalePath))
         }
     }
 

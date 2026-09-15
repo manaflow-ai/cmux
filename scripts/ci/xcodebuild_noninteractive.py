@@ -7,7 +7,9 @@ import os
 import pty
 import re
 import select
+import shutil
 import signal
+import subprocess
 import sys
 import time
 from typing import BinaryIO
@@ -26,6 +28,99 @@ SWIFT_TESTING_RUN_DONE_RE = re.compile(
     rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+# The app host (cmux DEV) logs to the same PTY as xcodebuild. Its lines carry
+# an NSLog-style prefix: "2026-09-08 14:03:49.521479+0000 cmux DEV[13904:67193] ".
+# Background work (fleet polling, renderer wakeups) keeps emitting them while
+# no test makes progress, so they must not count as activity for the idle
+# timeout; otherwise a stalled test host looks alive until the job-level cap.
+APP_HOST_LOG_LINE_RE = re.compile(
+    rb"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+[+-]\d{4} [^\r\n\[]*\[\d+:\d+\] "
+)
+
+
+def contains_test_progress(chunk: bytes, pending: bytearray) -> bool:
+    """Whether `chunk` completes at least one line that is not app-host log noise.
+
+    `pending` carries the unterminated tail between chunks so a line split
+    across reads is classified once, as a whole.
+    """
+    pending.extend(chunk)
+    progress = False
+    while True:
+        newline = pending.find(b"\n")
+        if newline < 0:
+            break
+        line = bytes(pending[:newline]).rstrip(b"\r")
+        del pending[: newline + 1]
+        if line.strip() and not APP_HOST_LOG_LINE_RE.match(line):
+            progress = True
+    # A stray line with no newline for a very long time would otherwise pin
+    # memory; the prefix is all that classification needs.
+    if len(pending) > 65536:
+        del pending[:-4096]
+    return progress
+
+
+def app_host_pids(derived_data_path: str) -> list[int]:
+    """PIDs of the XCTest app host xcodebuild launched from this run's DerivedData.
+
+    Scoped to the DerivedData path so a developer's other cmux instances are
+    never inspected; CI exports `CMUX_DERIVED_DATA_PATH` per job.
+    """
+    if shutil.which("pgrep") is None:
+        return []
+    pattern = re.escape(derived_data_path.rstrip("/")) + r"/Build/Products/[^/]+/cmux[^/]*\.app/Contents/MacOS/"
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", pattern],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for token in result.stdout.split():
+        try:
+            pids.append(int(token))
+        except ValueError:
+            continue
+    return pids
+
+
+def sample_app_host(log_file: BinaryIO | None, stdout_fd: int) -> None:
+    """Record where the app host is stuck before an idle timeout kills it.
+
+    Best effort: `sample` may be missing or refuse, and diagnostics must never
+    change the timeout outcome.
+    """
+    derived_data_path = os.environ.get("CMUX_DERIVED_DATA_PATH", "")
+    sampler = shutil.which("sample")
+    if sampler is None or not derived_data_path:
+        return
+    for pid in app_host_pids(derived_data_path)[:2]:
+        try:
+            result = subprocess.run(
+                [sampler, str(pid), "2", "-mayDie"],
+                capture_output=True,
+                timeout=45,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        output = result.stdout or result.stderr
+        if not output:
+            continue
+        header = f"[idle timeout] app-host pid {pid} sample:\n".encode()
+        if log_file is not None:
+            try:
+                log_file.write(header + output + b"\n")
+            except OSError:
+                pass
+        # Keep stdout bounded: the call graph's head names the stuck frames.
+        excerpt = b"\n".join(output.splitlines()[:160]) + b"\n"
+        write_child_output(header + excerpt, None, stdout_fd)
 
 
 def child_exit_code(status: int) -> int:
@@ -195,7 +290,24 @@ def main() -> int:
             pass
         os.execvp(sys.argv[1], sys.argv[1:])
 
+    # An outer timeout (the CI batch runner) terminates this wrapper; forward
+    # that to the whole xcodebuild process group so the test host cannot
+    # outlive the wrapper and hold the batch's output pipe open.
+    def forward_termination(signum: int, _frame: object) -> None:
+        message = f"Terminated by signal {signum}; stopping xcodebuild process group\n"
+        write_child_output(message.encode(), log_file, stdout_fd)
+        if log_file is not None:
+            try:
+                log_file.close()
+            except OSError:
+                pass
+        terminate_child(pid)
+        os._exit(TIMEOUT_EXIT_CODE)
+
+    signal.signal(signal.SIGTERM, forward_termination)
+    signal.signal(signal.SIGINT, forward_termination)
     prompt_window = b""
+    pending_line = bytearray()
     timed_out = False
     post_test_timed_out = False
     while True:
@@ -246,7 +358,7 @@ def main() -> int:
         write_child_output(chunk, log_file, stdout_fd)
         if heartbeat:
             heartbeat_deadline = time.monotonic() + heartbeat
-        if timeout:
+        if timeout and contains_test_progress(chunk, pending_line):
             deadline = time.monotonic() + timeout
         prompt_window = (prompt_window + chunk)[-4096:]
         if post_test_timeout:
@@ -285,11 +397,15 @@ def main() -> int:
 
     if timed_out:
         assert timeout is not None
-        print(f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}", file=sys.stderr)
+        message = (
+            f"Idle timed out after {timeout:g}s (no test progress; app-host log "
+            f"lines do not count): {' '.join(sys.argv[1:])}"
+        )
+        print(message, file=sys.stderr)
         if log_file is not None:
-            log_file.write(
-                f"Idle timed out after {timeout:g}s: {' '.join(sys.argv[1:])}\n".encode()
-            )
+            log_file.write(f"{message}\n".encode())
+        sample_app_host(log_file, stdout_fd)
+        if log_file is not None:
             log_file.close()
         terminate_child(pid)
         return TIMEOUT_EXIT_CODE

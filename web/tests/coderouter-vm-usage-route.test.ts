@@ -20,6 +20,7 @@ const ready = {
     unpricedTokens: 0,
   },
   daily: [{ day: "2026-09-02", totalTokens: 1_300, apiEquivalentUsd: 4.25 }],
+  breakdown: [],
 };
 
 let sessionResolution:
@@ -153,11 +154,16 @@ describe("GET /api/coderouter/vm-usage", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     expect(await response.json()).toEqual({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "ready",
       asOf: "2026-09-02T12:00:00.000Z",
       totals: publicTotals,
       days: [{ day: "2026-09-02", totalTokens: 1_300, apiEquivalentUsd: 4.25 }],
+      workspaces: [],
+      terminals: [],
+      agents: [],
+      models: [],
     });
     expect(vmMetricsCalls).toEqual([["team-1", ownedVm, "vm_usage_api"]]);
   });
@@ -170,11 +176,16 @@ describe("GET /api/coderouter/vm-usage", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "unavailable",
       asOf: null,
       totals: null,
       days: [],
+      workspaces: [],
+      terminals: [],
+      agents: [],
+      models: [],
     });
   });
 });
@@ -319,6 +330,7 @@ describe("GET /api/coderouter/vm-usage/self", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       vmId: ownedVm,
+      displayName: "builder",
       periodDays: 30,
       kind: "ready",
       totals: publicTotals,

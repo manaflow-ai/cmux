@@ -3,7 +3,7 @@
 Vendored copy of the `WireGuardKit` Swift package from
 [wireguard-apple](https://git.zx2c4.com/wireguard-apple/), MIT licensed
 (see `COPYING`). It is the WireGuard engine inside the cmux Cloud tunnel
-extension (`ios/CmuxTunnelExtension/`).
+system extension (`TunnelExtension/`).
 
 - Upstream: https://git.zx2c4.com/wireguard-apple (mirror: https://github.com/WireGuard/wireguard-apple)
 - Upstream commit: `2fec12a6e1f6e3460b6ee483aa00ad29cddadab1` (tag `1.0.16-27`, 2023-02-15)
@@ -28,10 +28,10 @@ Swift adapter to one reviewed snapshot.
   `ParseError` are `public`; nothing else changed.
 - `Sources/WireGuardKitGo/Makefile` and `goruntime-boottime-over-monotonic.diff`
   are not vendored. `scripts/build-wireguard-go.sh` replaces the Makefile and
-  builds with the stock Go toolchain. The iOS build uses
-  `ios/scripts/build-wireguard-go.sh`. The runtime patch makes Go timers count
-  time spent asleep. Hardware lock/wake and network transition checks are
-  required before claiming reliable background reconnection on iOS.
+  builds with the stock Go toolchain. The runtime patch makes Go timers count
+  time spent asleep, which matters for iOS background wake-ups; the cmux
+  extension is macOS-only and re-handshakes through the adapter's network path
+  monitor after wake, so it is intentionally skipped.
 - `Sources/WireGuardKitC/WireGuardKitC.h` gains `#include <sys/types.h>`: the header
   uses `u_int32_t`/`u_char` without declaring where they come from, which Xcode 26's
   strict clang module import rejects ("declaration of 'u_int32_t' must be imported

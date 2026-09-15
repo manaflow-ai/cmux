@@ -42,7 +42,12 @@ extension Workspace {
         guard let records, !records.isEmpty else { return }
         let remapped = records.compactMap { record -> SurfaceProjectionRecord? in
             guard let newID = oldToNewPanelIds[record.panelID] ?? (panels[record.panelID] != nil ? record.panelID : nil) else { return nil }
-            return SurfaceProjectionRecord(panelID: newID, resource: record.resource)
+            return SurfaceProjectionRecord(
+                panelID: newID,
+                resource: record.resource,
+                remoteWorkspaceID: record.remoteWorkspaceID,
+                remoteTabID: record.remoteTabID
+            )
         }
         SurfaceCatalog.shared.restore(remapped, workspaceID: id)
     }

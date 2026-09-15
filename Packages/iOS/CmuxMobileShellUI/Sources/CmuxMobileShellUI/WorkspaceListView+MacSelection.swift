@@ -163,6 +163,7 @@ extension WorkspaceListView {
                 machines: machineSnapshots.macPickerMachines,
                 canAddDevice: showAddDevice != nil,
                 labelWidth: 155,
+                usesCompactLabelTreatment: horizontalSizeClass != .regular,
                 statusLine: connectionChrome.statusLine
             ),
             actions: WorkspaceMacTitlePickerActions(
@@ -244,6 +245,17 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 title: value.title,
                 isLoading: value.isLoading,
                 width: value.labelWidth,
+                truncationMode: {
+                    switch value.selection {
+                    case .machine:
+                        // Device names repeat their prefix ("MacBook Pro …"),
+                        // so the distinguishing suffix must survive.
+                        return .middle
+                    case .automatic, .all:
+                        return .tail
+                    }
+                }(),
+                usesCompactLabelTreatment: value.usesCompactLabelTreatment,
                 statusLine: value.statusLine
             )
             // Put the identity and status on the final combined label element.
@@ -285,40 +297,87 @@ private struct WorkspaceMacTitlePickerLabel: View {
     let title: String
     let isLoading: Bool
     let width: CGFloat
+    let truncationMode: Text.TruncationMode
+    let usesCompactLabelTreatment: Bool
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                Text(title)
-                    .font(.headline.weight(.bold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .allowsTightening(true)
-                    .minimumScaleFactor(0.75)
-                    .layoutPriority(1)
-                ZStack {
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .opacity(isLoading ? 0 : 1)
-                    ProgressView()
-                        .controlSize(.mini)
-                        .tint(.primary)
-                        .opacity(isLoading ? 1 : 0)
+                if usesCompactLabelTreatment {
+                    // The iPhone keeps its long-standing treatment: the title
+                    // tightens and shrinks (down to 0.75) before truncating,
+                    // and the chevron hugs the text between centering
+                    // spacers. The full-size ellipsis treatment below reads
+                    // as the picker growing on a phone toolbar.
+                    Spacer(minLength: 0)
+                    titleText
+                        .truncationMode(.tail)
+                        .allowsTightening(true)
+                        .minimumScaleFactor(0.75)
+                        .layoutPriority(1)
+                    accessory
+                    Spacer(minLength: 0)
+                } else {
+                    // iPad split toolbar: full-size text on one line with an
+                    // ellipsis. The text stays the flexible item because a
+                    // high layout priority makes a narrow toolbar item ask
+                    // UIKit to hide the entire principal item before SwiftUI
+                    // can insert the ellipsis.
+                    titleText
+                        .truncationMode(truncationMode)
+                        .allowsTightening(false)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    accessory
                 }
-                .frame(width: 12, height: 12)
-                .accessibilityHidden(true)
-                Spacer(minLength: 0)
             }
             if let statusLine {
                 WorkspaceConnectionStatusLineView(line: statusLine)
             }
         }
         .foregroundStyle(.primary)
+        // The regular iPad toolbar label carries a title and a connection
+        // status line. Give both lines breathing room inside the system glass
+        // capsule without changing the compact iPhone picker height.
+        .padding(
+            .horizontal,
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlHorizontalPadding
+        )
+        .padding(
+            .vertical,
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlVerticalPadding
+        )
         .frame(width: width, alignment: .center)
+        .frame(
+            minHeight: usesCompactLabelTreatment ? nil : WorkspaceRootToolbarSizing.controlHeight,
+            alignment: .center
+        )
         .clipped()
         .contentShape(Rectangle())
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.headline.weight(.bold))
+            .lineLimit(1)
+    }
+
+    private var accessory: some View {
+        ZStack {
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .opacity(isLoading ? 0 : 1)
+            ProgressView()
+                .controlSize(.mini)
+                .tint(.primary)
+                .opacity(isLoading ? 1 : 0)
+        }
+        .frame(width: 12, height: 12)
+        .accessibilityHidden(true)
     }
 }
 #endif

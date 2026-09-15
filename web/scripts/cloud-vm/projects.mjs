@@ -61,6 +61,40 @@ export const requiredRuntimeEnvKeys = [
   "STACK_SECRET_SERVER_KEY",
 ];
 
+// Some providers expose more than one supported credential form. Keep the
+// alternatives beside the required key list so the audit can accept the same
+// stack-token form that the runtime client accepts without making operators
+// store two credentials.
+export const requiredRuntimeEnvAlternativeGroups = [
+  {
+    requiredKeys: ["FREESTYLE_API_KEY"],
+    alternatives: [["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]],
+  },
+];
+
+export const VERCEL_SENSITIVE_PLACEHOLDER = "[SENSITIVE]";
+
+/**
+ * Preserve the existence of Vercel Sensitive variables without exposing their
+ * values. Vercel CLI 50 writes these values as empty strings in `env pull`,
+ * while `env ls` still returns their key and type.
+ */
+export function mergeVercelSensitiveMetadata(env, metadata) {
+  const merged = { ...env };
+  for (const entry of metadata) {
+    if (entry?.type === "sensitive" && typeof entry.key === "string" && !merged[entry.key]?.trim()) {
+      merged[entry.key] = VERCEL_SENSITIVE_PLACEHOLDER;
+    }
+  }
+  return merged;
+}
+
+export function requiredRuntimeEnvKeySatisfied(key, presentKeys) {
+  if (presentKeys.has(key)) return true;
+  const group = requiredRuntimeEnvAlternativeGroups.find((candidate) => candidate.requiredKeys.includes(key));
+  return group?.alternatives.some((alternative) => alternative.every((alternativeKey) => presentKeys.has(alternativeKey))) ?? false;
+}
+
 export const recommendedRuntimeEnvKeys = [
   "CMUX_DB_POOL_MAX",
   // Kill switches are off-only: unset means enabled, so requiring presence
@@ -84,6 +118,12 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Paid count policy is code-owned; aggregate resource pools were removed.
+  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_FOUNDERS_MAX_ACTIVE_VMS",
+  "CMUX_VM_SHARED_CPU_LIMIT_ENABLED",
   // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
   // their keys visible to the audit until operators remove them from Vercel.
   "BL_API_KEY",
@@ -176,19 +216,44 @@ export function withLinkedVercelProject(project, fn) {
 }
 
 export function pullProductionEnv(project) {
+  return pullProductionEnvWithMetadata(project).env;
+}
+
+/**
+ * Pull runtime values and the Vercel metadata needed to distinguish a missing
+ * sensitive variable from one that the older CLI redacts to an empty string.
+ * The metadata contains key names and types only; no secret value is exposed.
+ */
+export function pullProductionEnvWithMetadata(project) {
   return withLinkedVercelProject(project, (scratch) => {
     const envFile = path.join(scratch, `${project.projectName}.env`);
     runVercel(["env", "pull", envFile, "--environment=production", "--scope", "manaflow", "--cwd", scratch], {
       stdio: ["ignore", "pipe", "inherit"],
     });
-    return loadEnv(envFile);
+    const env = loadEnv(envFile);
+    const metadataOutput = runVercel(
+      ["env", "ls", "production", "--format", "json", "--scope", "manaflow", "--cwd", scratch],
+      { stdio: ["ignore", "pipe", "inherit"] },
+    );
+    let metadata;
+    try {
+      const parsed = JSON.parse(String(metadataOutput));
+      metadata = Array.isArray(parsed?.envs) ? parsed.envs : [];
+    } catch (error) {
+      throw new Error(`could not parse Vercel environment metadata: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return { env, metadata };
   });
 }
 
 export function loadTargetEnv(project) {
+  return loadTargetEnvWithMetadata(project).env;
+}
+
+export function loadTargetEnvWithMetadata(project) {
   const source = process.env.CMUX_CLOUD_VM_ENV_SOURCE ?? "vercel";
-  if (source === "vercel") return pullProductionEnv(project);
-  if (source === "process") return processEnvObject();
+  if (source === "vercel") return pullProductionEnvWithMetadata(project);
+  if (source === "process") return { env: processEnvObject(), metadata: [] };
   throw new Error(`Unknown CMUX_CLOUD_VM_ENV_SOURCE ${source}`);
 }
 

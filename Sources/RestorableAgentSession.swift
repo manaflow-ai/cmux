@@ -28,7 +28,9 @@ enum TerminalStartupShellQuoting {
         let octalBytes = value.utf8
             .map { String(format: #"\%03o"#, Int($0)) }
             .joined()
-        return #""$(printf '"# + octalBytes + #"')""#
+        // Keep the command substitution inside one double-quoted shell word;
+        // otherwise spaces in localized notices are field-split by the shell.
+        return "\"$(printf '" + octalBytes + "')\""
     }
 }
 
@@ -457,7 +459,11 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            launchCommand: launchCommand,
+            customRegistration: customRegistration
+        )
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -479,8 +485,8 @@ enum AgentResumeCommandBuilder {
                 )
             }
             : commandParts
-        // Render the claude/codex executable as the wrapper shim token so the
-        // executed command routes through cmux's `claude`/`codex` wrapper
+        // Render managed-agent executables as wrapper shim tokens so the
+        // executed command routes through cmux's provider wrapper
         // (re-injecting the agent hooks) even when an `env`-prefixed invocation
         // would otherwise bypass the shell integration's PATH shim / shell
         // function and hit the user's real binary. Without this, an auto-resumed
@@ -489,19 +495,18 @@ enum AgentResumeCommandBuilder {
         // The token is POSIX-only, so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
+        let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        )
         let shellCommand: String
-        switch kind {
-        case .claude:
-            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+        if let managedProviderKind {
+            shellCommand = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
                 parts: sanitizedCommandParts,
+                kind: managedProviderKind,
                 quote: TerminalStartupShellQuoting.singleQuoted
             )
-        case .codex:
-            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: TerminalStartupShellQuoting.singleQuoted
-            )
-        default:
+        } else {
             shellCommand = sanitizedCommandParts
                 .map(TerminalStartupShellQuoting.singleQuoted)
                 .joined(separator: " ")
@@ -537,11 +542,21 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        environment: [String: String]?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
-            return []
+        var environment = launchCommand?.environment ?? [:]
+        if let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        ) {
+            environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: managedProviderKind,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            )) { _, wrapperValue in wrapperValue }
         }
+        guard !environment.isEmpty else { return [] }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
@@ -569,6 +584,16 @@ enum AgentResumeCommandBuilder {
             )
         }
         return environmentParts
+    }
+
+    private static func managedProviderKind(
+        kind: RestorableAgentKind,
+        customRegistration: CmuxVaultAgentRegistration?
+    ) -> String? {
+        if case .custom = kind {
+            return customRegistration?.registeredResumeKind?.rawValue
+        }
+        return kind.rawValue
     }
 
     fileprivate static func resumeArguments(
@@ -619,8 +644,7 @@ enum AgentResumeCommandBuilder {
             observedPermissionMode: observedPermissionMode
         )
     }
-
-    private static func forkArguments(
+    static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -628,37 +652,35 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        let forkArgv = AgentForkArgv()
-        switch forkArgv.launcherResolution(
-            launcher: launchCommand?.launcher,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
-        ) {
-        case .resolved(let argv):
-            return argv
-        case .passthrough:
-            break
-        }
-
-        if case .custom = kind {
-            guard let customRegistration else { return nil }
-            let arguments = customForkArguments(
-                registration: customRegistration,
-                sessionId: sessionId,
-                launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+        let customTemplate = customRegistration?.forkCommand.map { command in
+            AgentForkRequest.CustomTemplate(
+                command: command,
+                defaultExecutable: customRegistration?.defaultExecutable ?? kind.rawValue,
+                sessionDirectory: normalized(customRegistration?.sessionDirectory).map {
+                    ($0 as NSString).expandingTildeInPath
+                }
             )
-            return arguments.isEmpty ? nil : arguments
         }
-
-        return forkArgv.builtInKind(
+        return AgentForkRequest(
             kind: kind.rawValue,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
-        )
+            checkpointID: sessionId,
+            launchCommand: launchCommand.map {
+                AgentLaunchCommand(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    verificationHome: $0.verificationHome,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            workingDirectory: workingDirectory,
+            observedPermissionMode: observedPermissionMode,
+            isCustomKind: kind.customAgentID != nil,
+            customTemplate: customTemplate
+        ).forkArguments()
     }
 
     private static func customResumeArguments(
@@ -676,22 +698,6 @@ enum AgentResumeCommandBuilder {
         )
     }
 
-    private static func customForkArguments(
-        registration: CmuxVaultAgentRegistration,
-        sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
-    ) -> [String] {
-        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
-        return customTemplateArguments(
-            template: forkCommand,
-            registration: registration,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory
-        )
-    }
-
     private static func customTemplateArguments(
         template: String,
         registration: CmuxVaultAgentRegistration,
@@ -699,8 +705,6 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(template)
-        guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,
             fallbackExecutable: registration.defaultExecutable
@@ -708,95 +712,13 @@ enum AgentResumeCommandBuilder {
         let sessionDirectory = normalized(registration.sessionDirectory).map {
             ($0 as NSString).expandingTildeInPath
         }
-        let replacements: [String: String] = [
-            "sessionId": sessionId,
-            "sessionPath": sessionId,
-            "executable": original.executable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
-            "sessionDir": sessionDirectory ?? "",
-        ]
-        var resolved: [String] = []
-        for part in templateParts {
-            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
-            resolved.append(trimmed)
-        }
-        return resolved
-    }
-
-    private static func resolveTemplatePart(
-        _ part: String,
-        replacements: [String: String]
-    ) -> String? {
-        var resolved = ""
-        var searchStart = part.startIndex
-        while let opening = part[searchStart...].range(of: "{{") {
-            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
-            guard let closing = part[opening.upperBound...].range(of: "}}") else {
-                resolved.append(contentsOf: part[opening.lowerBound...])
-                return resolved
-            }
-            let key = String(part[opening.upperBound..<closing.lowerBound])
-            if let replacement = replacements[key] {
-                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return nil
-                }
-                resolved += replacement
-            } else {
-                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
-            }
-            searchStart = closing.upperBound
-        }
-        resolved.append(contentsOf: part[searchStart...])
-        return resolved
-    }
-
-    private static func splitShellWords(_ command: String) -> [String] {
-        enum Quote {
-            case single
-            case double
-        }
-
-        var words: [String] = []
-        var current = ""
-        var quote: Quote?
-        var escaping = false
-
-        func finishWord() {
-            guard !current.isEmpty else { return }
-            words.append(current)
-            current = ""
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            switch (quote, character) {
-            case (.single, "'"), (.double, "\""):
-                quote = nil
-            case (nil, "'"):
-                quote = .single
-            case (nil, "\""):
-                quote = .double
-            case (nil, " "), (nil, "\t"), (nil, "\n"):
-                finishWord()
-            default:
-                current.append(character)
-            }
-        }
-        if escaping {
-            current.append("\\")
-        }
-        finishWord()
-        return words
+        return AgentLaunchTemplateRenderer().arguments(
+            template: template,
+            executable: original.executable,
+            sessionID: sessionId,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            sessionDirectory: sessionDirectory
+        ) ?? []
     }
 
     private static func resumeWithOption(
@@ -1061,10 +983,16 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     private let entriesByPanel: [PanelKey: Entry]
+    let liveSessionOwners: LiveAgentSessionOwnerIndex
     /// Whether every present hook-store file was read and decoded successfully.
     /// Missing files are complete (the agent kind may not be installed); a
     /// present but unreadable/invalid file is incomplete and unsafe for auto-resume.
     let isComplete: Bool
+    /// Agent kinds whose present hook-store file was unreadable or invalid.
+    /// Owners are recorded per kind and process-detected owners come from no
+    /// store, so a corrupt store for one kind cannot hide a live owner of
+    /// another kind; kind-scoped completeness consults this set (#12158).
+    private let incompleteHookStoreKinds: Set<RestorableAgentKind>
     /// Panel owners whose Codex hook records were outside the bounded
     /// verification pass or had inconclusive durable evidence.
     private let incompleteCodexPanelKeys: Set<PanelKey>
@@ -1088,10 +1016,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
     /// Returns only the process entry keyed by this exact workspace/panel pair.
     ///
-    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
-    /// compatibility fallback. Security-sensitive callers must not let a stale
-    /// workspace adopt a same-panel entry from another restored workspace, and
-    /// process teardown safety must never borrow a
+    /// Security-sensitive callers use this instead of the compatibility lookup
+    /// below so a stale workspace cannot adopt a same-panel entry from another
+    /// restored workspace. Unlike ``entry(workspaceId:panelId:)``, this does not
+    /// use the panel-ID compatibility fallback. Process teardown safety likewise
+    /// must never borrow a
     /// live scope from a panel's previous workspace after the surface moves.
     func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
@@ -1121,7 +1050,7 @@ struct RestorableAgentSessionIndex: Sendable {
         panelId: UUID,
         kind: String? = nil
     ) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1139,7 +1068,7 @@ struct RestorableAgentSessionIndex: Sendable {
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
     func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
-        guard isComplete else { return false }
+        guard hookStoreIsComplete(forKind: kind) else { return false }
         guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
                 || kind == nil else {
             return true
@@ -1148,6 +1077,22 @@ struct RestorableAgentSessionIndex: Sendable {
             return false
         }
         return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
+    }
+
+    /// Whether the hook store that owns `kind` was read and decoded.
+    ///
+    /// Callers without a kind, and fixtures that mark the whole index
+    /// incomplete without naming a store, keep the global answer. Stores are
+    /// matched by kind id: registry-owned kinds (pi, grok, antigravity, kimi,
+    /// ollama) load as `.custom(id)` while their raw value parses to the
+    /// native case, and both name the same store file.
+    private func hookStoreIsComplete(forKind kind: String?) -> Bool {
+        if isComplete { return true }
+        guard !incompleteHookStoreKinds.isEmpty,
+              let kindID = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !kindID.isEmpty else {
+            return false
+        }
+        return !incompleteHookStoreKinds.contains { $0.rawValue.lowercased() == kindID }
     }
 
     /// Fingerprint used by the shared index cache to publish scoped completion
@@ -1159,6 +1104,9 @@ struct RestorableAgentSessionIndex: Sendable {
         if !isComplete {
             values.append("global")
         }
+        values.append(contentsOf: incompleteHookStoreKinds.map {
+            "incomplete-store|" + $0.rawValue
+        })
         if hasUnboundedCodexIncompleteness {
             values.append("codex-omitted")
         }
@@ -1590,7 +1538,12 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: revalidatedEntries,
+            liveSessionOwners: self.liveSessionOwners.revalidated(
+                processArgumentsProvider: processArgumentsProvider,
+                processIdentityProvider: processIdentityProvider
+            ),
             isComplete: self.isComplete,
+            incompleteHookStoreKinds: self.incompleteHookStoreKinds,
             incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
@@ -1665,21 +1618,21 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         hibernationProcessScopes: [PanelKey: HibernationProcessScope] = [:],
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
-        processPresenceProvider: (Int) -> PIDPresence = {
+        processPresenceProvider: @escaping (Int) -> PIDPresence = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return .absent }
             return PIDPresence.current(pid: pid_t($0))
         },
-        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+        processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> RestorableAgentSessionIndex {
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
-        var isComplete = true
+        var incompleteHookStoreKinds = Set<RestorableAgentKind>()
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
             homeDirectory: homeDirectory,
             fileManager: fileManager
@@ -1698,6 +1651,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var hookCandidatesBySession: [SessionKey: Entry] = [:]
         var hookCandidatesByPanelAndKind: [PanelKindKey: Entry] = [:]
         var hookCandidatesByPanelIdAndKind: [PanelIDKindKey: PanelIDKindCandidate] = [:]
+        var liveSessionOwnerObservations: [LiveAgentSessionOwnerObservation] = []
 
         var codexVerificationByKey: [String: CodexSessionResumeVerification] = [:]
         var codexRequestsByHome: [String: [CodexSessionResumeVerificationRequest]] = [:]
@@ -1966,7 +1920,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 }
                 guard let data = try? Data(contentsOf: fileURL),
                       let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 if kind == .hermesAgent {
@@ -1997,7 +1951,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 guard !normalizedSessionId.isEmpty,
                       let workspaceId = UUID(uuidString: effectiveRecord.workspaceId),
                       let panelId = UUID(uuidString: effectiveRecord.surfaceId) else {
-                    isComplete = false
+                    incompleteHookStoreKinds.insert(kind)
                     continue
                 }
                 let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
@@ -2074,7 +2028,36 @@ struct RestorableAgentSessionIndex: Sendable {
                         startMicroseconds: startMicroseconds
                     )
                 }()
-                let currentProcessIdentity = effectiveRecord.pid.flatMap(processIdentityProvider)
+                // Capture one coherent process snapshot for this hook record.
+                // Both owner admission and panel-scoped liveness must reason
+                // about the same PID generation and argv, rather than racing
+                // two sysctl reads against an exec or PID reuse.
+                let recordedProcessID = effectiveRecord.pid
+                let currentProcessArguments = recordedProcessID.flatMap(processArgumentsProvider)
+                let currentProcessIdentity = recordedProcessID.flatMap(processIdentityProvider)
+                let processArgumentsForRecord: (Int) -> CmuxTopProcessArguments? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processArgumentsProvider(candidatePID)
+                    }
+                    return currentProcessArguments
+                }
+                let processIdentityForRecord: (Int) -> AgentPIDProcessIdentity? = { candidatePID in
+                    guard candidatePID == recordedProcessID else {
+                        return processIdentityProvider(candidatePID)
+                    }
+                    return currentProcessIdentity
+                }
+                if let liveOwner = LiveAgentSessionOwnerObservation.validatingHookRecord(
+                    snapshot: snapshot,
+                    record: effectiveRecord,
+                    workspaceID: workspaceId,
+                    surfaceID: panelId,
+                    processArgumentsProvider: processArgumentsForRecord,
+                    processIdentityProvider: processIdentityForRecord,
+                    validator: cachedAgentProcessValidator
+                ) {
+                    liveSessionOwnerObservations.append(liveOwner)
+                }
                 let processObservation = RestorableAgentProcessObservation(
                     recordedProcessID: effectiveRecord.pid
                 ) { pid in
@@ -2085,7 +2068,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         processID: pid,
                         recordedProcessIdentity: recordedProcessIdentity,
                         currentProcessIdentity: currentProcessIdentity,
-                        processArgumentsProvider: processArgumentsProvider,
+                        processArgumentsProvider: processArgumentsForRecord,
                         processPresenceProvider: processPresenceProvider,
                         validator: cachedAgentProcessValidator,
                         hermesSessionValidation: .currentHookRecord
@@ -2212,6 +2195,20 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (key, detected) in detectedSnapshots {
+            if case .explicit = detected.sessionIDSource {
+                liveSessionOwnerObservations.append(contentsOf:
+                    LiveAgentSessionOwnerObservation.processDetected(
+                        snapshot: detected.snapshot,
+                        workspaceID: key.workspaceId,
+                        surfaceID: key.panelId,
+                        processIDs: detected.agentProcessIDs,
+                        observedAt: detected.updatedAt,
+                        processArgumentsProvider: processArgumentsProvider,
+                        processIdentityProvider: processIdentityProvider,
+                        validator: cachedAgentProcessValidator
+                    )
+                )
+            }
             let sameKindPanelCandidate = hookCandidatesByPanelAndKind[
                 PanelKindKey(panelKey: key, kind: detected.snapshot.kind)
             ]
@@ -2282,7 +2279,11 @@ struct RestorableAgentSessionIndex: Sendable {
 
         return RestorableAgentSessionIndex(
             entriesByPanel: resolved,
-            isComplete: isComplete,
+            liveSessionOwners: LiveAgentSessionOwnerIndex(
+                observations: liveSessionOwnerObservations
+            ),
+            isComplete: incompleteHookStoreKinds.isEmpty,
+            incompleteHookStoreKinds: incompleteHookStoreKinds,
             incompleteCodexPanelKeys: incompleteCodexPanelKeys,
             verifiedCodexPanelKeys: verifiedCodexPanelKeys,
             hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
@@ -3494,13 +3495,17 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private init(
         entriesByPanel: [PanelKey: Entry],
+        liveSessionOwners: LiveAgentSessionOwnerIndex = .empty,
         isComplete: Bool = true,
+        incompleteHookStoreKinds: Set<RestorableAgentKind> = [],
         incompleteCodexPanelKeys: Set<PanelKey> = [],
         verifiedCodexPanelKeys: Set<PanelKey> = [],
         hasUnboundedCodexIncompleteness: Bool = false
     ) {
         self.entriesByPanel = entriesByPanel
+        self.liveSessionOwners = liveSessionOwners
         self.isComplete = isComplete
+        self.incompleteHookStoreKinds = incompleteHookStoreKinds
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
         self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
@@ -3579,6 +3584,11 @@ struct DeferredAgentResumeRestore: Sendable {
     let remoteResumeCommandEmbedded: Bool
     let workingDirectory: String?
     let resumeWorkingDirectory: String?
+
+    /// The shell dialect used for notices typed into this deferred restore.
+    var noticeDialect: TerminalStartupShellDialect {
+        restoresRemoteWorkspaceTerminalSnapshot ? .remoteHost : .loginShell
+    }
 
     init(
         stablePanelID: UUID,

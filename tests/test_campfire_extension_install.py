@@ -102,6 +102,16 @@ class MockCmuxSocket:
                 if not line_bytes:
                     return
                 line = line_bytes.decode("utf-8", errors="replace").rstrip("\n")
+                capability_prefix = "_cmux_capability_v1 "
+                if line.startswith(capability_prefix):
+                    envelope_parts = line.split(" ", 2)
+                    if len(envelope_parts) != 3 or not envelope_parts[1] or not envelope_parts[2]:
+                        try:
+                            conn.sendall(b"ERROR: malformed capability envelope\n")
+                        except BrokenPipeError:
+                            return
+                        continue
+                    line = envelope_parts[2]
                 if line:
                     with self._lock:
                         self._messages.append(line)
@@ -130,11 +140,17 @@ class MockCmuxSocket:
             }
         elif method == "agent.resolve_delivery_target":
             params = payload.get("params")
+            pid_resolution = params.get("pid_resolution") if isinstance(params, dict) else None
             source = "pid" if isinstance(params, dict) and "pid" in params else "surface"
             result = {
                 "workspace_id": self.workspace_id,
                 "surface_id": self.surface_id,
                 "source": source,
+                "pid_resolution": (
+                    pid_resolution
+                    if pid_resolution is not None
+                    else ("controlling_tty" if source == "pid" else None)
+                ),
             }
         elif method == "surface.resume.set":
             result = {"ok": True}
@@ -431,7 +447,6 @@ const ctx = {
     getSessionId() { return "campfire-session-test"; }
   }
 };
-const start = Date.now();
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello campfire" }, ctx);
 await handlers.get("agent_end")({
@@ -446,12 +461,13 @@ await handlers.get("agent_end")({
 // notification hook call.
 const bridge = globalThis[Symbol.for("campfire.observer.v1")];
 if (!bridge || bridge.listeners.size === 0) throw new Error("extension did not subscribe to the observer bridge");
+const observerStart = Date.now();
 for (const listener of bridge.listeners) {
   listener({ type: "join.requested", displayName: "alice" });
   listener({ type: "presence.changed", count: 1 });
 }
-const elapsed = Date.now() - start;
-if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
+const observerElapsed = Date.now() - observerStart;
+if (observerElapsed > 500) throw new Error(`observer handlers blocked for ${observerElapsed}ms`);
 await new Promise((resolve) => setTimeout(resolve, 300));
 """
         check = subprocess.run(

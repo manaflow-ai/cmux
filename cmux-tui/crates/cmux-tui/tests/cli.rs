@@ -533,7 +533,7 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
         lifecycle_cli(&["--socket", "--json", "server", "stpo"]);
     assert_eq!(output_flag_used_as_a_socket_value.status.code(), Some(2));
     let error = String::from_utf8(output_flag_used_as_a_socket_value.stderr).unwrap();
-    assert!(error.contains("Did you mean `stop`?"), "{error}");
+    assert!(error.contains("--socket needs a value"), "{error}");
     assert!(!error.trim_start().starts_with('{'), "{error}");
 
     let misplaced_start_option = lifecycle_cli(&["--term", "xterm-256color", "server", "start"]);
@@ -2943,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -3079,7 +3092,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let first_marker = "scoped_attach_lifecycle_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
@@ -3136,7 +3149,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let second_marker = "scoped_attach_after_detach_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
@@ -4237,6 +4250,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
+        supports_input_ack: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -4303,7 +4317,11 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
     stdout.read_line(&mut line).unwrap();
-    assert!(!line.is_empty(), "hub exited before printing readiness: {:?}", child.wait_with_output());
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
     let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(ready["event"], "hub-ready", "{line}");
     assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");

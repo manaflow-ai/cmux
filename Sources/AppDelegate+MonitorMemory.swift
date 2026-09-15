@@ -71,7 +71,8 @@ extension AppDelegate {
     /// Consumes the current display-change notification state: first restores
     /// each window's remembered frame for the now-connected configuration
     /// (issue #2135), then re-clamps any window whose titlebar is still
-    /// unreachable (#6913 safety net).
+    /// unreachable (#6913 safety net) and re-fits native-fullscreen frames
+    /// restored by AppKit after the topology transaction.
     ///
     /// CoreGraphics/AppKit display-change callbacks advance the display
     /// generation. CoreGraphics callbacks only invalidate any previously
@@ -166,16 +167,18 @@ extension AppDelegate {
             didObserveUnknownDisplayConfiguration = true
             requeueScreenChangeReconcileIfPossible()
         }
-        if let visibleFrameFitTopologySignature {
-            lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
-            didObserveUnknownVisibleFrameFitTopology = false
-            visibleFrameFitTopologyRetryBudget = 0
-        } else {
+        // A trusted signature becomes the new baseline only after the frame
+        // fit below succeeds. Keeping the pending marker set across a late
+        // AppKit fullscreen geometry event lets that event schedule another
+        // pass instead of declaring a stale frame settled.
+        if visibleFrameFitTopologySignature == nil {
             didObserveUnknownVisibleFrameFitTopology = true
             requeueVisibleFrameFitTopologyIfPossible()
         }
 
-        // Reachability safety net: any window still stranded is clamped back.
+        // Reachability safety net: any non-fullscreen window still stranded is
+        // clamped back. Native-fullscreen windows use the display-fit rescue
+        // below because their frame is owned by AppKit's Space machinery.
         let mainWindows = mainWindowsForVisibilityController()
         for window in mainWindows {
             // Native-fullscreen windows are owned by AppKit's Space machinery;
@@ -196,10 +199,18 @@ extension AppDelegate {
             window.setFrame(corrected, display: true)
         }
         if visibleFrameFitTopologyChanged {
-            fitRestoredMainWindowFramesIfNeeded(
+            let fitCompleted = fitRestoredMainWindowFramesIfNeeded(
                 windows: mainWindows,
                 displays: displays.available
             )
+            if fitCompleted, let visibleFrameFitTopologySignature {
+                lastVisibleFrameFitTopologySignature = visibleFrameFitTopologySignature
+                didObserveUnknownVisibleFrameFitTopology = false
+                visibleFrameFitTopologyRetryBudget = 0
+            } else {
+                didObserveUnknownVisibleFrameFitTopology = true
+                requeueVisibleFrameFitTopologyIfPossible()
+            }
         }
     }
 

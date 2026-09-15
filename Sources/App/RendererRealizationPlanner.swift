@@ -6,6 +6,21 @@ struct RendererRealizationPlannerInput: Sendable {
     let isVisible: Bool
     let isRealized: Bool
     let lastVisibleAt: TimeInterval
+    let isProtectedForPresentation: Bool
+
+    init(
+        surfaceId: UUID,
+        isVisible: Bool,
+        isRealized: Bool,
+        lastVisibleAt: TimeInterval,
+        isProtectedForPresentation: Bool = false
+    ) {
+        self.surfaceId = surfaceId
+        self.isVisible = isVisible
+        self.isRealized = isRealized
+        self.lastVisibleAt = lastVisibleAt
+        self.isProtectedForPresentation = isProtectedForPresentation
+    }
 }
 
 /// Pure policy for which offscreen terminal surfaces should release their GPU
@@ -25,17 +40,24 @@ enum RendererRealizationPlanner {
         if trigger == .systemMemoryPressure {
             return Set(
                 inputs.lazy
-                    .filter { $0.isRealized && !$0.isVisible }
+                    .filter {
+                        $0.isRealized &&
+                            !$0.isVisible &&
+                            !$0.isProtectedForPresentation
+                    }
                     .map(\.surfaceId)
             )
         }
 
         // Only realized surfaces hold releasable GPU resources. Rank by recency
-        // (most-recent first); visible surfaces are stamped ~now so they sort to
-        // the top and land inside the warm set.
+        // (most-recent first), with switch-protected surfaces pinned ahead of
+        // the ordinary warm set so they consume its budget rather than extend it.
         let ranked = inputs
-            .filter { $0.isRealized }
+            .filter(\.isRealized)
             .sorted { lhs, rhs in
+                if lhs.isProtectedForPresentation != rhs.isProtectedForPresentation {
+                    return lhs.isProtectedForPresentation
+                }
                 if lhs.lastVisibleAt == rhs.lastVisibleAt {
                     return lhs.surfaceId.uuidString < rhs.surfaceId.uuidString
                 }
@@ -47,6 +69,7 @@ enum RendererRealizationPlanner {
         for (index, input) in ranked.enumerated() {
             if index < warmCap { continue }          // keep the most-recent N warm
             if input.isVisible { continue }          // never release a visible surface
+            if input.isProtectedForPresentation { continue }
             guard now - input.lastVisibleAt >= settings.idleSeconds else { continue }
             selected.insert(input.surfaceId)
         }

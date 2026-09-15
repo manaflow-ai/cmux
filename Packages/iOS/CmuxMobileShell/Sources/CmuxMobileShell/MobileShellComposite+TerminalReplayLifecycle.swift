@@ -136,7 +136,9 @@ extension MobileShellComposite {
             deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
             return
         }
-        guard remoteClient != nil else {
+        guard remoteClient != nil,
+              runtime?.supportsServerPushEvents == false
+                || terminalEventSubscriptionIsValidated else {
             terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.insert(surfaceID)
             return
         }
@@ -224,6 +226,10 @@ extension MobileShellComposite {
         }
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
+        // A terminal lane may have paused on a replay-barrier backpressure
+        // response. The barrier is now resolved, so let it reopen from the
+        // delivered sequence instead of leaving input on the RPC fallback.
+        resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
         return true
     }
@@ -340,6 +346,9 @@ extension MobileShellComposite {
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+        // Fail-open also releases a lane paused behind a replay that could not
+        // settle. Its next attach will request a fresh bounded cursor replay.
+        resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")
         return true
     }

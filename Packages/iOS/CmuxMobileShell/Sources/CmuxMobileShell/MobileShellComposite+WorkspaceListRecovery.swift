@@ -55,6 +55,18 @@ extension MobileShellComposite {
             || !terminalLaneOutputReadySurfaceIDs.isEmpty
     }
 
+    /// Whether the current workspace list is backed by a healthy connection.
+    /// Transport teardown retains the last-known rows, but those rows must not
+    /// be treated as an authoritative deletion snapshot while recovery is in
+    /// flight. The navigation shell uses this to keep a mounted detail alive
+    /// until a healthy list can confirm that it changed.
+    public var workspaceListIsAuthoritative: Bool {
+        connectionState == .connected
+            && !isRecoveringConnection
+            && !connectionRecoveryFailed
+            && workspaceListConnectionStatus == .connected
+    }
+
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
     /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
     /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac
@@ -94,9 +106,7 @@ extension MobileShellComposite {
             return
         }
         if connectionState == .connected, macConnectionStatus == .connected {
-            // Defensive: the target is healthy, don't tear down a live
-            // connection for a stray reconnect gesture.
-            await refreshWorkspaces()
+            await refreshConnectedWorkspaceContent()
             return
         }
         // Explicit user gesture: bypass the automatic-retry cooldown, mirror
@@ -123,10 +133,9 @@ extension MobileShellComposite {
             return
         }
         // Failed dials run their own cleanup with the default non-preserving
-        // teardown, dropping the secondary subscriptions preserved above (the
-        // foreground id is already nil, so that filter keeps only the
-        // anonymous key). Rebuild them so a failed foreground redial cannot
-        // strand healthy secondary Macs.
+        // teardown, cancelling the secondary subscriptions preserved above.
+        // Their last-known rows remain visible and are re-subscribed here so a
+        // failed foreground redial cannot strand healthy secondary Macs.
         await refreshSecondaryMacWorkspaces()
     }
 
@@ -152,7 +161,7 @@ extension MobileShellComposite {
         }
         let listStatus = workspaceListConnectionStatus
         if connectionState == .connected, listStatus == .connected {
-            await refreshWorkspaces()
+            await refreshConnectedWorkspaceContent()
             return
         }
         if listStatus == .connected {
@@ -161,7 +170,7 @@ extension MobileShellComposite {
                    macDeviceID: target.macDeviceID,
                    instanceTag: target.instanceTag
                ) {
-                await refreshWorkspaces()
+                await refreshConnectedWorkspaceContent()
                 return
             }
             await refreshSecondaryMacWorkspaces()
@@ -192,6 +201,27 @@ extension MobileShellComposite {
             return
         }
         _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+    }
+
+    private func refreshConnectedWorkspaceContent() async {
+        guard let client = remoteClient else { return }
+        let generation = connectionGeneration
+        let surfaceIDs = Array(terminalByteContinuationsBySurfaceID.keys)
+        // A healthy control connection does not prove the visible terminal is
+        // current. Repair its event registration, then replace its contents.
+        let readiness = MobileTerminalEventSubscriptionReadiness()
+        stopTerminalRefreshPolling()
+        startTerminalRefreshPolling(subscriptionReadiness: readiness)
+        let subscribed = await readiness.wait()
+        guard remoteClient === client,
+              connectionGeneration == generation,
+              connectionState == .connected else { return }
+        if subscribed || runtime?.supportsServerPushEvents == false {
+            for surfaceID in surfaceIDs {
+                requestAuthoritativeTerminalResync(surfaceID: surfaceID, reason: "manual_reconnect")
+            }
+        }
+        await refreshWorkspaces()
     }
 
     /// Pick a connected visible Mac for pull-to-refresh when the list is healthy

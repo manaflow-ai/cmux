@@ -270,7 +270,7 @@ describe("cloud_vm_request capture", () => {
       client_name: "cmux-mac",
       client_version: "1.2.3",
       client_channel: "nightly",
-      schema_version: 1,
+      schema_version: 2,
     });
     expect(exception.properties).toMatchObject({
       trace_id: TRACE_ID,

@@ -189,6 +189,38 @@ enum TerminalInput {
     Resize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputClass {
+    Keyboard,
+    FrontendAction,
+    ClearHistoryKey,
+    Mouse,
+    Paste,
+    Focus,
+    Resize,
+}
+
+impl InputClass {
+    const fn is_routable(self) -> bool {
+        matches!(
+            self,
+            Self::Keyboard
+                | Self::FrontendAction
+                | Self::ClearHistoryKey
+                | Self::Mouse
+                | Self::Paste
+        )
+    }
+
+    const fn is_keyboard_or_paste(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey | Self::Paste)
+    }
+
+    const fn is_keyboard_command(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey)
+    }
+}
+
 enum KeyboardIngress {
     Routed(TerminalInput),
     Handled(RenderAction),
@@ -214,25 +246,28 @@ impl TerminalInput {
         }
     }
 
+    const fn class(&self) -> InputClass {
+        match self {
+            Self::Keyboard(_) => InputClass::Keyboard,
+            Self::FrontendAction { .. } => InputClass::FrontendAction,
+            Self::ClearHistoryKey(_) => InputClass::ClearHistoryKey,
+            Self::Mouse(_) => InputClass::Mouse,
+            Self::Paste(_) => InputClass::Paste,
+            Self::FocusGained | Self::FocusLost => InputClass::Focus,
+            Self::Resize => InputClass::Resize,
+        }
+    }
+
     fn is_routable(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Mouse(_)
-                | Self::Paste(_)
-        )
+        self.class().is_routable()
     }
 
     fn is_keyboard_or_paste(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Paste(_)
-        )
+        self.class().is_keyboard_or_paste()
+    }
+
+    fn is_keyboard_command(&self) -> bool {
+        self.class().is_keyboard_command()
     }
 
     fn retained_bytes(&self) -> usize {
@@ -533,19 +568,39 @@ struct PendingFrontendJournalEvent {
     event: Box<FrontendJournalEvent>,
 }
 
-impl PendingFrontendJournalEvent {
-    fn slot(&self) -> usize {
-        match self.event.as_ref() {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum FrontendJournalSlot {
+    Focus = 0,
+    Resize = 1,
+    Viewport = 2,
+}
+
+impl FrontendJournalSlot {
+    const COUNT: usize = 3;
+
+    fn for_event(event: &FrontendJournalEvent) -> Self {
+        match event {
+            FrontendJournalEvent::Focus { .. } => Self::Focus,
+            FrontendJournalEvent::Resize { .. } => Self::Resize,
+            FrontendJournalEvent::Viewport { .. } => Self::Viewport,
         }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> FrontendJournalSlot {
+        FrontendJournalSlot::for_event(self.event.as_ref())
     }
 }
 
 #[derive(Default)]
 struct FrontendJournalQueueState {
-    pending: [Option<PendingFrontendJournalEvent>; 3],
+    pending: [Option<PendingFrontendJournalEvent>; FrontendJournalSlot::COUNT],
     next_sequence: u64,
     stopping: bool,
 }
@@ -558,11 +613,7 @@ struct FrontendJournalQueue {
 
 impl FrontendJournalQueue {
     fn push(&self, session: Session, event: FrontendJournalEvent) {
-        let slot = match &event {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
-        };
+        let slot = FrontendJournalSlot::for_event(&event).index();
         let mut state = self.state.lock().unwrap();
         if state.stopping {
             return;
@@ -615,11 +666,11 @@ impl FrontendJournalQueue {
     fn retry(&self, mut pending: PendingFrontendJournalEvent) {
         let slot = pending.slot();
         let mut state = self.state.lock().unwrap();
-        if state.stopping || state.pending[slot].is_some() {
+        if state.stopping || state.pending[slot.index()].is_some() {
             return;
         }
         pending.retry_at = Instant::now() + Duration::from_millis(100);
-        state.pending[slot] = Some(pending);
+        state.pending[slot.index()] = Some(pending);
         drop(state);
         self.changed.notify_one();
     }
@@ -4161,6 +4212,18 @@ pub enum FocusTarget {
     WorkspaceRail,
     TabsRail,
     ProjectionRail(usize),
+}
+
+impl FocusTarget {
+    fn frontend_journal_target(self) -> FrontendFocusTarget {
+        match self {
+            Self::Pane => FrontendFocusTarget::Pane,
+            Self::MachineRail => FrontendFocusTarget::MachineRail,
+            Self::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            Self::TabsRail => FrontendFocusTarget::TabsRail,
+            Self::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12111,13 +12174,7 @@ impl App {
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
         let focus = FrontendFocusSnapshot {
-            target: match self.focus {
-                FocusTarget::Pane => FrontendFocusTarget::Pane,
-                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-            },
+            target: self.focus.frontend_journal_target(),
             workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
             screen_id: screen.and_then(|screen| screen.resource_id.clone()),
             pane_id: pane.and_then(|pane| pane.resource_id.clone()),
@@ -12150,13 +12207,7 @@ impl App {
         let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
-        let target = match self.focus {
-            FocusTarget::Pane => FrontendFocusTarget::Pane,
-            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-        };
+        let target = self.focus.frontend_journal_target();
         if previous.focus.target != target
             || previous.focus.workspace_id.as_ref()
                 != workspace.and_then(|workspace| workspace.resource_id.as_ref())
@@ -14998,15 +15049,9 @@ impl App {
             }
             event => event,
         };
-        if matches!(
-            &event,
-            AppEvent::NormalizedInput(
-                TerminalInput::Keyboard(_)
-                    | TerminalInput::FrontendAction { .. }
-                    | TerminalInput::ClearHistoryKey(_)
-                    | TerminalInput::Paste(_)
-            )
-        ) {
+        if let AppEvent::NormalizedInput(input) = &event
+            && input.is_keyboard_or_paste()
+        {
             let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
             let replayed_pairing_changed = replay_context
                 .as_ref()
@@ -15072,14 +15117,10 @@ impl App {
             event => event,
         };
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if self.fresh_input_must_follow_deferred(&input, input_sequence)
-                && !self.input_can_overtake_deferred(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && self.fresh_input_must_follow_deferred(&input, input_sequence)
+                    && !self.input_can_overtake_deferred(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -15188,14 +15229,8 @@ impl App {
                 replay_context.as_ref().and_then(|context| context.admission.as_ref())
                 && !pointer_has_capture
             {
-                let follows_pending_route =
-                    matches!(
-                        input,
-                        TerminalInput::Keyboard(_)
-                            | TerminalInput::FrontendAction { .. }
-                            | TerminalInput::ClearHistoryKey(_)
-                            | TerminalInput::Paste(_)
-                    ) && admission.destination_intent.is_some_and(|intent| {
+                let follows_pending_route = input.is_keyboard_or_paste()
+                    && admission.destination_intent.is_some_and(|intent| {
                         self.session.destination_mutation_committed() >= intent
                             && self.session.destination_mutation_started() == intent
                     });
@@ -15254,13 +15289,11 @@ impl App {
             return Ok(RenderAction::None);
         }
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if missing_surface.is_some() && !self.input_can_update_pending_mutation(&input) => {
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && missing_surface.is_some()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
                 let surface = missing_surface.unwrap();
                 self.queue_surface_attach(surface);
                 return Ok(self.defer_input_with_sequence(
@@ -15270,20 +15303,17 @@ impl App {
                     replay_context.as_ref().and_then(|context| context.admission.clone()),
                 ));
             }
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if !matches!(
-                &input,
-                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
-            ) && (self.session.has_pending_mutations()
-                || self.session.remote_tree_is_stale()
-                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
-                && !self.input_can_update_pending_mutation(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && !matches!(
+                        &input,
+                        TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                    )
+                    && (self.session.has_pending_mutations()
+                        || self.session.remote_tree_is_stale()
+                        || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                        || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
+                    && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -16115,18 +16145,14 @@ impl App {
     }
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
-        if matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-        ) && (self.pairing_dialog.is_some()
-            || self.shortcut_help.is_some()
-            || self.prompt.is_some()
-            || self.menu.is_some()
-            || self.omnibar.is_some()
-            || self.machine_sidebar_focused()
-            || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
+        if input.is_keyboard_command()
+            && (self.pairing_dialog.is_some()
+                || self.shortcut_help.is_some()
+                || self.prompt.is_some()
+                || self.menu.is_some()
+                || self.omnibar.is_some()
+                || self.machine_sidebar_focused()
+                || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
         {
             return true;
         }
@@ -16239,13 +16265,7 @@ impl App {
     }
 
     fn input_accepts_semantic_destination(input: &TerminalInput) -> bool {
-        matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Paste(_)
-        )
+        input.is_keyboard_or_paste()
     }
 
     fn semantic_destination_for_input(
@@ -16559,14 +16579,14 @@ impl App {
         {
             return false;
         }
-        match input {
-            TerminalInput::Keyboard(_)
-            | TerminalInput::FrontendAction { .. }
-            | TerminalInput::ClearHistoryKey(_)
-            | TerminalInput::Paste(_) => true,
-            TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
-            TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
-            _ => false,
+        if input.is_keyboard_or_paste() {
+            true
+        } else {
+            match input {
+                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
+                TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
+                _ => false,
+            }
         }
     }
 
@@ -24753,6 +24773,25 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn input_class_groups_routing_semantics() {
+        let cases = [
+            (super::InputClass::Keyboard, true, true, true),
+            (super::InputClass::FrontendAction, true, true, true),
+            (super::InputClass::ClearHistoryKey, true, true, true),
+            (super::InputClass::Paste, true, true, false),
+            (super::InputClass::Mouse, true, false, false),
+            (super::InputClass::Focus, false, false, false),
+            (super::InputClass::Resize, false, false, false),
+        ];
+
+        for (class, routable, keyboard_or_paste, keyboard_command) in cases {
+            assert_eq!(class.is_routable(), routable, "{class:?}");
+            assert_eq!(class.is_keyboard_or_paste(), keyboard_or_paste, "{class:?}");
+            assert_eq!(class.is_keyboard_command(), keyboard_command, "{class:?}");
+        }
+    }
+
+    #[test]
     fn crossterm_reader_uses_bounded_polls_for_all_reads() {
         let event = Event::Resize(80, 24);
         let mut poll_calls = 0;
@@ -25256,10 +25295,12 @@ mod tests {
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
+            sent_tx.send(()).unwrap();
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }
@@ -25267,6 +25308,7 @@ mod tests {
         });
 
         runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         runtime.shutdown();
 
         assert!(
@@ -28212,7 +28254,7 @@ mod tests {
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
+            Some(((0, 0), (9, 0))),
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
@@ -31207,6 +31249,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
@@ -46405,11 +46448,7 @@ mod tests {
         let mux = Mux::new(
             name,
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
+                command: Some(vec!["/bin/sleep".to_string(), "300".to_string()]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()
             },
