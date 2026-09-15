@@ -3,6 +3,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
+import UIKit
 
 /// Density for the What's New page. `regular` is the HIG template look;
 /// `compact` tightens fonts and spacing so the whole page still fits without
@@ -205,6 +206,7 @@ struct MobileWhatsNewPairingSetupContent: View {
     let page: MobileWhatsNewPage
     let layout: MobileWhatsNewPageLayout
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter: MobileMacCompatCenter?
+    @Environment(\.colorScheme) private var colorScheme
 
     private var compatibility: MobileWhatsNewMacCompatibility {
         MobileWhatsNewCatalog.macCompatibility(
@@ -248,20 +250,32 @@ struct MobileWhatsNewPairingSetupContent: View {
     }
 
     private var screenshotImage: some View {
-        Image("MacSettingsMobilePairing", bundle: .module)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+        Group {
+            if let image = Self.settingsImage(darkMode: colorScheme == .dark) {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Color.clear
+                    .aspectRatio(642.0 / 95.0, contentMode: .fit)
             }
-            .accessibilityLabel(L10n.string(
-                "mobile.whatsNew.pairing.screenshotLabel",
-                defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
-            ))
-            .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityLabel(L10n.string(
+            "mobile.whatsNew.pairing.screenshotLabel",
+            defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+        ))
+        .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
+    }
+
+    private static func settingsImage(darkMode: Bool) -> UIImage? {
+        let resourceName = darkMode ? "MacSettingsMobilePairing-dark" : "MacSettingsMobilePairing-light"
+        guard let url = Bundle.module.url(forResource: resourceName, withExtension: "png"),
+              let data = try? Data(contentsOf: url) else {
+            return nil
+        }
+        return UIImage(data: data, scale: 1)
     }
 
     private var accountRequirement: some View {
