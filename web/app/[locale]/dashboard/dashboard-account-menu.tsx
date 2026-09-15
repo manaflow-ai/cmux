@@ -47,94 +47,99 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1">
-      <Menu.Root>
-        <Menu.Trigger
-          className="flex w-full min-w-0 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
-          aria-label={t("label")}
-        >
-          <UserAvatar size={24} user={user} />
-          <span className="hidden min-w-0 flex-1 sm:block">
-            <span className="block truncate font-medium">
-              {user.displayName || user.primaryEmail}
-            </span>
-            {teamScope.status === "ready" ? (
-              <span className="block truncate text-[11px] text-muted">
-                {teamScope.selected.name}
+    <div className="flex min-w-0 flex-1 items-center gap-1">
+      <div className="min-w-0 flex-1">
+        <Menu.Root>
+          <Menu.Trigger
+            className="flex w-full min-w-0 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
+            aria-label={t("label")}
+          >
+            <UserAvatar size={24} user={user} />
+            <span className="hidden min-w-0 flex-1 sm:block">
+              <span className="block truncate font-medium">
+                {user.displayName || user.primaryEmail}
               </span>
-            ) : null}
-          </span>
-          <ChevronsUpDown />
-        </Menu.Trigger>
-        <Menu.Portal>
-          <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
-            <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
-              <div className="border-b border-border px-2.5 py-2">
-                <div className="truncate text-sm font-medium">
-                  {user.displayName || user.primaryEmail}
-                </div>
-                {user.displayName ? (
-                  <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
-                ) : null}
-              </div>
-              <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
-                <SettingsIcon />
-                <span>{t("settings")}</span>
-              </Menu.Item>
-              <Menu.Item
-                className={menuItemClass}
-                closeOnClick={false}
-                onClick={(event) => {
-                  event.preventDefault();
-                  theme.toggle();
-                }}
-              >
-                <ThemeIcon dark={theme.resolvedTheme === "dark"} />
-                <span>{theme.resolvedTheme === "dark" ? t("themeLight") : t("themeDark")}</span>
-              </Menu.Item>
-              <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
-                <BillingIcon />
-                <span>{t("billing")}</span>
-              </Menu.Item>
               {teamScope.status === "ready" ? (
-                <TeamSubmenu
-                  teams={teamScope.teams}
-                  selected={teamScope.selected}
-                  onSelect={teamScope.switchTeam}
-                />
+                <span className="block truncate text-[11px] text-muted">
+                  {teamScope.selected.name}
+                </span>
               ) : null}
-              <Menu.Separator className="mx-1 my-1 h-px bg-border" />
-              <Menu.Item
-                className={`${menuItemClass} text-red-600 dark:text-red-400`}
-                disabled={signOutPending}
-                onClick={async (event) => {
-                  event.preventDefault();
-                  if (signOutPending) return;
-                  setSignOutPending(true);
-                  setSignOutError(false);
-                  try {
-                    await stackApp.signOut();
-                    clearCoderouterOrganizationScope();
-                    router.replace("/");
-                    router.refresh();
-                  } catch {
-                    setSignOutPending(false);
-                    setSignOutError(true);
-                  }
-                }}
-              >
-                <SignOutIcon />
-                <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
-              </Menu.Item>
-              {signOutError ? (
-                <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
-                  {t("signOutError")}
-                </p>
-              ) : null}
-            </Menu.Popup>
-          </Menu.Positioner>
-        </Menu.Portal>
-      </Menu.Root>
+            </span>
+            <ChevronsUpDown />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
+              <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
+                <div className="border-b border-border px-2.5 py-2">
+                  <div className="truncate text-sm font-medium">
+                    {user.displayName || user.primaryEmail}
+                  </div>
+                  {user.displayName ? (
+                    <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
+                  ) : null}
+                </div>
+                <Menu.Item
+                  className={menuItemClass}
+                  closeOnClick={false}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    theme.toggle();
+                  }}
+                >
+                  <ThemeIcon dark={theme.resolvedTheme === "dark"} />
+                  <span>{theme.resolvedTheme === "dark" ? t("themeLight") : t("themeDark")}</span>
+                </Menu.Item>
+                <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
+                  <BillingIcon />
+                  <span>{t("billing")}</span>
+                </Menu.Item>
+                {teamScope.status === "ready" ? (
+                  <TeamSubmenu
+                    teams={teamScope.teams}
+                    selected={teamScope.selected}
+                    onSelect={teamScope.switchTeam}
+                  />
+                ) : null}
+                <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+                <Menu.Item
+                  className={`${menuItemClass} text-red-600 dark:text-red-400`}
+                  disabled={signOutPending}
+                  onClick={async (event) => {
+                    event.preventDefault();
+                    if (signOutPending) return;
+                    setSignOutPending(true);
+                    setSignOutError(false);
+                    try {
+                      await stackApp.signOut();
+                      clearCoderouterOrganizationScope();
+                      router.replace("/");
+                      router.refresh();
+                    } catch {
+                      setSignOutPending(false);
+                      setSignOutError(true);
+                    }
+                  }}
+                >
+                  <SignOutIcon />
+                  <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
+                </Menu.Item>
+                {signOutError ? (
+                  <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                    {t("signOutError")}
+                  </p>
+                ) : null}
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
+      </div>
+      <Link
+        href="/dashboard/team"
+        aria-label={t("settings")}
+        className="inline-flex size-8 shrink-0 items-center justify-center text-muted outline-none hover:bg-code-bg hover:text-foreground focus-visible:bg-code-bg"
+      >
+        <SettingsIcon />
+      </Link>
     </div>
   );
 }
