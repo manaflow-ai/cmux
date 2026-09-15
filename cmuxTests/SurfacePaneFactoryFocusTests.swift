@@ -387,6 +387,33 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    @Test("Cloud pane focus transfers keyboard ownership from the sidebar")
+    func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+
+        harness.appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .machines, in: window)
+        #expect(harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+
+        let created = try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: nil,
+            workingDirectory: nil,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true
+        )
+        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
+
+        #expect(!harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(harness.appDelegate.allowsTerminalKeyboardFocus(
+            workspaceId: workspace.id,
+            panelId: created.panelID,
+            in: window
+        ))
+    }
+
     /// Inside a socket command whose policy forbids focus mutations, the factory must
     /// not re-enable them: the outer policy wins over the caller's `focus: true`.
     @Test func focusRequestCannotEscapeAFocusForbiddingSocketPolicy() throws {

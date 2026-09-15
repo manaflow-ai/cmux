@@ -66,6 +66,17 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        let appDelegate = AppDelegate.shared
+        let targetWindow = appDelegate?.tabManagerFor(tabId: workspaceID)
+            .flatMap { appDelegate?.windowId(for: $0) }
+            .flatMap { appDelegate?.mainWindow(for: $0) }
+            ?? NSApp.keyWindow
+            ?? NSApp.mainWindow
+        appDelegate?.noteMainPanelKeyboardFocusIntent(
+            workspaceId: workspaceID,
+            panelId: panelID,
+            in: targetWindow
+        )
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
