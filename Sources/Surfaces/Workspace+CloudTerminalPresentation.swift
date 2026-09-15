@@ -9,6 +9,9 @@ extension Workspace {
                 reference: failure.reference
             )
         }
+        // Reserved panes use the shared creation/attachment presentation policy.
+        // Its failure path above remains visible after automatic retries exhaust.
+        if cloudPendingCreations[surfaceId] != nil { return nil }
         let catalog = SurfaceCatalog.shared
         if let identity = catalog.projectionIdentity(forPanel: surfaceId, in: id),
            identity.resource.kind == .terminal, !identity.resource.machine.isLocal {

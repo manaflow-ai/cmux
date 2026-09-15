@@ -66,8 +66,8 @@ final class CloudTuiManualMirrorSession {
             if phase == .stopped { finishDiagnostics(error: CancellationError()) }
             if phase == .attached && diagnosticReplayReceived { finishDiagnostics() }
             manualMirrorLogger.notice("phase terminal=\(self.terminalID, privacy: .private(mask: .hash)) surface=\(self.remoteSurfaceID) phase=\(String(describing: self.phase), privacy: .public) replay=\(self.diagnosticReplayReceived)")
-            surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
-            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+            updatePresentationEpisode()
+            synchronizePresentation()
         }
     }
     /// Bounds on the handshake and on attached-stream liveness, enforced by
@@ -83,17 +83,37 @@ final class CloudTuiManualMirrorSession {
     private var automaticReconnectSuppressed = false
     var allowsAutomaticReconnect: Bool { !automaticReconnectSuppressed }
     var attachmentCorrelationID: String { log.correlationID }
-    var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
-        guard let state = CloudManualMirrorPresentation(
-            phase: phase, replayReceived: diagnosticReplayReceived
-        ).connectionState else { return nil }
-        var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
-            isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
-            connectionState: state, detail: diagnosticFailure?.label
+    /// Grace bounds for the connection card; tests inject short ones.
+    let presentationPolicy: CloudTerminalConnectionPresentationPolicy
+    /// How long the current unusable episode has lasted. Written only by the
+    /// episode timers and the explicit-retry path.
+    private(set) var presentationStage: CloudTerminalConnectionPresentationPolicy.Stage = .silent
+    private var presentationEpisodeTask: Task<Void, Never>?
+    private var presentationInput: CloudTerminalConnectionPresentationPolicy.Input {
+        CloudTerminalConnectionPresentationPolicy.Input(
+            phase: phase,
+            replayReceived: diagnosticReplayReceived,
+            automaticRecovery: allowsAutomaticReconnect,
+            stage: presentationStage
         )
-        presentation?.diagnosticReference = diagnosticReference
-        return presentation
     }
+    /// The card the pane shows for this attachment: nil while it is usable, being
+    /// worked on, or still inside the failure grace; the Reconnect card otherwise.
+    var connectionPresentation: CloudTerminalReconnectOverlayPolicy.Presentation? {
+        switch CloudTerminalConnectionPresentationPolicy.outcome(for: presentationInput) {
+        case .none:
+            return nil
+        case .failure:
+            var presentation = CloudTerminalReconnectOverlayPolicy.presentation(
+                isManagedCloudWorkspace: true, isRemoteTerminalSurface: true,
+                connectionState: .error, detail: diagnosticFailure?.label
+            )
+            presentation?.diagnosticReference = diagnosticReference
+            return presentation
+        }
+    }
+    /// Whether `connectionPresentation` would be non-nil once the grace elapses.
+    var isPresentationEpisodeActive: Bool { presentationEpisodeTask != nil || presentationStage != .silent }
     @discardableResult
     func retryConnection(cancelOnly: Bool = false) -> Bool {
         guard phase != .stopped else { return false }
@@ -109,6 +129,10 @@ final class CloudTuiManualMirrorSession {
         if cancelOnly {
             transition(to: .idle)
         } else {
+            // The user asked for this attempt: the card clears and the failure
+            // grace is measured from here.
+            startPresentationEpisode(elapsed: .zero)
+            synchronizePresentation()
             onNeedsReconnect()
         }
         return true
@@ -125,8 +149,10 @@ final class CloudTuiManualMirrorSession {
         deadlines: CloudTuiManualMirrorDeadlines = .standard,
         clock: any Clock<Duration> = ContinuousClock(),
         correlationID: String? = nil,
+        presentationPolicy: CloudTerminalConnectionPresentationPolicy = .standard,
         onNeedsReconnect: @escaping @MainActor () -> Void
     ) {
+        self.presentationPolicy = presentationPolicy
         self.operations = operations
         self.machineID = machineID
         self.terminalID = terminalID
@@ -298,7 +324,7 @@ final class CloudTuiManualMirrorSession {
     }
     /// Starts or rebinds the byte attachment to the current link socket.
     func reconnect(socketPath: String) {
-        guard phase != .stopped else { return }
+        guard phase != .stopped, remoteSurfaceID != 0 else { return }
         if self.socketPath == socketPath,
            (connection != nil || connectTask != nil) {
             if phase == .attached {
@@ -406,6 +432,7 @@ final class CloudTuiManualMirrorSession {
         guard phase != .stopped else { return }
         let wasAttached = phase == .attached
         transition(to: .stopped)
+        endPresentationEpisode()
         watchdog.cancel()
         connectTask?.cancel()
         connectTask = nil
@@ -441,6 +468,57 @@ final class CloudTuiManualMirrorSession {
         }
         self.surface = nil
     }
+    // MARK: - Presentation episodes
+
+    /// The stage timers run while the attachment is unusable and stop the moment
+    /// it becomes usable, so a disconnect that automatic recovery repairs inside
+    /// the grace never shows a card. Phase bounces within one episode
+    /// (disconnected → connecting → attached) keep the running timers, which is
+    /// what stops the card from flashing on every provider refresh.
+    private func updatePresentationEpisode() {
+        let input = presentationInput
+        if CloudTerminalConnectionPresentationPolicy.isUsable(input)
+            || !CloudTerminalConnectionPresentationPolicy.isUnusableEpisode(input) {
+            endPresentationEpisode()
+            return
+        }
+        guard presentationEpisodeTask == nil, presentationStage == .silent else { return }
+        startPresentationEpisode(elapsed: .zero)
+    }
+
+    /// Starts the stage timer as if the episode began `elapsed` ago. An
+    /// optimistic pane reserved before its terminal existed hands over the time it
+    /// already spent waiting, so adoption does not restart the grace.
+    func startPresentationEpisode(elapsed: Duration) {
+        presentationEpisodeTask?.cancel()
+        presentationEpisodeTask = nil
+        let policy = presentationPolicy
+        if elapsed >= policy.failureGrace {
+            presentationStage = .failure
+            return
+        }
+        presentationStage = .silent
+        let failureDelay = policy.failureGrace - elapsed
+        presentationEpisodeTask = Task { @MainActor [weak self, clock] in
+            do { try await clock.sleep(for: failureDelay) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            self.presentationStage = .failure
+            self.presentationEpisodeTask = nil
+            self.synchronizePresentation()
+        }
+    }
+
+    private func endPresentationEpisode() {
+        presentationEpisodeTask?.cancel()
+        presentationEpisodeTask = nil
+        presentationStage = .silent
+    }
+
+    private func synchronizePresentation() {
+        surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
+        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+    }
+
     private func finishDiagnostics(error: Error? = nil) {
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
@@ -479,6 +557,8 @@ final class CloudTuiManualMirrorSession {
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
+            updatePresentationEpisode()
+            synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
@@ -495,6 +575,8 @@ final class CloudTuiManualMirrorSession {
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
+            updatePresentationEpisode()
+            synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):

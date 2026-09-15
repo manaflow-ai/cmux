@@ -273,7 +273,8 @@ struct CloudPlacementSelectorLifecycleTests {
                 snapshotReads += 1
                 return snapshot
             }
-            #expect(arguments.last == "list-workspaces")
+            let request = try JSONSerialization.jsonObject(with: Data((arguments.last ?? "").utf8)) as? [String: Any]
+            #expect(request?["cmd"] as? String == "list-workspaces")
             treeReads += 1
             return tree
         }
