@@ -54,7 +54,6 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
                 guard let owner, owner == (await irx.directoryScopeID()) else { continue }
-                guard let directory else { continue }
                 guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
@@ -64,10 +63,18 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     /// Applies directory snapshots through one monotonic projection path. An
     /// older async observation can never replace a newer revision.
     @discardableResult
-    private func applyDirectory(_ directory: V2Directory, owner: String) async -> Bool {
-        if observedScope != owner {
+    private func applyDirectory(_ directory: V2Directory?, owner: String) async -> Bool {
+        let ownerChanged = observedScope != owner
+        if ownerChanged {
             observedScope = owner
             lastAppliedDirectoryRevision = nil
+        }
+        guard let directory else {
+            guard ownerChanged || lastAppliedDirectoryRevision != nil else { return false }
+            scope &+= 1
+            lastAppliedDirectoryRevision = nil
+            await routeCatalog.activate(scope: scope)
+            return true
         }
         guard lastAppliedDirectoryRevision.map({ directory.revision >= $0 }) ?? true else {
             return false
