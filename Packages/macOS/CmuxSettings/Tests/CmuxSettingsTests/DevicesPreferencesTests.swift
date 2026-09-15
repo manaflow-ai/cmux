@@ -4,12 +4,27 @@ import Testing
 
 @Suite("Device discovery and visibility preferences")
 struct DevicesPreferencesTests {
+    @Test("Fresh installs discover Macs without advertising this Mac")
+    func privateByDefault() async throws {
+        let name = "cmux.devices.defaults.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let keys = DevicesCatalogSection()
+        #expect(await store.value(for: keys.discoveryEnabled))
+        #expect(await store.value(for: keys.incomingAccessEnabled) == false)
+        await store.set(true, for: keys.incomingAccessEnabled)
+        let restored = UserDefaultsSettingsStore(defaults: defaults)
+        #expect(await restored.value(for: keys.incomingAccessEnabled))
+    }
+
     @Test("Discovery and incoming access can be changed independently")
     func independentControls() async throws {
         let name = "cmux.devices.preferences.\(UUID().uuidString)"
         defer { UserDefaults(suiteName: name)?.removePersistentDomain(forName: name) }
         let store = UserDefaultsSettingsStore(defaults: try #require(UserDefaults(suiteName: name)))
         let keys = DevicesCatalogSection()
+        await store.set(true, for: keys.incomingAccessEnabled)
         await store.set(false, for: keys.discoveryEnabled)
         #expect(await store.value(for: keys.incomingAccessEnabled))
         await store.set(false, for: keys.incomingAccessEnabled)

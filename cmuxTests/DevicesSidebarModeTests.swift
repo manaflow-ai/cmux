@@ -19,6 +19,17 @@ struct DevicesSidebarModeTests {
         return defaults
     }
 
+    @Test("Cloud off prevents discovery and hosting even with both preferences on")
+    func cloudOffDisablesDevices() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        defaults.set(true, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
+        defaults.set(true, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
+        #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults))
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults))
+        #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
+    }
+
     @Test("The two device preferences work without a beta opt-in")
     func independentPreferencesWithoutBeta() {
         let defaults = makeDefaults()

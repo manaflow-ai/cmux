@@ -73,3 +73,15 @@ test("one keyset cursor covers visible devices and inbound-only peers without om
   expect(stale.status).toBe(409);
   expect(stale.body.code).toBe("resync_required");
 });
+
+
+test("a discover-only Mac may enter a same-account opted-in host, but grants no inbound access", async () => {
+  const post = client("mac-devices");
+  expect((await post("/mac-devices")).status).toBe(200);
+  const host = (await post("/directory")).body.directory;
+  expect(names(host.inboundPeers.map((p: any) => p.device))).toContain("mac-alice-peer");
+  const outgoingOnly = (await post("/directory", { device: "mac-alice-peer" })).body.directory;
+  expect(outgoingOnly.inboundPeers).toEqual([]);
+  await post("/pairing", { enabled: false });
+  expect((await post("/directory")).body.directory.inboundPeers).toEqual([]);
+});
