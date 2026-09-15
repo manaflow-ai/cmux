@@ -129,6 +129,10 @@ def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
 
+def test_test_only_changes_run_macos() -> None:
+    assert_areas(["cmuxTests/SurfaceCatalogTests.swift"], macos=True, web=False)
+
+
 def test_workflow_changes_run_everything() -> None:
     assert_areas(
         [".github/workflows/ci.yml"],
@@ -211,6 +215,49 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def test_compile_gate_builds_entire_test_target_and_propagates_failure() -> None:
+    script = workflow_job_step_script("app-host-unit-tests", "Compile cmuxTests target")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        arguments_file = root / "arguments"
+        compiler = fake_bin / "xcodebuild"
+        compiler.write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$@" > "$COMPILER_ARGUMENTS"\n'
+            'exit "$COMPILER_EXIT_CODE"\n',
+            encoding="utf-8",
+        )
+        compiler.chmod(0o755)
+        for exit_code in (0, 65):
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                    "CMUX_DERIVED_DATA_PATH": str(root / "derived data"),
+                    "COMPILER_ARGUMENTS": str(arguments_file),
+                    "COMPILER_EXIT_CODE": str(exit_code),
+                },
+                text=True,
+                capture_output=True,
+            )
+            assert result.returncode == exit_code, (result.stdout, result.stderr)
+            arguments = arguments_file.read_text(encoding="utf-8").splitlines()
+            assert arguments == [
+                "-project", "cmux.xcodeproj",
+                "-scheme", "cmux-unit",
+                "-configuration", "Debug",
+                "-derivedDataPath", str(root / "derived data"),
+                "-clonedSourcePackagesDirPath", str(root.resolve() / ".ci-source-packages"),
+                "-disableAutomaticPackageResolution",
+                "-destination", "platform=macOS",
+                "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+                "build-for-testing",
+            ], arguments
 
 
 def run_app_host_unit_test_step(
