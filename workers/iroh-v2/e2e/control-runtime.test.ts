@@ -148,15 +148,33 @@ test("native socket setup delivers directory and relay responses", async () => {
   });
   await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject); });
   await new Promise<void>((resolve, reject) => { socket.once("pong", () => resolve()); socket.once("error", reject); socket.ping(); });
-  const messages: string[] = [];
-  socket.on("message", value => messages.push(value.toString()));
-  socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "socket-directory" }));
-  await new Promise(resolve => setTimeout(resolve, 50));
-  expect(messages.some(value => value.includes('"schemaId":"directory.result.v1"'))).toBe(true);
-  socket.send(JSON.stringify({ schemaId: "relay.request.v1", requestId: "socket-relay" }));
-  await new Promise(resolve => setTimeout(resolve, 50));
-  expect(messages.some(value => value.includes('"schemaId":"relay.result.v1"'))).toBe(true);
-  socket.close();
+  const request = (schemaId: string, requestId: string) => new Promise<any>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    };
+    const onError = (error: Error) => { cleanup(); reject(error); };
+    const onClose = () => onError(new Error(`Socket closed before response to ${requestId}`));
+    const onMessage = (value: NodeWebSocket.RawData) => {
+      const response = JSON.parse(value.toString());
+      if (response.requestId !== requestId) return;
+      cleanup();
+      resolve(response);
+    };
+    const timeout = setTimeout(() => onError(new Error(`Timed out waiting for ${requestId}`)), 2_000);
+    socket.on("message", onMessage);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+    socket.send(JSON.stringify({ schemaId, requestId }));
+  });
+  try {
+    expect((await request("directory.request.v1", "socket-directory")).schemaId).toBe("directory.result.v1");
+    expect((await request("relay.request.v1", "socket-relay")).schemaId).toBe("relay.result.v1");
+  } finally {
+    socket.close();
+  }
 });
 
 test("forged scope is rejected before the TeamControl binding", async () => {
