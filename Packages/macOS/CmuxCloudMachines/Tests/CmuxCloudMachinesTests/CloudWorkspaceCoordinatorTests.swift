@@ -64,4 +64,45 @@ struct CloudWorkspaceCoordinatorTests {
         await #expect(throws: CancellationError.self) { try await coordinator.createOnDefaultMachine(focus: false) }
         #expect(store.machineID == "starred")
     }
+
+    @Test func createsOnCapturedMachineInsteadOfChangingDefault() async throws {
+        let store = DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        store.machineID = "machine-a"
+        var createdMachine: String?
+        let coordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: store,
+            allowsOperation: { true },
+            loadMachines: {
+                store.machineID = "machine-b"
+                return [
+                    CloudMachineDescriptor(id: "machine-a", isDesktop: true),
+                    CloudMachineDescriptor(id: "machine-b", isDesktop: true)
+                ]
+            },
+            createWorkspace: { id, _ in
+                createdMachine = id
+                return UUID()
+            }
+        )
+
+        _ = try await coordinator.createOnMachine(machineID: "machine-a", focus: true)
+        #expect(createdMachine == "machine-a")
+        #expect(store.machineID == "machine-b")
+    }
+
+    @Test func unavailableCapturedMachineFailsClosed() async {
+        let coordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            allowsOperation: { true },
+            loadMachines: { [CloudMachineDescriptor(id: "machine-b", isDesktop: true)] },
+            createWorkspace: { _, _ in
+                Issue.record("Must not create for an unavailable captured machine")
+                return UUID()
+            }
+        )
+
+        await #expect(throws: CloudWorkspaceCoordinatorError.machineUnavailable("machine-a")) {
+            try await coordinator.createOnMachine(machineID: "machine-a", focus: false)
+        }
+    }
 }

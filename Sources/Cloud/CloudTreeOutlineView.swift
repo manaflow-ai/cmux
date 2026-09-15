@@ -28,6 +28,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+    /// Reports the selected machine identity to the owning window. Descendant
+    /// rows report their Cloud machine; local/pending rows clear the selection.
+    var onMachineSelectionChange: @MainActor (SurfaceMachineID?) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -44,6 +47,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
+            onMachineSelectionChange: onMachineSelectionChange,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -59,6 +63,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.onMachineSelectionChange = onMachineSelectionChange
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -84,8 +89,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
-        // NSDraggingItem retains the writer for the live native session. A weak
-        // coordinator edge prevents a retained writer/container cycle.
         private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
         private var activeDragSequenceNumber: Int?
         private var activeDragSession: NSDraggingSession?
@@ -101,17 +104,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+        var onMachineSelectionChange: @MainActor (SurfaceMachineID?) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
+            onMachineSelectionChange: @escaping @MainActor (SurfaceMachineID?) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
+            self.onMachineSelectionChange = onMachineSelectionChange
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -173,10 +179,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             activeDragSourceView = nil
         }
-        /// Reclaims a native Cloud drag after AppKit has crossed a new pointer
-        /// boundary without delivering the older source's `endedAt` callback.
-        /// The boundary is safe because AppKit does not dispatch a new
-        /// `mouseDown` while the older native drag loop is still running.
         func prepareForNativeDragBoundary(on sourceView: CloudTreeNSOutlineView) {
             if let activeDragSourceView, activeDragSourceView !== sourceView,
                outlineView !== sourceView {
@@ -209,7 +211,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             setDragging(false)
         }
         // MARK: Snapshot application
-        /// Applies a visual preset, changing each row's geometry and content.
         func apply(style: CloudTreeStyle) {
             guard style != self.style else { return }
             self.style = style
@@ -223,14 +224,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             reloadDataAndRestoreState(in: outlineView)
         }
 
-        /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
         }
 
-        /// Applies a snapshot immediately after a destination accepted a drop.
-        /// AppKit's source session may send `endedAt` later, but the destination
-        /// is complete and the user should see the new order now.
         func applyOrganization(nodes: [CloudTreeNode]) {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
@@ -277,7 +274,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
 
-        /// Ends a native drag and drains the latest deferred snapshot exactly once.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
             isDragging = dragging
@@ -345,7 +341,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: NSOutlineViewDelegate
 
-        /// Creates or reuses a cell for one immutable Cloud tree node.
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
@@ -368,9 +363,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            selectedNodeID = outlineView.selectedRow >= 0
-                ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
+            let node = outlineView.selectedRow >= 0
+                ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
+            selectedNodeID = node?.id
+            if let node,
+               case .pendingMachine = node.kind {
+                onMachineSelectionChange(nil)
+            } else {
+                onMachineSelectionChange(node?.machine.cloudMachineID)
+            }
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
@@ -386,15 +388,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Opening
 
-        /// One click means open (D9): a click on any row carries the intent to
-        /// open it — workspace rows included (austin, 2026-08-31: they used to
-        /// toggle on the first click and open only on double-click, which made a
-        /// double-click flip the container's expansion while opening). Extra
-        /// clicks of a double- or triple-click are ignored, so a habitual
-        /// double-click acts exactly once and never spawns twice. Expansion is
-        /// the chevron's job (and h/l on the keyboard), never a click side effect
-        /// on workspace rows; machine and group rows still toggle because toggle
-        /// IS their open verb.
         @objc func handleSingleClick(_ sender: Any?) {
             guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
