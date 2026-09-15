@@ -45,7 +45,9 @@ PY
 check_scope() {
   local name="$1" expected="$2"
   local code
-  code=$(curl --fail-with-body -sS -o "$probe_dir/$name.response" -w '%{http_code}' \
+  # Expected auth failures (401/403) are successful scope probes, so do not
+  # use curl's --fail mode here. It turns those expected responses into exit 22.
+  code=$(curl -sS -o "$probe_dir/$name.response" -w '%{http_code}' \
     -X POST "$worker_url/v2/control/session" \
     -H 'content-type: application/json' \
     -H 'authorization: Bearer invalid-production-config-probe' \
