@@ -92,6 +92,27 @@ cmux_claude_wrapper_settings_value_is_managed() {
     grep -Fq 'hooks feed --source claude' "$trimmed" 2>/dev/null
 }
 
+# A user --settings value that names a file must be readable now, or Claude
+# refuses to start ("Settings file not found"). Restore replays can carry a
+# path that a launcher wrote for one session and deleted on exit (for example
+# subrouter's $TMPDIR/subrouter-claude-settings-<rand>/settings.json). Inline
+# JSON and an empty value are left to the merge, which reports them loudly.
+# Mirrors the merge loader: trim, then expand only a leading "~/".
+cmux_claude_wrapper_settings_value_is_readable() {
+    local value="$1"
+    local trimmed="${value#"${value%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    local first="${trimmed:0:1}"
+    if [[ -z "$trimmed" || "$first" == "{" || "$first" == "[" ]]; then
+        return 0
+    fi
+    local path="$trimmed"
+    if [[ "${path:0:2}" == "~/" ]]; then
+        path="${HOME}/${path:2}"
+    fi
+    [[ -f "$path" && -r "$path" ]]
+}
+
 cmux_claude_wrapper_args_have_managed_settings() {
     local collect=false
     local arg
@@ -1611,49 +1632,90 @@ unset CMUX_GENERATED_HOOKS_JSON
 # does not rely on the CLI's multi-flag behavior. Requires `node`; if node is
 # missing or the merge fails, preserve the user's original settings and disable
 # cmux hooks for that launch rather than passing an ambiguous pair of flags.
+# An unreadable --settings path is dropped up front with a warning ONLY when
+# cmux owns this launch as a restore replay. There the path came from a launch
+# record cmux itself captured, the launcher that created it (for example
+# `sr claude proxy`) has already deleted it, and forwarding it can only fail a
+# restore the user asked for.
+#
+# An ordinary interactive launch keeps failing closed. A settings file can
+# define permission rules and hooks, so silently starting Claude WITHOUT the
+# policy the user named -- because of a typo, a permission change, or an
+# unmounted volume -- would turn an invalid configuration into a quietly
+# less-restricted session. Claude refusing to start is the correct outcome
+# there, and it is the user's own argument to fix.
 unset CMUX_USER_SETTINGS_B64
 CMUX_FILTERED_ARGS=()
 CMUX_USER_SETTINGS=()
+# The original argv minus any --settings whose file cannot be read. It replaces
+# "$@" only when such a value was dropped, so the merge-unavailable fallback
+# and the restore capture never forward a path Claude would refuse.
+CMUX_PASSTHROUGH_ARGS=()
+cmux_dropped_unreadable_settings=false
 cmux_collect_settings_value=false
 cmux_pending_option_value=false
 cmux_positional_only=false
 for arg in "$@"; do
     if [[ "$cmux_positional_only" == true ]]; then
         CMUX_FILTERED_ARGS+=("$arg")
+        CMUX_PASSTHROUGH_ARGS+=("$arg")
         continue
     fi
     if [[ "$cmux_collect_settings_value" == true ]]; then
-        CMUX_USER_SETTINGS+=("$arg")
         cmux_collect_settings_value=false
+        if cmux_claude_wrapper_settings_value_is_readable "$arg" \
+            || [[ "${cmux_claude_app_restore_owned:-0}" != "1" ]]; then
+            CMUX_USER_SETTINGS+=("$arg")
+            CMUX_PASSTHROUGH_ARGS+=("--settings" "$arg")
+        else
+            printf 'cmux: warning: --settings file is not readable; ignoring it for this restore: %s\n' "$arg" >&2
+            cmux_dropped_unreadable_settings=true
+        fi
         continue
     fi
     if [[ "$cmux_pending_option_value" == true ]]; then
         CMUX_FILTERED_ARGS+=("$arg")
+        CMUX_PASSTHROUGH_ARGS+=("$arg")
         cmux_pending_option_value=false
         continue
     fi
     if [[ "$arg" == "--" ]]; then
         cmux_positional_only=true
         CMUX_FILTERED_ARGS+=("$arg")
+        CMUX_PASSTHROUGH_ARGS+=("$arg")
     elif [[ "$arg" == "--settings" ]]; then
         # The fixed-width prefix checks above avoid a wildcard match against a
         # potentially very large JSON value.
         cmux_collect_settings_value=true
     elif [[ "${arg:0:11}" == "--settings=" ]]; then
-        CMUX_USER_SETTINGS+=("${arg#--settings=}")
+        if cmux_claude_wrapper_settings_value_is_readable "${arg#--settings=}" \
+            || [[ "${cmux_claude_app_restore_owned:-0}" != "1" ]]; then
+            CMUX_USER_SETTINGS+=("${arg#--settings=}")
+            CMUX_PASSTHROUGH_ARGS+=("$arg")
+        else
+            printf 'cmux: warning: --settings file is not readable; ignoring it for this restore: %s\n' "${arg#--settings=}" >&2
+            cmux_dropped_unreadable_settings=true
+        fi
     elif [[ "${arg:0:1}" == "-" ]]; then
         CMUX_FILTERED_ARGS+=("$arg")
+        CMUX_PASSTHROUGH_ARGS+=("$arg")
         if [[ "${arg%%=*}" == "$arg" ]] && claude_option_consumes_value "$arg"; then
             cmux_pending_option_value=true
         fi
     else
         CMUX_FILTERED_ARGS+=("$arg")
+        CMUX_PASSTHROUGH_ARGS+=("$arg")
     fi
 done
 if [[ "$cmux_collect_settings_value" == true ]]; then
     # Dangling --settings with no value; keep it so the real CLI reports the error.
     CMUX_FILTERED_ARGS+=("--settings")
+    CMUX_PASSTHROUGH_ARGS+=("--settings")
 fi
+if [[ "$cmux_dropped_unreadable_settings" == true ]]; then
+    set -- "${CMUX_PASSTHROUGH_ARGS[@]}"
+fi
+unset CMUX_PASSTHROUGH_ARGS cmux_dropped_unreadable_settings
 
 CMUX_SETTINGS_PATH=""
 CMUX_SETTINGS_BASE_PATH=""
