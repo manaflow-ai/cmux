@@ -362,24 +362,6 @@ extension Workspace {
             break
         }
     }
-    /// Grace period between a restored launch's shell settling at an idle prompt
-    /// and replaying its startup input. Long enough for a prompt-then-command
-    /// sequence to report `commandRunning`, short enough that a lost restore
-    /// still resumes before the user notices an empty shell.
-    /// A slow login shell may discard startup input, so the grace is deliberately
-    /// long enough to let the shell settle before replaying it.
-    static var restoredStartupInputResendGrace: TimeInterval = 2
-
-    /// Replays a retained restore selector once after the shell reports an idle prompt.
-    func scheduleRestoredStartupInputResend(panelId: UUID) {
-        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.restoredStartupInputResendGrace) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.resendRestoredStartupInputIfStillIdle(panelId: panelId)
-            }
-        }
-    }
-
     private func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot

@@ -6,9 +6,8 @@ import SwiftUI
 
 /// The macOS window for pairing an iPhone with this Mac.
 ///
-/// The page presents one pairing artifact: a Tailscale QR for signed-in
-/// iPhones that use the explicit Tailscale connection method. Iroh remains an
-/// automatic, no-QR discovery path and is shown only as status information.
+/// The page activates the v2 IROH pairing host for signed-in iPhones. It does
+/// not publish QR codes, direct addresses, or Tailscale pairing artifacts.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
@@ -133,7 +132,7 @@ struct MobilePairingView: View {
         case .preparing:
             centered {
                 ProgressView().controlSize(.small)
-                Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
+                Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing secure pairing…"))
                     .foregroundStyle(.secondary)
             }
         case let .needsReachableTransport(reachableViaIroh):
@@ -180,20 +179,47 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        if ready.v2Only {
+            irohReadyContent
+        } else {
+            VStack(alignment: .center, spacing: 14) {
+                getIPhoneAppBadge
+                tailscaleReadyBody(ready)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            tailscaleRow(ready)
+            if ready.reachableViaIroh {
+                irohRow(reachableViaIroh: ready.reachableViaIroh)
+            }
+            manualEntry(ready)
+
+            footer
+        }
+    }
+
+    @ViewBuilder
+    private var irohReadyContent: some View {
         VStack(alignment: .center, spacing: 14) {
             getIPhoneAppBadge
-            tailscaleReadyBody(ready)
+            Image(systemName: "checkmark.shield")
+                .cmuxFont(size: 34)
+                .foregroundStyle(.green)
+            Text(String(
+                localized: "mobile.pairing.irohInstruction",
+                defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically, with no code needed."
+            ))
+                .cmuxFont(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
 
         Divider()
-
-        tailscaleRow(ready)
-        if ready.reachableViaIroh {
-            irohRow(reachableViaIroh: ready.reachableViaIroh)
-        }
-        manualEntry(ready)
-
+        irohRow(reachableViaIroh: true)
         footer
     }
 

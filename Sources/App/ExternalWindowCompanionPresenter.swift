@@ -19,8 +19,12 @@ struct ExternalWindowCompanionPresenter {
 
     func present(_ companionWindow: NSWindow) {
         companionWindow.level = .floating
-        companionWindow.collectionBehavior = [.managed]
+        // Move to the Space containing System Settings for this first order.
+        // Clear the transient flag immediately so later app activation cannot
+        // rehome the companion.
+        companionWindow.collectionBehavior = [.managed, .moveToActiveSpace]
         companionWindow.hidesOnDeactivate = false
         orderWindow(companionWindow)
+        companionWindow.collectionBehavior = [.managed]
     }
 }

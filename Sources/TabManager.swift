@@ -726,11 +726,7 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()

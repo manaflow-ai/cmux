@@ -1,6 +1,6 @@
 import Foundation
 
-/// Warns about complete aggregate metrics and schedules only safe idle-agent
+/// Responds to complete aggregate metrics by scheduling only safe idle-agent
 /// hibernation while that same aggregate pressure remains observable.
 @MainActor
 final class AggregateMemoryPressureResponder: MemoryPressureResponder {
@@ -11,16 +11,13 @@ final class AggregateMemoryPressureResponder: MemoryPressureResponder {
 
     private let controller: AgentHibernationController
     private let isAggregatePressureActive: @MainActor () -> Bool
-    private let onAggregatePressureWarning: @MainActor (MemoryPressureSnapshot) -> Void
 
     init(
         controller: AgentHibernationController,
-        isAggregatePressureActive: @escaping @MainActor () -> Bool,
-        onAggregatePressureWarning: @escaping @MainActor (MemoryPressureSnapshot) -> Void = { _ in }
+        isAggregatePressureActive: @escaping @MainActor () -> Bool
     ) {
         self.controller = controller
         self.isAggregatePressureActive = isAggregatePressureActive
-        self.onAggregatePressureWarning = onAggregatePressureWarning
     }
 
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
@@ -33,7 +30,6 @@ final class AggregateMemoryPressureResponder: MemoryPressureResponder {
             )
         }
 
-        onAggregatePressureWarning(snapshot)
         let responderID = memoryPressureResponderID
         let severity = aggregate.severity
         let didSchedule = controller.reclaimIdleAgentsForMemoryPressure(

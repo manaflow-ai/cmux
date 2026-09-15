@@ -215,20 +215,6 @@ extension DockSplitStore {
         return true
     }
 
-    /// Dock twin of `Workspace.scheduleRestoredStartupInputResend(panelId:)`: a
-    /// login shell that discarded Ghostty's typeahead reports an idle prompt while
-    /// the launch still awaits its startup input, so replay it once after the
-    /// shared grace period (https://github.com/manaflow-ai/cmux/issues/5473).
-    func scheduleRestoredStartupInputResend(panelId: UUID) {
-        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
-        let grace = Workspace.restoredStartupInputResendGrace
-        DispatchQueue.main.asyncAfter(deadline: .now() + grace) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.resendRestoredStartupInputIfStillIdle(panelId: panelId)
-            }
-        }
-    }
-
     private func retireAgentHookResumeBinding(
         panelId: UUID,
         matching restoredAgent: SessionRestorableAgentSnapshot? = nil
