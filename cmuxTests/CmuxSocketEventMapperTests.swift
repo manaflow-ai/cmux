@@ -10,16 +10,15 @@ import Testing
 struct CmuxSocketEventMapperTests {
     @Test
     func paneResizeEventDistinguishesAppliedFromRemoteRequested() {
-        CmuxEventBus.shared.resetForTesting()
-        defer { CmuxEventBus.shared.resetForTesting() }
+        let bus = CmuxEventBus()
         let command = #"{"id":1,"method":"pane.resize","params":{"direction":"right","amount":10}}"#
         let localResponse = #"{"id":1,"ok":true,"result":{"pane_id":"local-pane"}}"#
         let remoteResponse = #"{"id":1,"ok":true,"result":{"pane_id":"remote-pane","remote":true}}"#
 
-        CmuxSocketEventMapper.publish(command: command, response: localResponse)
-        CmuxSocketEventMapper.publish(command: command, response: remoteResponse)
+        CmuxSocketEventMapper.publish(command: command, response: localResponse, bus: bus)
+        CmuxSocketEventMapper.publish(command: command, response: remoteResponse, bus: bus)
 
-        let events = CmuxEventBus.shared.retainedSnapshot()
+        let events = bus.retainedSnapshot()
         #expect(events.compactMap { $0["name"] as? String } == [
             "pane.resized",
             "pane.resize_requested",
