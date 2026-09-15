@@ -5,6 +5,18 @@ import Testing
 @MainActor
 @Suite("WorkstreamStore")
 struct WorkstreamStoreTests {
+    @Test("Feed ingestion preserves every reply provider", arguments:
+        ["claude", "codex", "opencode", "pi", "cursor", "grok", "gemini"]
+    )
+    func preservesReplyProvider(_ provider: String) {
+        let store = WorkstreamStore(ringCapacity: 10)
+        store.ingest(WorkstreamEvent(
+            sessionId: "reply-provider", hookEventName: .stop, source: provider
+        ))
+        #expect(store.items.first?.source.rawValue == provider)
+        #expect(store.items.first?.kind == .stop)
+    }
+
     @Test("ingest creates a pending item for permission requests")
     func ingestPending() {
         let store = WorkstreamStore(ringCapacity: 10)
