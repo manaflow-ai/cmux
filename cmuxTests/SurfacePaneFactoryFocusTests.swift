@@ -183,6 +183,49 @@ import Testing
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
 
+    @Test("A failed Cloud route never falls back to a local blank terminal")
+    func failedCloudRouteDoesNotCreateLocalPanel() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("missing-provider-(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-missing-provider", name: "missing", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-missing-provider", workspace: remoteWorkspace)],
+            port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        // Keep the resource and projection visible, but omit its provider to
+        // model a link that disappeared between lookup and the split gesture.
+        catalog.upsert(resource)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-missing-provider"
+        ))
+        defer {
+            catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
+            catalog.remove(resource.id)
+        }
+
+        let panelCount = workspace.panels.count
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: sourcePanelID,
+            orientation: .horizontal,
+            focus: false
+        )
+        #expect(outcome.isAccepted == false)
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+    }
+
     @Test("Cloud placement errors have a specific diagnostic")
     func cloudPlacementErrorHasSpecificDiagnostic() {
         let error = CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("vm-placement")
