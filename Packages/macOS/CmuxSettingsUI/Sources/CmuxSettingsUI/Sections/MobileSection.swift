@@ -69,11 +69,8 @@ public struct MobileSection: View {
         editedPort ?? port.current
     }
 
-    /// The port currently in effect: the bound port when running, otherwise the
-    /// persisted preference. Apply is offered only when the draft differs from it.
-    private var effectivePort: Int {
-        status.current?.boundPort ?? port.current
-    }
+    /// Apply saves the preference; the live port is shown independently.
+    private var effectivePort: Int { port.current }
 
     private var isDraftValid: Bool {
         (1...65535).contains(draftPort)
@@ -120,7 +117,7 @@ public struct MobileSection: View {
                     }
                     SettingsCardNote(String(
                         localized: "settings.mobile.port.note",
-                        defaultValue: "Click Apply to change the port. cmux checks the port is free first: if it's in use, the current listener keeps running untouched; if it's free, the pairing listener rebinds now and connected devices reconnect. The Iroh endpoint adopts the new port the next time cmux starts."
+                        defaultValue: "Apply saves the port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, cmux chooses an available port."
                     ))
                 }
                 .disabled(remoteControlManagedByPolicy)
@@ -292,7 +289,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for the iOS pairing listener (TCP) and the Iroh endpoint that Direct addresses dial (UDP), 1–65535.")
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for IROH connections, 1–65535.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -345,6 +342,16 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
+        } else if iOSPairingHost.current, let current = status.current,
+                  current.pendingPortChange, let bound = current.boundPort {
+            statusCaption {
+                Label(
+                    String(localized: "settings.mobile.port.pending",
+                        defaultValue: "Port \(current.configuredPort) is saved for the next pairing start. Currently using port \(bound)."),
+                    systemImage: "info.circle"
+                )
+                .foregroundStyle(.secondary)
+            }
         } else if case let .portInUse(requested) = applyResult, iOSPairingHost.current {
             // Only while pairing is on — toggling off stops the listener, which
             // would make "still listening on …" wrong.
@@ -358,12 +365,10 @@ public struct MobileSection: View {
                 )
                 .foregroundStyle(.orange)
             }
-        } else if case let .savedForLater(saved) = applyResult, !iOSPairingHost.current {
-            // Only while pairing is off — once it's on, the live indicator shows
-            // the actual listening port instead of this saved-for-later note.
+        } else if case let .savedForLater(saved) = applyResult, status.current?.isRunning != true {
             statusCaption {
                 Label(
-                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved. The pairing listener will use port \(saved) when iOS Pairing is on."),
+                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved port \(saved). It takes effect the next time iOS Pairing starts."),
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.secondary)

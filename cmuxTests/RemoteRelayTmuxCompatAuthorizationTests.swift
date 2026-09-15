@@ -11,8 +11,8 @@ import Testing
 #endif
 
 /// The remote tmux shim (`cmux claude-teams` on the SSH host) drives teammate
-/// panes through relayed `surface.split` / `surface.respawn` requests. The
-/// relay ingress gate must admit those workspace-scoped pane mutations while
+/// panes through relayed `surface.split` requests. The relay ingress gate
+/// must admit those workspace-scoped pane mutations while
 /// still refusing cross-workspace methods and foreign surface selectors.
 @MainActor
 @Suite(.serialized)
@@ -31,15 +31,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
                 "direction": "right", "focus": false,
             ]),
-            ("surface.respawn", [
-                "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
-                "command": "/bin/sh -c 'cd /data00/remote-only && claude --agent-id t1@team'",
-                "tmux_start_command": "cd /data00/remote-only && claude --agent-id t1@team",
-            ]),
             ("workspace.equalize_splits", ["workspace_id": workspaceID, "orientation": "vertical"]),
             ("surface.send_text", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID, "text": "ls\n"]),
             ("surface.close", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID]),
-            ("pane.list", ["workspace_id": workspaceID]),
+            ("surface.list", ["workspace_id": workspaceID]),
         ]
         for (method, params) in admitted {
             let authorization = try fixture.authorize(method: method, params: params)
@@ -47,6 +42,13 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             #expect(authorization.request.method == method)
             #expect(authorization.request.params["_cmux_remote_relay_request_authentication_code"] == nil)
         }
+
+        let respawn = try fixture.authorize(method: "surface.respawn", params: [
+            "workspace_id": workspaceID,
+            "surface_id": leaderSurfaceID,
+            "command": "echo remote",
+        ])
+        #expect(respawn.errorResponse?.contains("remote_relay_method_denied") == true)
     }
 
     @Test
@@ -61,10 +63,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let closedWorkspace = try fixture.authorize(method: "workspace.close", params: ["workspace_id": workspaceID])
         #expect(closedWorkspace.errorResponse?.contains("remote_relay_method_denied") == true)
 
-        let foreignSurface = try fixture.authorize(method: "surface.respawn", params: [
+        let foreignSurface = try fixture.authorize(method: "surface.send_text", params: [
             "workspace_id": workspaceID,
             "surface_id": UUID().uuidString,
-            "command": "echo foreign",
+            "text": "echo foreign",
         ])
         #expect(foreignSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
 
@@ -80,7 +82,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         // Selector aliases satisfy the generic requirement checks but are
         // ignored by the tmux-compat handlers, which would fall back to the
         // selected workspace / focused surface. Exact keys are mandatory.
-        let aliasWorkspace = try fixture.authorize(method: "pane.list", params: [
+        let aliasWorkspace = try fixture.authorize(method: "workspace.current", params: [
             "preferred_workspace_id": fixture.workspace.id.uuidString,
         ])
         #expect(aliasWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)
@@ -91,6 +93,122 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             "direction": "right",
         ])
         #expect(aliasSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
+    }
+
+    @Test
+    func reporterTerminalIDAliasCannotTargetAnUnownedSurface() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        // This is the reported wire shape: an owned decoy workspace selector
+        // accompanies terminal_id, which the dispatcher accepts as a surface
+        // alias. The method-specific schema must reject the decoy before the
+        // request can reach the local socket.
+        let authorization = try fixture.authorize(method: "surface.send_text", params: [
+            "preferred_workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": fixture.panelID.uuidString,
+            "text": "touch /tmp/pwned\n",
+        ])
+        #expect(authorization.errorResponse?.contains("remote_relay") == true)
+        let enter = try fixture.authorize(method: "surface.send_key", params: [
+            "preferred_workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": fixture.panelID.uuidString,
+            "key": "Enter",
+        ])
+        #expect(enter.errorResponse?.contains("remote_relay_method_denied") == true)
+    }
+
+    @Test
+    func unknownMethodWithOwnedSelectorsRemainsDenied() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+
+        let authorization = try fixture.authorize(method: "future.execute", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+        ])
+        #expect(authorization.errorResponse?.contains("remote_relay_method_denied") == true)
+    }
+
+    @Test
+    func liveOwnershipRevocationInvalidatesAnAlreadyKnownSurface() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let params: [String: Any] = [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString,
+            "text": "echo scoped\n",
+        ]
+
+        let admitted = try fixture.authorize(method: "surface.send_text", params: params)
+        #expect(admitted.errorResponse == nil)
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        let revoked = try fixture.authorize(method: "surface.send_text", params: params)
+        #expect(revoked.errorResponse?.contains("remote_relay_surface_denied") == true)
+    }
+
+    @Test
+    func admittedRequestCannotOutliveItsConnectionAtDispatch() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        let admitted = try fixture.authorize(method: "surface.list", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        try #require(admitted.errorResponse == nil)
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        guard case .ok? = coordinator.handle(admitted.request) else {
+            Issue.record("An active connection must be able to list its surfaces")
+            return
+        }
+        // Same workspace and same terminal UUIDs, but a replacement SSH
+        // controller now owns them. The previously admitted request is stale.
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        guard case .err? = coordinator.handle(admitted.request) else {
+            Issue.record("A request admitted for the retired connection reached dispatch")
+            return
+        }
+        guard case .err? = coordinator.handleSocketWorkerV2(admitted.request, context: TerminalController.shared) else {
+            Issue.record("A retired connection reached the socket-worker dispatch path")
+            return
+        }
+    }
+
+    @Test
+    func relayListingDoesNotExposeLocalPanelsInsideItsWorkspace() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let admitted = try fixture.authorize(method: "surface.list", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        try #require(admitted.errorResponse == nil)
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        guard case .ok(.object(let result))? = coordinator.handle(admitted.request) else {
+            Issue.record("A live connection must still be able to list its remote panels")
+            return
+        }
+        #expect(result["surfaces"] == .array([]))
+        let globalTree = try fixture.authorize(method: "system.tree", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+        ])
+        #expect(globalTree.errorResponse?.contains("remote_relay_method_denied") == true)
+    }
+
+    @Test
+    func retiredConnectionIsDeniedByAsyncIngress() async throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let request = try fixture.signedRequest(method: "surface.read_selection", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "terminal_id": fixture.panelID.uuidString,
+        ])
+        let admitted = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        try #require(admitted.errorResponse == nil)
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        let retired = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        #expect(retired.errorResponse?.contains("remote_relay_authentication_failed") == true)
     }
 
     @MainActor
@@ -136,6 +254,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                     resolvedWorkspace.configureRemoteConnection(configuration, autoConnect: false)
                 )
                 resolvedWorkspace.trackRemoteTerminalSurface(resolvedPanelID)
+                resolvedWorkspace.activeRemoteSessionControllerID = UUID()
             } catch {
                 // A throwing `#require` must not leak the shared-state
                 // mutations above into later tests: roll them back before
@@ -154,6 +273,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         }
 
         func authorize(method: String, params: [String: Any]) throws -> TerminalController.RemoteRelayAuthorizationResult {
+            TerminalController.shared.authorizeRemoteRelayRequest(try signedRequest(method: method, params: params))
+        }
+
+        func signedRequest(method: String, params: [String: Any]) throws -> ControlRequest {
             let request: [String: Any] = [
                 "id": "relay-\(method)",
                 "method": method,
@@ -163,7 +286,8 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             data.append(0x0A)
             let rewritten = WorkspaceRemoteRelayCommandRewriter(
                 remoteWorkspaceID: workspace.id,
-                remoteRelayTokenHex: RemoteRelayTmuxCompatAuthorizationTests.relayToken
+                remoteRelayTokenHex: RemoteRelayTmuxCompatAuthorizationTests.relayToken,
+                remoteSessionControllerID: workspace.activeRemoteSessionControllerID
             ).rewriteRemoteRelayCommandLine(data, workspaceAliases: [:], surfaceAliases: [:])
             let line = try #require(String(data: rewritten, encoding: .utf8))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -172,7 +296,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                     NSLocalizedDescriptionKey: "relay request did not parse: \(line.prefix(200))",
                 ])
             }
-            return TerminalController.shared.authorizeRemoteRelayRequest(parsed)
+            return parsed
         }
 
         func tearDown() {

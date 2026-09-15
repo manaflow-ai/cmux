@@ -1732,6 +1732,26 @@ class PaneNeighborRequest:
 
 
 @dataclass(frozen=True)
+class PasteImageRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/request'
+    surface: Id
+    terminal_id: str
+    lease: str
+    op: str
+    upload_id: str
+    data: Union[str, None, MissingType] = field(default=MISSING)
+    mime: Union[str, None, MissingType] = field(default=MISSING)
+    offset: Union[int, None, MissingType] = field(default=MISSING)
+    size: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PasteImageResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/result'
+    accepted: bool
+
+
+@dataclass(frozen=True)
 class PingRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ping/request'
     pass
@@ -2838,6 +2858,8 @@ __all__ = [
     'NotifyRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'PasteImageRequest',
+    'PasteImageResult',
     'PingRequest',
     'ProcessInfoRequest',
     'PutFrontendProjectionRequest',

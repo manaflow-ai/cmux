@@ -6,6 +6,7 @@ import SwiftUI
 struct CloudBrowserAccessView<Content: View>: View {
     let panel: BrowserPanel
     let backgroundColor: NSColor
+    let isVisibleInUI: Bool
     @ViewBuilder let content: () -> Content
     var body: some View {
         let state = panel.cloudAccess
@@ -15,17 +16,9 @@ struct CloudBrowserAccessView<Content: View>: View {
                     if state.showsPage { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            phase: model.phase,
-                            message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
-                            setupTitle: model.vpn.state == .awaitingApproval
-                                ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
-                                : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
-                            onSetup: {
-                                if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
-                                else { Task { await model.vpn.connect() } }
-                            },
+                            message: state.error ?? model.failureMessage,
                             onRetry: {
-                                state.retry()
+                                _ = panel.reload()
                                 navigateIfReady()
                             }
                         )
@@ -34,9 +27,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                 .task(id: model.phase) { navigateIfReady() }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, setupTitle: String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), onSetup: {
-                    AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId))
-                }, onRetry: nil)
+                CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
             } else {
                 content()
             }
@@ -44,6 +35,23 @@ struct CloudBrowserAccessView<Content: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: backgroundColor))
         .accessibilityIdentifier("CloudBrowserAccess")
+        .alert(
+            String(localized: "cloud.overlay.error.title", defaultValue: "Cloud session unavailable"),
+            isPresented: Binding(
+                get: { isVisibleInUI && state.showsFailureAlert },
+                set: { if !$0 { state.dismissFailure() } }
+            )
+        ) {
+            if state.model != nil {
+                Button(String(localized: "common.retry", defaultValue: "Retry")) {
+                    _ = panel.reload()
+                    navigateIfReady()
+                }
+            }
+            Button(String(localized: "common.close", defaultValue: "Close"), role: .cancel) { state.dismissFailure() }
+        } message: {
+            Text(state.failureMessage ?? "")
+        }
         .onChange(of: showsNativeContent, initial: true) { _, shown in
             if shown { BrowserWindowPortalRegistry.hide(webView: panel.webView, source: "cloudConnection") }
         }
