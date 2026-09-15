@@ -14,6 +14,66 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudDesktopAccessTests {
+    @Test("Desktop failure can be dismissed and Retry re-establishes the shared route")
+    func desktopFailureRecovery() async throws {
+        var starts = 0
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 6901), coordinator: nil, wake: {},
+            startForward: { _ in starts += 1; return 46_901 }, stopForward: {}, route: .loopback
+        )
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let state = browser.cloudAccess
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html?path=websockify")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let local = try #require(state.nextURL())
+        state.didCommit(url: local)
+        state.didFinish(url: local)
+        state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, isConnected: false)
+        #expect(!state.showsFailureAlert, "A stale listener cannot fail the new page")
+        state.desktopConnectionDidChange(url: local, isConnected: false)
+        #expect(state.showsFailureAlert && state.showsPage)
+        state.dismissFailure()
+        state.desktopConnectionDidChange(url: local, isConnected: false)
+        #expect(!state.showsFailureAlert, "The same failure cannot reopen a dismissed modal")
+        _ = browser.reload()
+        #expect(await wait { model.isReady && starts == 2 })
+        #expect(state.desktopFailure == nil && state.nextURL() == local)
+        state.didCommit(url: local)
+        state.desktopConnectionDidChange(url: local, isConnected: false)
+        #expect(state.showsFailureAlert, "A failed explicit retry is a new attempt")
+        state.desktopConnectionDidChange(url: local, isConnected: true)
+        #expect(!state.showsFailureAlert)
+        browser.hardReload()
+        #expect(await wait { model.isReady && starts == 3 })
+        await model.retire()
+    }
+
+    @Test("The noVNC status bridge observes failures after the HTTP document loads")
+    func desktopStatusBridge() async throws {
+        let failed = CloudLinkFirstValue<Bool>()
+        let connected = CloudLinkFirstValue<Bool>()
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        defer { webView.stopLoading() }
+        let url = URL(string: "http://127.0.0.1:46901/vnc.html")!
+        CloudDesktopConnectionObserver.install(on: webView) { reportedURL, isConnected in
+            #expect(reportedURL == url)
+            if isConnected { connected.resolve(true) } else { failed.resolve(true) }
+        }
+        webView.loadHTMLString("""
+            <!doctype html><html><body>
+            <div id="noVNC_status" class="noVNC_open noVNC_status_error">Failed to connect</div>
+            <div id="noVNC_container"></div>
+            </body></html>
+            """, baseURL: url)
+        #expect(await failed.result == true)
+        _ = try await webView.evaluateJavaScript("document.documentElement.classList.add('noVNC_connected')")
+        #expect(await connected.result == true)
+    }
+
     @Test("A saved Cloud browser URL never retains an ephemeral loopback port")
     func sessionSnapshotUsesPrivateServiceAddress() {
         let local = URL(string: "http://127.0.0.1:46901/vnc.html?path=websockify&resize=remote")!

@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.portAccess.desktopDisconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud desktop connection failed. Retry to reconnect to the machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung zum Cloud-Desktop ist fehlgeschlagen. Versuche erneut, eine Verbindung zum Rechner herzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion au bureau Cloud a échoué. Réessayez pour vous reconnecter à la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل الاتصال بسطح مكتب Cloud. أعد المحاولة للاتصال بالجهاز مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión al escritorio de Cloud falló. Vuelve a intentarlo para conectar con la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 桌面連線失敗。請重試以重新連線至機器。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 桌面连接失败。请重试以重新连接到机器。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 데스크톱 연결에 실패했습니다. 머신에 다시 연결하려면 재시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud デスクトップへの接続に失敗しました。再試行してマシンに再接続してください。"
+          }
+        }
+      }
+    },
     "cloud.portAccess.privateNetworkRequired": {
       "extractionState": "manual",
       "localizations": {
