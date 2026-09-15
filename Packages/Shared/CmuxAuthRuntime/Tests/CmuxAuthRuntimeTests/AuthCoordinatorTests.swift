@@ -68,6 +68,48 @@ import Testing
         #expect(!coordinator.isAuthenticatedTeamScopeCurrent(latest))
     }
 
+    @Test func changedAccountCannotBorrowPreviouslyVerifiedTeamsAfterRefreshFailure() async throws {
+        let first = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let second = CMUXAuthUser(id: "u2", primaryEmail: "b@b.com", displayName: "B")
+        let client = FakeAuthClient(user: first)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let firstScope = try #require(coordinator.authenticatedTeamScope)
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+
+        #expect(coordinator.currentUser == second)
+        #expect(coordinator.selectedTeamID == "team_a")
+        #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.authenticatedTeamScope == nil)
+        #expect(!coordinator.isAuthenticatedTeamScopeCurrent(firstScope))
+        await client.setThrowOnListTeams(nil)
+        await client.setTeams([CMUXAuthTeam(id: "team_b", displayName: "Beta")])
+        await coordinator.applySignedInUser(second, publication: .revalidation)
+        #expect(coordinator.authenticatedTeamScope?.teamID == "team_b")
+        #expect(coordinator.authenticatedTeamScope?.session.accountID == "u2")
+    }
+
+    @Test func sameAccountRefreshFailureKeepsVerifiedMembershipButEmptyTeamsDoNot() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        await client.setTeams([CMUXAuthTeam(id: "team_a", displayName: "Alpha")])
+        let (coordinator, _) = makeCoordinator(client: client)
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        let scope = try #require(coordinator.authenticatedTeamScope)
+        await client.setThrowOnListTeams(URLError(.notConnectedToInternet))
+        await coordinator.applySignedInUser(user, publication: .revalidation)
+        #expect(coordinator.authenticatedTeamScope == scope)
+
+        await client.setThrowOnListTeams(nil)
+        await client.setTeams([])
+        await coordinator.applySignedInUser(user, publication: .revalidation)
+        #expect(coordinator.selectedTeamID == "team_a")
+        #expect(coordinator.authenticatedTeamScope == nil)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func sessionIdentityStreamPublishesSignInAndImmediateSignOut() async throws {
         let user = CMUXAuthUser(

@@ -143,7 +143,7 @@ struct MobileHostIdentityTests {
             }
         }
 
-        let payload = MobileHostService.identityStatusPayload(routes: [])
+        let payload = MobileHostService.identityStatusPayload(routes: [], deviceID: "v2-mac-fixture")
         #expect(payload["mac_instance_tag"] as? String == "future-one")
         #expect((payload["mac_client_namespace"] as? String)?.hasPrefix("mac:") == true)
         #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
@@ -169,6 +169,7 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(
             routes: [],
+            deviceID: "v2-mac-fixture",
             phonePushDefaults: defaults
         )
         #expect(payload["mac_compatible_mac_tags"] as? [String] == ["hello", "irply"])
@@ -193,6 +194,7 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(
             routes: [],
+            deviceID: "v2-mac-fixture",
             phonePushDefaults: defaults,
             phonePushAdmission: .suppressedMacActive,
             phonePushQueuePersistenceStatus: .saveFailed,
@@ -233,7 +235,7 @@ struct MobileHostIdentityTests {
             }
         }
 
-        let payload = MobileHostService.identityStatusPayload(routes: [])
+        let payload = MobileHostService.identityStatusPayload(routes: [], deviceID: "v2-mac-fixture")
         let capabilities = try #require(payload["capabilities"] as? [String])
         #expect(!capabilities.contains(
             MobileHostService.phonePushStatusCapability
@@ -261,6 +263,7 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(
             routes: [],
+            deviceID: "v2-mac-fixture",
             phonePushDefaults: defaults,
             phonePushAPIBaseURL: URL(string: "https://cmux.com")!
         )
@@ -576,6 +579,7 @@ struct MobileHostIdentityTests {
 
         let authenticatedPayload = MobileHostService.identityStatusPayload(
             routes: [iroh, tailscale, websocket],
+            deviceID: "v2-mac-fixture",
             now: now
         )
         let authenticated = try #require(authenticatedPayload["routes"] as? [[String: Any]])

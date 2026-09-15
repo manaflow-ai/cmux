@@ -32,6 +32,42 @@ struct IrxRelayCredentialInstallerTests {
         await installer.stop()
     }
 
+    @Test func gatedInstallationRetriesWithoutAnotherMintAndStopsAfterInvalidation() async throws {
+        let native = RelayInstallProbe(failFirst: true)
+        let gate = IrxRelayCredentialRotationGate()
+        let generation = await gate.begin()
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+            sleep: { _ in
+                await native.noteSleep()
+                try await Task.sleep(for: .milliseconds(100))
+            }, install: { try await native.install($0) })
+        await installer.replace(with: [credential("old")], ownership: .init(gate: gate, generation: generation))
+        try await waitUntil { await native.sleepCount == 1 }
+        await gate.invalidate()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await native.tokens == ["old"])
+
+        let current = await gate.begin()
+        await installer.replace(with: [credential("new")], ownership: .init(gate: gate, generation: current))
+        try await waitUntil { await native.completed == 1 }
+        #expect(await native.tokens == ["old", "new"])
+        await installer.stop()
+    }
+
+    @Test func currentGatedInstallationRetriesTheSameToken() async throws {
+        let native = RelayInstallProbe(failFirst: true)
+        let gate = IrxRelayCredentialRotationGate()
+        let generation = await gate.begin()
+        let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
+            sleep: { _ in try await Task.sleep(for: .milliseconds(5)) },
+            install: { try await native.install($0) })
+        await installer.replace(with: [credential("fresh")], ownership: .init(gate: gate, generation: generation))
+        try await waitUntil { await native.completed == 1 }
+        #expect(await native.tokens == ["fresh", "fresh"])
+        #expect(await native.maximumConcurrent == 1)
+        await installer.stop()
+    }
+
     @Test func updatesDuringInstallAreSerializedAndOnlyTheLatestPendingTokenRuns() async throws {
         let native = RelayInstallProbe(holdFirst: true)
         let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),

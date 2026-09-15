@@ -273,6 +273,8 @@ struct IrohTailscaleVersionSkewMacGateTests {
 extension MobileHostAuthorizationTests {
 
     @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
+        MobileHostPublicStatusCache.updateV2DeviceID("v2-mac-fixture")
+        defer { MobileHostPublicStatusCache.removeAll() }
         let request = MobileHostRPCRequest(
             id: "host-status",
             method: "mobile.host.status",

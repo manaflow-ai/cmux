@@ -11,6 +11,38 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test func authenticatedStatusRetriesUntilTheCurrentIdentityExists() throws {
+        MobileHostPublicStatusCache.removeAll()
+        defer { MobileHostPublicStatusCache.removeAll() }
+        guard case let .failure(error) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Authenticated status must wait for a device identity")
+            return
+        }
+        #expect(error.code == "unavailable")
+        let data = try #require(error.data as? [String: Any])
+        #expect(data["retryable"] as? Bool == true)
+        guard case .ok = MobileHostPublicStatusCache.result() else {
+            Issue.record("Public reachability remains available during identity setup")
+            return
+        }
+        MobileHostPublicStatusCache.updateV2DeviceID("current-device")
+        guard case let .ok(payload as [String: Any]) = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("Configured identity must be returned")
+            return
+        }
+        #expect(payload["mac_device_id"] as? String == "current-device")
+    }
+
+    @Test func stoppingHostStatusClearsIdentityAlongsideRoutes() {
+        MobileHostPublicStatusCache.updateV2DeviceID("previous-account-device")
+        MobileHostPublicStatusCache.removeAll()
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == nil)
+        guard case .failure = MobileHostPublicStatusCache.result(includeIdentity: true) else {
+            Issue.record("A stopped host cannot publish its previous identity")
+            return
+        }
+    }
+
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
         let store = MobileAttachTicketStore()
         let route = try CmxAttachRoute(
