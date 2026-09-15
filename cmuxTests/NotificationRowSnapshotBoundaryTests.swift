@@ -72,24 +72,24 @@ struct NotificationRowSnapshotBoundaryTests {
         )
     }
 
-    @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
+    @Test func workspaceTitleIndexUsesRenamedGroupInsteadOfUserOwnedAnchorTitle() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         let childId = try #require(manager.tabs.first?.id)
         let groupId = try #require(
             manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])
         )
+        manager.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: childId)
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
-        let staleAnchorTitle = anchor.title
-
+        let userOwnedAnchorTitle = anchor.title
         let appDelegate = AppDelegate()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
-        #expect(anchor.title == staleAnchorTitle)
+        #expect(anchor.title == userOwnedAnchorTitle)
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 

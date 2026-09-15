@@ -757,14 +757,14 @@ final class MachinesPanelModelTests: XCTestCase {
     }
 
     @MainActor
-    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreEmpty() throws {
+    func testCatalogWorkspaceGroupUsesLegacyWorkspaceWhenRemoteViewsAreMissing() throws {
         let machine = SurfaceMachineID.cloud("legacy-group-test")
         let workspace = SurfaceRemoteWorkspace(id: "ws_legacy", name: "legacy", index: 0, focused: true)
         var resource = terminal(machine, "term_legacy", title: "shell")
-        // Older snapshots can include the explicit zero-view marker and still
-        // retain the single-workspace compatibility field.
+        // Legacy snapshots omit view metadata; an explicit empty list instead
+        // marks a detached resource and must not revive stale membership.
         resource.remoteWorkspace = workspace
-        resource.remoteViews = []
+        resource.remoteViews = nil
         let catalog = SurfaceCatalog()
         // The catalog drops writes for a cloud machine with no registered provider.
         let provider = GroupFakeProvider(machine: machine)
