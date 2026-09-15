@@ -3574,6 +3574,8 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
@@ -3584,7 +3586,7 @@ impl Terminal {
         // recreate soft wraps naturally. Placement commands depend on physical
         // row cursor positions, so retain the legacy row-delimited form for any
         // range that intersects an occupied placement span.
-        let preserve_soft_wrap = !insert_at_start && segment_ends.len() == 1;
+        let preserve_soft_wrap = !insert_at_start && !has_placement_anchor;
 
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
