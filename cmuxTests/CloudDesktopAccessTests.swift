@@ -14,6 +14,23 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudDesktopAccessTests {
+    @Test("A saved Cloud browser URL never retains an ephemeral loopback port")
+    func sessionSnapshotUsesPrivateServiceAddress() {
+        let local = URL(string: "http://127.0.0.1:46901/vnc.html?path=websockify&resize=remote")!
+        let remote = URL(string: "http://10.0.0.7:6901/vnc.html?path=websockify&resize=remote")!
+        let browser = BrowserPanel(
+            workspaceId: UUID(), initialURL: local, renderInitialNavigation: false,
+            websiteDataStore: .nonPersistent()
+        )
+        defer { browser.close() }
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 6901), coordinator: nil, wake: {},
+            startForward: { _ in 46_901 }, stopForward: {}, route: .loopback
+        )
+        browser.cloudAccess.configure(model: model, url: remote)
+        #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+    }
+
     @Test("Opening Desktop starts exactly one HTTP route without system VPN",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func desktopMaterializationStartsForward(state: CloudTunnelState) async throws {
