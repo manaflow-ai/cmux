@@ -113,6 +113,7 @@ final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
         var stateDirectory: URL
         var deviceName: String
         var invitation: String?
+        var trustedCarrier = false
         var hasTunnel: Bool
     }
 

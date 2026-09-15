@@ -252,6 +252,27 @@ import Testing
         #expect(connector.session.state.disconnected == 1)
     }
 
+    @Test func firstUseOfTrustedCloudMachineDoesNotRequireInvitation() async throws {
+        let service = FakeCloudVMService()
+        // Current Cloud servers authenticate through the private network and
+        // explicitly return trustedCarrier without minting an invitation.
+        service.attach = .success(try CloudAPIResponseDecoding().attachEndpoint(from: Data(#"{"transport":"cmux-remote","route":"ws://[fd00::10]:1337/v1/link","session":"cmux","trustedCarrier":true}"#.utf8)))
+        let connector = FakeConnector()
+        let controller = makeController(service: service, connector: connector)
+        controller.sectionDidAppear()
+        defer { controller.sectionDidDisappear() }
+        await settle { if case .ready = controller.tunnel { return true } else { return false } }
+        let connection = try #require(controller.connection(for: CloudMachine(id: "vm-new", provider: "freestyle", status: "running")))
+
+        let terminalID = await connection.createTerminal(name: "phone")
+        #expect(terminalID == "t2")
+        let connect = try #require(connector.connects.first)
+        #expect(connect.trustedCarrier, "The server's trust mode must reach the terminal client on first contact")
+        #expect(connect.invitation == nil)
+        #expect(connect.hasTunnel)
+        #expect(service.calls.approve.isEmpty)
+    }
+
     @Test func approvalLoopPollsUntilGranted() async {
         let service = FakeCloudVMService()
         service.approvals = [false, false, true]
