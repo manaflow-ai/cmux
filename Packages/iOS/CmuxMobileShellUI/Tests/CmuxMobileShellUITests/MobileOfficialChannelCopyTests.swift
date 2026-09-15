@@ -49,8 +49,8 @@ import Testing
         #expect(!official.contains("%@"))
     }
 
-    @Test func whatsNewUsesTheCustomPairingPage() {
-        let page = MobileWhatsNewCatalog.connectionsUpdate
+    @Test func whatsNewUsesTheCustomPairingPage() throws {
+        let page = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v2"))
         #expect(page.footnote == nil)
         guard case .pairingSetup(let features) = page.body else {
             Issue.record("connections update page lost its custom body")

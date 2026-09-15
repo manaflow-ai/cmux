@@ -50,10 +50,10 @@ import Testing
         #expect(center.unseenPages.isEmpty)
     }
 
-    @Test func consolidatedPageReappearsAfterAnOlderPageWasAcknowledged() async {
+    @Test func pairingUpdateAppearsAfterAnOlderPageWasAcknowledged() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v2"],
+          "visibleEntryIds": ["connections.v2", "connections.v1"],
           "announcements": []
         }
         """#
@@ -68,14 +68,36 @@ import Testing
         }
     }
 
-    @Test func consolidatedPageFocusesOnPairingRequirement() throws {
-        guard case .pairingSetup(let features) = MobileWhatsNewCatalog.connectionsUpdate.body else {
+    @Test func pairingPageFocusesOnPairingRequirement() throws {
+        let page = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v2"))
+        guard case .pairingSetup(let features) = page.body else {
             Issue.record("connections.v2 should render the custom pairing page")
             return
         }
         #expect(features.isEmpty)
-        #expect(MobileWhatsNewCatalog.connectionsUpdate.title == "Action Required: Enable iOS pairing on your Mac")
+        #expect(page.title == "Action Required: Enable iOS pairing on your Mac")
         #expect(MobileWhatsNewCatalog.entry(withID: "pairing-opt-in.v1") == nil)
+    }
+
+    @Test func archiveKeepsBothUpdatesAfterAcknowledgingPairing() async throws {
+        let center = makeCenter(
+            buildType: .beta,
+            payload: #"{"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[]}"#
+        )
+        await center.refresh()
+        #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.unseenPages.map(\.id) == ["connections.v2", "connections.v1"])
+        let oldPage = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v1"))
+        guard case .features(let features) = oldPage.body else {
+            Issue.record("The earlier connection update must keep its feature rows")
+            return
+        }
+        #expect(features.map(\.symbol) == ["desktopcomputer.and.macbook", "bolt.horizontal", "network", "qrcode.viewfinder"])
+        center.acknowledge(center.unseenPages)
+        #expect(center.unseenPages.isEmpty)
+        #expect(center.archivePages.count == 2)
+        center.acknowledge([oldPage])
+        #expect(center.unseenPages.isEmpty)
     }
 
     @Test func compatibilityCopyUsesTheRemotePolicyShape() {
@@ -122,11 +144,11 @@ import Testing
     }
 
     @Test func staleServerCatalogKeepsCurrentNativePageAvailable() async {
-        let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
+        let payload = #"{"visibleEntryIds":["retired.v1"],"announcements":[]}"#
         let center = makeCenter(buildType: .beta, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2"])
-        #expect(center.archivePages.map(\.id) == ["connections.v2"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
     }
 
     @Test func explicitEmptyServerCatalogStillHidesNativePages() async {
