@@ -3,6 +3,12 @@ import Foundation
 
 /// Reads kernel snapshots once per diagnostic batch, without launching ps or lsof.
 struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
+    private let temporaryDirectory: URL
+
+    init(temporaryDirectory: URL) {
+        self.temporaryDirectory = temporaryDirectory
+    }
+
     func snapshot(locks: [CodexWriterLockInspection]) -> CodexWriterProcessSnapshot {
         var result = CodexWriterProcessSnapshot()
         var needsPathVerification = false
@@ -13,7 +19,11 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
             return result
         }
         for pid in identifiers where pid != getpid() {
-            guard let info = information(pid), info.pbi_status != SZOMB else { continue }
+            guard let info = information(pid) else {
+                if errno != ESRCH { result.isComplete = false }
+                continue
+            }
+            guard info.pbi_status != SZOMB else { continue }
             guard let descriptors = fileDescriptors(pid) else {
                 if information(pid) != nil { result.isComplete = false }
                 continue
@@ -47,6 +57,7 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
                 executablePath: executable, arguments: arguments
             )
             if let port = preliminary.watcherAppServerPort { result.watchedPorts.insert(port) }
+            let port = preliminary.appServerPort
             let holder = CodexWriterProcessEvidence(
                 pid: pid,
                 parentPID: Int32(current.pbi_ppid),
@@ -54,7 +65,10 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
                 startTime: "\(info.pbi_start_tvsec):\(info.pbi_start_tvusec)",
                 executablePath: executable,
                 arguments: arguments,
-                pidVersion: version
+                pidVersion: version,
+                isPrivateCmuxServer: port.map { hasCmuxLog(pid, port: $0) } ?? false,
+                hasConnectedClients: port.map { !hasIdleListener(pid, port: $0, descriptors: descriptors) } ?? true,
+                hasControllingTerminal: current.pbi_flags & UInt32(PROC_FLAG_CONTROLT) != 0
             )
             guard pidVersion(pid) == version else {
                 result.isComplete = false
@@ -85,21 +99,16 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
         let count = identifiers.withUnsafeMutableBytes {
             proc_listpidspath(UInt32(PROC_UID_ONLY), geteuid(), path, 0, $0.baseAddress, capacity)
         }
-        guard count >= 0, count < capacity, count % 4 == 0 else { return nil }
+        guard count > 0, count < capacity, count % 4 == 0 else { return nil }
         return Set(identifiers.prefix(Int(count) / 4).filter { $0 > 0 && $0 != getpid() })
     }
 
     /// Signals the captured process generation, never a PID that has since been reused.
     func terminate(_ holder: CodexWriterProcessEvidence) -> Bool {
-        guard holder.pid > 1, let version = holder.pidVersion,
-              let library = dlopen("/usr/lib/libproc.dylib", RTLD_LAZY) else { return false }
-        defer { dlclose(library) }
-        guard let symbol = dlsym(library, "proc_signal_with_audittoken") else { return false }
-        typealias Signal = @convention(c) (UnsafeMutablePointer<audit_token_t>, Int32) -> Int32
-        let signal = unsafeBitCast(symbol, to: Signal.self)
+        guard holder.pid > 1, let version = holder.pidVersion else { return false }
         var token = audit_token_t(val: (UInt32.max, UInt32.max, UInt32.max, UInt32.max,
                                         UInt32.max, UInt32(holder.pid), UInt32.max, version))
-        return signal(&token, SIGTERM) == 0
+        return proc_signal_with_audittoken(&token, SIGTERM) == 0
     }
 
     private func processIdentifiers() -> [Int32]? {
@@ -160,4 +169,39 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
         return CodexWriterProcessArguments().decode(Array(bytes.prefix(size)))
     }
 
+    private func hasCmuxLog(_ pid: Int32, port: Int) -> Bool {
+        var output = vnode_fdinfo()
+        var error = vnode_fdinfo()
+        let outputSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
+        let errorSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
+        guard proc_pidfdinfo(pid, STDOUT_FILENO, PROC_PIDFDVNODEINFO, &output, outputSize) == outputSize,
+              proc_pidfdinfo(pid, STDERR_FILENO, PROC_PIDFDVNODEINFO, &error, errorSize) == errorSize,
+              output.pvi.vi_stat.vst_ino == error.pvi.vi_stat.vst_ino,
+              output.pvi.vi_stat.vst_dev == error.pvi.vi_stat.vst_dev,
+              error.pvi.vi_stat.vst_uid == geteuid() else { return false }
+        let expected = temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-\(port)-app-server.log").path
+        var file = stat()
+        guard lstat(expected, &file) == 0, file.st_mode & S_IFMT == S_IFREG else { return false }
+        return UInt32(bitPattern: file.st_dev) == output.pvi.vi_stat.vst_dev
+            && file.st_ino == output.pvi.vi_stat.vst_ino
+    }
+
+    private func hasIdleListener(_ pid: Int32, port: Int, descriptors: [proc_fdinfo]) -> Bool {
+        var foundListener = false
+        for descriptor in descriptors where descriptor.proc_fdtype == PROX_FDTYPE_SOCKET {
+            var socket = socket_fdinfo()
+            let size = Int32(MemoryLayout<socket_fdinfo>.stride)
+            guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO, &socket, size) == size else { return false }
+            if socket.psi.soi_kind == SOCKINFO_UN,
+               Int32(socket.psi.soi_options) & SO_ACCEPTCONN != 0 { return false }
+            guard socket.psi.soi_kind == SOCKINFO_TCP else { continue }
+            let tcp = socket.psi.soi_proto.pri_tcp
+            guard UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)) == port else { continue }
+            guard tcp.tcpsi_state == TSI_S_LISTEN,
+                  socket.psi.soi_qlen == 0, socket.psi.soi_incqlen == 0 else { return false }
+            foundListener = true
+        }
+        return foundListener
+    }
 }

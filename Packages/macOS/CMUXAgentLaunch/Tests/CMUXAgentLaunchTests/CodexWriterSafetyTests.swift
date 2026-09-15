@@ -19,7 +19,7 @@ struct CodexWriterSafetyTests {
 
     @Test("libproc descriptor failure is not an empty successful snapshot")
     func descriptorFailure() {
-        #expect(CodexWriterSystemProcesses().fileDescriptors(Int32.max) == nil)
+        #expect(CodexWriterSystemProcesses(temporaryDirectory: FileManager.default.temporaryDirectory).fileDescriptors(Int32.max) == nil)
     }
 
     @Test("parses only explicit recovery arguments")

@@ -16,7 +16,8 @@ extension CMUXCLI {
                   CodexWriterRecovery.isWriterConflict(code: request.code, message: request.message) else { return nil }
             return identifier
         }
-        let reports = CodexWriterRecovery().inspect(sessionIDs: conflicts, codexHome: codexHome)
+        let reports = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
+            .inspect(sessionIDs: conflicts, codexHome: codexHome)
         for (identifier, error) in failures {
             if let report = reports[identifier], report.lock.state == .active {
                 cliWriteStderr(codexWriterReportMessage(sessionID: identifier, report: report) + "\n")
@@ -38,7 +39,7 @@ extension CMUXCLI {
                 ambientEnvironment: environment,
                 fallbackHomeDirectory: NSHomeDirectory()
             )
-        let recovery = CodexWriterRecovery()
+        let recovery = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
         let report = recovery.inspect(sessionID: sessionID, codexHome: codexHome)
         guard report.lock.state != .unavailable else {
             throw CLIError(message: Self.codexWriterUnavailableMessage(sessionID: sessionID, lockPath: report.lock.lockPath))
@@ -104,8 +105,9 @@ extension CMUXCLI {
             ambientEnvironment: environment,
             fallbackHomeDirectory: NSHomeDirectory()
         )
-        let report = CodexWriterRecovery().inspect(sessionID: sessionID, codexHome: codexHome)
-        guard report.lock.state == .active else { return }
+        let report = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
+            .inspect(sessionID: sessionID, codexHome: codexHome)
+        guard report.lock.state == CodexWriterLockInspection.State.active else { return }
         cliWriteStderr(Self.codexWriterReportMessage(sessionID: sessionID, report: report) + "\n")
     }
 
@@ -161,7 +163,8 @@ extension CMUXCLI {
         sessionID: String,
         codexHome: String
     ) -> String? {
-        let report = CodexWriterRecovery().inspect(sessionID: sessionID, codexHome: codexHome)
+        let report = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
+            .inspect(sessionID: sessionID, codexHome: codexHome)
         guard report.lock.state == .active else { return nil }
         return Self.codexWriterReportMessage(sessionID: sessionID, report: report)
     }
