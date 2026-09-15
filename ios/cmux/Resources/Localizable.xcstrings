@@ -1,6 +1,31 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.cloud.vpn.enrollmentFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud could not register this device. Try again to continue VPN setup."}},"ja":{"stringUnit":{"state":"translated","value":"Cloudにこのデバイスを登録できませんでした。VPNの設定を続けるには再試行してください。"}},"de":{"stringUnit":{"state":"translated","value":"Cloud konnte dieses Gerät nicht registrieren. Versuche es erneut, um das VPN einzurichten."}},"fr":{"stringUnit":{"state":"translated","value":"Cloud n’a pas pu enregistrer cet appareil. Réessayez pour poursuivre la configuration du VPN."}},"ar":{"stringUnit":{"state":"translated","value":"تعذر على Cloud تسجيل هذا الجهاز. حاول مجددًا لمتابعة إعداد VPN."}},"es":{"stringUnit":{"state":"translated","value":"Cloud no pudo registrar este dispositivo. Inténtalo de nuevo para continuar con la configuración de la VPN."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud 無法註冊此裝置。請重試以繼續設定 VPN。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud 无法注册此设备。请重试以继续设置 VPN。"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud에 이 기기를 등록할 수 없습니다. VPN 설정을 계속하려면 다시 시도하세요."}}}},
+    "mobile.cloud.vpn.permissionRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iOS could not save the VPN configuration. Try again to request permission."}},"ja":{"stringUnit":{"state":"translated","value":"iOSでVPN構成を保存できませんでした。再試行して許可をリクエストしてください。"}},"de":{"stringUnit":{"state":"translated","value":"iOS konnte die VPN-Konfiguration nicht speichern. Versuche es erneut, um die Berechtigung anzufragen."}},"fr":{"stringUnit":{"state":"translated","value":"iOS n’a pas pu enregistrer la configuration VPN. Réessayez pour demander l’autorisation."}},"ar":{"stringUnit":{"state":"translated","value":"تعذر على iOS حفظ تكوين VPN. حاول مجددًا لطلب الإذن."}},"es":{"stringUnit":{"state":"translated","value":"iOS no pudo guardar la configuración de la VPN. Inténtalo de nuevo para solicitar permiso."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"iOS 無法儲存 VPN 設定。請重試以請求權限。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"iOS 无法保存 VPN 配置。请重试以请求权限。"}},"ko":{"stringUnit":{"state":"translated","value":"iOS에서 VPN 구성을 저장할 수 없습니다. 권한을 요청하려면 다시 시도하세요."}}}},
+    "mobile.cloud.onboarding.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud basics"}},"ja":{"stringUnit":{"state":"translated","value":"Cloudの基本"}},"de":{"stringUnit":{"state":"translated","value":"Cloud-Grundlagen"}},"fr":{"stringUnit":{"state":"translated","value":"Découvrir Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"أساسيات Cloud"}},"es":{"stringUnit":{"state":"translated","value":"Conceptos de Cloud"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Cloud 基礎知識"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Cloud 基础知识"}},"ko":{"stringUnit":{"state":"translated","value":"Cloud 기본 안내"}}}},
+    "mobile.cloud.onboarding.back": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ja":{"stringUnit":{"state":"translated","value":"戻る"}},"de":{"stringUnit":{"state":"translated","value":"Zurück"}},"fr":{"stringUnit":{"state":"translated","value":"Retour"}},"ar":{"stringUnit":{"state":"translated","value":"رجوع"}},"es":{"stringUnit":{"state":"translated","value":"Atrás"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"返回"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"返回"}},"ko":{"stringUnit":{"state":"translated","value":"뒤로"}}}},
+    "mobile.cloud.onboarding.continue": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Continue"}},"ja":{"stringUnit":{"state":"translated","value":"続ける"}},"de":{"stringUnit":{"state":"translated","value":"Weiter"}},"fr":{"stringUnit":{"state":"translated","value":"Continuer"}},"ar":{"stringUnit":{"state":"translated","value":"متابعة"}},"es":{"stringUnit":{"state":"translated","value":"Continuar"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"繼續"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"继续"}},"ko":{"stringUnit":{"state":"translated","value":"계속"}}}},
+    "mobile.cloud.onboarding.done": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Get started"}},"ja":{"stringUnit":{"state":"translated","value":"はじめる"}},"de":{"stringUnit":{"state":"translated","value":"Loslegen"}},"fr":{"stringUnit":{"state":"translated","value":"Commencer"}},"ar":{"stringUnit":{"state":"translated","value":"ابدأ"}},"es":{"stringUnit":{"state":"translated","value":"Empezar"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開始使用"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"开始使用"}},"ko":{"stringUnit":{"state":"translated","value":"시작하기"}}}},
+    "mobile.cloud.onboarding.skip": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Skip"}},"ja":{"stringUnit":{"state":"translated","value":"スキップ"}},"de":{"stringUnit":{"state":"translated","value":"Überspringen"}},"fr":{"stringUnit":{"state":"translated","value":"Passer"}},"ar":{"stringUnit":{"state":"translated","value":"تخطي"}},"es":{"stringUnit":{"state":"translated","value":"Omitir"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"略過"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"跳过"}},"ko":{"stringUnit":{"state":"translated","value":"건너뛰기"}}}},
+    "mobile.cloud.onboarding.workspace.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your workspace lives in the Cloud"}},"ja":{"stringUnit":{"state":"translated","value":"ワークスペースはCloud上にあります"}},"de":{"stringUnit":{"state":"translated","value":"Dein Arbeitsbereich liegt in der Cloud"}},"fr":{"stringUnit":{"state":"translated","value":"Votre espace de travail est dans le Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"مساحة عملك موجودة في السحابة"}},"es":{"stringUnit":{"state":"translated","value":"Tu espacio de trabajo está en Cloud"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你的工作區位於 Cloud"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"你的工作区位于 Cloud"}},"ko":{"stringUnit":{"state":"translated","value":"작업 공간은 Cloud에 있습니다"}}}},
+    "mobile.cloud.onboarding.workspace.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your files, terminals, and coding agents keep running on a Cloud machine when your Mac is asleep or turned off."}},"ja":{"stringUnit":{"state":"translated","value":"Macがスリープ中や電源オフでも、ファイル、ターミナル、コーディングエージェントはCloudマシン上で動き続けます。"}},"de":{"stringUnit":{"state":"translated","value":"Deine Dateien, Terminals und Programmierassistenten bleiben auf einer Cloud-Maschine verfügbar, auch wenn dein Mac schläft oder ausgeschaltet ist."}},"fr":{"stringUnit":{"state":"translated","value":"Vos fichiers, terminaux et agents de programmation restent sur une machine Cloud lorsque votre Mac est en veille ou éteint."}},"ar":{"stringUnit":{"state":"translated","value":"تبقى ملفاتك وطرفياتك ووكلاء البرمجة على الجهاز السحابي وتستمر في العمل عندما يكون Mac في وضع السكون أو مغلقًا."}},"es":{"stringUnit":{"state":"translated","value":"Tus archivos, terminales y agentes de programación siguen en una máquina Cloud cuando tu Mac está en reposo o apagado."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"當 Mac 進入睡眠或關機時，檔案、終端機和程式設計代理仍會在 Cloud 主機上執行。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"当 Mac 进入睡眠或关机时，文件、终端和编程代理仍会在 Cloud 主机上运行。"}},"ko":{"stringUnit":{"state":"translated","value":"Mac이 잠자기 상태이거나 꺼져 있어도 파일, 터미널, 코딩 에이전트는 Cloud 머신에 남아 계속 실행됩니다."}}}},
+    "mobile.cloud.onboarding.key.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A private key keeps it private"}},"ja":{"stringUnit":{"state":"translated","value":"秘密鍵でプライバシーを守る"}},"de":{"stringUnit":{"state":"translated","value":"Ein privater Schlüssel schützt den Zugang"}},"fr":{"stringUnit":{"state":"translated","value":"Une clé privée protège l’accès"}},"ar":{"stringUnit":{"state":"translated","value":"مفتاح خاص يحمي الاتصال"}},"es":{"stringUnit":{"state":"translated","value":"Una clave privada protege el acceso"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"私密金鑰保護存取"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"私钥保护访问"}},"ko":{"stringUnit":{"state":"translated","value":"개인 키로 접근을 보호합니다"}}}},
+    "mobile.cloud.onboarding.key.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux stores a WireGuard key in this phone's Keychain. Enrollment gives that key permission to join your team's private Cloud network. The private key never leaves the phone."}},"ja":{"stringUnit":{"state":"translated","value":"cmuxはWireGuardの鍵をこの端末のキーチェーンに保存します。登録するとチームのプライベートCloudネットワークに接続できます。秘密鍵が端末の外に送られることはありません。"}},"de":{"stringUnit":{"state":"translated","value":"cmux speichert einen WireGuard-Schlüssel im Schlüsselbund dieses Geräts. Die Registrierung erlaubt den Zugang zum privaten Cloud-Netzwerk deines Teams. Der private Schlüssel verlässt das Gerät nie."}},"fr":{"stringUnit":{"state":"translated","value":"cmux conserve une clé WireGuard dans le trousseau de cet appareil. L’inscription autorise l’accès au réseau Cloud privé de votre équipe. La clé privée ne quitte jamais l’appareil."}},"ar":{"stringUnit":{"state":"translated","value":"يحفظ cmux مفتاح WireGuard في سلسلة مفاتيح هذا الهاتف. يمنح التسجيل المفتاح إذنًا للانضمام إلى شبكة Cloud الخاصة بفريقك. لا يغادر المفتاح الخاص الهاتف أبدًا."}},"es":{"stringUnit":{"state":"translated","value":"cmux guarda una clave WireGuard en el llavero del teléfono. El registro permite acceder a la red Cloud privada de tu equipo. La clave privada nunca sale del teléfono."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"cmux 將 WireGuard 金鑰儲存在這支手機的鑰匙圈中。註冊後即可加入團隊的私人 Cloud 網路。私密金鑰不會離開手機。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"cmux 将 WireGuard 密钥存储在这部手机的钥匙串中。注册后即可加入团队的私有 Cloud 网络。私钥不会离开手机。"}},"ko":{"stringUnit":{"state":"translated","value":"cmux는 이 휴대폰의 키체인에 WireGuard 키를 저장합니다. 등록하면 팀의 비공개 Cloud 네트워크에 접속할 수 있습니다. 개인 키는 휴대폰 밖으로 전송되지 않습니다."}}}},
+    "mobile.cloud.vpn.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"System VPN"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPN"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN"}},"fr":{"stringUnit":{"state":"translated","value":"VPN système"}},"ar":{"stringUnit":{"state":"translated","value":"VPN النظام"}},"es":{"stringUnit":{"state":"translated","value":"VPN del sistema"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"系統 VPN"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"系统 VPN"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN"}}}},
+    "mobile.cloud.vpn.explanation": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Let Safari and other apps reach your Cloud machine's private ports. The cmux terminal does not require system VPN."}},"ja":{"stringUnit":{"state":"translated","value":"Safariや他のアプリからCloudマシンのプライベートポートにアクセスできます。cmuxのターミナルにシステムVPNは不要です。"}},"de":{"stringUnit":{"state":"translated","value":"Safari und andere Apps können auf private Ports deiner Cloud-Maschine zugreifen. Das cmux-Terminal benötigt kein System-VPN."}},"fr":{"stringUnit":{"state":"translated","value":"Autorisez Safari et les autres apps à accéder aux ports privés de votre machine Cloud. Le terminal cmux ne nécessite pas de VPN système."}},"ar":{"stringUnit":{"state":"translated","value":"اسمح لـ Safari والتطبيقات الأخرى بالوصول إلى المنافذ الخاصة بجهازك السحابي. لا تحتاج طرفية cmux إلى VPN النظام."}},"es":{"stringUnit":{"state":"translated","value":"Permite que Safari y otras apps accedan a los puertos privados de tu máquina Cloud. La terminal de cmux no necesita la VPN del sistema."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"讓 Safari 和其他 App 存取 Cloud 主機的私人連接埠。cmux 終端機不需要系統 VPN。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"让 Safari 和其他 App 访问 Cloud 主机的私有端口。cmux 终端不需要系统 VPN。"}},"ko":{"stringUnit":{"state":"translated","value":"Safari와 다른 앱에서 Cloud 머신의 비공개 포트에 접근할 수 있습니다. cmux 터미널에는 시스템 VPN이 필요하지 않습니다."}}}},
+    "mobile.cloud.vpn.notice": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"iOS will ask permission to add a VPN. Only Cloud private addresses use it. This may replace another active VPN."}},"ja":{"stringUnit":{"state":"translated","value":"iOSがVPNの追加許可を求めます。Cloudのプライベートアドレスのみが対象です。他の接続中のVPNが切り替わる場合があります。"}},"de":{"stringUnit":{"state":"translated","value":"iOS fragt nach der Erlaubnis, ein VPN hinzuzufügen. Nur private Cloud-Adressen nutzen es. Ein anderes aktives VPN kann dadurch ersetzt werden."}},"fr":{"stringUnit":{"state":"translated","value":"iOS demandera l’autorisation d’ajouter un VPN. Seules les adresses privées Cloud l’utilisent. Il peut remplacer un autre VPN actif."}},"ar":{"stringUnit":{"state":"translated","value":"سيطلب iOS إذنك لإضافة VPN. تستخدمه عناوين Cloud الخاصة فقط. قد يحل محل اتصال VPN آخر نشط."}},"es":{"stringUnit":{"state":"translated","value":"iOS pedirá permiso para añadir una VPN. Solo la usan las direcciones privadas de Cloud. Puede reemplazar otra VPN activa."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"iOS 會要求允許加入 VPN。只有 Cloud 私人位址會使用它。這可能會取代其他使用中的 VPN。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"iOS 会请求允许添加 VPN。只有 Cloud 私有地址会使用它。这可能会替换其他正在使用的 VPN。"}},"ko":{"stringUnit":{"state":"translated","value":"iOS에서 VPN 추가 권한을 요청합니다. Cloud 비공개 주소에만 사용되며, 다른 활성 VPN을 대체할 수 있습니다."}}}},
+    "mobile.cloud.vpn.enable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enable system VPN"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNを有効にする"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN aktivieren"}},"fr":{"stringUnit":{"state":"translated","value":"Activer le VPN système"}},"ar":{"stringUnit":{"state":"translated","value":"تفعيل VPN النظام"}},"es":{"stringUnit":{"state":"translated","value":"Activar VPN del sistema"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"啟用系統 VPN"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"启用系统 VPN"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN 활성화"}}}},
+    "mobile.cloud.vpn.connecting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Setting up system VPN"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNを設定中"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN wird eingerichtet"}},"fr":{"stringUnit":{"state":"translated","value":"Configuration du VPN système"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ إعداد VPN النظام"}},"es":{"stringUnit":{"state":"translated","value":"Configurando VPN del sistema"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在設定系統 VPN"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在设置系统 VPN"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN 설정 중"}}}},
+    "mobile.cloud.vpn.cancel": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cancel"}},"ja":{"stringUnit":{"state":"translated","value":"キャンセル"}},"de":{"stringUnit":{"state":"translated","value":"Abbrechen"}},"fr":{"stringUnit":{"state":"translated","value":"Annuler"}},"ar":{"stringUnit":{"state":"translated","value":"إلغاء"}},"es":{"stringUnit":{"state":"translated","value":"Cancelar"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"取消"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"取消"}},"ko":{"stringUnit":{"state":"translated","value":"취소"}}}},
+    "mobile.cloud.vpn.connected": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"System VPN connected"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPN接続済み"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN verbunden"}},"fr":{"stringUnit":{"state":"translated","value":"VPN système connecté"}},"ar":{"stringUnit":{"state":"translated","value":"VPN النظام متصل"}},"es":{"stringUnit":{"state":"translated","value":"VPN del sistema conectada"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"系統 VPN 已連線"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"系统 VPN 已连接"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN 연결됨"}}}},
+    "mobile.cloud.vpn.disconnect": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Disconnect system VPN"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNを切断"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN trennen"}},"fr":{"stringUnit":{"state":"translated","value":"Déconnecter le VPN système"}},"ar":{"stringUnit":{"state":"translated","value":"قطع اتصال VPN النظام"}},"es":{"stringUnit":{"state":"translated","value":"Desconectar VPN del sistema"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"中斷系統 VPN"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"断开系统 VPN"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN 연결 해제"}}}},
+    "mobile.cloud.vpn.disconnecting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Disconnecting system VPN"}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNを切断中"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN wird getrennt"}},"fr":{"stringUnit":{"state":"translated","value":"Déconnexion du VPN système"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ قطع اتصال VPN النظام"}},"es":{"stringUnit":{"state":"translated","value":"Desconectando VPN del sistema"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在中斷系統 VPN"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在断开系统 VPN"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN 연결 해제 중"}}}},
+    "mobile.cloud.vpn.deviceRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"System VPN requires a physical iPhone or iPad."}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNには実機のiPhoneまたはiPadが必要です。"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN erfordert ein echtes iPhone oder iPad."}},"fr":{"stringUnit":{"state":"translated","value":"Le VPN système nécessite un iPhone ou un iPad physique."}},"ar":{"stringUnit":{"state":"translated","value":"يتطلب VPN النظام جهاز iPhone أو iPad فعليًا."}},"es":{"stringUnit":{"state":"translated","value":"La VPN del sistema requiere un iPhone o iPad físico."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"系統 VPN 需要實體 iPhone 或 iPad。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"系统 VPN 需要实体 iPhone 或 iPad。"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN은 실제 iPhone 또는 iPad가 필요합니다."}}}},
+    "mobile.cloud.vpn.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"System VPN could not start. Try again or check the VPN configuration in Settings."}},"ja":{"stringUnit":{"state":"translated","value":"システムVPNを開始できませんでした。再試行するか、「設定」でVPN構成を確認してください。"}},"de":{"stringUnit":{"state":"translated","value":"System-VPN konnte nicht starten. Versuche es erneut oder prüfe die VPN-Konfiguration in den Einstellungen."}},"fr":{"stringUnit":{"state":"translated","value":"Le VPN système n’a pas pu démarrer. Réessayez ou vérifiez sa configuration dans Réglages."}},"ar":{"stringUnit":{"state":"translated","value":"تعذر بدء VPN النظام. حاول مجددًا أو تحقق من تكوين VPN في الإعدادات."}},"es":{"stringUnit":{"state":"translated","value":"No se pudo iniciar la VPN del sistema. Inténtalo de nuevo o revisa su configuración en Ajustes."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法啟動系統 VPN。請重試或在「設定」中檢查 VPN 設定。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法启动系统 VPN。请重试或在“设置”中检查 VPN 配置。"}},"ko":{"stringUnit":{"state":"translated","value":"시스템 VPN을 시작할 수 없습니다. 다시 시도하거나 설정에서 VPN 구성을 확인하세요."}}}},
+    "mobile.cloud.vpn.retry": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Try again"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}},"de":{"stringUnit":{"state":"translated","value":"Erneut versuchen"}},"fr":{"stringUnit":{"state":"translated","value":"Réessayer"}},"ar":{"stringUnit":{"state":"translated","value":"حاول مجددًا"}},"es":{"stringUnit":{"state":"translated","value":"Reintentar"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"再試一次"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"重试"}},"ko":{"stringUnit":{"state":"translated","value":"다시 시도"}}}},
+    "mobile.cloud.vpn.settings": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Open app settings"}},"ja":{"stringUnit":{"state":"translated","value":"アプリの設定を開く"}},"de":{"stringUnit":{"state":"translated","value":"App-Einstellungen öffnen"}},"fr":{"stringUnit":{"state":"translated","value":"Ouvrir les réglages de l’app"}},"ar":{"stringUnit":{"state":"translated","value":"فتح إعدادات التطبيق"}},"es":{"stringUnit":{"state":"translated","value":"Abrir ajustes de la app"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"開啟 App 設定"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"打开 App 设置"}},"ko":{"stringUnit":{"state":"translated","value":"앱 설정 열기"}}}},
+    "mobile.cloud.vpn.recovery": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"VPN controls are outside the app's settings. Open Settings > General > VPN & Device Management > VPN. If cmux Cloud is missing, return here and try again to add it."}},"ja":{"stringUnit":{"state":"translated","value":"VPNの設定はアプリの設定内にはありません。「設定」>「一般」>「VPNとデバイス管理」>「VPN」を開いてください。cmux Cloudがない場合は、ここに戻って再試行してください。"}},"de":{"stringUnit":{"state":"translated","value":"Die VPN-Steuerung liegt außerhalb der App-Einstellungen. Öffne Einstellungen > Allgemein > VPN und Geräteverwaltung > VPN. Fehlt cmux Cloud, kehre hierher zurück und versuche es erneut."}},"fr":{"stringUnit":{"state":"translated","value":"Les commandes VPN sont en dehors des réglages de l’app. Ouvrez Réglages > Général > VPN et gestion de l’appareil > VPN. Si cmux Cloud est absent, revenez ici et réessayez de l’ajouter."}},"ar":{"stringUnit":{"state":"translated","value":"عناصر التحكم في VPN ليست ضمن إعدادات التطبيق. افتح الإعدادات > عام > VPN وإدارة الجهاز > VPN. إذا لم يظهر cmux Cloud، عد إلى هنا وحاول إضافته مجددًا."}},"es":{"stringUnit":{"state":"translated","value":"Los controles de VPN están fuera de los ajustes de la app. Abre Ajustes > General > VPN y gestión de dispositivos > VPN. Si no aparece cmux Cloud, vuelve aquí e intenta añadirlo de nuevo."}},"zh-Hant":{"stringUnit":{"state":"translated","value":"VPN 控制項不在 App 設定中。請開啟「設定」>「一般」>「VPN 與裝置管理」>「VPN」。如果沒有 cmux Cloud，請返回這裡並重試以加入。"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"VPN 控件不在 App 设置中。请打开“设置”>“通用”>“VPN 与设备管理”>“VPN”。如果没有 cmux Cloud，请返回此处并重试以添加。"}},"ko":{"stringUnit":{"state":"translated","value":"VPN 제어는 앱 설정 밖에 있습니다. 설정 > 일반 > VPN 및 기기 관리 > VPN을 여세요. cmux Cloud가 없으면 여기로 돌아와 다시 추가해 보세요."}}}},
     "mobile.buildType.beta": {
       "extractionState": "manual",
       "localizations": {
@@ -3893,6 +3918,144 @@
             "value": "아래 바에서 주소를 검색하거나 입력하세요."
           }
         }
+      }
+    },
+    "mobile.cloud.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No cloud machines yet. Create one from cmux on your Mac or the web app." } }
+      }
+    },
+    "mobile.cloud.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } }
+      }
+    },
+    "mobile.cloud.entry.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals on your cloud machines, no VPN needed" } }
+      }
+    },
+    "mobile.cloud.error.controlPlane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cloud service could not be reached. Try again in a moment." } }
+      }
+    },
+    "mobile.cloud.error.identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device is locked. Unlock it and try again." } }
+      }
+    },
+    "mobile.cloud.error.link": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not reach this machine's terminal service." } }
+      }
+    },
+    "mobile.cloud.error.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Something went wrong. Try again." } }
+      }
+    },
+    "mobile.cloud.error.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Your session expired. Sign in again to reach your cloud machines." } }
+      }
+    },
+    "mobile.cloud.error.tunnel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not join your private network. Check your connection and try again." } }
+      }
+    },
+    "mobile.cloud.machines.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Machines" } }
+      }
+    },
+    "mobile.cloud.machines.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading machines" } }
+      }
+    },
+    "mobile.cloud.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Retry" } }
+      }
+    },
+    "mobile.cloud.terminal.ended.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This terminal's process has exited." } }
+      }
+    },
+    "mobile.cloud.terminal.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session ended" } }
+      }
+    },
+    "mobile.cloud.terminal.rendererFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal renderer failed to start." } }
+      }
+    },
+    "mobile.cloud.terminals.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No terminals yet. Create one below." } }
+      }
+    },
+    "mobile.cloud.terminals.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals" } }
+      }
+    },
+    "mobile.cloud.terminals.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting" } }
+      }
+    },
+    "mobile.cloud.terminals.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New terminal" } }
+      }
+    },
+    "mobile.cloud.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud" } }
+      }
+    },
+    "mobile.cloud.tunnel.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting to your private network" } }
+      }
+    },
+    "mobile.cloud.unavailable.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The private network is not up yet. Go back and try again." } }
+      }
+    },
+    "mobile.cloud.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not connected" } }
       }
     },
     "mobile.simulatorStream.appSwitcher": {

@@ -20,6 +20,7 @@ struct WorkspaceMacSelectionScope {
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         foregroundInstanceTag: String? = nil,
+        additionalMachineIDs: Set<String> = [],
         aliasesFor: (String, String?) -> [String]
     ) {
         let aliasIndex = WorkspaceMacPickerAliasIndex(
@@ -40,6 +41,7 @@ struct WorkspaceMacSelectionScope {
             )
             machineIDs.insert(aliasIndex.representativeID(for: itemPairingID))
         }
+        machineIDs.formUnion(additionalMachineIDs)
         let foregroundMachineIDs: Set<String>
         if let foregroundMacDeviceID {
             let foregroundPairingID = MobilePairedMac.pairingID(
@@ -68,6 +70,7 @@ struct WorkspaceMacSelectionScope {
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
         foregroundInstanceTag: String? = nil,
+        additionalMachineIDs: Set<String> = [],
         aliasesFor: (String) -> [String]
     ) {
         self.init(
@@ -77,6 +80,7 @@ struct WorkspaceMacSelectionScope {
             notificationFeedItems: notificationFeedItems,
             foregroundMacDeviceID: foregroundMacDeviceID,
             foregroundInstanceTag: foregroundInstanceTag,
+            additionalMachineIDs: additionalMachineIDs,
             aliasesFor: { deviceID, _ in aliasesFor(deviceID) }
         )
     }

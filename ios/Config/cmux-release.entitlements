@@ -6,6 +6,10 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>com.apple.developer.networking.networkextension</key>
+	<array>
+		<string>packet-tunnel-provider</string>
+	</array>
 
 	<!-- APNs remote push. "production" targets the production APNs host
 	     (api.push.apple.com), which is the gateway TestFlight and App Store
@@ -25,6 +29,7 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(AppIdentifierPrefix)$(CMUX_IOS_APP_BUNDLE_IDENTIFIER).cloud-vpn</string>
 	</array>
 </dict>
 </plist>

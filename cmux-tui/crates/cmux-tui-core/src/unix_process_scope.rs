@@ -12,6 +12,14 @@
 //! an expired command deadline returns to the caller while the tracker keeps
 //! the inactive scope and advances through bounded scan chunks.
 
+// Platform arms: Linux uses pidfd and /proc; macOS uses libproc (proc_listpids,
+// proc_pidinfo, proc_signal_with_audittoken) and sandbox-exec. Every other Unix,
+// including iOS, takes the portable arm below: plain kill(2) on the recorded
+// PID, no process scanning, and a PID-only identity. iOS is deliberately not
+// treated as "Apple" here: libproc and its private signalling entry point are
+// not in the iOS SDK, so widening the macOS arm to the vendor makes the static
+// library unlinkable, and the in-process iOS client never spawns a process, so
+// the portable arm's weaker identity guarantee costs nothing there.
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
@@ -910,10 +918,12 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     }
     // SAFETY: fstat(2) initialized the structure after returning success.
     let stat = unsafe { stat.assume_init() };
-    #[cfg(target_os = "macos")]
+    // `st_dev` is a signed 32-bit `dev_t` on every Apple target and a `u64`
+    // elsewhere.
+    #[cfg(target_vendor = "apple")]
     let device = u64::try_from(stat.st_dev)
         .map_err(|_| io::Error::other("file marker device is out of range"))?;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     let device = stat.st_dev;
     let inode = stat.st_ino;
     Ok(FileMarker { device, inode })

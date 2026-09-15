@@ -151,10 +151,10 @@ verify_ipa_bundle_identity() {
 import plistlib, sys
 with open(sys.argv[1], "rb") as f:
     entitlements = plistlib.load(f)
-raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2], sys.argv[2] + ".cloud-vpn"] else 1)
 PY
   then
-    echo "error: signed IPA keychain-access-groups must contain exactly '$expected_app_id': $app" >&2
+    echo "error: signed IPA must grant only its auth group and Cloud VPN group: $app" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -169,6 +169,10 @@ PY
     return 1
   fi
 
+  if ! python3 "$REPO_ROOT/ios/scripts/cloud-vpn-signing.py" --app "$app"; then
+    rm -rf "$workdir"
+    return 1
+  fi
   rm -rf "$workdir"
   return 0
 }
@@ -904,7 +908,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -allowProvisioningUpdates \
       "${XCODE_AUTH_ARGS[@]}" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_IOS_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
@@ -927,7 +931,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-      PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
+      CMUX_IOS_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
@@ -1254,10 +1258,10 @@ with open(merged_path, "wb") as f:
     plistlib.dump(merged, f)
 PY
   # A wildcard in the provisioning profile is only an authorization envelope.
-  # The app signature must claim the one exact group for this bundle, otherwise
+  # The app signature must claim only the exact groups for this bundle, otherwise
   # sibling cmux apps signed by the same team can read each other's items.
   plutil -replace keychain-access-groups \
-    -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
+    -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\",\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER.cloud-vpn\"]" \
     "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
@@ -1275,6 +1279,7 @@ PY
   fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
+  python3 "$REPO_ROOT/ios/scripts/cloud-vpn-signing.py" --app "$RESIGN_APP" --repair
 
   # HARD GATES on the signed .app. Presence is insufficient: TestFlight needs
   # production APNs and the Time Sensitive value must remain true.

@@ -4,7 +4,7 @@
 
 #include "Shared.xcconfig"
 
-PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta
+CMUX_IOS_APP_BUNDLE_IDENTIFIER = dev.cmux.app.beta
 DEVELOPMENT_TEAM = 7WLXT3NR37
 
 // Release/TestFlight/App Store artifacts always use production authorities.

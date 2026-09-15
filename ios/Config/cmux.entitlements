@@ -6,6 +6,10 @@
 	<array>
 		<string>Default</string>
 	</array>
+	<key>com.apple.developer.networking.networkextension</key>
+	<array>
+		<string>packet-tunnel-provider</string>
+	</array>
 
 	<!-- APNs remote push. "development" targets the sandbox APNs host, matching
 	     DEBUG/dev tagged builds (which register sandbox device tokens). Flip to
@@ -23,6 +27,7 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(AppIdentifierPrefix)$(CMUX_IOS_APP_BUNDLE_IDENTIFIER).cloud-vpn</string>
 	</array>
 
 	<!-- Example entitlements (commented out by default):

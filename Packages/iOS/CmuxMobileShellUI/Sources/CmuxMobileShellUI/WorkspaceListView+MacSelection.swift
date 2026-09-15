@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileCloud
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -27,16 +28,39 @@ extension WorkspaceListView {
     }
 
     var macSelectionScope: WorkspaceMacSelectionScope {
+        let cloudIDs = Set(cloudMachinesForPicker.map { cloudPickerID(for: $0.id) })
         return WorkspaceMacSelectionScope(
             selection: macSelection,
             workspaces: workspaces,
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
+            additionalMachineIDs: cloudIDs,
             aliasesFor: {
                 store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
             }
         )
+    }
+
+    var cloudMachinesForPicker: [CloudMachine] {
+        #if os(iOS)
+        cloudSessionController?.visibleMachines ?? []
+        #else
+        []
+        #endif
+    }
+
+    #if os(iOS)
+    var selectedCloudMachine: CloudMachine? {
+        guard case .machine(let id) = visibleMacSelection,
+              id.hasPrefix("cloud:") else { return nil }
+        let machineID = String(id.dropFirst("cloud:".count))
+        return cloudMachinesForPicker.first { $0.id == machineID }
+    }
+    #endif
+
+    func cloudPickerID(for machineID: String) -> String {
+        "cloud:\(machineID)"
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -49,11 +73,18 @@ extension WorkspaceListView {
 
     var liveMachineSnapshots: WorkspaceMachineSnapshots {
         let scope = macSelectionScope
+        var pickerIDs = scope.machineIDs
+        var names = macDisplayNamesByID()
+        for machine in cloudMachinesForPicker {
+            let pickerID = cloudPickerID(for: machine.id)
+            pickerIDs.insert(pickerID)
+            names[pickerID] = machine.preferredName
+        }
         return WorkspaceMachineSnapshots(
             workspaces: workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
-            macPickerMachineIDs: scope.machineIDs,
-            namesByID: macDisplayNamesByID(),
+            macPickerMachineIDs: pickerIDs,
+            namesByID: names,
             buildLabelsByID: macBuildLabelsByID(),
             fallbackName: fallbackMacPickerName
         )

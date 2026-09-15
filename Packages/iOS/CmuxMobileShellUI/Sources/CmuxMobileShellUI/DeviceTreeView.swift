@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileCloudUI
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -32,6 +33,7 @@ struct DeviceTreeView: View {
     var dismissAction: (() -> Void)? = nil
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
+    @Environment(\.cloudSessionController) private var cloudSessionController
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -60,6 +62,23 @@ struct DeviceTreeView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Cloud machines sit beside the paired Macs: same "your
+                // computers" mental model, reachable with no Mac paired.
+                // The row renders only when cloud is composed.
+                Section {
+                    CloudEntryRow()
+                    if let cloudSessionController {
+                        ForEach(cloudSessionController.machines.elements) { machine in
+                            CloudMachineVisibilityRow(
+                                machine: machine,
+                                isVisible: cloudSessionController.isMachineVisible(machine),
+                                setVisible: { visible in
+                                    cloudSessionController.setMachineVisible(machine, visible: visible)
+                                }
+                            )
+                        }
+                    }
+                }
                 if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
@@ -125,6 +144,8 @@ struct DeviceTreeView: View {
             }
             .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
+            // The Cloud flow presents from this stable container, not the row.
+            .cloudFlowPresenter()
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
@@ -248,6 +269,32 @@ struct DeviceTreeView: View {
         async let registryDevices: Void = store.loadRegistryDevices()
         await pairedMacs
         await registryDevices
+    }
+}
+
+private struct CloudMachineVisibilityRow: View {
+    let machine: CloudMachine
+    let isVisible: Bool
+    let setVisible: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "cloud.fill")
+                .foregroundStyle(machine.isRunning ? .blue : .secondary)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(machine.preferredName)
+                    .lineLimit(1)
+                Text(machine.status.capitalized)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: Binding(get: { isVisible }, set: setVisible))
+                .labelsHidden()
+                .accessibilityLabel("Show \(machine.preferredName) in workspace picker")
+        }
+        .accessibilityIdentifier("CloudMachineVisibility_\(machine.id)")
     }
 }
 #endif
