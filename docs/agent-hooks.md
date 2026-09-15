@@ -36,6 +36,8 @@ Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, 
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
 
+The canonical set of hook event names (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `PermissionRequest`, `AskUserQuestion`, `ExitPlanMode`, `TodoWrite`, `Stop`, `SubagentStart`, `SubagentStop`, `Notification`) is defined by the `HookEventName` enum in `Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamEvent.swift`, with each agent's per-event wiring in `CLI/CMUXCLI+AgentHookDefinitions.swift`. That `HookEventName` enum is the authoritative source for this list; the native per-agent event names in `CMUXCLI+AgentHookDefinitions.swift` (for example `beforeShellExecution` or `on_tool_permission`) are each agent's own vocabulary that maps onto this canonical set rather than adding to it.
+
 OpenCode also supports project-local Feed installation:
 
 ```bash
