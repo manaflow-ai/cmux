@@ -1,31 +1,47 @@
 import AppKit
 import Foundation
 
-/// The machine context captured for one New Workspace invocation. A Cloud tree
-/// selection wins while that window's Machines panel owns focus; otherwise a
-/// selected workspace's binding supplies the machine. Local workspaces remain
-/// local even if another window or a hidden sidebar has an old Cloud selection.
+enum NewWorkspaceMachineSelection: Equatable {
+    case none
+    case local
+    case cloud(String)
+    case pending
+}
+
+/// The machine context captured for one New Workspace invocation.
 struct NewWorkspaceMachineContext: Equatable {
-    let machine: SurfaceMachineID
+    enum Target: Equatable {
+        case local
+        case cloud(String)
+        case unavailable
+    }
+
+    let target: Target
 
     init(
-        selectedCloudMachineID: String?,
+        selection: NewWorkspaceMachineSelection,
         selectedWorkspaceCloudMachineID: String?,
         machinesPanelOwnsFocus: Bool
     ) {
-        if machinesPanelOwnsFocus,
-           let selectedCloudMachineID = Self.normalized(selectedCloudMachineID) {
-            machine = .cloud(selectedCloudMachineID)
-        } else if let selectedWorkspaceCloudMachineID = Self.normalized(selectedWorkspaceCloudMachineID) {
-            machine = .cloud(selectedWorkspaceCloudMachineID)
+        if machinesPanelOwnsFocus {
+            switch selection {
+            case .cloud(let id) where !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+                target = .cloud(id.trimmingCharacters(in: .whitespacesAndNewlines))
+            case .local:
+                target = .local
+            case .pending:
+                target = .unavailable
+            case .none, .cloud:
+                target = Self.workspaceTarget(selectedWorkspaceCloudMachineID)
+            }
         } else {
-            machine = .local
+            target = Self.workspaceTarget(selectedWorkspaceCloudMachineID)
         }
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private static func workspaceTarget(_ value: String?) -> Target {
         let value = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value?.isEmpty == false ? value : nil
+        return value?.isEmpty == false ? .cloud(value!) : .local
     }
 }
 
@@ -42,8 +58,21 @@ extension AppDelegate {
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-        if let context,
-           case .cloud(let machineID) = newWorkspaceMachineContext(for: context).machine {
+        if let context {
+            let target = newWorkspaceMachineContext(for: context).target
+            if case .unavailable = target {
+                NSSound.beep()
+                return false
+            }
+            guard case .cloud(let machineID) = target else {
+                return performNewWorkspaceCreationAction(
+                    initialSurface: .terminal,
+                    preferredTabManager: preferredTabManager,
+                    event: event,
+                    debugSource: debugSource,
+                    skipConfiguredAction: skipConfiguredAction
+                )
+            }
             // A configured command/action is an intentional override. The
             // built-in New Workspace action remains eligible for machine
             // routing; explicit Cloud/local commands keep their semantics.
@@ -72,18 +101,17 @@ extension AppDelegate {
     }
 
     /// Records the Machines tree selection for the owning window. The active
-    /// focus coordinator decides later whether this selection is authoritative
-    /// for Cmd+N, so a hidden/secondary window cannot redirect creation.
-    func setSelectedCloudMachine(_ machine: SurfaceMachineID?, in tabManager: TabManager?) {
+    /// focus coordinator decides later whether this selection is authoritative.
+    func setNewWorkspaceMachineSelection(_ selection: NewWorkspaceMachineSelection, in tabManager: TabManager?) {
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else { return }
-        context.selectedCloudMachineID = machine?.cloudMachineID
+        context.newWorkspaceMachineSelection = selection
     }
 
     /// Resolves the target before any async Cloud operation starts.
     func newWorkspaceMachineContext(for context: MainWindowContext) -> NewWorkspaceMachineContext {
         NewWorkspaceMachineContext(
-            selectedCloudMachineID: context.selectedCloudMachineID,
+            selection: context.newWorkspaceMachineSelection,
             selectedWorkspaceCloudMachineID: context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID,
             machinesPanelOwnsFocus: context.keyboardFocusCoordinator.activeRightSidebarMode == .machines
         )

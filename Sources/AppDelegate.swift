@@ -621,10 +621,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
-        /// The last Cloud tree selection in this window. This is intentionally
-        /// window-scoped: Cmd+N must not borrow a machine selected in another
-        /// window, and the value is cleared when the local row is selected.
-        var selectedCloudMachineID: String?
+        /// The last Machines tree selection in this window. This is intentionally
+        /// window-scoped so Cmd+N cannot borrow another window's machine.
+        var newWorkspaceMachineSelection: NewWorkspaceMachineSelection = .none
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
