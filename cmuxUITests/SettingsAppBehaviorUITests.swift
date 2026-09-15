@@ -107,7 +107,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             let detail = window.staticTexts["Allows iOS pairing and Iroh networking for this Mac."].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 5))
             XCTAssertTrue(detail.exists)
-            let header = try XCTUnwrap(window.staticTexts["Mobile"].allElementsBoundByIndex.first {
+            let header = try XCTUnwrap(window.staticTexts.matching(identifier: "Mobile").allElementsBoundByIndex.first {
                 $0.frame.minX > window.frame.minX + 150
             })
             XCTAssertLessThan(title.frame.minY, window.staticTexts["Forward Notifications to iPhone"].firstMatch.frame.minY)

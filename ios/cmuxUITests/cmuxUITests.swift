@@ -29,8 +29,6 @@ final class cmuxUITests: XCTestCase {
             )).firstMatch
             XCTAssertTrue(image.waitForExistence(timeout: 15))
             let title = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
-            let sheet = app.otherElements["MobileWhatsNewSheet"].firstMatch
-            XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
 
             func assertFitted(_ lastText: XCUIElement) {
                 XCTAssertTrue(lastText.exists)
@@ -43,6 +41,8 @@ final class cmuxUITests: XCTestCase {
                 format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
             )).firstMatch
             assertFitted(compatibilityDetail)
+            let sheet = app.otherElements["MobileWhatsNewSheet"].firstMatch
+            XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
             let pairingTop = title.frame.minY
             let pixels = try XCTUnwrap(image.screenshot().image.cgImage)
             var rgba = [UInt8](repeating: 0, count: 4)
@@ -80,6 +80,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
             app.terminate()
         }
+        try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
     }
 
     @MainActor
