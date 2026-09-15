@@ -98,23 +98,10 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         return HostedTerminal(
             surface: surface,
             window: window,
-            surfaceView: try #require(findGhosttyNSView(in: hostedView))
+            surfaceView: hostedView.surfaceView
         )
-    }
-
-    private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
-        if let ghosttyView = view as? GhosttyNSView {
-            return ghosttyView
-        }
-        for subview in view.subviews {
-            if let found = findGhosttyNSView(in: subview) {
-                return found
-            }
-        }
-        return nil
     }
 }
