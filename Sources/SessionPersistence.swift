@@ -14,7 +14,9 @@ enum SessionPersistencePolicy {
     static let minimumWindowHeight: Double = 200
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
-    static let maxWorkspacesPerWindow: Int = 128
+    /// Workspaces past this are not saved and are gone after a relaunch, so it sits
+    /// well above any real sidebar; `TabManager.sessionSnapshot` logs when it bites.
+    static let maxWorkspacesPerWindow: Int = 1024
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
