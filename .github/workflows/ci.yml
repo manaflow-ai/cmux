@@ -479,27 +479,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      # Keep the PR gate identical to Vercel's production compiler. A plain
-      # TypeScript pass does not exercise Next's route generation and build
-      # analysis, which is where CodeRouter route mistakes first escaped.
-      - name: Production build
-        env:
-          VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
-          SKIP_ENV_VALIDATION: "1"
-          RESEND_API_KEY: "re_ci_build"
-          CMUX_FEEDBACK_FROM_EMAIL: "ci@manaflow.com"
-          STACK_SECRET_SERVER_KEY: "ci-build-only"
-          NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-4000-8000-000000000000"
-          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "ci-build-only"
-          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-        run: bun run vercel-build
 
       - name: Web tests
-        env:
-          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-        run: bun run test -- --max-concurrency=1
+        run: bun run test
 
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
@@ -537,6 +519,34 @@ jobs:
       - name: Oxlint webviews
         working-directory: webviews
         run: bun run lint:ci
+
+  web-production-build:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    name: web-production-build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run the Vercel production build
+        env:
+          VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
+          SKIP_ENV_VALIDATION: "1"
+          RESEND_API_KEY: "re_ci_build"
+          CMUX_FEEDBACK_FROM_EMAIL: "ci@manaflow.com"
+          STACK_SECRET_SERVER_KEY: "ci-build-only"
+          NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-4000-8000-000000000000"
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "ci-build-only"
+          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+        run: bun run vercel-build
 
       - name: React Doctor
         working-directory: webviews
@@ -2042,6 +2052,7 @@ jobs:
       - workflow-guard-tests
       - ghosttykit-release-check
       - web-typecheck
+      - web-production-build
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
@@ -2063,6 +2074,7 @@ jobs:
           required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
           allowed_routed = {
               "web-typecheck",
+              "web-production-build",
               "react-apps-check",
               "diff-sidecar-check",
               "web-db-migrations",
@@ -2078,6 +2090,7 @@ jobs:
           outputs = needs["changes"].get("outputs", {})
           routed_outputs = {
               "web-typecheck": "web",
+              "web-production-build": "web",
               "react-apps-check": "web",
               "diff-sidecar-check": "macos",
               "web-db-migrations": "web",
@@ -2651,6 +2664,7 @@ jobs:
       - workflow-guard-tests
       - ghosttykit-release-check
       - web-typecheck
+      - web-production-build
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
