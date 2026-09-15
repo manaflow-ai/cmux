@@ -11,6 +11,34 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudFeatureFlagTests {
+
+    #if DEBUG
+    @Test("A Debug Cloud override enables the remote-disabled availability observer immediately")
+    func dogfoodOverrideReopensCloud() throws {
+        let suite = "cmux.cloud.dogfood.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let definition = CmuxFeatureFlags.cloudMachinesFlag
+        let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in false })
+        flags.applyLoadedFlags()
+        var transitions: [Bool] = []
+        let observer = CloudFeatureAvailabilityObserver(
+            isEnabled: { flags.isCloudMachinesEnabled },
+            didChange: { transitions.append($0) }
+        )
+        #expect(transitions == [false])
+
+        flags.setOverride(true, for: definition)
+        #expect(flags.isCloudMachinesEnabled)
+        #expect(flags.overrideValue(for: definition) == true)
+        #expect(transitions == [false, true])
+
+        flags.setOverride(nil, for: definition)
+        #expect(!flags.isCloudMachinesEnabled)
+        #expect(transitions == [false, true, false])
+        withExtendedLifetime(observer) {}
+    }
+    #endif
     @Test("Cloud defaults off and follows remote values before local overrides")
     func remoteResolution() throws {
         let suite = "cmux.cloud.flag.\(UUID().uuidString)"
