@@ -23,7 +23,9 @@ struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let expiresAtMs: UInt64
 
     private enum CodingKeys: String, CodingKey {
-        case replyId, macDeviceId, macInstanceTag, encryptedPayload, createdAtMs, expiresAtMs
+        case replyId, macDeviceId, macInstanceTag, encryptedPayload
+        case workspaceId, surfaceId, notificationId, retargetsToLiveSurfaceOwner, text
+        case createdAtMs, expiresAtMs
     }
 
     init(from decoder: Decoder) throws {
