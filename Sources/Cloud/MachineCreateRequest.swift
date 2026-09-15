@@ -15,7 +15,7 @@ struct MachineCreateRequest: Equatable {
     let arguments: [String]
     /// Stable identity of the initiating window. Completion selects only in
     /// this window and never activates a different one.
-    let selectionWindowID: UUID? = nil
+    let selectionWindowID: UUID?
 
     init(
         mode: NewMachineModel.Mode,
