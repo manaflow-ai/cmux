@@ -31,7 +31,7 @@ describe("IROH Dashboard v2 controller", () => {
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "stack-token", onDirectory: () => {}, onError: () => {} });
     const pending = controller.start();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     const socket = FakeSocket.instances[0];
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer stack-token");
     expect(calls[0]?.url).toBe("https://cmux-iroh-v2-staging.debussy.workers.dev/v2/dashboard/session");
@@ -46,7 +46,7 @@ describe("IROH Dashboard v2 controller", () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
-    const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
+    const pending = controller.start(); await Promise.resolve();
     const socket = FakeSocket.instances[0]!; socket.open();
     socket.message({ schemaId: "directory.changed.v1", teamId: "t", revision: 1, deliveryReceipt: { sequence: 7, token: "receipt" } });
     const acknowledgement = JSON.parse(socket.sent.find(body => body.includes("session.ack.v1"))!);
@@ -59,16 +59,16 @@ describe("IROH Dashboard v2 controller", () => {
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const directories: unknown[] = [];
     const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
-    const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
+    const pending = controller.start(); await Promise.resolve();
     const socket = FakeSocket.instances[0]!; socket.open();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     const directoryRequest = JSON.parse(socket.sent[0]!);
     socket.message({ schemaId: "dashboard.directory.v1", requestId: directoryRequest.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
     await pending; expect(directories).toHaveLength(1);
     const revoke = controller.revoke("device");
     const revokeRequest = JSON.parse(socket.sent[1]!);
     socket.message({ schemaId: "operation.completed.v1", requestId: revokeRequest.requestId, revision: 2 });
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     // The post-mutation directory request is sent after the acknowledgement.
     const refresh = JSON.parse(socket.sent[2]!);
     socket.message({ schemaId: "dashboard.directory.v1", requestId: refresh.requestId, directory: { teamId: "t", revision: 2, devices: [], relayURLs: [], issuedAt: 2, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
@@ -80,12 +80,12 @@ describe("IROH Dashboard v2 controller", () => {
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
     const directories: any[] = [];
     const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
-    const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
+    const pending = controller.start(); await Promise.resolve();
     const socket = FakeSocket.instances[0]!; socket.open();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     const first = JSON.parse(socket.sent[0]!);
     socket.message({ schemaId: "dashboard.directory.v1", requestId: first.requestId, directory: { teamId: "t", revision: 4, devices: [{ deviceRecordId: "d1" }], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: "cursor-1", canManageTeam: true, managedDeviceIds: ["d1"] } });
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     const second = JSON.parse(socket.sent[1]!);
     expect(second.cursor).toBe("cursor-1");
     socket.message({ schemaId: "dashboard.directory.v1", requestId: second.requestId, directory: { teamId: "t", revision: 4, devices: [{ deviceRecordId: "d2" }], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: ["d2"] } });
@@ -97,7 +97,7 @@ describe("IROH Dashboard v2 controller", () => {
     const updateRequest = JSON.parse(socket.sent[2]!);
     expect(updateRequest.expectedRevision).toBe(4);
     socket.message({ schemaId: "operation.completed.v1", requestId: updateRequest.requestId, revision: 5 });
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await Promise.resolve();
     const refresh = JSON.parse(socket.sent[3]!);
     socket.message({ schemaId: "dashboard.directory.v1", requestId: refresh.requestId, directory: { teamId: "t", revision: 5, devices: [], relayURLs: ["https://relay.example"], issuedAt: 2, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
     await update; await controller.stop();

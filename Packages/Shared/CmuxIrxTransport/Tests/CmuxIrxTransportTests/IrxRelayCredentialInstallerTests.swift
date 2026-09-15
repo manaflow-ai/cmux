@@ -36,15 +36,17 @@ struct IrxRelayCredentialInstallerTests {
         let native = RelayInstallProbe(failFirst: true)
         let gate = IrxRelayCredentialRotationGate()
         let generation = await gate.begin()
+        let releaseRetry = IrxAsyncLatch()
         let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
             sleep: { _ in
                 await native.noteSleep()
-                try await Task.sleep(for: .milliseconds(100))
+                await releaseRetry.wait()
             }, install: { try await native.install($0) })
         await installer.replace(with: [credential("old")], ownership: .init(gate: gate, generation: generation))
         try await waitUntil { await native.sleepCount == 1 }
         await gate.invalidate()
-        try await Task.sleep(for: .milliseconds(200))
+        await releaseRetry.signal()
+        try await waitUntil { await native.finished == 1 }
         #expect(await native.tokens == ["old"])
 
         let current = await gate.begin()
@@ -135,6 +137,7 @@ private actor RelayInstallProbe {
     private(set) var maximumConcurrent = 0
     private(set) var tokens: [String] = []
     private(set) var completed = 0
+    private(set) var finished = 0
     private(set) var sleepCount = 0
 
     init(failFirst: Bool = false, holdFirst: Bool = false) {
@@ -146,7 +149,10 @@ private actor RelayInstallProbe {
         tokens.append(credential.token)
         concurrent += 1
         maximumConcurrent = max(maximumConcurrent, concurrent)
-        defer { concurrent -= 1 }
+        defer {
+            concurrent -= 1
+            finished += 1
+        }
         let first = tokens.count == 1
         if holdFirst, first { await withCheckedContinuation { releaseWaiter = $0 } }
         if failFirst, first { throw Failure.unavailable }
