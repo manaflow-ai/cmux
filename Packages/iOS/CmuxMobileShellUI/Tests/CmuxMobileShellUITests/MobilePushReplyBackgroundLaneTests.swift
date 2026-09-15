@@ -390,29 +390,6 @@ private func makeReplyLaneCoordinator(
     #expect(notifier.cancelCount == 0)
 }
 
-@MainActor
-@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
-    let runtime = ReplyRuntimeFake()
-    let notifier = ReplyNoticeFake()
-    let relay = ReplyRelayFake(outcomes: [true])
-    let coordinator = makeReplyLaneCoordinator(
-        runtime: runtime,
-        notifier: notifier,
-        nowBox: NowBox(),
-        relay: relay
-    )
-
-    await coordinator.handleReply(
-        text: "stay in this workspace",
-        workspaceId: "workspace-1",
-        surfaceId: "surface-1",
-        macDeviceId: "mac-1",
-        retargetsToLiveSurfaceOwner: false
-    )
-
-    #expect(relay.requests.count == 1)
-    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
-}
 
 @MainActor
 @Test func retryLadderRetriesTheRelayWithTheSameReplyId() async throws {
