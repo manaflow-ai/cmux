@@ -28,12 +28,51 @@ if ! [[ "$heartbeat_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "$heartbeat_second
 fi
 
 set +e
+kill_process_tree() {
+  local pid="$1"
+  local signal="$2"
+  local descendant
+  for descendant in $(pgrep -P "$pid" 2>/dev/null); do
+    kill_process_tree "$descendant" "$signal"
+  done
+  kill -"$signal" "$pid" 2>/dev/null || true
+}
+
+terminate_child() {
+  kill_process_tree "$child_pid" TERM
+  local deadline=$(( $(date '+%s') + 5 ))
+  while kill -0 "$child_pid" 2>/dev/null; do
+    if [[ "$(date '+%s')" -ge "$deadline" ]]; then
+      kill_process_tree "$child_pid" KILL
+      break
+    fi
+    sleep 0.1
+  done
+}
+
 "$@" &
 child_pid=$!
-trap 'kill -TERM "$child_pid" 2>/dev/null || true' INT TERM
+interrupted_signal=0
+handle_signal() {
+  interrupted_signal="$1"
+  terminate_child
+}
+trap 'handle_signal 2' INT
+trap 'handle_signal 15' TERM
 (
+  heartbeat_sleep_pid=""
+  heartbeat_cleanup() {
+    if [[ -n "$heartbeat_sleep_pid" ]]; then
+      kill "$heartbeat_sleep_pid" 2>/dev/null || true
+    fi
+    exit 143
+  }
+  trap heartbeat_cleanup INT TERM
   while kill -0 "$child_pid" 2>/dev/null; do
-    sleep "$heartbeat_seconds"
+    sleep "$heartbeat_seconds" &
+    heartbeat_sleep_pid=$!
+    wait "$heartbeat_sleep_pid"
+    heartbeat_sleep_pid=""
     kill -0 "$child_pid" 2>/dev/null || break
     now_epoch="$(date '+%s')"
     elapsed=$((now_epoch - started_epoch))
@@ -43,6 +82,9 @@ trap 'kill -TERM "$child_pid" 2>/dev/null || true' INT TERM
 heartbeat_pid=$!
 wait "$child_pid"
 status=$?
+if [[ "$interrupted_signal" -ne 0 ]]; then
+  status=$((128 + interrupted_signal))
+fi
 kill "$heartbeat_pid" 2>/dev/null || true
 wait "$heartbeat_pid" 2>/dev/null || true
 trap - INT TERM
