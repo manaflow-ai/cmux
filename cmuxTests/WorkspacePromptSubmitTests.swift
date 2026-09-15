@@ -1,3 +1,4 @@
+import Bonsplit
 import Foundation
 import Testing
 import CMUXAgentLaunch
@@ -279,5 +280,128 @@ struct WorkspacePromptSubmitTests {
         #expect(!IMessageModeSettings.isEnabled(defaults: defaults))
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
+    }
+
+    @Test func testSubmittedMessageWithoutPanelIdLeavesPanelPromptsEmpty() {
+        let workspace = Workspace()
+
+        #expect(workspace.recordSubmittedMessage("workspace only"))
+        #expect(workspace.latestSubmittedMessage == "workspace only")
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testSubmittedMessageWithPanelIdRecordsPerPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("run the migration", panelId: panelId))
+
+        let recorded = workspace.panelPrompts[panelId]
+        #expect(recorded?.message == "run the migration")
+        #expect(recorded?.submittedAt == workspace.latestSubmittedAt)
+        #expect(workspace.latestSubmittedMessage == "run the migration")
+    }
+
+    @Test func testPanelPromptsKeepOneEntryPerPanel() {
+        let workspace = Workspace()
+        let first = UUID()
+        let second = UUID()
+
+        #expect(workspace.recordSubmittedMessage("first agent", panelId: first))
+        #expect(workspace.recordSubmittedMessage("second agent", panelId: second))
+
+        #expect(workspace.panelPrompts[first]?.message == "first agent")
+        #expect(workspace.panelPrompts[second]?.message == "second agent")
+        #expect(workspace.panelPrompts.count == 2)
+        // The workspace-level field still collapses to the newest prompt.
+        #expect(workspace.latestSubmittedMessage == "second agent")
+    }
+
+    @Test func testBlankSubmittedMessageDoesNotRecordPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(!workspace.recordSubmittedMessage(" \n ", panelId: panelId))
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testResetSidebarContextClearsPanelPrompts() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("before reset", panelId: panelId))
+        workspace.resetSidebarContext(reason: "test")
+
+        #expect(workspace.panelPrompts.isEmpty)
+        #expect(workspace.latestSubmittedMessage == nil)
+    }
+
+    // The hook payload's `CMUX_SURFACE_ID` is already a panel id in the
+    // unsplit case, so the resolver's first branch has to accept it as-is.
+    @Test func testPromptSubmitWithPanelIdSurfaceIdRecordsPanelPrompt() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+        let panelId = try #require(workspace.focusedPanelId)
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "run the migration",
+                iMessageModeEnabled: false,
+                surfaceId: panelId.uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts[panelId]?.message == "run the migration")
+        #expect(workspace.latestSubmittedMessage == "run the migration")
+    }
+
+    // In a split pane the surface id is a distinct bonsplit TabID, so the
+    // resolver has to fall through to the surface-to-panel mapping.
+    @Test func testPromptSubmitResolvesBonsplitSurfaceIdToItsPanel() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+        // Read the panel id first: `bindSurface` is exclusive per panel, so
+        // rebinding drops the panel's original surface mapping and
+        // `focusedPanelId` stops resolving right after this line.
+        let panelId = try #require(workspace.focusedPanelId)
+        let surfaceId = UUID()
+        workspace.bindSurface(TabID(uuid: surfaceId), toPanelId: panelId)
+        #expect(!workspace.panels.keys.contains(surfaceId))
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "split pane prompt",
+                iMessageModeEnabled: false,
+                surfaceId: surfaceId.uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts[panelId]?.message == "split pane prompt")
+        #expect(workspace.panelPrompts[surfaceId] == nil)
+    }
+
+    // An id that matches neither a panel nor a surface must not invent a
+    // panel entry; the workspace-level fields still have to be written.
+    @Test func testPromptSubmitWithUnresolvableSurfaceIdKeepsWorkspaceLevelFallback() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: false, placementOverride: .end)
+
+        let outcome = try #require(
+            manager.handlePromptSubmit(
+                workspaceId: workspace.id,
+                message: "no surface match",
+                iMessageModeEnabled: false,
+                surfaceId: UUID().uuidString
+            )
+        )
+
+        #expect(outcome.messageRecorded)
+        #expect(workspace.panelPrompts.isEmpty)
+        #expect(workspace.latestSubmittedMessage == "no surface match")
+        #expect(workspace.latestSubmittedAt != nil)
     }
 }

@@ -480,4 +480,55 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("color") == .string("#FF8800"))
         #expect(value.member("icon") == nil)
     }
+
+    @Test("Surface prompt and unread fields project per surface")
+    func surfacePromptFields() {
+        let builder = CustomSidebarDataContextBuilder()
+        let id = UUID()
+        let submittedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let waiting = CustomSidebarSurfaceSnapshot(
+            panelId: id,
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "run the migration",
+            latestSubmittedAt: submittedAt,
+            hasUnreadNotification: true
+        )
+
+        let value = builder.surfaceValue(waiting)
+
+        #expect(value.member("latestPrompt") == .string("run the migration"))
+        #expect(value.member("latestAt") == .int(1_700_000_000))
+        #expect(value.member("unread") == .int(1))
+
+        let bare = builder.surfaceValue(minimalSurface(id: id))
+        #expect(bare.member("latestPrompt") == nil)
+        #expect(bare.member("latestAt") == nil)
+        #expect(bare.member("unread") == .int(0))
+    }
+
+    @Test("Empty surface prompt is omitted like the workspace-level field")
+    func surfaceEmptyPromptOmitted() {
+        let builder = CustomSidebarDataContextBuilder()
+        let blank = CustomSidebarSurfaceSnapshot(
+            panelId: UUID(),
+            title: "agent",
+            isFocused: false,
+            isPinned: false,
+            directory: nil,
+            gitBranch: nil,
+            gitIsDirty: false,
+            listeningPorts: [],
+            latestSubmittedMessage: "",
+            latestSubmittedAt: nil,
+            hasUnreadNotification: false
+        )
+
+        #expect(builder.surfaceValue(blank).member("latestPrompt") == nil)
+    }
 }
