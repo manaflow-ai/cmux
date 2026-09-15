@@ -557,7 +557,9 @@ describe("sign out and sign back in", () => {
     expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
-    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+    expect(response.headers.get("set-cookie")).toMatch(
+      /(?:^|,\s*)stack-access=;[^,]*Max-Age=0/i,
+    );
   });
 
   test("rejects CLI sign-in targets that are not one exact authorization code", async () => {
