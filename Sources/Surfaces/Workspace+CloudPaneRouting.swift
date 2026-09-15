@@ -328,7 +328,7 @@ extension CloudWorkspaceRenameService {
         // title, including the literal "Cloud VM", is never inferred from text
         // and therefore wins over a delayed daemon receipt.
         if let generatedTitle,
-           workspace.effectiveCustomTitleSource == .auto,
+           (workspace.effectiveCustomTitleSource == .auto || workspace.customTitleSource == nil),
            workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
                == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
             _ = manager.setCustomTitle(tabId: localWorkspaceID, title: generatedTitle, source: .remote,

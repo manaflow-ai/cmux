@@ -71,6 +71,19 @@ struct CloudInitialWorkspaceNamingTests {
         }
     }
 
+    @Test("Legacy generated placeholders adopt the daemon name without a write-back")
+    func legacyGeneratedPlaceholderIsNotRenamedRemotely() async throws {
+        try await withUnboundFixture { fixture in
+            fixture.workspace.customTitleSource = nil
+            #expect(fixture.workspace.customTitle == "Cloud VM")
+            fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
+                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
+            try await fixture.settle()
+            try fixture.expectParity("terminal", workspaceName: "Same workspace")
+            #expect(fixture.provider.writes.isEmpty)
+        }
+    }
+
     @Test("Late machine-only receipts and stale snapshots cannot undo an accepted workspace rename")
     func lateReceiptsKeepIdentityAndName() async throws {
         try await withUnboundFixture { fixture in

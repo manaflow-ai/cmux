@@ -14,6 +14,11 @@ extension SurfaceCatalog {
         let wasUnbound = workspaceBeforeBind?.cloudVMBinding?.remoteWorkspaceID?.isEmpty != false
         let titleBeforeBind = workspaceBeforeBind?.customTitle
         let sourceBeforeBind = workspaceBeforeBind?.effectiveCustomTitleSource
+        let isLegacyGeneratedTitle = generatedTitle.map {
+            titleBeforeBind?.trimmingCharacters(in: .whitespacesAndNewlines) ==
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                && workspaceBeforeBind?.customTitleSource == nil
+        } ?? false
         cloudWorkspaceRenameService.bind(
             localWorkspaceID: localWorkspaceID,
             machine: machine,
@@ -27,6 +32,7 @@ extension SurfaceCatalog {
         if wasUnbound,
            remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
            sourceBeforeBind == .user,
+           !isLegacyGeneratedTitle,
            let titleBeforeBind,
            let workspace = workspaceBeforeBind {
             propagateCloudWorkspaceRename(
