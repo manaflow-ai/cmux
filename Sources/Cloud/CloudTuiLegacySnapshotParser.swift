@@ -132,6 +132,28 @@ struct CloudTuiLegacySnapshotParser: Sendable {
         return surfaceIDs(from: object, terminalIDs: terminalIDs)
     }
 
+    /// Both public identities must name the same record in the same tree read.
+    /// A missing exact tab may never borrow another view of its terminal.
+    func viewSurfaceIDs(from data: Data, terminalByTab: [String: String]) -> [String: UInt64] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        let object = root["data"] as? [String: Any] ?? root
+        var result: [String: UInt64] = [:]
+        for workspace in object["workspaces"] as? [[String: Any]] ?? [] {
+            for screen in workspace["screens"] as? [[String: Any]] ?? [] {
+                for pane in screen["panes"] as? [[String: Any]] ?? [] {
+                    for tab in pane["tabs"] as? [[String: Any]] ?? [] {
+                        guard let tabID = tab["tab_resource_id"] as? String,
+                              let terminalID = terminalByTab[tabID],
+                              tab["terminal_resource_id"] as? String == terminalID,
+                              let surfaceID = number(from: tab["surface"]) else { continue }
+                        result[tabID] = surfaceID
+                    }
+                }
+            }
+        }
+        return result
+    }
+
     private func number(from value: Any?) -> UInt64? {
         if let number = positiveInteger(from: value) { return number }
         if let string = value as? String {

@@ -14,7 +14,8 @@ extension CmuxTuiSurfaceProvider {
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
         focus: Bool,
-        adopting reservation: CloudTerminalPaneReservation? = nil
+        adopting reservation: CloudTerminalPaneReservation? = nil,
+        restoringPanelID: UUID? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
@@ -26,8 +27,8 @@ extension CmuxTuiSurfaceProvider {
         let resolved = try await resolveSurfaceIDForMaterialization(
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
-            link: link,
-            requiresExistingView: remoteTabID != nil,
+            commandRunner: link,
+            remoteTabID: remoteTabID,
             correlationID: correlationID,
             // A newly-created terminal carries the workspace selected by the
             // creation request even before its first tab receipt arrives. Keep
@@ -36,8 +37,16 @@ extension CmuxTuiSurfaceProvider {
             preferredWorkspaceID: resource.remoteWorkspace?.id
                 ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
                     forLocalWorkspace: destination.workspaceID, on: machine
-                )
-        )
+                ),
+            restoringPanelID: restoringPanelID
+        ) { preferredWorkspaceID in
+            try await self.ensureRemoteTerminalView(
+                terminalID: resource.id.key,
+                socketPath: connected.socketPath,
+                link: link,
+                preferredWorkspaceID: preferredWorkspaceID
+            )
+        }
 
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
@@ -120,35 +129,42 @@ extension CmuxTuiSurfaceProvider {
     /// does not answer in time is retried on the bounded materialize schedule
     /// and then reported as "did not answer", never as "not created": the
     /// terminal keeps running on the machine either way.
-    private func resolveSurfaceIDForMaterialization(
+    /// Only restoration may repair a captured tab: an explicit user selection
+    /// stays exact even if the same terminal has another live view.
+    func resolveSurfaceIDForMaterialization(
         terminalID: String,
         socketPath: String,
-        link: CloudMachineLink,
-        requiresExistingView: Bool,
+        commandRunner: any CloudTuiCommandRunning,
+        remoteTabID: String?,
         correlationID: String,
-        preferredWorkspaceID: String? = nil
+        preferredWorkspaceID: String? = nil,
+        restoringPanelID: UUID? = nil,
+        ensureRemoteView: @escaping @MainActor (String?) async throws -> SurfaceRemotePlacement
     ) async throws -> (surfaceID: UInt64, placement: SurfaceRemotePlacement?) {
-        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath, correlationID: correlationID)
+        let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: commandRunner, socketPath: socketPath, correlationID: correlationID)
+        let log = CloudTerminalAttachmentLog(correlationID: correlationID)
         var failures = 0
         var lastReason = ""
         var lastFailure = CloudTuiSurfaceIDResolution.Failure.notReady
         var projectedPlacement: SurfaceRemotePlacement?
+        var targetTabID = remoteTabID
+        var repairedStaleTab = false
         while true {
             try Task.checkCancellation()
-            var resolution = await resolver.resolve(terminalID: terminalID)
-            attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
-            if resolution == .noPlacement {
-                guard !requiresExistingView else { throw ProviderError.terminalNotCreated(terminalID) }
-                let projected = try await ensureRemoteTerminalView(
-                    terminalID: terminalID,
-                    socketPath: socketPath,
-                    link: link,
-                    preferredWorkspaceID: preferredWorkspaceID
-                )
-                projectedPlacement = projected
-                attachmentLog.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+            let resolution: CloudTuiSurfaceIDResolution
+            if let targetTabID {
+                resolution = await CloudTerminalViewResolver(commandRunner: commandRunner, socketPath: socketPath)
+                    .resolve(terminalByTab: [targetTabID: terminalID])[targetTabID] ?? .retryable("no view resolution")
+            } else {
                 resolution = await resolver.resolve(terminalID: terminalID)
-                attachmentLog.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            }
+            log.resolution(machineID: machineID, terminalID: terminalID, attempt: failures + 1, outcome: resolution)
+            if resolution == .noPlacement, targetTabID == nil {
+                let projected = try await ensureRemoteView(preferredWorkspaceID)
+                projectedPlacement = projected
+                targetTabID = projected.tabID
+                log.projection(machineID: machineID, terminalID: terminalID, placement: projected)
+                continue
             }
             // Initial and post-projection answers share the same lifecycle/error handling.
             switch resolution {
@@ -161,12 +177,27 @@ extension CmuxTuiSurfaceProvider {
                 lastReason = "the projected view did not resolve"
                 lastFailure = .notReady
             case let .retryable(reason, failure):
+                if resolution.isMissingTab, !repairedStaleTab, let restoringPanelID {
+                    let repaired = await catalog.cloudPlacementCoordinator.repairPlacement(
+                        for: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+                        catalog: catalog,
+                        restoringPanelID: restoringPanelID,
+                        ensure: ensureRemoteView
+                    )
+                    if let repaired {
+                        repairedStaleTab = true
+                        targetTabID = repaired.tabID
+                        projectedPlacement = repaired
+                        log.projection(machineID: machineID, terminalID: terminalID, placement: repaired)
+                        continue
+                    }
+                }
                 lastReason = reason
                 lastFailure = failure
             }
             failures += 1
             guard let delay = CloudTerminalAttachmentRetryPolicy.materialize.boundedDelay(afterFailures: failures) else {
-                attachmentLog.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
+                log.giveUp(machineID: machineID, terminalID: terminalID, attempts: failures, reason: lastReason)
                 throw ProviderError.terminalAttachTimedOut(terminalID: terminalID, failure: lastFailure)
             }
             try await attachmentClock.sleep(for: delay)
@@ -211,9 +242,12 @@ extension CmuxTuiSurfaceProvider {
         _ sessions: [CloudTuiManualMirrorSession],
         socketPath: String,
         link: CloudMachineLink
-    ) async -> [String: CloudTuiSurfaceIDResolution] {
+    ) async -> [ObjectIdentifier: CloudTuiSurfaceIDResolution] {
         let resolver = CloudTerminalAttachmentResolver(machineID: machineID, commandRunner: link, socketPath: socketPath)
-        let sessionsByTerminal = Dictionary(grouping: sessions, by: \.terminalID)
+        let sessionTabs = Dictionary(uniqueKeysWithValues: manualMirrorSessions.compactMap { panelID, session in
+            catalog.projection(forPanel: panelID)?.remoteTabID.map { (ObjectIdentifier(session), $0) }
+        })
+        let sessionsByTerminal = Dictionary(grouping: sessions.filter { sessionTabs[ObjectIdentifier($0)] == nil }, by: \.terminalID)
         var resolutions = await resolver.resolve(terminalIDs: Set(sessionsByTerminal.keys))
         let terminalsWithoutPlacement: Set<String> = Set(
             sessions.compactMap { session in
@@ -245,7 +279,18 @@ extension CmuxTuiSurfaceProvider {
             }
             resolutions[terminalID] = await resolver.resolve(terminalID: terminalID)
         }
-        return resolutions
+        let currentTabs = Dictionary(uniqueKeysWithValues: manualMirrorSessions.compactMap { panelID, session in
+            catalog.projection(forPanel: panelID)?.remoteTabID.map { (ObjectIdentifier(session), $0) }
+        })
+        let terminalByTab = Dictionary(sessions.compactMap { session in
+            currentTabs[ObjectIdentifier(session)].map { ($0, session.terminalID) }
+        }, uniquingKeysWith: { first, _ in first })
+        let views = await CloudTerminalViewResolver(commandRunner: link, socketPath: socketPath).resolve(terminalByTab: terminalByTab)
+        return Dictionary(uniqueKeysWithValues: sessions.map { session in
+            let id = ObjectIdentifier(session)
+            let resolution = currentTabs[id].flatMap { views[$0] } ?? resolutions[session.terminalID] ?? .retryable("no resolution")
+            return (id, resolution)
+        })
     }
 
     /// Attaches a reserved pane to `resource` and keeps trying until it works.
@@ -261,7 +306,8 @@ extension CmuxTuiSurfaceProvider {
     func attachReservedTerminalPane(
         _ reservation: CloudTerminalPaneReservation,
         resource: SurfaceResource,
-        remoteTabID: String?
+        remoteTabID: String?,
+        restoring: Bool = false
     ) {
         let panelID = reservation.panelID
         materializedPanels.insert(panelID)
@@ -270,7 +316,7 @@ extension CmuxTuiSurfaceProvider {
         reservation.retry = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks[panelID]?.cancel()
-            self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+            self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID, restoring: restoring)
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
@@ -289,12 +335,18 @@ extension CmuxTuiSurfaceProvider {
                     index: nil
                 )
                 do {
+                    // A prior attempt may have repaired the persisted tab before
+                    // attachment failed. Carry that receipt into the next round.
+                    let currentTabID = restoring
+                        ? self.catalog.projection(forPanel: panelID)?.remoteTabID ?? remoteTabID
+                        : remoteTabID
                     let materialized = try await self.materializeManualMirrorTerminal(
                         resource,
-                        remoteTabID: remoteTabID,
+                        remoteTabID: currentTabID,
                         at: destination,
                         focus: false,
-                        adopting: reservation
+                        adopting: reservation,
+                        restoringPanelID: restoring ? reservation.panelID : nil
                     )
                     guard !Task.isCancelled, self.isCurrentLifecycleGeneration(generation) else {
                         self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()

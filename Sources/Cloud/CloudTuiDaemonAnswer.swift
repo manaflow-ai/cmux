@@ -73,6 +73,19 @@ enum CloudTuiDaemonAnswer: Equatable, Sendable {
         }
     }
 
+    /// The resource CLI resolves selectors before testing the revision fence.
+    /// A raced deletion is therefore not necessarily a revision.conflict.
+    static func isMissingSelector(_ error: Error) -> Bool {
+        guard case let CloudMachineLink.LinkError.exited(_, output) = error else { return false }
+        return output.split(whereSeparator: \.isNewline).contains { line in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                  object["code"] as? String == "selector.not_found",
+                  let details = object["details"] as? [String: Any],
+                  details["scope"] is String, details["selector"] is String else { return false }
+            return true
+        }
+    }
+
     private static let unservableCodes: Set<String> = [
         "invalid_terminal_id", "terminal_not_found", "operation.unsupported",
     ]

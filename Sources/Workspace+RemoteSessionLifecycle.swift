@@ -232,6 +232,7 @@ extension Workspace {
             (panels[surfaceId] as? TerminalPanel)?.requestViewReattach()
             return session.retryConnection()
         }
+        if retryCloudTerminalMaterialization(surfaceID: surfaceId) { return true }
         guard isManagedCloudVMWorkspace,
               isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
             return false

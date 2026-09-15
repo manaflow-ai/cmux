@@ -36,6 +36,9 @@ struct CloudAttachmentReconcileDecisionTests {
         for phase in [CloudTuiManualMirrorPhase.attached, .disconnected, .connecting] {
             #expect(Decision.decide(phase: phase, resolution: .resolved(23)) == .rebind(surfaceID: 23))
             #expect(Decision.decide(phase: phase, resolution: .exited) == .exited)
+            let missing = Decision.decide(phase: phase, resolution: .retryable("tab removed", failure: .missingTab))
+            #expect(missing == .fence(.unresolved("tab removed")))
+            #expect(missing.needsRetry)
         }
     }
 }
