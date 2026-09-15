@@ -13017,6 +13017,61 @@
           }
         }
       }
+    },
+    "mobile.computers.section.suggestedRoutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggested Tailscale routes"
+          }
+        }
+      }
+    },
+    "mobile.computers.suggestedRoutes.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These addresses came from this Mac over the current authenticated connection. Add a group to enable it for Tailscale Only."
+          }
+        }
+      }
+    },
+    "mobile.computers.suggestedRoute.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale path"
+          }
+        }
+      }
+    },
+    "mobile.computers.suggestedRoute.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        }
+      }
+    },
+    "mobile.connections.route.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
