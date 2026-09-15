@@ -54,17 +54,21 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
         return request
     }
 
-    /// `POST /api/vm/tunnel` with this device's public key and fingerprint.
+    /// `POST /api/vm/tunnel` with the saved device ID and a separately keyed role.
     public func enrollTunnel(
         clientPublicKey: String,
+        deviceID: String,
         deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
         deviceName: String?,
         accessToken: String,
         refreshToken: String
     ) throws -> URLRequest {
         var body: [String: Any] = [
             "clientPublicKey": clientPublicKey,
+            "deviceId": deviceID,
             "deviceFingerprint": deviceFingerprint,
+            "tunnelPurpose": tunnelPurpose.rawValue,
         ]
         if let deviceName, !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["deviceName"] = deviceName

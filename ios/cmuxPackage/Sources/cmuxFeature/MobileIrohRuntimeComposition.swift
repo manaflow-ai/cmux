@@ -31,7 +31,7 @@ private actor MobileIrohForgetRaceGate {
 /// `UserDefaults` documents its API as thread-safe but does not conform to
 /// `Sendable`. Keep the unchecked boundary private and pass only this owner
 /// across the actor boundary.
-private final class MobileIrohSendableDefaults: @unchecked Sendable {
+final class MobileIrohSendableDefaults: @unchecked Sendable {
     let value: UserDefaults
 
     init(_ value: UserDefaults) {
@@ -44,7 +44,7 @@ private final class MobileIrohSendableDefaults: @unchecked Sendable {
 /// Keychain reads/writes, the defaults mirror, and the continuity probe all
 /// run on this actor's executor so activation never blocks app UI on Keychain
 /// service latency.
-private actor MobileIrohDurableDeviceIDResolver {
+actor MobileIrohDurableDeviceIDResolver {
     private let defaults: MobileIrohSendableDefaults
     private let appNamespace: MobileIOSAppNamespace
     private let keychainAccessGroup: String?

@@ -7,7 +7,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     struct Calls: Sendable {
         var list = 0
         var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
-        var enroll: [(publicKey: String, fingerprint: String, deviceName: String?)] = []
+        var enroll: [(publicKey: String, fingerprint: String, purpose: CloudTunnelPurpose, deviceName: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
     }
@@ -31,8 +31,8 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
         return try creation.get()
     }
 
-    func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, deviceName: String?) async throws -> CloudTunnelEnrollment {
-        lock.withLock { $0.enroll.append((clientPublicKey, deviceFingerprint, deviceName)) }
+    func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws -> CloudTunnelEnrollment {
+        lock.withLock { $0.enroll.append((clientPublicKey, deviceFingerprint, tunnelPurpose, deviceName)) }
         return try enrollment.get()
     }
 

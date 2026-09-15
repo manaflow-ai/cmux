@@ -47,7 +47,7 @@ import Testing
 
     @Test func enrollSendsOnlyThePublicKey() throws {
         let request = try builder.enrollTunnel(
-            clientPublicKey: "pub", deviceFingerprint: "ios-1", deviceName: "  ",
+            clientPublicKey: "pub", deviceID: "phone-1", deviceFingerprint: "ios-1", tunnelPurpose: .terminal, deviceName: "  ",
             accessToken: "acc", refreshToken: "ref"
         )
         #expect(request.url?.path == "/api/vm/tunnel")
@@ -56,19 +56,20 @@ import Testing
         #expect(json["clientPublicKey"] as? String == "pub")
         #expect(json["deviceFingerprint"] as? String == "ios-1")
         #expect(json["deviceName"] == nil)
-        #expect(json.keys.sorted() == ["clientPublicKey", "deviceFingerprint"])
+        #expect(json.keys.sorted() == ["clientPublicKey", "deviceFingerprint", "deviceId", "tunnelPurpose"])
     }
 
-    @Test func enrollmentCarriesTheCurrentServerRequiredIdentifiers() throws {
+    @Test(arguments: CloudTunnelPurpose.allCases)
+    func enrollmentCarriesTheCurrentServerRequiredIdentifiers(purpose: CloudTunnelPurpose) throws {
         let request = try builder.enrollTunnel(
-            clientPublicKey: "pub", deviceFingerprint: "ios-terminal", deviceName: "Phone",
+            clientPublicKey: "pub", deviceID: "saved-phone-id", deviceFingerprint: "ios-role", tunnelPurpose: purpose, deviceName: "Phone",
             accessToken: "acc", refreshToken: "ref"
         )
         let json = try body(request)
         // The deployed route rejects either missing field before it can enroll
         // a peer, so neither terminal access nor the OS consent flow can start.
-        #expect((json["deviceId"] as? String)?.isEmpty == false)
-        #expect(json["tunnelPurpose"] as? String == "terminal")
+        #expect(json["deviceId"] as? String == "saved-phone-id")
+        #expect(json["tunnelPurpose"] as? String == purpose.rawValue)
     }
 
     @Test func attachUsesCmuxRemoteTransportAndLongTimeout() throws {

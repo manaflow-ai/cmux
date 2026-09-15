@@ -33,6 +33,13 @@ struct MobileCloudComposition {
         )
         guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else { return nil }
         let coordinator = auth.coordinator
+        // Use the same durable device owner as Iroh. A locked Keychain must
+        // defer enrollment rather than minting another access grant.
+        let deviceIDResolver = MobileIrohDurableDeviceIDResolver(
+            defaults: MobileIrohSendableDefaults(.standard),
+            appNamespace: appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup
+        )
         let service = CloudVMService(
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
@@ -40,7 +47,8 @@ struct MobileCloudComposition {
                 refreshToken: { await coordinator.refreshToken() },
                 teamID: { await coordinator.resolvedTeamID },
                 coherentTokenPair: { try? await coordinator.coherentTokenPair() }
-            )
+            ),
+            deviceID: { await deviceIDResolver.resolve() }
         )
         // Unsigned simulator apps cannot use the data-protection Keychain (no
         // application-identifier entitlement), mirroring DeviceIdentityStore's

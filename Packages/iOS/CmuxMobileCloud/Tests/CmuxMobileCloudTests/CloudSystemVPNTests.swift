@@ -31,6 +31,7 @@ import Testing
         #expect(service.calls.enroll.count == 1)
         #expect(service.calls.enroll.first?.publicKey != terminalIdentity.keyPair.publicKey)
         #expect(service.calls.enroll.first?.fingerprint != terminalIdentity.fingerprint)
+        #expect(service.calls.enroll.first?.purpose == .browser)
         #expect(vpn.phase == .connecting)
         manager.report(.connected)
         #expect(vpn.phase == .connected)
@@ -52,6 +53,7 @@ import Testing
         vpn.enable()
         await vpn.waitForPendingOperation()
         #expect(vpn.phase == .failed(.permissionRequired))
+        #expect(CloudSystemVPNError.permissionRequired.offersSettingsRecovery)
         #expect(manager.configurations.count == 1)
         manager.report(.off)
         await vpn.refresh()
@@ -61,6 +63,25 @@ import Testing
         vpn.enable()
         await vpn.waitForPendingOperation()
         #expect(manager.configurations.count == 2)
+        #expect(vpn.phase == .connecting)
+    }
+
+    @Test func enrollmentFailureDoesNotOfferSettingsBeforeConsent() async {
+        let service = FakeCloudVMService()
+        service.enrollment = .failure(CloudAPIError.httpStatus(400, message: "deviceId is required."))
+        let manager = FakeSystemVPNManager()
+        let vpn = make(service, manager)
+        vpn.setScope("account/team")
+        await vpn.waitForPendingOperation()
+        vpn.enable()
+        await vpn.waitForPendingOperation()
+        #expect(vpn.phase == .failed(.enrollment))
+        #expect(!CloudSystemVPNError.enrollment.offersSettingsRecovery)
+        #expect(manager.configurations.isEmpty)
+        service.enrollment = .success(Fixtures.enrollment)
+        vpn.enable()
+        await vpn.waitForPendingOperation()
+        #expect(manager.configurations.count == 1)
         #expect(vpn.phase == .connecting)
     }
 

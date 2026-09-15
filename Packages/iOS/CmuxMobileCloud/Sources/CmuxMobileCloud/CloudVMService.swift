@@ -1,5 +1,6 @@
 public import Foundation
 import CMUXMobileCore
+import OSLog
 
 /// The live `/api/vm` client over a redirect-refusing, cookie-free session.
 public actor CloudVMService: CloudVMServing {
@@ -7,20 +8,25 @@ public actor CloudVMService: CloudVMServing {
     private let decoding = CloudAPIResponseDecoding()
     private let tokens: CloudAPITokenSource
     private let session: CmxCredentialedHTTPSession
+    private let deviceID: @Sendable () async -> String?
+    private let log = Logger(subsystem: "dev.cmux.ios", category: "cloud-api")
 
     /// Creates the service.
     /// - Parameters:
     ///   - baseURL: The cmux web API origin.
     ///   - tokens: Live Stack token source.
+    ///   - deviceID: Durable device-registry ID shared by both tunnel roles.
     ///   - sessionConfiguration: URL loading configuration; cookies and caches
     ///     are disabled by the credentialed session regardless.
     public init(
         baseURL: String,
         tokens: CloudAPITokenSource,
+        deviceID: @escaping @Sendable () async -> String?,
         sessionConfiguration: sending URLSessionConfiguration = .ephemeral
     ) {
         self.requests = CloudAPIRequestBuilder(baseURL: baseURL)
         self.tokens = tokens
+        self.deviceID = deviceID
         self.session = CmxCredentialedHTTPSession(configuration: sessionConfiguration)
     }
 
@@ -44,17 +50,27 @@ public actor CloudVMService: CloudVMServing {
     public func enrollTunnel(
         clientPublicKey: String,
         deviceFingerprint: String,
+        tunnelPurpose: CloudTunnelPurpose,
         deviceName: String?
     ) async throws -> CloudTunnelEnrollment {
         let (access, refresh) = try await credentials()
+        guard let deviceID = await deviceID()?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !deviceID.isEmpty else {
+            throw CloudDeviceIdentityResolver.Failure.storeUnavailable
+        }
+        log.info("Cloud enrollment started purpose=\(tunnelPurpose.rawValue, privacy: .public)")
         let data = try await send(requests.enrollTunnel(
             clientPublicKey: clientPublicKey,
+            deviceID: deviceID,
             deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
             deviceName: deviceName,
             accessToken: access,
             refreshToken: refresh
         ))
-        return try decoding.tunnelEnrollment(from: data)
+        let enrollment = try decoding.tunnelEnrollment(from: data)
+        log.info("Cloud enrollment succeeded purpose=\(tunnelPurpose.rawValue, privacy: .public)")
+        return enrollment
     }
 
     public func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
@@ -106,6 +122,7 @@ public actor CloudVMService: CloudVMServing {
             throw CloudAPIError.malformedResponse("non-HTTP response")
         }
         guard (200 ..< 300).contains(http.statusCode) else {
+            log.error("Cloud request rejected status=\(http.statusCode, privacy: .public) path=\(request.url?.path ?? "", privacy: .private)")
             throw CloudAPIError.httpStatus(http.statusCode, message: decoding.errorMessage(from: data))
         }
         return data

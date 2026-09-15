@@ -10,7 +10,7 @@ public protocol CloudVMServing: Sendable {
     /// The idempotency key makes a retry safe for paid provider creates.
     func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine
     /// Enroll this device's WireGuard peer. Idempotent per fingerprint.
-    func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, deviceName: String?) async throws
+    func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, tunnelPurpose: CloudTunnelPurpose, deviceName: String?) async throws
         -> CloudTunnelEnrollment
     /// Open a `cmux-remote` attach for `machineID`.
     func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint

@@ -94,6 +94,7 @@ public final class CloudSystemVPNController {
                 let enrollment = try await service.enrollTunnel(
                     clientPublicKey: identity.keyPair.publicKey,
                     deviceFingerprint: identity.fingerprint,
+                    tunnelPurpose: .browser,
                     deviceName: deviceName + " (system VPN)"
                 )
                 guard self.generation == generation, self.scope == scope else { return }

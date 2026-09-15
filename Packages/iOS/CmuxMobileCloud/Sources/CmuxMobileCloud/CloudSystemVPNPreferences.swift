@@ -1,6 +1,7 @@
 #if os(iOS)
 import Foundation
 import NetworkExtension
+import OSLog
 
 /// The iOS preference store and live VPN status are authoritative.
 @MainActor
@@ -11,6 +12,7 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
     private let keychain: CloudVPNConfigurationKeychain
     private var manager: NETunnelProviderManager?
     private var observation: Task<Void, Never>?
+    private let log = Logger(subsystem: "dev.cmux.ios", category: "cloud-system-vpn")
 
     public init(appBundleIdentifier: String, keychainAccessGroup: String) {
         providerID = appBundleIdentifier + ".tunnel"
@@ -68,13 +70,16 @@ public final class CloudSystemVPNPreferences: CloudSystemVPNManaging {
             manager.isOnDemandEnabled = false
             manager.onDemandRules = nil
             // Saving the first VPN configuration is what requests iOS consent.
+            log.info("Saving Cloud VPN preferences; iOS owns the consent prompt")
             try await manager.saveToPreferences()
             try await manager.loadFromPreferences()
             try manager.connection.startVPNTunnel()
+            log.info("Cloud VPN start requested")
             publishStatus()
         } catch {
             if let typed = error as? CloudSystemVPNError { throw typed }
             let ns = error as NSError
+            log.error("Cloud VPN setup failed domain=\(ns.domain, privacy: .public) code=\(ns.code, privacy: .public)")
             if ns.domain == NEVPNErrorDomain && ns.code == NEVPNError.configurationReadWriteFailed.rawValue {
                 throw CloudSystemVPNError.permissionRequired
             }

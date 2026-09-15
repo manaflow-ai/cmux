@@ -138,6 +138,7 @@ public final class CloudSessionController {
                 let enrollment = try await service.enrollTunnel(
                     clientPublicKey: identity.keyPair.publicKey,
                     deviceFingerprint: identity.fingerprint,
+                    tunnelPurpose: .terminal,
                     deviceName: deviceName
                 )
                 let config = try WireGuardQuickConfig.make(enrollment: enrollment, privateKey: identity.keyPair.privateKey)

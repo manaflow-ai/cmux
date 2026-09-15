@@ -46,6 +46,7 @@ import Testing
         #expect(service.calls.enroll.count == 1)
         #expect(service.calls.enroll[0].publicKey == identity.keyPair.publicKey)
         #expect(service.calls.enroll[0].fingerprint == identity.fingerprint)
+        #expect(service.calls.enroll[0].purpose == .terminal)
         #expect(service.calls.enroll[0].deviceName == "Lawrence's iPhone")
         #expect(starter.startedConfigs.count == 1)
         #expect(starter.startedConfigs[0].contains("PrivateKey = \(identity.keyPair.privateKey)"))

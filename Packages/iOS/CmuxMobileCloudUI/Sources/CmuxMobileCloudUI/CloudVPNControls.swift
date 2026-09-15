@@ -13,7 +13,7 @@ struct CloudVPNControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(L10n.string("mobile.cloud.vpn.explanation", defaultValue: "Let Safari and other apps reach your Cloud machine's private ports. Terminal access already works inside cmux."))
+            Text(L10n.string("mobile.cloud.vpn.explanation", defaultValue: "Let Safari and other apps reach your Cloud machine's private ports. The cmux terminal does not require system VPN."))
             Text(L10n.string("mobile.cloud.vpn.notice", defaultValue: "iOS will ask permission to add a VPN. Only Cloud private addresses use it. This may replace another active VPN."))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -32,24 +32,37 @@ struct CloudVPNControls: View {
             case .disconnecting:
                 ProgressView(L10n.string("mobile.cloud.vpn.disconnecting", defaultValue: "Disconnecting system VPN"))
             case .failed(let error):
-                Text(error == .unavailable
-                     ? L10n.string("mobile.cloud.vpn.deviceRequired", defaultValue: "System VPN requires a physical iPhone or iPad.")
-                     : L10n.string("mobile.cloud.vpn.failed", defaultValue: "System VPN could not start. If you declined permission, try again and tap Allow."))
+                Text(failureMessage(error))
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("CloudVPNFailure")
                 Button(L10n.string("mobile.cloud.vpn.retry", defaultValue: "Try again"), action: enable)
                     .accessibilityIdentifier("CloudVPNRetry")
-                Button(L10n.string("mobile.cloud.vpn.settings", defaultValue: "Open Settings")) {
-                    guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                    openURL(url)
+                if error.offersSettingsRecovery {
+                    Button(L10n.string("mobile.cloud.vpn.settings", defaultValue: "Open app settings")) {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        openURL(url)
+                    }
+                    .accessibilityIdentifier("CloudVPNSettings")
+                    Text(L10n.string("mobile.cloud.vpn.recovery", defaultValue: "VPN controls are outside the app's settings. Open Settings > General > VPN & Device Management > VPN. If cmux Cloud is missing, return here and try again to add it."))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-                .accessibilityIdentifier("CloudVPNSettings")
-                Text(L10n.string("mobile.cloud.vpn.recovery", defaultValue: "In Settings, go to General > VPN & Device Management > VPN. If cmux Cloud is missing, return here and try again to add it."))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .buttonStyle(.bordered)
+    }
+
+    private func failureMessage(_ error: CloudSystemVPNError) -> String {
+        switch error {
+        case .unavailable:
+            L10n.string("mobile.cloud.vpn.deviceRequired", defaultValue: "System VPN requires a physical iPhone or iPad.")
+        case .enrollment:
+            L10n.string("mobile.cloud.vpn.enrollmentFailed", defaultValue: "Cloud could not register this device. Try again to continue VPN setup.")
+        case .permissionRequired:
+            L10n.string("mobile.cloud.vpn.permissionRequired", defaultValue: "iOS could not save the VPN configuration. Try again to request permission.")
+        case .configuration:
+            L10n.string("mobile.cloud.vpn.failed", defaultValue: "System VPN could not start. Try again or check the VPN configuration in Settings.")
+        }
     }
 }
 #endif
