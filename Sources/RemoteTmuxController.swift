@@ -408,10 +408,10 @@ final class RemoteTmuxController {
         // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
         // ssh-tmux transport has no relay, so a local path would be dead on the
         // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
-        // Env push exists only on the dedicated control connection; a multiplexed
-        // channel shares one connection whose environment is per-attach, so the
-        // cast skipping it matches what the transport can actually do.
-        (connection as? RemoteTmuxControlConnection)?.setMirrorEnvironment([
+        // A multiplexed channel publishes the same pairs into its own real session
+        // rather than the hidden view session the shared stream is attached to; see
+        // ``RemoteTmuxSessionChannel/setMirrorEnvironment(_:)``.
+        connection.setMirrorEnvironment([
             "CMUX_WORKSPACE_ID": workspace.id.uuidString,
             "CMUX_TAB_ID": workspace.id.uuidString,
         ])
@@ -544,10 +544,6 @@ final class RemoteTmuxController {
             defaultValue: "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
         )
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        // A modal in the test host has nobody to dismiss it: `runModal` never returns and the
-        // whole run wedges, and a sheet would still put a dialog on whoever's screen the host
-        // opened on. The log line above is the report under test.
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         if let window = manager.window ?? NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {
