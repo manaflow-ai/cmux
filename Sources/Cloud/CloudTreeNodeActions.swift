@@ -397,8 +397,7 @@ struct CloudTreeNodeActions {
         return name.isEmpty ? hostName : name
     }
 
-    /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
-    /// preferred name its own sidebar row shows), never the raw provider VM
+    /// The machine's friendly label — `SurfaceMachineInfo.name`, never the raw provider VM
     /// id. Shared by every caller that needs a machine's name in
     /// user-visible text (progress labels, a compound workspace title).
     static func resolvedMachineName(_ machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> String {
@@ -419,6 +418,7 @@ struct CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         name: String?,
         focus: Bool,
+        preferredTabManager: TabManager? = nil,
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
@@ -456,7 +456,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .appOptimistic
+            host: .appOptimisticPinned(to: preferredTabManager)
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,

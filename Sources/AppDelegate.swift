@@ -621,6 +621,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        /// The Machines tree selection and machine context owned by this window.
+        var cloudTreeSelection = CloudTreeSelection.empty
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -8434,20 +8436,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    @discardableResult
-    func performNewWorkspaceAction(
-        tabManager preferredTabManager: TabManager? = nil,
-        event: NSEvent? = nil,
-        debugSource: String = "newWorkspace"
-    ) -> Bool {
-        performNewWorkspaceCreationAction(
-            initialSurface: .terminal,
-            preferredTabManager: preferredTabManager,
-            event: event,
-            debugSource: debugSource
-        )
-    }
-
     /// Creates a new workspace whose initial surface is a browser pane in its
     /// default new-tab state with the address bar focused. Shares the window
     /// routing, placement, and naming semantics of `performNewWorkspaceAction`.
@@ -8614,11 +8602,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func performNewWorkspaceCreationAction(
+    func performNewWorkspaceCreationAction(
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
         event: NSEvent?,
         debugSource: String,
+        skipConfiguredAction: Bool = false,
         title: String? = nil,
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
@@ -8699,6 +8688,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
+           !skipConfiguredAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -9432,6 +9422,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             placement: configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
+    }
+
+    func cloudWorkspaceGroupDestination(in context: MainWindowContext, machineID: String) -> CloudWorkspaceGroupDestination? {
+        guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID, let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+        return CloudWorkspaceGroupDestination(tabManager: context.tabManager, groupId: group.groupId, placement: group.placement, referenceWorkspaceId: group.referenceWorkspaceId, initialWorkspaceId: nil)
     }
 
     private func closeInitialWorkspaceIfNeeded(
@@ -17623,9 +17618,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
-                onExecuted?()
-                return true
+                let didStart = performNewWorkspaceAction(
+                    tabManager: context.tabManager,
+                    debugSource: "configured.cmux.newWorkspace",
+                    skipConfiguredAction: true
+                )
+                if didStart { onExecuted?() }
+                return didStart
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .cloudVM:
                 let didStart = performCloudVMAction(

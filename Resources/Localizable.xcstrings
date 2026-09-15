@@ -1004,6 +1004,57 @@
         }
       }
     },
+    "cloudWorkspace.creation.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t create Cloud workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペースを作成できませんでした"
+          }
+        }
+      }
+    },
+    "cloudWorkspace.creation.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace could not be created on %@. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にワークスペースを作成できませんでした。%@"
+          }
+        }
+      }
+    },
+    "cloudWorkspace.creation.failed.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected Cloud machine is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した Cloud マシンは利用できません。"
+          }
+        }
+      }
+    },
     "cloudTree.attachmentFailure.transportUnavailable": {
       "extractionState": "manual",
       "localizations": {
