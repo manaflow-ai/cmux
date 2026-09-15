@@ -21,6 +21,11 @@ extension V2ControlService {
 
     func scheduleMaintenance(run: UUID) {
         guard runID == run, status == .ready else { return }
+#if DEBUG
+        if let interval = verificationRenewalInterval, nextVerificationRenewalAt == nil {
+            nextVerificationRenewalAt = dependencies.now().addingTimeInterval(interval)
+        }
+#endif
         renewalTask?.cancel()
         renewalTask = Task { [weak self] in await self?.maintain(run: run) }
     }
@@ -31,26 +36,39 @@ extension V2ControlService {
             let ticketDue = due(cache.ticket?.refreshAfter, schema: "ticket.request.v1", now: now)
             let relayDue = due(cache.relayCredentials.map(\.refreshAfter).min(), schema: "relay.request.v1", now: now)
             let directoryDue = due(cache.directory.map { $0.permissionExpiresAt - 300 }, schema: "directory.request.v1", now: now)
-            let next = min(ticketDue, relayDue, directoryDue)
+#if DEBUG
+            let verificationDue = nextVerificationRenewalAt?.timeIntervalSince1970 ?? .infinity
+#else
+            let verificationDue = TimeInterval.infinity
+#endif
+            let next = min(ticketDue, relayDue, directoryDue, verificationDue)
             do { try await dependencies.sleep(max(0, next - now)) }
             catch { return }
             guard runID == run, !Task.isCancelled, (socket != nil || httpMode) else { return }
             let deadline = dependencies.now().timeIntervalSince1970 + 0.1
+#if DEBUG
+            let forceVerification = verificationDue <= deadline
+            if forceVerification, let interval = verificationRenewalInterval {
+                nextVerificationRenewalAt = dependencies.now().addingTimeInterval(interval)
+            }
+#else
+            let forceVerification = false
+#endif
             // Independent refreshes share the same socket but no peer teardown path.
             await withTaskGroup(of: Void.self) { group in
-                if ticketDue <= deadline {
+                if ticketDue <= deadline || forceVerification {
                     group.addTask {
                         do { _ = try await self.refreshAPITicket() }
                         catch { await self.maintenanceFailed(error, schema: "ticket.request.v1", run: run) }
                     }
                 }
-                if relayDue <= deadline {
+                if relayDue <= deadline || forceVerification {
                     group.addTask {
                         do { _ = try await self.refreshRelayCredentials() }
                         catch { await self.maintenanceFailed(error, schema: "relay.request.v1", run: run) }
                     }
                 }
-                if directoryDue <= deadline {
+                if directoryDue <= deadline || forceVerification {
                     group.addTask {
                         do { _ = try await self.refreshDirectory() }
                         catch { await self.maintenanceFailed(error, schema: "directory.request.v1", run: run) }

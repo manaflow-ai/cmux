@@ -43,6 +43,14 @@ public actor V2ControlService {
     var directorySyncTaskID: UUID?
     var authTaskID: UUID?
     var wantedDirectoryRevision: Int = 0
+#if DEBUG
+    var verificationRenewalInterval: TimeInterval? {
+        guard let raw = ProcessInfo.processInfo.environment["CMUX_IROH_V2_VERIFY_RENEW_INTERVAL_SECONDS"],
+              let seconds = TimeInterval(raw), seconds >= 30, seconds <= 900 else { return nil }
+        return seconds
+    }
+    var nextVerificationRenewalAt: Date?
+#endif
 
     struct Pending {
         let attemptID: UUID
@@ -184,6 +192,9 @@ public actor V2ControlService {
         relayTask = nil
         authTask?.cancel()
         authTask = nil
+#if DEBUG
+        nextVerificationRenewalAt = nil
+#endif
     }
 
     func finishAll(throwing error: any Error) {
