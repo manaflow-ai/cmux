@@ -95,3 +95,15 @@ func newInteractionStartsWithScrollPriorityAfterIdle() {
     lock.lock(); let observedOrder = order; lock.unlock()
     #expect(observedOrder.suffix(2).first == "new-scroll")
 }
+
+@Test("geometry mutation advances the generation even at unchanged dimensions")
+func geometryMutationAdvancesGenerationAtUnchangedDimensions() {
+    let workQueue = GhosttySurfaceWorkQueue(generation: 4)
+    let initial = workQueue.noteObservedGrid(columns: 80, rows: 24)
+    workQueue.gridGenerationAtLastRenderGridApply = initial
+
+    workQueue.markGridMutation()
+
+    #expect(workQueue.observedGridGeneration == initial + 1)
+    #expect(workQueue.gridGenerationAtLastRenderGridApply != workQueue.observedGridGeneration)
+}
