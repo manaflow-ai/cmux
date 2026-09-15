@@ -176,7 +176,7 @@ public final class CloudMachineConnection {
                     return
                 }
             } catch let error as CloudAPIError {
-                if case .httpStatus(404, _) = error { return }
+                if case .httpStatus(404, _, _) = error { return }
             } catch {
                 continue
             }

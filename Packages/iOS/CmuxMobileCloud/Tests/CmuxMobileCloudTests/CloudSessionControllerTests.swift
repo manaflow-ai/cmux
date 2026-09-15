@@ -140,7 +140,7 @@ import Testing
 
     @Test func enrollFailureBecomesFailedPhaseAndRetryReenrolls() async {
         let service = FakeCloudVMService()
-        service.enrollment = .failure(CloudAPIError.httpStatus(503, message: "provider down"))
+        service.enrollment = .failure(CloudAPIError.httpStatus(503, message: "provider down", action: nil))
         let controller = makeController(service: service)
         controller.sectionDidAppear()
         await settle { if case .failed = controller.tunnel { return true } else { return false } }

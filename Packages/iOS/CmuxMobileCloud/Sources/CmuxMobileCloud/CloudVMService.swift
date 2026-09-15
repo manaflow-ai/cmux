@@ -31,9 +31,13 @@ public actor CloudVMService: CloudVMServing {
     }
 
     public func listMachines() async throws -> [CloudMachine] {
+        try await listMachineCatalog().machines
+    }
+
+    public func listMachineCatalog() async throws -> CloudMachineCatalog {
         let (access, refresh) = try await credentials()
         let data = try await send(requests.listMachines(accessToken: access, refreshToken: refresh))
-        return try decoding.machines(from: data)
+        return try decoding.catalog(from: data)
     }
 
     public func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
@@ -123,7 +127,8 @@ public actor CloudVMService: CloudVMServing {
         }
         guard (200 ..< 300).contains(http.statusCode) else {
             log.error("Cloud request rejected status=\(http.statusCode, privacy: .public) path=\(request.url?.path ?? "", privacy: .private)")
-            throw CloudAPIError.httpStatus(http.statusCode, message: decoding.errorMessage(from: data))
+            let envelope = decoding.errorEnvelope(from: data)
+            throw CloudAPIError.httpStatus(http.statusCode, message: envelope.message, action: envelope.action)
         }
         return data
     }

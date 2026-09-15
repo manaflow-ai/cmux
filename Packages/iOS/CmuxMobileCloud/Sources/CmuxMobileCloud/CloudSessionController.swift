@@ -18,6 +18,8 @@ public final class CloudSessionController {
     public private(set) var tunnel: CloudTunnelPhase = .idle
     /// The account's machines.
     public private(set) var machines: CloudListPhase<CloudMachine> = .idle
+    /// The kinds the current deployment can create, when the API reports them.
+    public private(set) var availableMachineKinds: Set<CloudMachineKind>?
     /// Whether a new machine is being provisioned.
     public private(set) var isCreatingMachine = false
     /// The latest create failure, shown beside the create action.
@@ -185,9 +187,10 @@ public final class CloudSessionController {
         listTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let rows = try await service.listMachines()
+                let catalog = try await service.listMachineCatalog()
                 guard !Task.isCancelled else { return }
-                self.machines = .loaded(rows)
+                self.availableMachineKinds = catalog.availableKinds
+                self.machines = .loaded(catalog.machines)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.machines = .failed(CloudSessionFailure.classify(error, stage: .list), previous: self.machines.elements)

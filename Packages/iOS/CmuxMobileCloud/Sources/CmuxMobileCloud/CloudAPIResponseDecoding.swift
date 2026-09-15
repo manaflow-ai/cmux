@@ -10,11 +10,16 @@ public struct CloudAPIResponseDecoding: Sendable {
 
     /// `GET /api/vm` → the `vms` array.
     public func machines(from data: Data) throws -> [CloudMachine] {
+        try catalog(from: data).machines
+    }
+
+    /// `GET /api/vm` including the server-authoritative create capabilities.
+    public func catalog(from data: Data) throws -> CloudMachineCatalog {
         let object = try jsonObject(data)
         guard let items = object["vms"] as? [[String: Any]] else {
             throw CloudAPIError.malformedResponse("missing `vms` array")
         }
-        return try items.enumerated().map { index, dict in
+        let machines = try items.enumerated().map { index, dict in
             guard let id = dict["id"] as? String, !id.isEmpty,
                   let provider = dict["provider"] as? String, !provider.isEmpty else {
                 throw CloudAPIError.malformedResponse("machine \(index) is missing id or provider")
@@ -24,6 +29,17 @@ public struct CloudAPIResponseDecoding: Sendable {
             let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             return CloudMachine(id: id, provider: provider, status: status, displayName: displayName)
         }
+        let availableKinds: Set<CloudMachineKind>?
+        if let limits = object["limits"] as? [String: Any],
+           let entries = limits["imageKinds"] as? [[String: Any]] {
+            availableKinds = Set(entries.compactMap { entry in
+                guard let raw = entry["kind"] as? String else { return nil }
+                return CloudMachineKind(rawValue: raw)
+            })
+        } else {
+            availableKinds = nil
+        }
+        return CloudMachineCatalog(machines: machines, availableKinds: availableKinds)
     }
 
     /// `POST /api/vm` → the newly created machine.
@@ -93,10 +109,18 @@ public struct CloudAPIResponseDecoding: Sendable {
         return (object["approved"] as? Bool) ?? false
     }
 
+    /// The server's safe error copy from an error body, if any.
+    public func errorEnvelope(from data: Data) -> (message: String?, action: String?) {
+        guard let object = try? jsonObject(data) else { return (nil, nil) }
+        return (
+            (object["message"] as? String) ?? (object["error"] as? String),
+            object["action"] as? String
+        )
+    }
+
     /// The server's `message` or `error` field from an error body, if any.
     public func errorMessage(from data: Data) -> String? {
-        guard let object = try? jsonObject(data) else { return nil }
-        return (object["message"] as? String) ?? (object["error"] as? String)
+        errorEnvelope(from: data).message
     }
 
     private func jsonObject(_ data: Data) throws -> [String: Any] {

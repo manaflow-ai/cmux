@@ -68,7 +68,7 @@ import Testing
 
     @Test func enrollmentFailureDoesNotOfferSettingsBeforeConsent() async {
         let service = FakeCloudVMService()
-        service.enrollment = .failure(CloudAPIError.httpStatus(400, message: "deviceId is required."))
+        service.enrollment = .failure(CloudAPIError.httpStatus(400, message: "deviceId is required.", action: nil))
         let manager = FakeSystemVPNManager()
         let vpn = make(service, manager)
         vpn.setScope("account/team")

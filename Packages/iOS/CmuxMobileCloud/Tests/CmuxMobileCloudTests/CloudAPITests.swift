@@ -115,6 +115,19 @@ import Testing
         #expect(machines[0].isRunning)
     }
 
+    @Test func decodesAvailableMachineKindsFromLimits() throws {
+        let catalog = try decoding.catalog(from: Data("""
+        {"vms":[],"limits":{"imageKinds":[{"kind":"base","image":"base-image"}]}}
+        """.utf8))
+        #expect(catalog.machines.isEmpty)
+        #expect(catalog.availableKinds == [.base])
+    }
+
+    @Test func toleratesServersWithoutMachineKindCapabilities() throws {
+        let catalog = try decoding.catalog(from: Data(#"{"vms":[]}"#.utf8))
+        #expect(catalog.availableKinds == nil)
+    }
+
     @Test func decodesCreatedMachine() throws {
         let machine = try decoding.createdMachine(from: Data(#"{"id":"vm-new","provider":"freestyle","status":"provisioning","displayName":"phone"}"#.utf8))
         #expect(machine == CloudMachine(id: "vm-new", provider: "freestyle", status: "provisioning", displayName: "phone"))
@@ -154,6 +167,12 @@ import Testing
         #expect(decoding.errorMessage(from: Data("nope".utf8)) == nil)
     }
 
+    @Test func readsServerRecoveryAction() {
+        let envelope = decoding.errorEnvelope(from: Data(#"{"error":"vm_image_config_error","message":"No desktop image","action":"Choose Base or ask an admin to promote a desktop image."}"#.utf8))
+        #expect(envelope.message == "No desktop image")
+        #expect(envelope.action == "Choose Base or ask an admin to promote a desktop image.")
+    }
+
     @Test(arguments: ["true", "false", "null"])
     func decodesExplicitCarrierTrust(value: String) throws {
         let data = Data("""
@@ -176,8 +195,8 @@ import Testing
 @Suite struct CloudSessionFailureTests {
     @Test func classifiesAPIErrors() {
         #expect(CloudSessionFailure.classify(CloudAPIError.notSignedIn, stage: .list).kind == .signedOut)
-        #expect(CloudSessionFailure.classify(CloudAPIError.httpStatus(401, message: nil), stage: .tunnel).kind == .signedOut)
-        #expect(CloudSessionFailure.classify(CloudAPIError.httpStatus(503, message: "down"), stage: .tunnel).kind == .controlPlane(status: 503))
+        #expect(CloudSessionFailure.classify(CloudAPIError.httpStatus(401, message: nil, action: nil), stage: .tunnel).kind == .signedOut)
+        #expect(CloudSessionFailure.classify(CloudAPIError.httpStatus(503, message: "down", action: "Try again"), stage: .tunnel).action == "Try again")
         #expect(CloudSessionFailure.classify(CloudDeviceIdentityResolver.Failure.storeUnavailable, stage: .tunnel).kind == .identity)
         #expect(CloudSessionFailure.classify(StubError(message: "x"), stage: .tunnel).kind == .tunnel)
         #expect(CloudSessionFailure.classify(StubError(message: "x"), stage: .link).kind == .link)

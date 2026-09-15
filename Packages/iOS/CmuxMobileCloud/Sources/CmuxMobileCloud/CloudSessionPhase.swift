@@ -61,11 +61,14 @@ public struct CloudSessionFailure: Error, Sendable, Equatable {
     public var kind: Kind
     /// The underlying error's description, for diagnostics.
     public var detail: String
+    /// A server-provided recovery instruction, when available.
+    public var action: String?
 
     /// Creates a failure.
-    public init(kind: Kind, detail: String) {
+    public init(kind: Kind, detail: String, action: String? = nil) {
         self.kind = kind
         self.detail = detail
+        self.action = action
     }
 
     /// Classifies an arbitrary error thrown during `stage`.
@@ -73,9 +76,9 @@ public struct CloudSessionFailure: Error, Sendable, Equatable {
         if let api = error as? CloudAPIError {
             switch api {
             case .notSignedIn: return CloudSessionFailure(kind: .signedOut, detail: "not signed in")
-            case .httpStatus(let status, let message):
-                if status == 401 { return CloudSessionFailure(kind: .signedOut, detail: message ?? "401") }
-                return CloudSessionFailure(kind: .controlPlane(status: status), detail: message ?? "HTTP \(status)")
+            case .httpStatus(let status, let message, let action):
+                if status == 401 { return CloudSessionFailure(kind: .signedOut, detail: message ?? "401", action: action) }
+                return CloudSessionFailure(kind: .controlPlane(status: status), detail: message ?? "HTTP \(status)", action: action)
             case .invalidURL(let detail), .malformedResponse(let detail):
                 return CloudSessionFailure(kind: .other, detail: detail)
             }

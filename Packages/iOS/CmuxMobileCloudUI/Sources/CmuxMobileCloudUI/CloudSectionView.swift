@@ -36,7 +36,10 @@ public struct CloudSectionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { controller.refreshMachines() }
         .sheet(isPresented: $isCreateSheetPresented) {
-            CloudCreateMachineSheet(controller: controller)
+            CloudCreateMachineSheet(
+                controller: controller,
+                availableKinds: controller.availableMachineKinds
+            )
         }
     }
 
@@ -123,6 +126,7 @@ public struct CloudSectionView: View {
 /// shape and sends the request when the user confirms.
 struct CloudCreateMachineSheet: View {
     let controller: CloudSessionController
+    let availableKinds: Set<CloudMachineKind>?
     @Environment(\.dismiss) private var dismiss
     @State private var kind: CloudMachineKind = .base
 
@@ -139,6 +143,14 @@ struct CloudCreateMachineSheet: View {
                         }
                     }
                     .accessibilityIdentifier("CloudCreateMachineKind")
+                    if let availableKinds, !availableKinds.contains(kind) {
+                        Text(L10n.string(
+                            "mobile.cloud.create.kindUnavailable",
+                            defaultValue: "This machine type is not available in the current Cloud environment. Choose Base or ask an admin to publish its image."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                    }
                     Text(kindDescription(kind))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -159,13 +171,18 @@ struct CloudCreateMachineSheet: View {
                             }
                         }
                     }
-                    .disabled(controller.isCreatingMachine)
+                    .disabled(controller.isCreatingMachine || (availableKinds.map { !$0.contains(kind) } ?? false))
                     .accessibilityIdentifier("CloudCreateMachineSubmit")
 
                     if let failure = controller.lastCreateFailure {
                         Text(failure.localizedMessage)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        if let action = failure.action, !action.isEmpty {
+                            Text(action)
+                                .font(.footnote)
+                                .foregroundStyle(.primary)
+                        }
                         Text(failure.detail)
                             .font(.caption2.monospaced())
                             .foregroundStyle(.tertiary)
@@ -232,6 +249,11 @@ struct CloudFailureRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(failure.localizedMessage)
                 .foregroundStyle(.secondary)
+            if let action = failure.action, !action.isEmpty {
+                Text(action)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+            }
             // The underlying error, so a dogfooder can report the exact cause.
             Text(failure.detail)
                 .font(.caption2.monospaced())
