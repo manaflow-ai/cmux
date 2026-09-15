@@ -118,6 +118,49 @@ struct CloudInitialWorkspaceNamingTests {
         #expect(created.effectiveCustomTitleSource == .user)
     }
 
+    @Test("Creation completion selects only the initiating window workspace")
+    func completionSelectionStaysInInitiatingWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try #require(AppDelegate.shared)
+            let first = TabManager(autoWelcomeIfNeeded: false)
+            let second = TabManager(autoWelcomeIfNeeded: false)
+            let firstWindowID = app.registerMainWindowContextForTesting(tabManager: first)
+            let secondWindowID = app.registerMainWindowContextForTesting(tabManager: second)
+            defer {
+                app.unregisterMainWindowContextForTesting(windowId: firstWindowID)
+                app.unregisterMainWindowContextForTesting(windowId: secondWindowID)
+                for workspace in first.tabs + second.tabs {
+                    for panel in workspace.panels.values { panel.close() }
+                }
+            }
+            let target = try #require(first.addWorkspaceIfActive(
+                title: "Cloud VM", titleSource: .auto, select: false,
+                autoWelcomeIfNeeded: false
+            ))
+            let secondSelection = second.selectedTabId
+            let request = MachineCreateRequest(
+                mode: .newMachine, kind: .desktop, name: nil,
+                arguments: ["vm", "new", "--focus", "false"],
+                selectionWindowID: firstWindowID
+            )
+            let coordinator = MachineCreateCoordinator(
+                notifier: { _ in }, notificationCenter: NotificationCenter()
+            )
+            var completion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
+            #expect(coordinator.start(request, cancellableLaunch: { _, _, handler in
+                completion = handler
+                return CloudVMActionLauncher.CancellationHandle { }
+            }))
+            completion?(CloudVMActionLauncher.Completion(
+                terminationStatus: 0,
+                output: "OK workspace=\(target.id.uuidString)",
+                workspaceId: target.id
+            ))
+            #expect(first.selectedTabId == target.id)
+            #expect(second.selectedTabId == secondSelection)
+        }
+    }
+
     private func withUnboundFixture(_ body: (CloudNameAuthorityFixture) async throws -> Void) async throws {
         let fixture = try CloudNameAuthorityFixture()
         let previous = fixture.catalog.cloudWorkspaceRenameService
