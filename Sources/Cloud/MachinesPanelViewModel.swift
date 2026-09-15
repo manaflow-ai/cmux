@@ -273,6 +273,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshID: UUID?
     private var statsID: UUID?
     private let client: VMClient?
+    private let isCloudEnabled: @MainActor () -> Bool
     private let pollingClock: any Clock<Duration>
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
@@ -305,7 +306,9 @@ final class MachinesPanelViewModel: ObservableObject {
     let defaultMachineStore: DefaultCloudMachineStore?
 
     init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil,
-         client: VMClient? = nil, pollingClock: any Clock<Duration> = ContinuousClock()) {
+         client: VMClient? = nil, pollingClock: any Clock<Duration> = ContinuousClock(),
+         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled }) {
+        self.isCloudEnabled = isCloudEnabled
         self.client = client
         self.pollingClock = pollingClock
         self.defaultMachineStore = defaultMachineStore
@@ -329,7 +332,7 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.resetForAuthTransition() }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
-            isEnabled: { CloudMachinesFeature.isEnabled },
+            isEnabled: isCloudEnabled,
             didChange: { [weak self] enabled in
                 guard let self else { return }
                 if enabled, self.wantsPolling { self.startPolling() }
@@ -478,9 +481,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Older servers omitting the flag retain the desktop-only polling policy
     /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
-        guard CloudMachinesFeature.isEnabled else { return }
-        statsTask?.cancel()
-        guard let client = client ?? VMClient.shared else { return }
+        guard isCloudEnabled(), statsTask == nil, let client = client ?? VMClient.shared else { return }
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
         let requestID = UUID()
@@ -491,7 +492,7 @@ final class MachinesPanelViewModel: ObservableObject {
                     group.addTask { (id, (try? await client.stats(id: id)) ?? .unavailable()) }
                 }
                 for await (id, stats) in group {
-                    guard !Task.isCancelled, let self, self.statsID == requestID,
+                    guard !Task.isCancelled, let self, self.isCloudEnabled(), self.statsID == requestID,
                           let index = self.machines.firstIndex(where: { $0.id == id }),
                           self.machines[index].capabilities.stats else { continue }
                     // A failed sample is unavailable, never the last live value.
@@ -506,14 +507,14 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
     func refreshUsage() {
-        guard CloudMachinesFeature.isEnabled, usageTask == nil else { return }
+        guard isCloudEnabled(), usageTask == nil else { return }
         if let retryNotBefore = usageRetryNotBefore, retryNotBefore > Date() { return }
         guard let client = MachineUsageClient.shared else { return }
         usageTask = Task { [weak self] in
             defer { self?.usageTask = nil }
             do {
                 let usage = (try await client.teamUsage()).byMachineID
-                guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self else { return }
+                guard !Task.isCancelled, let self, self.isCloudEnabled() else { return }
                 self.usageFailureCount = 0; self.usageRetryNotBefore = nil
                 self.applyUsage(usage)
             } catch is CancellationError { return } catch {
@@ -541,7 +542,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// alone is not enough to prevent stale rows or follow-up work.
     private var refreshGeneration: UInt64 = 0
     func refresh() {
-        guard CloudMachinesFeature.isEnabled else { return }
+        guard isCloudEnabled() else { return }
         guard refreshTask == nil else {
             refreshRequestedWhileLoading = true
             return
@@ -566,7 +567,7 @@ final class MachinesPanelViewModel: ObservableObject {
     func startPolling() {
         wantsPolling = true
         isVisible = true
-        guard CloudMachinesFeature.isEnabled else {
+        guard isCloudEnabled() else {
             pausePolling()
             return
         }
@@ -688,7 +689,7 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
-        guard CloudMachinesFeature.isEnabled else {
+        guard isCloudEnabled() else {
             isLoading = false
             return
         }
