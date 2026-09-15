@@ -1,9 +1,20 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
+        !isFeatureSuspended && lifecycleGeneration == generation
+    }
+    /// The generation to capture before detached work that touches panes.
+    var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
+    func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
+        !isFeatureSuspended && lifecycleGeneration == lifecycle
+            && refreshGeneration == refresh
+            && isRegisteredInCatalog()
+    }
+
     /// Suspended work cannot publish through a replacement provider.
     func isRegisteredInCatalog() -> Bool {
-        guard let current = catalog.provider(for: machine) else { return false }
+        guard !isFeatureSuspended, let current = catalog.provider(for: machine) else { return false }
         return ObjectIdentifier(current) == ObjectIdentifier(self)
     }
 

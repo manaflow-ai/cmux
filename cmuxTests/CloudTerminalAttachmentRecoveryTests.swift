@@ -129,10 +129,10 @@ import Testing
         )
         defer { session.stop() }
         session.reconnect(socketPath: fixture.socketPath)
+        #expect(session.phase == .connecting)
 
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
-        #expect(session.phase == .connecting)
 
         #expect(await Self.waitUntil { session.phase == .disconnected })
         #expect(reconnects.count >= 1)
