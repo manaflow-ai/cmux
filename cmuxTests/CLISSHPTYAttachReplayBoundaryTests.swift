@@ -8,41 +8,121 @@ import Testing
 struct CLISSHPTYAttachReplayBoundaryTests {
     @Test
     func inputTypedDuringReplayIsDiscardedBeforeForwarding() throws {
+        // The CLI writes bridge output to the terminal only after every setup
+        // step that precedes replay, so the mode seen once the replay head is
+        // on screen is the mode the attach holds until the replay completes.
+        let replayHead = "remote-"
+        let replayTail = "prompt$ "
+        let releaseReplayTail = DispatchSemaphore(value: 0)
+        let forwardedCaptured = DispatchSemaphore(value: 0)
+        let finishBridge = DispatchSemaphore(value: 0)
+        let forwarded = ForwardedInput()
+
+        try withSSHPTYAttach(requireExisting: true) { bridge in
+            guard bridge.sendReady(replayBytes: (replayHead + replayTail).utf8.count),
+                  bridge.send(replayHead),
+                  bridge.wait(for: releaseReplayTail),
+                  bridge.send(replayTail) else { return }
+            // The CLI forwards input in order, so a leaked line typed during
+            // replay would arrive here ahead of the safe one.
+            forwarded.append(bridge.receive(timeoutMilliseconds: 5_000) { $0.contains(0x0A) })
+            forwardedCaptured.signal()
+            _ = bridge.wait(for: finishBridge)
+        } body: { attach in
+            try #require(attach.output.waitForOutput(containing: replayHead))
+            // Mid-replay, signal keys stay live and typed bytes stay local.
+            #expect(isDisconnectedMode(fd: attach.slaveFD))
+            try #require(attach.write("dangerous-command\n"))
+
+            releaseReplayTail.signal()
+            try #require(waitUntil { isRawForwardingMode(fd: attach.slaveFD) })
+            try #require(attach.write("safe-command\n"))
+            try #require(forwardedCaptured.wait(timeout: .now() + 10) == .success)
+            #expect(forwarded.text == "safe-command\n", Comment(rawValue: forwarded.text))
+
+            finishBridge.signal()
+            try #require(attach.waitForExit())
+            #expect(attach.process.terminationStatus == 0, Comment(rawValue: attach.stderrText))
+            #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
+        }
+    }
+
+    @Test
+    func freshAttachForwardsKeystrokesBeforeNewline() throws {
+        // A fresh attach declares no replay, so its first bridge output is
+        // live. The CLI writes it only after setting up terminal input, so
+        // the marker on screen means the attach has settled on its mode.
+        let liveMarker = "live-prompt$ "
+        let keystrokeWritten = DispatchSemaphore(value: 0)
+        let keystrokeChecked = DispatchSemaphore(value: 0)
+        let finishBridge = DispatchSemaphore(value: 0)
+        let forwarded = ForwardedInput()
+
+        try withSSHPTYAttach(requireExisting: false) { bridge in
+            guard bridge.sendReady(replayBytes: 0),
+                  bridge.send(liveMarker),
+                  bridge.wait(for: keystrokeWritten) else { return }
+            forwarded.append(bridge.receive(timeoutMilliseconds: 5_000) { $0.contains(UInt8(ascii: "k")) })
+            keystrokeChecked.signal()
+            _ = bridge.wait(for: finishBridge)
+        } body: { attach in
+            try #require(attach.output.waitForOutput(containing: liveMarker))
+            #expect(isRawForwardingMode(fd: attach.slaveFD))
+
+            // Raw forwarding hands each keystroke to the bridge immediately.
+            // Canonical mode would echo it locally and hold it until a newline.
+            try #require(attach.write("k"))
+            keystrokeWritten.signal()
+            try #require(keystrokeChecked.wait(timeout: .now() + 10) == .success)
+            #expect(forwarded.text == "k", Comment(rawValue: forwarded.text))
+            #expect(isRawForwardingMode(fd: attach.slaveFD))
+
+            finishBridge.signal()
+            try #require(attach.waitForExit())
+            #expect(attach.process.terminationStatus == 0, Comment(rawValue: attach.stderrText))
+            #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
+        }
+    }
+
+    private final class BundleToken {}
+
+    /// Runs one `ssh-pty-attach` on a pty against a mock control socket and a
+    /// scripted bridge, then hands the running CLI to `body`.
+    ///
+    /// Each resource is released by its own `defer`, so on every exit path the
+    /// CLI is reaped first, then the control socket, bridge, and output drain
+    /// it may still be using are stopped, and the pty closes last.
+    private func withSSHPTYAttach(
+        requireExisting: Bool,
+        bridgeScript: @escaping @Sendable (BridgeConnection) -> Void,
+        body: (AttachedCLI) throws -> Void
+    ) throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
-        let socketPath = makeSocketPath()
-        let controlListener = try bindUnixSocket(at: socketPath)
-        let bridgeListener = try bindLoopbackTCP()
+        let workspaceID = UUID().uuidString.lowercased()
+        let surfaceID = UUID().uuidString.lowercased()
+        let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
         guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
+        defer {
+            Darwin.close(masterFD)
+            Darwin.close(slaveFD)
+        }
+        let initialFlags = try #require(TerminalFlags(fd: slaveFD))
 
-        let ready = DispatchSemaphore(value: 0)
-        let dangerousWritten = DispatchSemaphore(value: 0)
-        let preReplayChecked = DispatchSemaphore(value: 0)
-        let allowReplay = DispatchSemaphore(value: 0)
-        let forwardedCaptured = DispatchSemaphore(value: 0)
-        let capturedURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-pty-replay-input-\(UUID().uuidString)")
-        try Data().write(to: capturedURL)
-        let workspaceID = "22222222-2222-2222-2222-222222222222"
-        let surfaceID = "33333333-3333-3333-3333-333333333333"
-        let lifecycleID = "44444444-4444-4444-4444-444444444444"
-        let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let output = try PTYOutputDrain(masterFD: masterFD)
+        defer { #expect(output.stop(), "pty output reader did not stop") }
 
-        let bridgeServer = try BridgeServer(
-            listener: bridgeListener,
-            replay: "remote-prompt$ ",
-            capturedURL: capturedURL,
-            ready: ready,
-            dangerousWritten: dangerousWritten,
-            preReplayChecked: preReplayChecked,
-            allowReplay: allowReplay,
-            forwardedCaptured: forwardedCaptured
-        )
+        let bridge = try BridgeServer(script: bridgeScript)
+        defer { #expect(bridge.stop(), "bridge server did not stop") }
+
+        let socketPath = makeSocketPath()
+        let controlListener = try bindUnixSocket(at: socketPath)
         let responder = ControlSocketResponder(
-            bridgePort: bridgeListener.port,
+            bridgePort: bridge.port,
             sessionID: sessionID,
             surfaceID: surfaceID
         )
@@ -56,17 +136,9 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             },
             onListenerClosed: {}
         )
-
         defer {
-            dangerousWritten.signal()
-            allowReplay.signal()
-            bridgeServer.stop()
             CLIMockAcceptLoopRegistry.shared.stop(listenerFD: controlListener)
-            if controlListener >= 0 { Darwin.close(controlListener) }
-            Darwin.close(bridgeListener.fd)
-            if masterFD >= 0 { Darwin.close(masterFD) }
-            if slaveFD >= 0 { Darwin.close(slaveFD) }
-            try? FileManager.default.removeItem(at: capturedURL)
+            Darwin.close(controlListener)
             unlink(socketPath)
         }
 
@@ -81,14 +153,14 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         let stderrPipe = Pipe()
         let processExited = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: cliPath)
-        process.arguments = [
-            "ssh-pty-attach",
-            "--require-existing",
-            "--workspace", workspaceID,
-            "--session-id", sessionID,
-            "--lifecycle-id", lifecycleID,
-            "--attachment-id", surfaceID,
-        ]
+        process.arguments = ["ssh-pty-attach"]
+            + (requireExisting ? ["--require-existing"] : [])
+            + [
+                "--workspace", workspaceID,
+                "--session-id", sessionID,
+                "--lifecycle-id", UUID().uuidString.lowercased(),
+                "--attachment-id", surfaceID,
+            ]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -98,40 +170,168 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         process.standardError = stderrPipe
         process.terminationHandler = { _ in processExited.signal() }
         try process.run()
-
-        // The bridge has acknowledged the attach, but has not released its
-        // declared historical replay prefix yet.
-        #expect(ready.wait(timeout: .now() + 5) == .success)
-        #expect(waitForTerminalPhase(fd: slaveFD, disconnected: true))
-        writeAll(fd: masterFD, string: "dangerous-command\n")
-        dangerousWritten.signal()
-        #expect(preReplayChecked.wait(timeout: .now() + 5) == .success)
-
-        let preReplayInput = try String(contentsOf: capturedURL, encoding: .utf8)
-        #expect(preReplayInput.isEmpty, Comment(rawValue: preReplayInput))
-
-        allowReplay.signal()
-        #expect(waitForTerminalPhase(fd: slaveFD, disconnected: false))
-        writeAll(fd: masterFD, string: "safe-command\n")
-        #expect(forwardedCaptured.wait(timeout: .now() + 5) == .success)
-
-        if process.isRunning {
-            _ = processExited.wait(timeout: .now() + 5)
+        defer {
+            if process.isRunning {
+                process.terminate()
+                if processExited.wait(timeout: .now() + 2) == .timedOut {
+                    kill(process.processIdentifier, SIGKILL)
+                    #expect(processExited.wait(timeout: .now() + 5) == .success, "ssh-pty-attach did not exit")
+                }
+            }
         }
-        if process.isRunning {
-            process.terminate()
-            _ = processExited.wait(timeout: .now() + 5)
-        }
-        let captured = try String(contentsOf: capturedURL, encoding: .utf8)
-        #expect(captured == "safe-command\n", Comment(rawValue: captured))
-        #expect(process.terminationStatus == 0, Comment(rawValue: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""))
+
+        try body(AttachedCLI(
+            masterFD: masterFD,
+            slaveFD: slaveFD,
+            initialFlags: initialFlags,
+            output: output,
+            process: process,
+            exited: processExited,
+            stderr: stderrPipe
+        ))
     }
 
-    private final class BundleToken {}
+    /// The running CLI and the test's side of its terminal.
+    private struct AttachedCLI {
+        let masterFD: Int32
+        let slaveFD: Int32
+        let initialFlags: TerminalFlags
+        let output: PTYOutputDrain
+        let process: Process
+        let exited: DispatchSemaphore
+        let stderr: Pipe
 
-    private struct LoopbackTCPListener: Sendable {
-        let fd: Int32
-        let port: Int
+        /// Types into the CLI's terminal.
+        func write(_ string: String) -> Bool {
+            cliMockWriteAll(string, to: masterFD)
+        }
+
+        func waitForExit() -> Bool {
+            exited.wait(timeout: .now() + 5) == .success
+        }
+
+        var stderrText: String {
+            String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        }
+    }
+
+    /// The termios mode flags, compared to confirm the CLI restored the
+    /// caller's terminal.
+    private struct TerminalFlags: Equatable {
+        let input: tcflag_t
+        let output: tcflag_t
+        let control: tcflag_t
+        let local: tcflag_t
+
+        init?(fd: Int32) {
+            var state = termios()
+            guard tcgetattr(fd, &state) == 0 else { return nil }
+            input = state.c_iflag
+            output = state.c_oflag
+            control = state.c_cflag
+            local = state.c_lflag
+        }
+    }
+
+    /// Bytes the mock bridge received from the CLI, shared with the test thread.
+    private final class ForwardedInput: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock()
+            data.append(chunk)
+            lock.unlock()
+        }
+
+        var text: String {
+            lock.lock()
+            defer { lock.unlock() }
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    /// Reads the CLI's terminal output the way a live terminal does, and keeps
+    /// it for tests to wait on. With no reader, a TCSAFLUSH mode change waits
+    /// forever for the pty output queue to drain.
+    ///
+    /// The reader thread owns a duplicate of the master and the read end of its
+    /// stop pipe and closes both itself, so a reader that outlives `stop()`
+    /// never touches a descriptor number the test has released.
+    private final class PTYOutputDrain: @unchecked Sendable {
+        private let stopWriteFD: Int32
+        private let finished = DispatchSemaphore(value: 0)
+        private let condition = NSCondition()
+        private var received = Data()
+
+        init(masterFD: Int32) throws {
+            let readerFD = dup(masterFD)
+            guard readerFD >= 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            var stopFDs: [Int32] = [-1, -1]
+            guard pipe(&stopFDs) == 0 else {
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(readerFD)
+                throw error
+            }
+            stopWriteFD = stopFDs[1]
+            let stopReadFD = stopFDs[0]
+            let thread = Thread { self.read(from: readerFD, stopFD: stopReadFD) }
+            thread.qualityOfService = QualityOfService.userInitiated
+            thread.start()
+        }
+
+        /// Waits until the terminal has received `text`.
+        func waitForOutput(containing text: String) -> Bool {
+            let needle = Data(text.utf8)
+            let deadline = Date().addingTimeInterval(5)
+            condition.lock()
+            defer { condition.unlock() }
+            while received.range(of: needle) == nil {
+                guard condition.wait(until: deadline) else {
+                    return received.range(of: needle) != nil
+                }
+            }
+            return true
+        }
+
+        /// Stops the reader and reports whether it exited.
+        func stop() -> Bool {
+            var byte: UInt8 = 1
+            _ = Darwin.write(stopWriteFD, &byte, 1)
+            let exited = finished.wait(timeout: .now() + 5) == .success
+            Darwin.close(stopWriteFD)
+            return exited
+        }
+
+        private func read(from readerFD: Int32, stopFD: Int32) {
+            defer {
+                Darwin.close(readerFD)
+                Darwin.close(stopFD)
+                finished.signal()
+            }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                var pollFDs = [
+                    pollfd(fd: readerFD, events: Int16(POLLIN), revents: 0),
+                    pollfd(fd: stopFD, events: Int16(POLLIN), revents: 0),
+                ]
+                let ready = Darwin.poll(&pollFDs, 2, -1)
+                if ready < 0, errno == EINTR { continue }
+                guard ready > 0, pollFDs[1].revents == 0 else { return }
+                let count = Darwin.read(readerFD, &buffer, buffer.count)
+                if count > 0 {
+                    condition.lock()
+                    received.append(buffer, count: count)
+                    condition.broadcast()
+                    condition.unlock()
+                    continue
+                }
+                if count < 0, errno == EINTR || errno == EAGAIN { continue }
+                return
+            }
+        }
     }
 
     private struct ControlSocketResponder: Sendable {
@@ -183,166 +383,187 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         }
     }
 
-    private final class BridgeServer {
-        private let stopReadFD: Int32
+    /// The bridge side of one attach, as seen by a test's bridge script.
+    private struct BridgeConnection {
+        let fd: Int32
+        let stopFD: Int32
+
+        func sendReady(replayBytes: Int) -> Bool {
+            send("{\"type\":\"ready\",\"attachment_token\":\"attach-token\",\"replay_bytes\":\(replayBytes)}\n")
+        }
+
+        func send(_ string: String) -> Bool {
+            cliMockWriteAll(string, to: fd)
+        }
+
+        /// Waits for a signal from the test. Returns false once the server
+        /// stops, so a failed test never leaves the script waiting.
+        func wait(for signal: DispatchSemaphore) -> Bool {
+            let deadline = DispatchTime.now() + 30
+            while DispatchTime.now() < deadline, !stopRequested {
+                if signal.wait(timeout: .now() + .milliseconds(50)) == .success { return true }
+            }
+            return false
+        }
+
+        /// Collects bytes from the CLI until `isComplete` accepts them, the
+        /// timeout passes, the CLI closes the connection, or the server stops.
+        func receive(timeoutMilliseconds: Int, until isComplete: (Data) -> Bool) -> Data {
+            var result = Data()
+            let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(timeoutMilliseconds) * 1_000_000
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while !isComplete(result) {
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadline else { break }
+                var pollFDs = [
+                    pollfd(fd: fd, events: Int16(POLLIN), revents: 0),
+                    pollfd(fd: stopFD, events: Int16(POLLIN), revents: 0),
+                ]
+                let ready = Darwin.poll(&pollFDs, 2, Int32(clamping: (deadline - now + 999_999) / 1_000_000))
+                if ready < 0, errno == EINTR { continue }
+                guard ready > 0, pollFDs[1].revents == 0 else { break }
+                let count = Darwin.read(fd, &buffer, buffer.count)
+                if count > 0 {
+                    result.append(buffer, count: count)
+                } else if count < 0, errno == EINTR {
+                    continue
+                } else {
+                    break
+                }
+            }
+            return result
+        }
+
+        private var stopRequested: Bool {
+            var pollFD = pollfd(fd: stopFD, events: Int16(POLLIN), revents: 0)
+            return Darwin.poll(&pollFD, 1, 0) > 0
+        }
+    }
+
+    /// A one-connection mock of the remote PTY bridge. After reading the CLI's
+    /// handshake line it runs `script`, then closes the connection.
+    ///
+    /// The server thread owns its listener, the connection, and the read end
+    /// of its stop pipe and closes them itself. `stop()` wakes any wait in the
+    /// script.
+    private final class BridgeServer: @unchecked Sendable {
+        let port: Int
         private let stopWriteFD: Int32
         private let finished = DispatchSemaphore(value: 0)
 
-        init(
-            listener: LoopbackTCPListener,
-            replay: String,
-            capturedURL: URL,
-            ready: DispatchSemaphore,
-            dangerousWritten: DispatchSemaphore,
-            preReplayChecked: DispatchSemaphore,
-            allowReplay: DispatchSemaphore,
-            forwardedCaptured: DispatchSemaphore
-        ) throws {
+        init(script: @escaping @Sendable (BridgeConnection) -> Void) throws {
+            let listener = try Self.bindLoopbackTCP()
             var stopFDs: [Int32] = [-1, -1]
             guard pipe(&stopFDs) == 0 else {
-                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(listener.fd)
+                throw error
             }
-            stopReadFD = stopFDs[0]
+            port = listener.port
             stopWriteFD = stopFDs[1]
-            let finished = self.finished
             let stopReadFD = stopFDs[0]
+            let finished = self.finished
             let thread = Thread {
-                defer { finished.signal() }
-                var pollFDs = [
-                    pollfd(fd: listener.fd, events: Int16(POLLIN), revents: 0),
-                    pollfd(fd: stopReadFD, events: Int16(POLLIN), revents: 0),
-                ]
-                guard Darwin.poll(&pollFDs, 2, -1) > 0,
-                      pollFDs[1].revents & Int16(POLLIN) == 0 else { return }
-                var address = sockaddr_in()
-                var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-                let clientFD = withUnsafeMutablePointer(to: &address) { pointer in
-                    pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
-                        Darwin.accept(listener.fd, sockaddrPointer, &addressLength)
-                    }
+                defer {
+                    Darwin.close(listener.fd)
+                    Darwin.close(stopReadFD)
+                    finished.signal()
                 }
-                guard clientFD >= 0 else { return }
+                guard let clientFD = BridgeServer.accept(listenerFD: listener.fd, stopFD: stopReadFD) else { return }
                 defer { Darwin.close(clientFD) }
-                Self.serve(
-                    clientFD: clientFD,
-                    replay: replay,
-                    capturedURL: capturedURL,
-                    ready: ready,
-                    dangerousWritten: dangerousWritten,
-                    preReplayChecked: preReplayChecked,
-                    allowReplay: allowReplay,
-                    forwardedCaptured: forwardedCaptured
-                )
+                let connection = BridgeConnection(fd: clientFD, stopFD: stopReadFD)
+                let handshake = connection.receive(timeoutMilliseconds: 5_000) { $0.contains(0x0A) }
+                guard handshake.contains(0x0A) else { return }
+                script(connection)
             }
             thread.qualityOfService = QualityOfService.userInitiated
             thread.start()
         }
 
-        func stop() {
+        /// Stops the server thread and reports whether it exited.
+        func stop() -> Bool {
             var byte: UInt8 = 1
             _ = Darwin.write(stopWriteFD, &byte, 1)
-            _ = finished.wait(timeout: .now() + 5)
-            Darwin.close(stopReadFD)
+            let exited = finished.wait(timeout: .now() + 5) == .success
             Darwin.close(stopWriteFD)
+            return exited
         }
 
-        private static func serve(
-            clientFD: Int32,
-            replay: String,
-            capturedURL: URL,
-            ready: DispatchSemaphore,
-            dangerousWritten: DispatchSemaphore,
-            preReplayChecked: DispatchSemaphore,
-            allowReplay: DispatchSemaphore,
-            forwardedCaptured: DispatchSemaphore
-        ) {
-            defer { forwardedCaptured.signal() }
-            guard readThroughNewline(fd: clientFD) else { return }
-            let readyPayload = "{\"type\":\"ready\",\"attachment_token\":\"attach-token\",\"replay_bytes\":\(replay.utf8.count)}\n"
-            guard cliMockWriteAll(readyPayload, to: clientFD) else { return }
-            ready.signal()
-            guard dangerousWritten.wait(timeout: .now() + 5) == .success else { return }
-            let preReplay = readAvailable(fd: clientFD, timeoutMilliseconds: 400)
-            try? preReplay.write(to: capturedURL)
-            preReplayChecked.signal()
-            guard allowReplay.wait(timeout: .now() + 5) == .success else { return }
-            guard cliMockWriteAll(replay, to: clientFD) else { return }
-            let postReplay = readUntilNewline(fd: clientFD, timeoutMilliseconds: 5_000)
-            try? (preReplay + postReplay).write(to: capturedURL)
-        }
-
-        private static func readThroughNewline(fd: Int32) -> Bool {
-            var byte: UInt8 = 0
+        private static func accept(listenerFD: Int32, stopFD: Int32) -> Int32? {
             while true {
-                let count = Darwin.read(fd, &byte, 1)
-                if count > 0 { if byte == 0x0A { return true }; continue }
-                if count < 0, errno == EINTR { continue }
-                return false
+                var pollFDs = [
+                    pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0),
+                    pollfd(fd: stopFD, events: Int16(POLLIN), revents: 0),
+                ]
+                let ready = Darwin.poll(&pollFDs, 2, -1)
+                if ready < 0, errno == EINTR { continue }
+                guard ready > 0, pollFDs[1].revents == 0 else { return nil }
+                let clientFD = Darwin.accept(listenerFD, nil, nil)
+                if clientFD >= 0 { return clientFD }
+                if errno == EINTR || errno == ECONNABORTED { continue }
+                return nil
             }
         }
 
-        private static func readAvailable(fd: Int32, timeoutMilliseconds: Int32) -> Data {
-            var result = Data()
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let timeout = result.isEmpty ? timeoutMilliseconds : 0
-                guard Darwin.poll(&pollFD, 1, timeout) > 0 else { return result }
-                let count = Darwin.read(fd, &buffer, buffer.count)
-                if count > 0 { result.append(buffer, count: count); continue }
-                if count < 0, errno == EINTR { continue }
-                return result
-            }
-        }
-
-        private static func readUntilNewline(fd: Int32, timeoutMilliseconds: Int32) -> Data {
-            var result = Data()
-            let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(timeoutMilliseconds) * 1_000_000
-            var buffer = [UInt8](repeating: 0, count: 4096)
-            while true {
-                let now = DispatchTime.now().uptimeNanoseconds
-                guard now < deadline else { return result }
-                let remaining = deadline - now
-                var pollFD = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-                let timeout = Int32(min(UInt64(Int32.max), (remaining + 999_999) / 1_000_000))
-                guard Darwin.poll(&pollFD, 1, timeout) > 0 else { return result }
-                let count = Darwin.read(fd, &buffer, buffer.count)
-                if count > 0 {
-                    result.append(buffer, count: count)
-                    if result.contains(0x0A) { return result }
-                } else if count < 0, errno == EINTR {
-                    continue
-                } else {
-                    return result
+        private static func bindLoopbackTCP() throws -> (fd: Int32, port: Int) {
+            let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = 0
+            address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+            let result = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
-            return result
+            guard result == 0, Darwin.listen(fd, 1) == 0 else {
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(fd)
+                throw error
+            }
+            var bound = sockaddr_in()
+            var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.getsockname(fd, $0, &length)
+                }
+            }
+            guard nameResult == 0 else {
+                let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+                Darwin.close(fd)
+                throw error
+            }
+            return (fd, Int(UInt16(bigEndian: bound.sin_port)))
         }
     }
 
-    private func waitForTerminalPhase(fd: Int32, disconnected: Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(5)
-        while Date() < deadline {
-            var state = termios()
-            if tcgetattr(fd, &state) == 0 {
-                let isDisconnected = (state.c_lflag & tcflag_t(ISIG)) != 0 &&
-                    (state.c_lflag & tcflag_t(ICANON)) == 0 &&
-                    (state.c_lflag & tcflag_t(ECHO)) == 0
-                if isDisconnected == disconnected { return true }
-            }
+    /// Raw forwarding: no line editing, no local echo, and signal keys reach
+    /// the remote shell as bytes.
+    private func isRawForwardingMode(fd: Int32) -> Bool {
+        guard let local = TerminalFlags(fd: fd)?.local else { return false }
+        return local & (tcflag_t(ICANON) | tcflag_t(ECHO) | tcflag_t(ISIG)) == 0
+    }
+
+    /// Disconnected: raw input, but signal keys still stop the attach.
+    private func isDisconnectedMode(fd: Int32) -> Bool {
+        guard let local = TerminalFlags(fd: fd)?.local else { return false }
+        return local & tcflag_t(ISIG) != 0 && local & (tcflag_t(ICANON) | tcflag_t(ECHO)) == 0
+    }
+
+    private func waitUntil(_ condition: () -> Bool) -> Bool {
+        let deadline = DispatchTime.now() + 5
+        while DispatchTime.now() < deadline {
+            if condition() { return true }
             Thread.sleep(forTimeInterval: 0.01)
         }
-        return false
-    }
-
-    private func writeAll(fd: Int32, string: String) {
-        _ = cliMockWriteAll(string, to: fd)
+        return condition()
     }
 
     private func makeSocketPath() -> String {
-        URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-ssh-replay-\(UUID().uuidString).sock")
-            .path
+        // A UUID under the per-user temporary directory overflows sun_path (104 bytes).
+        "/tmp/cli-replay-\(UUID().uuidString).sock"
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
@@ -372,36 +593,5 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         return fd
-    }
-
-    private func bindLoopbackTCP() throws -> LoopbackTCPListener {
-        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = 0
-        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard result == 0, Darwin.listen(fd, 1) == 0 else {
-            Darwin.close(fd)
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        var bound = sockaddr_in()
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.getsockname(fd, $0, &length)
-            }
-        }
-        guard nameResult == 0 else {
-            Darwin.close(fd)
-            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
-        }
-        return LoopbackTCPListener(fd: fd, port: Int(UInt16(bigEndian: bound.sin_port)))
     }
 }
