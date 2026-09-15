@@ -2358,13 +2358,7 @@ extension Workspace {
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
         // custom title), so push the restored title to the tab now, mirroring
         // `updatePanelTitle`, instead of waiting for the next OSC title update.
-        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
-            bonsplitController.updateTab(
-                tabId,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
-        }
+        _ = reconcileTabTitlePresentation(panelId: panelId)
 
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
@@ -4173,7 +4167,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 allowTextBoxFocusDefault: allowTextBoxFocusDefault
             )
             panels[terminalPanel.id] = terminalPanel
-            panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+            panelTitles[terminalPanel.id] = title
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
@@ -4487,6 +4481,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
+        _ = reconcileTabTitlePresentation(panelId: panelId)
     }
 
     /// Removes one bonsplit surface mapping.
@@ -9479,10 +9474,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Updates a mirrored remote tmux tab's title (e.g. after a tmux
     /// `%window-renamed`). No-ops if the panel is no longer mounted.
     func updateRemoteTmuxTabTitle(panelId: UUID, title: String) {
-        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        guard surfaceIdFromPanelId(panelId) != nil else { return }
         panelTitles[panelId] = title
-        guard let existing = bonsplitController.tab(tabId), existing.title != title else { return }
-        bonsplitController.updateTab(tabId, title: title, icon: nil, isDirty: nil)
+        _ = reconcileTabTitlePresentation(panelId: panelId)
     }
 
     @discardableResult
@@ -11118,6 +11112,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        _ = reconcileTabTitlePresentation(panelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel {
             markdownPanel.updateWorkspaceId(
                 id,

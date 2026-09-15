@@ -79,6 +79,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     @ObservationIgnored private let terminalTitleUpdateCoalescer:
         NotificationBurstCoalescer
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    @ObservationIgnored var panelCustomTitleSourcesByPanelId:
+        [UUID: Workspace.CustomTitleSource] = [:]
     /// Focused presentation of Dock panels whose agent lifecycle needs input.
     @ObservationIgnored let agentNeedsInputAttention = SurfaceAttentionModel()
     @ObservationIgnored var restoredPanelTitleBoundariesByPanelId:
@@ -1236,27 +1238,148 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         (existingTab.hasCustomTitle ? nil : metadata.title, nil)
     }
 
+    /// Returns the Codex lifecycle that controls one Dock terminal tab.
+    private func dockCodexTabLifecycle(panelId: UUID) -> CodexTabTitleLifecycle? {
+        guard let raw = agentRuntimeByPanelId[panelId]?
+            .agentLifecycleStates["codex"] else {
+            return nil
+        }
+        switch raw {
+        case .running: return .running
+        case .idle: return .idle
+        case .needsInput: return .needsInput
+        case .unknown: return .unknown
+        }
+    }
+
+    /// Resolves the stable title beneath a Dock tab's transient Codex marker.
+    ///
+    /// The undecorated Bonsplit title and its ownership remain the source of
+    /// truth so transient markers never leak into persistence or a later move
+    /// back to a workspace.
+    func stableDockTerminalTabTitle(
+        panelId: UUID,
+        fallback: String? = nil,
+        transferOverride: Workspace.DetachedSurfaceTransfer? = nil
+    ) -> (title: String, hasUserOwnedTitle: Bool)? {
+        guard panels[panelId] is TerminalPanel,
+              let tabId = surfaceId(forPanelId: panelId),
+              let existing = bonsplitController.tab(tabId) else {
+            return nil
+        }
+        let transfer = transferOverride ?? detachedSurfaceTransfersByPanelId[panelId]
+        let composer = CodexTabTitleComposer()
+        let transferredCustomTitleSource: Workspace.CustomTitleSource? =
+            transfer?.customTitle == nil
+                ? nil
+                : (transfer?.customTitleSource ?? .user)
+        let customTitleSource = panelCustomTitleSourcesByPanelId[panelId]
+            ?? transferredCustomTitleSource
+        let hasUserOwnedTitle = existing.hasCustomTitle
+            && (customTitleSource ?? .user) != .auto
+
+        if hasUserOwnedTitle {
+            return (existing.title, true)
+        }
+
+        if let fallback {
+            return (fallback, false)
+        }
+
+        if let lifecycle = dockCodexTabLifecycle(panelId: panelId) {
+            let marker = composer.presentation(
+                baseTitle: "",
+                lifecycle: lifecycle,
+                hasUserOwnedTitle: false
+            ).title
+            let hasProjectedMarker = switch lifecycle {
+            case .running:
+                existing.isLoading && !marker.isEmpty && existing.title.hasPrefix(marker)
+            case .idle:
+                !marker.isEmpty && existing.title.hasPrefix(marker)
+            case .needsInput, .unknown:
+                false
+            }
+            if hasProjectedMarker {
+                return (String(existing.title.dropFirst(marker.count)), false)
+            }
+        }
+
+        if existing.hasCustomTitle {
+            return (transfer?.customTitle ?? existing.title, false)
+        }
+
+        if restoredPanelTitleBoundariesByPanelId[panelId] != nil {
+            return (
+                transfer?.cachedTitle ?? transfer?.title ?? existing.title,
+                false
+            )
+        }
+        return (existing.title, false)
+    }
+
+    /// Projects Codex lifecycle state onto one Dock terminal tab.
+    @discardableResult
+    func reconcileCodexTabTitlePresentation(
+        panelId: UUID,
+        fallback: String? = nil
+    ) -> Bool {
+        guard let tabId = surfaceId(forPanelId: panelId),
+              let existing = bonsplitController.tab(tabId),
+              let stable = stableDockTerminalTabTitle(
+                  panelId: panelId,
+                  fallback: fallback
+              ) else {
+            return false
+        }
+        let presentation = CodexTabTitleComposer().presentation(
+            baseTitle: stable.title,
+            lifecycle: dockCodexTabLifecycle(panelId: panelId),
+            hasUserOwnedTitle: stable.hasUserOwnedTitle
+        )
+        let titleUpdate = existing.title == presentation.title
+            ? nil
+            : presentation.title
+        let loadingUpdate = existing.isLoading == presentation.isAnimating
+            ? nil
+            : presentation.isAnimating
+        guard titleUpdate != nil || loadingUpdate != nil else { return false }
+        bonsplitController.updateTab(
+            tabId,
+            title: titleUpdate,
+            isLoading: loadingUpdate
+        )
+        return true
+    }
+
     /// Keeps the live terminal model and its non-custom Bonsplit tab on one
     /// title mutation path. Callers that synchronously adopt a Ghostty title
     /// invoke this directly; the publisher remains the fallback for other
     /// terminal title writers.
     private func synchronizeTerminalTabTitle(_ terminal: TerminalPanel) {
-        guard let tabId = surfaceId(forPanelId: terminal.id),
-              let existing = bonsplitController.tab(tabId) else {
-            return
-        }
-        let resolvedTitle = terminal.displayTitle
-        guard !existing.hasCustomTitle,
-              existing.title != resolvedTitle else {
-            return
-        }
-        bonsplitController.updateTab(tabId, title: resolvedTitle)
+        let hasCustomTitle = surfaceId(forPanelId: terminal.id)
+            .flatMap { bonsplitController.tab($0) }?
+            .hasCustomTitle == true
+        _ = reconcileCodexTabTitlePresentation(
+            panelId: terminal.id,
+            fallback: hasCustomTitle ? nil : terminal.displayTitle
+        )
     }
 
     /// Applies an admitted Dock terminal title to the model and its tab in the
     /// same main-actor turn.
     func applyResolvedTerminalTitle(_ title: String, to terminal: TerminalPanel) {
         terminal.updateTitle(title)
+        let hasCustomTitle = surfaceId(forPanelId: terminal.id)
+            .flatMap { bonsplitController.tab($0) }?
+            .hasCustomTitle == true
+        if var transfer = detachedSurfaceTransfersByPanelId[terminal.id] {
+            transfer.cachedTitle = terminal.displayTitle
+            if !hasCustomTitle {
+                transfer.title = terminal.displayTitle
+            }
+            setDetachedSurfaceTransfer(transfer, forPanelID: terminal.id)
+        }
         synchronizeTerminalTabTitle(terminal)
     }
 

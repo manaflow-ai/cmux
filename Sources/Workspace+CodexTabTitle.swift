@@ -1,0 +1,89 @@
+import Foundation
+import CmuxTerminalCore
+
+extension Workspace {
+    /// Builds the pure composer with cmux's universal status glyphs.
+    private nonisolated func codexTabTitleComposer() -> CodexTabTitleComposer {
+        CodexTabTitleComposer()
+    }
+
+    private func codexTabLifecycle(panelId: UUID) -> CodexTabTitleLifecycle? {
+        guard let raw = agentLifecycleStatesByPanelId[panelId]?[
+            "codex"
+        ] else {
+            return nil
+        }
+        switch raw {
+        case .running: return .running
+        case .idle: return .idle
+        case .needsInput: return .needsInput
+        case .unknown: return .unknown
+        }
+    }
+
+    private func panelTitleIsUserOwned(_ panelId: UUID) -> Bool {
+        guard panelCustomTitles[panelId] != nil else { return false }
+        return (panelCustomTitleSources[panelId] ?? .user) != .auto
+    }
+
+    /// Reconciles one Bonsplit tab's title and loading presentation.
+    ///
+    /// This is the single tab-projection owner for terminal title, lifecycle,
+    /// restore, binding, and transfer callers. Stable panel/workspace state is
+    /// never written with the transient marker.
+    @discardableResult
+    func reconcileTabTitlePresentation(
+        panelId: UUID,
+        fallback: String? = nil
+    ) -> Bool {
+        guard let panel = panels[panelId],
+              let tabId = surfaceIdFromPanelId(panelId),
+              let existing = bonsplitController.tab(tabId) else {
+            return false
+        }
+
+        let baseTitle = fallback
+            ?? panelTitles[panelId]
+            ?? panel.displayTitle
+        let resolvedBaseTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+        let isTerminal = panel is TerminalPanel
+        let presentation: CodexTabTitlePresentation
+        if isTerminal, !isRemoteTmuxMirror {
+            presentation = codexTabTitleComposer().presentation(
+                baseTitle: resolvedBaseTitle,
+                lifecycle: codexTabLifecycle(panelId: panelId),
+                hasUserOwnedTitle: panelTitleIsUserOwned(panelId)
+            )
+        } else {
+            presentation = CodexTabTitlePresentation(
+                title: resolvedBaseTitle,
+                isAnimating: false
+            )
+        }
+
+        let titleUpdate: String? = existing.title == presentation.title ? nil : presentation.title
+        // A mirror can inherit a stale loading bit from the local tab it
+        // replaced. Explicitly clear it while keeping browser loading state
+        // outside this terminal-only projection.
+        let animationUpdate: Bool? = if isTerminal, !isRemoteTmuxMirror {
+            existing.isLoading == presentation.isAnimating ? nil : presentation.isAnimating
+        } else if isTerminal {
+            existing.isLoading ? false : nil
+        } else {
+            nil
+        }
+        let customTitle = panelCustomTitles[panelId] != nil
+        let customTitleUpdate: Bool? = existing.hasCustomTitle == customTitle ? nil : customTitle
+        guard titleUpdate != nil || animationUpdate != nil || customTitleUpdate != nil else {
+            return false
+        }
+        bonsplitController.updateTab(
+            tabId,
+            title: titleUpdate,
+            hasCustomTitle: customTitleUpdate,
+            isLoading: animationUpdate
+        )
+        return true
+    }
+
+}

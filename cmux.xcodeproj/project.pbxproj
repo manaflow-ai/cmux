@@ -1413,6 +1413,7 @@
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
+		A10217000000000000000001 /* CodexTabTitlePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10217000000000000000002 /* CodexTabTitlePresentationTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */; };
@@ -3578,6 +3579,7 @@
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
 		C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
+		A10217000000000000000005 /* Workspace+CodexTabTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10217000000000000000006 /* Workspace+CodexTabTitle.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
@@ -5176,6 +5178,7 @@
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
+		A10217000000000000000002 /* CodexTabTitlePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTabTitlePresentationTests.swift; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerFixture.swift; sourceTree = "<group>"; };
 		A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerProcess.swift; sourceTree = "<group>"; };
@@ -7313,6 +7316,7 @@
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
 		C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalReservation.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
+		A10217000000000000000006 /* Workspace+CodexTabTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CodexTabTitle.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
@@ -8861,6 +8865,7 @@
 				F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				A10217000000000000000006 /* Workspace+CodexTabTitle.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
 				9923B0029923B0029923B002 /* PendingTerminalStartupRestore.swift */,
@@ -11293,6 +11298,7 @@
 				468160000000000000000002 /* KeyboardShortcutSettingsObserverTests.swift */,
 				468130000000000000000002 /* GhosttyDesktopNotificationIngressTests.swift */,
 				A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */,
+				A10217000000000000000002 /* CodexTabTitlePresentationTests.swift */,
 				468100000000000000000004 /* TypingHotPathRegressionTests.swift */,
 				C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */,
 				A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */,
@@ -14309,6 +14315,7 @@
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
 				C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
+				A10217000000000000000005 /* Workspace+CodexTabTitle.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,
@@ -15108,6 +15115,7 @@
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
 				9167FFA2759E9AD60F49616C /* CodexHookCapturedSocketCommands.swift in Sources */,
 				D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */,
+				A10217000000000000000001 /* CodexTabTitlePresentationTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */,
 				A10240040000000000000001 /* CodexTeamsAppServerProcessTests.swift in Sources */,
