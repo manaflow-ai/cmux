@@ -6,7 +6,7 @@ import Foundation
 /// capture revision, full-versus-delta encoding, scrollback, and nonvisual
 /// terminal modes. Span styles are resolved before their numeric IDs are
 /// discarded, so independently exported but visually identical grids compare
-/// equal.
+/// equal. Text uses the same control-to-space projection as VT replay.
 public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
     /// Visible terminal column count.
     public let columns: Int
@@ -103,7 +103,7 @@ public struct MobileTerminalRenderGridVisualSnapshot: Equatable, Sendable {
             rows[span.row].append(MobileTerminalRenderGridVisualSpan(
                 column: span.column,
                 cellWidth: span.gridCellWidth,
-                text: span.text,
+                text: MobileTerminalRenderGridText.replayText(span.text),
                 style: styles[span.styleID] ?? normalizedStyle(.default)
             ))
         }

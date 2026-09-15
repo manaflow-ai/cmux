@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 
 /// Owns the single atomic presentation transaction for one mounted terminal.
 /// "Verified" is deliberately scoped to the producer's serialized cell-grid
@@ -13,6 +14,10 @@ final class VerifiedTerminalReplayStateMachine {
     typealias BeginDecision = VerifiedTerminalReplayBeginDecision
     typealias CompletionDecision = VerifiedTerminalReplayCompletionDecision
     private typealias Phase = VerifiedTerminalReplayPhase
+
+    #if DEBUG
+    private var remainingMismatchDiagnostics = 4
+    #endif
 
     private var phase = Phase.ready
     private var nextTransactionID: UInt64 = 0
@@ -234,6 +239,26 @@ final class VerifiedTerminalReplayStateMachine {
               observedFrame.renderRevision == transaction.renderRevision,
               let observed = MobileTerminalRenderGridVisualSnapshot(fullFrame: observedFrame),
               observed == transaction.expected else {
+            #if DEBUG
+            if remainingMismatchDiagnostics > 0 {
+                remainingMismatchDiagnostics -= 1
+                let actual = observedFrame.flatMap(MobileTerminalRenderGridVisualSnapshot.init(fullFrame:))
+                let expected = transaction.expected
+                let rowDifferences = actual.map { actual in
+                    expected.rows.indices.filter {
+                        !actual.rows.indices.contains($0) || actual.rows[$0] != expected.rows[$0]
+                    }
+                } ?? []
+                MobileDebugLog.anchormux(
+                    "verified_replay.mismatch observed=\(observedFrame != nil) "
+                        + "dimensions=\(actual?.columns == expected.columns && actual?.rowCount == expected.rowCount) "
+                        + "screen=\(actual?.activeScreen == expected.activeScreen) "
+                        + "defaultStyle=\(actual?.defaultStyle == expected.defaultStyle) "
+                        + "cursor=\(actual?.cursor == expected.cursor) cursorColor=\(actual?.terminalCursorColor == expected.terminalCursorColor) "
+                        + "rows=\(rowDifferences.prefix(8))"
+                )
+            }
+            #endif
             activeTransaction = nil
             phase = .recovering
             return .keepFrozenAndRequestReplay
