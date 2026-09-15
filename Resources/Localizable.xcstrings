@@ -525451,29 +525451,119 @@
     "featureFlags.cloudMachines.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Cloud Machines" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Maschinen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Machines Cloud" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "أجهزة Cloud" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Máquinas Cloud" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云机器" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシン" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machines Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أجهزة Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquinas Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云机器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
       }
     },
     "featureFlags.cloudMachines.description": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync." } },
-        "de": { "stringUnit": { "state": "translated", "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung." } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan." } },
-        "ar": { "stringUnit": { "state": "translated", "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية." } },
-        "es": { "stringUnit": { "state": "translated", "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano." } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiviert die macOS-Integration für Cloud-Maschinen einschließlich Einstiegspunkten, Verbindungen und Hintergrundsynchronisierung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active l’intégration des Machines Cloud sur macOS, y compris les points d’entrée, les connexions et la synchronisation en arrière-plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكّن تكامل أجهزة Cloud على macOS، بما في ذلك نقاط الدخول والاتصالات والمزامنة في الخلفية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa la integración de Máquinas Cloud en macOS, incluidos los puntos de entrada, las conexiones y la sincronización en segundo plano."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用 macOS Cloud 機器整合，包括進入點、連線和背景同步。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用 macOS 云机器集成，包括入口、连接和后台同步。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진입점, 연결 및 백그라운드 동기화를 포함한 macOS Cloud 머신 통합을 활성화합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エントリーポイント、接続、バックグラウンド同期を含むmacOSのクラウドマシン統合を有効にします。"
+          }
+        }
       }
     },
     "cloud.feature.disabled": {
@@ -525531,6 +525621,839 @@
           "stringUnit": {
             "state": "translated",
             "value": "クラウドマシンは一時的に利用できません。"
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks already up to date at %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.confirmProceed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\nProceed? [y/N] "
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aborted."
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hooks installed at %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.noneFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No %@ found at %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.removedZero": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed 0 cmux hook(s) from %@"
+          }
+        }
+      }
+    },
+    "cli.hooks.vibe.removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed %@ cmux hooks from %@"
           }
         }
       }
