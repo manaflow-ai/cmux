@@ -26,11 +26,14 @@ export class PlanetScaleOwnership implements EndpointOwnership {
     const userScopeHash = await hash(canonicalJSON({ environment: identity.environment, projectId: identity.projectId, userId: identity.userId }));
     const connection = postgres(this.databaseURL, {
       max: 1, prepare: false, connect_timeout: 5, idle_timeout: 1,
-      ssl: { rejectUnauthorized: true }, connection: { statement_timeout: 5000 },
+      ssl: { rejectUnauthorized: true },
     });
     const db = drizzle(connection);
     try {
       await db.transaction(async tx => {
+        // Transaction poolers reject statement_timeout as a startup parameter.
+        // SET LOCAL preserves the bound without leaking settings to another user.
+        await tx.execute(sql`SET LOCAL statement_timeout = '5s'`);
         await tx.insert(ownerBudgets).values({ userScopeHash, ownerCount: 0 }).onConflictDoNothing();
         const [budget] = await tx.select().from(ownerBudgets).where(eq(ownerBudgets.userScopeHash, userScopeHash)).for("update");
         if (!budget) throw new Error("Missing ownership budget");
@@ -56,6 +59,16 @@ export class PlanetScaleOwnership implements EndpointOwnership {
       });
     } catch (error) {
       if (error instanceof OperationError) throw error;
+      // Driver messages can contain SQL and connection details. Retain only
+      // bounded error codes so deployment failures can be diagnosed safely.
+      const codes: string[] = [];
+      let cause: unknown = error;
+      for (let depth = 0; depth < 4 && cause && typeof cause === "object"; depth++) {
+        const code = Reflect.get(cause, "code");
+        if (typeof code === "string" && /^[A-Z0-9_]{2,64}$/.test(code)) codes.push(code);
+        cause = Reflect.get(cause, "cause");
+      }
+      console.error(JSON.stringify({ event: "iroh.ownership.storage_failed", environment: this.environment, status: 503, codes }));
       throw new OperationError("storage_unavailable", 503, true, 2000);
     } finally { await connection.end({ timeout: 1 }); }
   }

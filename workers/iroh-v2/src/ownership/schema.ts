@@ -1,6 +1,6 @@
 import { bigint, index, pgTable, text, varchar } from "drizzle-orm/pg-core";
 
-/** Endpoint ownership has one authoritative home in the fresh shared database. */
+/** Endpoint ownership has one authoritative home in the existing shared database. */
 export const endpointOwners = pgTable("iroh_v2_endpoint_owners", {
   endpointId: varchar("endpoint_id", { length: 64 }).primaryKey(),
   identityHash: varchar("identity_hash", { length: 64 }).notNull(),
