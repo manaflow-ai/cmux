@@ -47,6 +47,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
@@ -78,6 +79,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
         defer {
             surface.releaseSurfaceForTesting()
@@ -111,6 +113,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -143,6 +146,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -162,6 +166,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         acknowledgePresentation(on: surface)
         defer {
@@ -200,6 +205,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -217,10 +223,8 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        let firstFailedToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: firstFailedToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
-        let recoveryToken = surface.rendererPresentationState.inFlightToken!
-        surface.rendererFrameDidFail(token: recoveryToken, status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED)
+        surface.failRendererTestPresentation()
+        surface.failRendererTestPresentation()
         #expect(surface.renderHealth == .notRendering)
     }
 
@@ -232,6 +236,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -265,6 +270,7 @@ private func rendererReleaseWasOccluded() -> Bool
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -317,6 +323,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -364,6 +371,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -394,6 +402,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -433,8 +442,7 @@ private func rendererReleaseWasOccluded() -> Bool
     }
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else { return }
-        surface.rendererFrameDidPresent(token: token)
+        surface.acknowledgeRendererTestPresentation()
     }
 
     private func installRendererCallbackContext(

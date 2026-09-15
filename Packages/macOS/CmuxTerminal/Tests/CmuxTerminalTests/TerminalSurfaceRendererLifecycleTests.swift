@@ -26,13 +26,6 @@ import Testing
     }
 
     private func failProbe(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else {
-            Issue.record("expected an in-flight presentation probe")
-            return
-        }
-        surface.rendererFrameDidFail(
-            token: token,
-            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
-        )
+        surface.failRendererTestPresentation()
     }
 }
