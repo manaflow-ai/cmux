@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
-import CmuxIrxTransport
 import CmuxMobileRPC
 import Darwin
 import Foundation
@@ -17,13 +16,12 @@ import Testing
 @MainActor
 extension MobileHostAuthorizationTests {
     @Test func testIrohAdmissionRejectsRequestsAfterAuthorizationExpires() async throws {
-        let transport = LegacyIOSCompatibilityByteTransport()
+        let transport = MobileHostFramedTestTransport()
         let handled = MobileHostConnectionRequestRecorder()
         let session = MobileHostConnection(
             id: UUID(),
             transport: transport,
             firstFrameTimeoutNanoseconds: 0,
-            idleTimeoutNanoseconds: 0,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             isAuthorizationCurrent: { false },

@@ -48,11 +48,15 @@ struct ManagedPolicyRemoteControlTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(true, forKey: SettingCatalog().devices.discoveryEnabled.userDefaultsKey)
         defaults.set(false, forKey: SettingCatalog().devices.incomingAccessEnabled.userDefaultsKey)
-        let allowed = MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
+        let allowed = MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true)
         #expect(!allowed)
         let transport = RecordingManagedPolicyTransport()
         let exit = await MobileHostService.acceptTransport(
-            transport, authorization: .legacyPrivateNetworkListener,
+            transport,
+            authorization: .irohAdmission(CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+                bindingID: "policy-binding", deviceID: "policy-mac", tag: "policy-test", platform: .mac,
+                endpointID: try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                identityGeneration: 0))),
             remoteControlDisabledByPolicy: { !allowed }, isCurrent: { true }
         )
         #expect(exit.lifecycle == .explicitlyInvalidated)
