@@ -103,7 +103,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             object["retargetsToLiveSurfaceOwner"] =
                 payload.retargetsToLiveSurfaceOwner
             object["replyShape"] = payload.replyShape
-            object["category"] = payload.replyShape == "inline"
+            object["category"] = payload.replyShape == "text"
                 ? "cmux.terminal.reply"
                 : "cmux.terminal"
             if let value = try Self.boundedIdentifier(payload.workspaceId) {

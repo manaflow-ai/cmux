@@ -501,7 +501,7 @@ final class PhonePushClient {
                 expiresAtEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds
             )
         )
-        scheduleRecipientRefresh()
+        scheduleRecipientRefresh(force: true)
         return .queued
     }
 

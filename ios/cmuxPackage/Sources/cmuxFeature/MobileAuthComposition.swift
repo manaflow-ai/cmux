@@ -186,6 +186,17 @@ public struct MobileAuthComposition {
             pushInstallationID: pushIdentity?.installationID,
             pushKeyID: pushIdentity?.keyID,
             pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
+            pushIdentityProvider: {
+                guard let identity = try? PhonePushKeyStore.current(
+                    bundleID: bundle.bundleIdentifier ?? "",
+                    accessGroup: keychainAccessGroup
+                ) else { return nil }
+                return PushRegistrationIdentity(
+                    installationID: identity.installationID,
+                    keyID: identity.keyID,
+                    publicKey: identity.publicKeyData.base64EncodedString()
+                )
+            },
             session: .shared
         )
         deferredSignIn.set {
@@ -210,8 +221,12 @@ public struct MobileAuthComposition {
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
         taskOwner.recordRestoreStarted()
-        protectedDataAvailability.startObserving { [coordinator, taskOwner] in
+        let pushRegistration = self.pushRegistration
+        protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator)
+            Task {
+                await pushRegistration.syncTokenIfPossible()
+            }
         }
         coordinator.start()
         taskOwner.observeRestore(using: coordinator)
