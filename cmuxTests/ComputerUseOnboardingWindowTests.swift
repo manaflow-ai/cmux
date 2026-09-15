@@ -64,6 +64,7 @@ struct ComputerUseOnboardingWindowTests {
         )
 
         #expect(snapshot?.windowID == windowID)
+        #expect(snapshot?.isOnScreen == false)
     }
 
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {
