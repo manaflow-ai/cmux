@@ -42,7 +42,7 @@ extension AppDelegate {
               coordinator.isAvailable else { return false }
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else { return false }
-        return operationController.start(key: "new-cloud-workspace", {
+        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)", {
             guard let workspaceID = try await coordinator.createOnMachine(
                 machineID: capturedMachineID,
                 focus: focus,
@@ -128,7 +128,10 @@ extension AppDelegate {
         let focus = context?.tabManager.selectedTabId != nil
         // Default-machine creation is one logical intent. Coalesce repeated key
         // events while the remote receipt is still being discovered/attached.
-        return operationController.start(key: "new-cloud-workspace") {
+        let operationKey = coordinator.defaultMachineStore.machineID.map {
+            "new-cloud-workspace.machine:\($0)"
+        } ?? "new-cloud-workspace.default"
+        return operationController.start(key: operationKey) {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
                   !Task.isCancelled,
                   coordinator.isAvailable else { return }

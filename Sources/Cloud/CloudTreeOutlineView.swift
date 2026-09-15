@@ -376,12 +376,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             (item as? CloudTreeNode)?.isExpandable ?? false
         }
 
-<<<<<<< HEAD
         // MARK: NSOutlineViewDelegate
         /// Creates or reuses a cell for one immutable Cloud tree node.
-=======
-
->>>>>>> a7ceb28e7ec (fix: centralize cloud workspace selection)
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
