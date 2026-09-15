@@ -51,6 +51,7 @@ struct CloudShortcutTestHarness {
     func tearDown() {
         workspace.cancelAllReservedCloudTerminalPanes()
         workspace.cloudPaneCreationFailureStore.cancelAll()
+        provider.stop()
         SurfaceCatalog.shared.unregister(machine: provider.machine)
         window.performClose(nil)
     }
