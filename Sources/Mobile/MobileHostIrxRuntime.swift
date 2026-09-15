@@ -333,7 +333,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     tag: configuration.tag,
                     platform: .mac,
                     displayName: device.metadata.displayName,
-                    cacheDirectory: configuration.stateDirectory.appendingPathComponent("legacy-compat", isDirectory: true),
+                    cacheDirectory: configuration.stateDirectory.appendingPathComponent("legacy-compat", isDirectory: true)
+                        .appendingPathComponent(identity.endpointIDHex, isDirectory: true),
                     accountID: scope.session.accountID,
                     identityGeneration: device.identityGeneration,
                     appVersion: device.metadata.appVersion,
@@ -397,6 +398,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 $0.device.descriptor.endpointID
             }).union((snapshot.cache.directory?.devices ?? []).map { $0.descriptor.endpointID })
             await legacyService.excludeV2Endpoints(modernEndpoints)
+            guard isCurrent(token), !Task.isCancelled else { return }
         }
         if snapshot.cache.authorityRevoked {
             admission.invalidate()
@@ -408,12 +410,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             endpointTask?.cancel(); endpointTask = nil
             endpointRefreshPending = false
             let oldRelayWatch = relayAddressWatch
+            let oldRegistry = registry
+            let oldEndpoint = endpointSupervisor
             relayAddressWatch = nil; relayAddressWatchGeneration = nil
             permissionExpiryTask?.cancel(); permissionExpiryTask = nil
+            await oldRegistry?.closeAll(code: .revoked)
+            await oldEndpoint?.deactivate()
             await oldRelayWatch?.stop()
             await oldLegacy?.stop(revokeOwnBinding: true)
-            await registry?.closeAll(code: .revoked)
-            await endpointSupervisor?.deactivate()
             guard isCurrent(token) else { return }
             setSettingsPhase(.failed)
             return
@@ -425,13 +429,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             if snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
             startLegacyCompatibility(token: token)
         }
-        await registry?.closeAll(code: .revoked, matching: { [weak legacyService] endpoint in
-            if let list = legacyService?.listCurrent.current, let entry = list.entries[endpoint] {
-                return !list.isFresh(now: .now) || entry.revoked
-                    || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
-            }
-            return admission.authorizedPeer(endpointID: endpoint) == nil
-        })
+        await enforcePeerPermissions(token: token)
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)
         // Installing credentials does not replace the endpoint or its admitted sessions.
@@ -444,35 +442,60 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     private func startLegacyCompatibility(token: UUID) {
-        guard legacyStartTask == nil, let service = legacyService, let identity,
+        guard isCurrent(token), legacyStartTask == nil, legacyAcceptorPeer == nil,
+              let service = legacyService, let identity,
               let configuration = try? MobileHostV2Configuration.current() else { return }
         legacyStartTask = Task { @MainActor [weak self] in
-            defer { self?.legacyStartTask = nil }
-            do {
-                try await service.start()
-                guard let self, self.isCurrent(token) else { return }
-                if let binding = await service.snapshot().binding,
-                   let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) {
+            defer {
+                if let self, self.generationToken == token { self.legacyStartTask = nil }
+            }
+            var failures = 0
+            while !Task.isCancelled {
+                guard let self, self.isCurrent(token), self.legacyService === service else { return }
+                do {
+                    try await service.start()
+                    let snapshot = await service.snapshot()
+                    guard self.isCurrent(token), !Task.isCancelled,
+                          self.legacyService === service, !snapshot.stopped,
+                          let binding = snapshot.binding,
+                          let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) else { return }
                     self.legacyAcceptorPeer = CmxIrohGrantPeer(bindingID: binding.bindingID,
-                        deviceID: identity.deviceID, tag: configuration.tag,
+                        deviceID: binding.deviceID, tag: binding.tag,
                         platform: .mac, endpointID: endpointID,
-                        identityGeneration: self.cachedState?.device?.descriptor.identityGeneration ?? 1)
-                }
-                self.legacyEventsTask?.cancel()
-                self.legacyEventsTask = Task { [weak self] in
-                    for await _ in await service.events() {
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run { [weak self] in
-                            guard let self, self.isCurrent(token) else { return }
+                        identityGeneration: binding.identityGeneration)
+                    self.legacyEventsTask?.cancel()
+                    self.legacyEventsTask = Task { @MainActor [weak self] in
+                        for await _ in await service.events() {
+                            guard let self, self.isCurrent(token), !Task.isCancelled else { return }
+                            await self.enforcePeerPermissions(token: token)
+                            guard self.isCurrent(token), !Task.isCancelled else { return }
                             self.schedulePermissionExpiry(token: token)
                         }
                     }
+                    await self.publishHomeRelayHintIfNeeded(token: token)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    Self.journal.record("legacy-dialect", "compatibility-started", ["tag": configuration.tag])
+                    return
+                } catch {
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    Self.journal.record("legacy-dialect", "compatibility-start-failed",
+                        ["error": String(describing: type(of: error))])
+                    if let brokerError = error as? CmxIrohTrustBrokerClientError {
+                        switch brokerError {
+                        case .rejected(let status, _), .rejectedWithRetryAfter(let status, _, _):
+                            guard status == 408 || status == 425 || status == 429 || (500...599).contains(status) else { return }
+                        case .missingAuthentication, .invalidAuthentication, .invalidBaseURL,
+                             .nonHTTPResponse, .invalidResponse:
+                            return
+                        default: break
+                        }
+                    }
+                    let delay = Self.activationRetryDelay(after: error, failureCount: failures,
+                        jitterUnitInterval: Double.random(in: 0...1))
+                    failures += 1
+                    do { try await Task.sleep(for: .seconds(delay)) }
+                    catch { return }
                 }
-                Self.journal.record("legacy-dialect", "compatibility-started", [:])
-            } catch {
-                Self.journal.record("legacy-dialect", "compatibility-start-failed",
-                    ["error": String(describing: type(of: error))])
-                await service.kick()
             }
         }
     }
@@ -543,7 +566,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         if let legacyService {
             try? await legacyService.publishRelayHint(relay)
         }
-        guard let relay, metadata.relayURLs != [relay], let service = controlService else { return }
+        guard isCurrent(token), !Task.isCancelled, let relay,
+              metadata.relayURLs != [relay], let service = controlService else { return }
         let next = V2DeviceMetadata(
             appVersion: metadata.appVersion,
             capabilities: metadata.capabilities,
@@ -562,34 +586,37 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
 
+    private func enforcePeerPermissions(token: UUID) async {
+        guard isCurrent(token), let admission, let registry else { return }
+        let legacyCurrent = legacyService?.listCurrent
+        await registry.closeAll(code: .revoked, matching: { endpoint in
+            if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
+                return !list.isFresh(now: .now) || entry.revoked
+                    || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
+            }
+            return admission.authorizedPeer(endpointID: endpoint) == nil
+        })
+    }
+
     private func schedulePermissionExpiry(token: UUID) {
         permissionExpiryTask?.cancel()
-        guard let admission, let registry else { return }
+        guard isCurrent(token), let admission else { return }
         let legacyCurrent = legacyService?.listCurrent
         permissionExpiryTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                guard let self, self.isCurrent(token) else { return }
+                await self.enforcePeerPermissions(token: token)
+                guard self.isCurrent(token), !Task.isCancelled else { return }
                 let now = ContinuousClock().now
-                if let list = legacyCurrent?.current, !list.isFresh(now: now) {
-                    await registry.closeAll(code: .revoked, matching: { endpoint in
-                        legacyCurrent?.current?.entries[endpoint] != nil
-                    })
-                    return
-                }
                 let legacyDeadline = legacyCurrent?.current.map {
                     $0.receivedAtMonotonic.advanced(by: .seconds($0.ttlSeconds))
                 }.flatMap { $0 > now ? $0 : nil }
+                // An expired older-client list must not stop enforcement of
+                // future v2 permission expiry, or reschedule an elapsed deadline.
                 let deadline = [admission.nextExpiration, legacyDeadline].compactMap { $0 }.min()
                 guard let deadline else { return }
                 do { try await ContinuousClock().sleep(until: deadline) }
                 catch { return }
-                guard let self, self.isCurrent(token), !Task.isCancelled else { return }
-                await registry.closeAll(code: .revoked, matching: { endpoint in
-                    if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
-                        return !list.isFresh(now: .now) || entry.revoked
-                            || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
-                    }
-                    return admission.authorizedPeer(endpointID: endpoint) == nil
-                })
             }
         }
     }
