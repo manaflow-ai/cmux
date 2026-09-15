@@ -238,6 +238,7 @@ private func rendererReleaseWasOccluded() -> Bool
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        surface.acknowledgeRendererTestPresentation()
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
