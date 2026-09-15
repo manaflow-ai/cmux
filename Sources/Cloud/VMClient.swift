@@ -2215,6 +2215,11 @@ actor VMClient {
         // retry. Waiting out Retry-After here turns a transient throttle into a short pause
         // instead of a dead-end error dialog.
         var retriesLeft = 2
+        // A stale access token can survive a foreground or launch refresh. The VM
+        // service rejects that token with 401 while the refresh token is still
+        // valid. GET requests are safe to repeat after minting a fresh token;
+        // mutation requests keep the server's explicit session rejection.
+        var unauthorizedRetryAvailable = method == "GET"
         while true {
             try Task.checkCancellation()
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
@@ -2260,6 +2265,28 @@ actor VMClient {
                 ) ?? 2
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
                 continue
+            }
+            if http.statusCode == 401, unauthorizedRetryAvailable {
+                unauthorizedRetryAvailable = false
+                retriesLeft = max(0, retriesLeft - 1)
+                do {
+                    let refreshedAccessToken = try await auth.forceRefreshAccessToken()
+                    guard let refreshedRefreshToken = await auth.refreshToken(), !refreshedRefreshToken.isEmpty else {
+                        throw VMClientError.notSignedIn
+                    }
+                    req.setValue("Bearer \(refreshedAccessToken)", forHTTPHeaderField: "Authorization")
+                    req.setValue(refreshedRefreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+                    onRetry()
+                    continue
+                } catch let error as VMClientError {
+                    throw error
+                } catch AuthError.networkError {
+                    throw VMClientError.sessionRefreshFailed
+                } catch AuthError.unauthorized {
+                    throw VMClientError.notSignedIn
+                } catch {
+                    throw VMClientError.sessionRefreshFailed
+                }
             }
             if retryTransientServiceUnavailable,
                retriesLeft > 0,
