@@ -50,11 +50,11 @@ FAKE_XCODEBUILD_DELAY=0.3 \
   CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.05 \
   "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/heartbeat.log" 2>&1 &
 wrapper_pid=$!
-for _ in {1..100}; do
+for _ in {1..500}; do
   if grep -Fq 'xcodebuild heartbeat:' "$TMP_DIR/heartbeat.log"; then
     break
   fi
-  sleep 0.01
+  sleep 0.02
 done
 if ! grep -Fq 'xcodebuild heartbeat:' "$TMP_DIR/heartbeat.log"; then
   kill "$wrapper_pid" 2>/dev/null || true
@@ -64,6 +64,45 @@ if ! grep -Fq 'xcodebuild heartbeat:' "$TMP_DIR/heartbeat.log"; then
 fi
 if ! wait "$wrapper_pid"; then
   echo "FAIL: heartbeat test command should complete successfully" >&2
+  exit 1
+fi
+
+cat >"$TMP_DIR/fake-descendant.sh" <<'EOF'
+#!/usr/bin/env bash
+descendant_marker="${FAKE_DESCENDANT_MARKER:?}"
+(
+  trap '' INT TERM
+  while :; do sleep 1; done
+) &
+printf '%s\n' "$!" >"$descendant_marker"
+trap 'exit 0' INT TERM
+while :; do sleep 1; done
+EOF
+chmod +x "$TMP_DIR/fake-descendant.sh"
+: >"$TMP_DIR/descendant.log"
+FAKE_DESCENDANT_MARKER="$TMP_DIR/descendant.pid" \
+  CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.05 \
+  "$WRAPPER" -- "$TMP_DIR/fake-descendant.sh" >"$TMP_DIR/descendant.log" 2>&1 &
+wrapper_pid=$!
+for _ in {1..500}; do
+  if [[ -s "$TMP_DIR/descendant.pid" ]]; then
+    break
+  fi
+  sleep 0.02
+done
+if [[ ! -s "$TMP_DIR/descendant.pid" ]]; then
+  kill -TERM "$wrapper_pid" 2>/dev/null || true
+  wait "$wrapper_pid" 2>/dev/null || true
+  echo "FAIL: cancellation fixture did not start its descendant" >&2
+  exit 1
+fi
+descendant_pid="$(cat "$TMP_DIR/descendant.pid")"
+kill -TERM "$wrapper_pid"
+wait "$wrapper_pid" 2>/dev/null || true
+if kill -0 "$descendant_pid" 2>/dev/null \
+  && ! ps -p "$descendant_pid" -o state= 2>/dev/null | grep -q 'Z'; then
+  kill -KILL "$descendant_pid" 2>/dev/null || true
+  echo "FAIL: cancellation must reap descendants that ignore SIGTERM" >&2
   exit 1
 fi
 

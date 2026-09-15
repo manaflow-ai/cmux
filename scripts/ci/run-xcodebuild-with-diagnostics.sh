@@ -29,22 +29,36 @@ if ! [[ "$heartbeat_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] \
 fi
 
 set +e
-kill_process_tree() {
+collect_process_tree() {
   local pid="$1"
-  local signal="$2"
   local descendant
+  printf '%s\n' "$pid"
   for descendant in $(pgrep -P "$pid" 2>/dev/null); do
-    kill_process_tree "$descendant" "$signal"
+    collect_process_tree "$descendant"
   done
-  kill -"$signal" "$pid" 2>/dev/null || true
 }
 
 terminate_child() {
-  kill_process_tree "$child_pid" TERM
+  local process_tree
+  local pid
+  process_tree="$(collect_process_tree "$child_pid")"
+  for pid in $process_tree; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
   local deadline=$(( $(date '+%s') + 5 ))
-  while kill -0 "$child_pid" 2>/dev/null; do
+  while :; do
+    local alive=0
+    for pid in $process_tree; do
+      if kill -0 "$pid" 2>/dev/null; then
+        alive=1
+        break
+      fi
+    done
+    [[ "$alive" -eq 0 ]] && break
     if [[ "$(date '+%s')" -ge "$deadline" ]]; then
-      kill_process_tree "$child_pid" KILL
+      for pid in $process_tree; do
+        kill -KILL "$pid" 2>/dev/null || true
+      done
       break
     fi
     sleep 0.1
