@@ -28,7 +28,8 @@ final class cmuxUITests: XCTestCase {
                 "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
             )).firstMatch
             XCTAssertTrue(image.waitForExistence(timeout: 15))
-            let title = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+            let sheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            let title = sheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
 
             func assertFitted(_ lastText: XCUIElement) {
                 XCTAssertTrue(lastText.exists)
@@ -41,7 +42,6 @@ final class cmuxUITests: XCTestCase {
                 format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
             )).firstMatch
             assertFitted(compatibilityDetail)
-            let sheet = app.otherElements["MobileWhatsNewSheet"].firstMatch
             XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
             let pairingTop = title.frame.minY
             let pixels = try XCTUnwrap(image.screenshot().image.cgImage)
@@ -63,7 +63,7 @@ final class cmuxUITests: XCTestCase {
             add(before)
 
             image.swipeLeft()
-            let olderTitle = app.staticTexts["What's New in cmux"].firstMatch
+            let olderTitle = sheet.staticTexts["What's New in cmux"].firstMatch
             XCTAssertTrue(olderTitle.waitForExistence(timeout: 5))
             let olderDetail = app.staticTexts.matching(NSPredicate(
                 format: "label BEGINSWITH %@", "Choosing Tailscale Only shows exactly"
