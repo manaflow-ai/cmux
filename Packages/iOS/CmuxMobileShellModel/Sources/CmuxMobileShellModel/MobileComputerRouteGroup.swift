@@ -46,16 +46,19 @@ public struct MobileComputerRouteGroup: Identifiable, Equatable, Sendable {
                 endpoint: .hostPort(host: address.value, port: port), priority: route.priority,
                 groupID: route.groupID)
         }
-        return groups(valid).map { group in
-            let routes = group.routes.compactMap { route in
+        return groups(groups(valid).flatMap { group in
+            group.routes.compactMap { route in
                 try? CmxAttachRoute(id: route.id, kind: route.kind, endpoint: route.endpoint,
-                    priority: route.priority, groupID: group.id)
+                    priority: route.priority, groupID: route.groupID ?? group.id)
             }
-            return Self(id: group.id, routes: routes)
-        }
+        })
     }
 
     private static func endpointID(_ route: CmxAttachRoute) -> String {
-        "\(route.kind.rawValue):\(route.endpoint)"
+        switch route.endpoint {
+        case let .hostPort(host, port): "\(route.kind.rawValue):\(host):\(port)"
+        case let .peer(identity, _): "\(route.kind.rawValue):\(identity.endpointID)"
+        case let .url(url): "\(route.kind.rawValue):\(url)"
+        }
     }
 }
