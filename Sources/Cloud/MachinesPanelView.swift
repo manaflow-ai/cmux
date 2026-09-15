@@ -481,8 +481,8 @@ struct MachinesPanelView: View {
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            onMachineSelectionChange: { [weak tabManager] machine in
-                AppDelegate.shared?.setSelectedCloudMachine(machine, in: tabManager)
+            onMachineSelectionChange: { [weak tabManager] selection in
+                AppDelegate.shared?.setNewWorkspaceMachineSelection(selection, in: tabManager)
             }
         )
         .accessibilityIdentifier("CloudMachinesTree")

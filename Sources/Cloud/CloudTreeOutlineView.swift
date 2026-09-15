@@ -27,9 +27,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-    /// Reports the selected machine to the owning window. Local and pending
-    /// rows clear the selection.
-    var onMachineSelectionChange: @MainActor (SurfaceMachineID?) -> Void = { _ in }
+    /// Reports the selected machine context to the owning window.
+    var onMachineSelectionChange: @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -105,13 +104,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-        var onMachineSelectionChange: @MainActor (SurfaceMachineID?) -> Void = { _ in }
+        var onMachineSelectionChange: @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
-            onMachineSelectionChange: @escaping @MainActor (SurfaceMachineID?) -> Void = { _ in },
+            onMachineSelectionChange: @escaping @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
@@ -377,10 +376,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
             selectedNodeID = node?.id
-            if let node, case .pendingMachine = node.kind {
-                onMachineSelectionChange(nil)
+            if let node,
+                case .pendingMachine = node.kind {
+                onMachineSelectionChange(.pending)
+            } else if let machine = node?.machine {
+                onMachineSelectionChange(machine.isLocal ? .local : .cloud(machine.rawValue))
             } else {
-                onMachineSelectionChange(node?.machine)
+                onMachineSelectionChange(.none)
             }
         }
 

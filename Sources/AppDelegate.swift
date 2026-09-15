@@ -621,10 +621,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
-        /// The last Cloud tree machine selected in this window. Cmd+N only
-        /// consults it while the Machines panel owns focus, so another window
-        /// cannot retarget creation.
-        var selectedCloudMachineID: String?
+        /// The last Machines tree selection in this window. This is intentionally
+        /// window-scoped so Cmd+N cannot borrow another window's machine.
+        var newWorkspaceMachineSelection: NewWorkspaceMachineSelection = .none
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -8411,8 +8410,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-        if let context,
-           case .cloud(let machineID) = newWorkspaceMachineContext(for: context).machine {
+        if let context {
+            let target = newWorkspaceMachineContext(for: context).target
+            if case .unavailable = target {
+                NSSound.beep()
+                return false
+            }
+            guard case .cloud(let machineID) = target else {
+                return performNewWorkspaceCreationAction(
+                    initialSurface: .terminal,
+                    preferredTabManager: preferredTabManager,
+                    event: event,
+                    debugSource: debugSource,
+                    skipConfiguredAction: skipConfiguredAction
+                )
+            }
             let hasExplicitConfiguredAction: Bool = {
                 guard !skipConfiguredAction,
                       let action = context.cmuxConfigStore?.resolvedNewWorkspaceAction() else { return false }
@@ -8433,7 +8445,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
-            debugSource: debugSource
+            debugSource: debugSource,
+            skipConfiguredAction: skipConfiguredAction
         )
     }
 
