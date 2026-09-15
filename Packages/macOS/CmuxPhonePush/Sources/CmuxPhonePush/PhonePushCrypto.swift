@@ -297,6 +297,7 @@ public enum PhonePushKeyStore {
 
 public enum PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer.v2."
+    private static let lock = NSLock()
     private nonisolated(unsafe) static var defaults: UserDefaults {
         #if os(iOS)
         return UserDefaults(suiteName: PhonePushActiveAccountStore.appGroupIdentifier) ?? .standard
@@ -307,7 +308,9 @@ public enum PhonePushPeerKeyStore {
 
     public static func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
         guard !descriptor.keyID.isEmpty else { return }
-        defaults.set(try? JSONEncoder().encode(descriptor), forKey: key(for: tuple))
+        lock.withLock {
+            defaults.set(try? JSONEncoder().encode(descriptor), forKey: key(for: tuple))
+        }
     }
 
     public static func pin(_ publicKey: Data, keyID: String, for tuple: PhonePushDeviceTuple) {
@@ -315,8 +318,10 @@ public enum PhonePushPeerKeyStore {
     }
 
     public static func pinnedDescriptor(for tuple: PhonePushDeviceTuple) -> PhonePushPeerDescriptor? {
-        guard let data = defaults.data(forKey: key(for: tuple)) else { return nil }
-        return try? JSONDecoder().decode(PhonePushPeerDescriptor.self, from: data)
+        lock.withLock {
+            guard let data = defaults.data(forKey: key(for: tuple)) else { return nil }
+            return try? JSONDecoder().decode(PhonePushPeerDescriptor.self, from: data)
+        }
     }
 
     public static func pinnedKey(for tuple: PhonePushDeviceTuple) -> Data? {
@@ -360,6 +365,7 @@ public enum PhonePushPeerKeyStore {
 public enum PhonePushActiveAccountStore {
     public static let appGroupIdentifier = "group.dev.cmux.ios"
     private static let accountKeyPrefix = "cmux.activeAccountID."
+    private static let lock = NSLock()
 
     private static var hostBundleIdentifier: String? {
         let bundle = Bundle.main
@@ -375,17 +381,31 @@ public enum PhonePushActiveAccountStore {
     }
 
     public static func current() -> String? {
-        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return nil }
-        return UserDefaults(suiteName: appGroupIdentifier)?.string(forKey: key)
+        lock.withLock {
+            guard let key = accountKey(bundleID: hostBundleIdentifier) else { return nil }
+            return UserDefaults(suiteName: appGroupIdentifier)?.string(forKey: key)
+        }
     }
 
     public static func set(_ accountID: String) {
-        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-        UserDefaults(suiteName: appGroupIdentifier)?.set(accountID, forKey: key)
+        lock.withLock {
+            guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
+            UserDefaults(suiteName: appGroupIdentifier)?.set(accountID, forKey: key)
+        }
     }
 
     public static func clear() {
-        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
-        UserDefaults(suiteName: appGroupIdentifier)?.removeObject(forKey: key)
+        lock.withLock {
+            guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
+            UserDefaults(suiteName: appGroupIdentifier)?.removeObject(forKey: key)
+        }
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }

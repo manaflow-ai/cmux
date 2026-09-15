@@ -81,13 +81,13 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         case .notify:
             object["title"] = payload.hideContent
                 ? "cmux"
-                : try Self.boundedText(
+                : Self.boundedText(
                     payload.title,
                     maximumUTF16Units: Self.maximumTitleUTF16Units
                 )
             object["subtitle"] = payload.hideContent
                 ? ""
-                : try Self.boundedText(
+                : Self.boundedText(
                     payload.subtitle,
                     maximumUTF16Units: Self.maximumSubtitleUTF16Units
                 )
@@ -96,7 +96,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
                     localized: "push.hidden.body",
                     defaultValue: "New terminal activity"
                 )
-                : try Self.boundedText(
+                : Self.boundedText(
                     payload.body,
                     maximumUTF16Units: Self.maximumBodyUTF16Units
                 )
@@ -227,10 +227,10 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     private static func boundedText(
         _ value: String,
         maximumUTF16Units: Int
-    ) throws -> String {
+    ) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.utf16.count > maximumUTF16Units else { return trimmed }
-        throw EncodingError.requestTooLarge
+        return String(decoding: trimmed.utf16.prefix(maximumUTF16Units), as: UTF16.self)
     }
 
     private static func boundedIdentifier(_ value: String?) throws -> String? {
