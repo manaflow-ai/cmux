@@ -2195,6 +2195,8 @@
 		548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */; };
 		44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */; };
 		A1122301A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */; };
+		C12676000000000000000004 /* NewWorkspaceMachineContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12676000000000000000003 /* NewWorkspaceMachineContext.swift */; };
+		C12676000000000000000002 /* NewWorkspaceMachineContextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12676000000000000000001 /* NewWorkspaceMachineContextTests.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
 		734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -5950,6 +5952,8 @@
 		7EC4096C4A05D3A58980308A /* NewMachineSheetPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineSheetPresenter.swift; sourceTree = "<group>"; };
 		28CFF87D42FA4B0993B14DCC /* NewMachineSheetPresenting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewMachineSheetPresenting.swift"; sourceTree = "<group>"; };
 		A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceButtonHitAreaUITests.swift; sourceTree = "<group>"; };
+		C12676000000000000000003 /* NewWorkspaceMachineContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMachineContext.swift; sourceTree = "<group>"; };
+		C12676000000000000000001 /* NewWorkspaceMachineContextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMachineContextTests.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
 		D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
@@ -9452,6 +9456,7 @@
 				A5FB1314 /* WorkspaceActionSaveDialogAccessory.swift */,
 				A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */,
 				AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */,
+				C12676000000000000000003 /* NewWorkspaceMachineContext.swift */,
 				1DF23874CA9E46EFB0708B3D /* cmuxApp+CloudWorkspace.swift */,
 				C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */,
 				737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */,
@@ -13333,6 +13338,7 @@
 				DD3322FE8D4021EB0FAFE7F6 /* NewMachineSheet.swift in Sources */,
 				548D90758DB3CF890BFDC603 /* NewMachineSheetPresenter.swift in Sources */,
 				44EBAC3411D64FD0B8FE6962 /* NewMachineSheetPresenting.swift in Sources */,
+				C12676000000000000000004 /* NewWorkspaceMachineContext.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				C06552010000000000000003 /* NotificationBurstCoalescer.swift in Sources */,
 				7490C00D7490C00D7490C00D /* NotificationCacheMemoryPressureResponder.swift in Sources */,
@@ -15322,6 +15328,7 @@
 				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,
 				D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */,
 				EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */,
+				C12676000000000000000002 /* NewWorkspaceMachineContextTests.swift in Sources */,
 				A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */,
 				734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,
 				D7AB00000000000000B021 /* NotificationDismissSyncTests.swift in Sources */,

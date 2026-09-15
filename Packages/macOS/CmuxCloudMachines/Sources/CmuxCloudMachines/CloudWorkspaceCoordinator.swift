@@ -1,13 +1,5 @@
 import Foundation
 
-/// Failure raised when a captured Cloud machine is no longer in the
-/// authoritative fleet response. Keeping this distinct from an empty/default
-/// selection prevents callers from silently routing the request to this Mac.
-public enum CloudWorkspaceCoordinatorError: Error, Equatable, Sendable {
-    case machineUnavailable(String)
-    case targetWindowUnavailable(UUID)
-}
-
 /// Creates cloud workspaces from a fresh fleet response and returns their exact local identity.
 @MainActor
 public final class CloudWorkspaceCoordinator {
