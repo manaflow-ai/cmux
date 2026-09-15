@@ -31,9 +31,13 @@ struct MobileHostIdentityConcurrencyTests {
         // Deliberately hold main while a background preference writer posts.
         // A finite wait reproduces the cache-initialization deadlock without
         // leaving the test host blocked when the assertion fails.
-        #expect(postReturned.wait(timeout: .now() + 1) == .success)
+        #expect(Self.waitForPostWhileMainThreadIsOccupied(postReturned))
         var iterator = deliveries.makeAsyncIterator()
         #expect(await iterator.next() != nil)
+    }
+
+    private static func waitForPostWhileMainThreadIsOccupied(_ posted: DispatchSemaphore) -> Bool {
+        posted.wait(timeout: .now() + 1) == .success
     }
 
     @Test func dismissalWarmupGateDoesNotResolveIdentityOnTheSynchronousPath() throws {
