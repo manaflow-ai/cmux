@@ -1,6 +1,6 @@
 # IROH v2 decisions
 
-Updated 10 September 2026, revision 21. Accepted directions are recorded here; unresolved implementation details are listed at the end. This workspace changes architecture documents. The independent pairing implementation runs in **iOS Pairing Opt-in, workspace:51**.
+Updated 15 September 2026, revision 22. Accepted directions are recorded here; unresolved implementation details are listed at the end. Revision 22 records the existing PlanetScale database requirement and preservation of released clients.
 
 ## Backend and scope
 
@@ -12,13 +12,21 @@ Updated 10 September 2026, revision 21. Accepted directions are recorded here; u
 
 ### Database migration status
 
-The current implementation still points at the existing Aurora PostgreSQL
-database. We can migrate the v2 shared tables to PlanetScale PostgreSQL and
-then point `DATABASE_URL` at PlanetScale. That is a data migration and traffic
-cutover, not a code-only switch. The safe sequence is export and verify Aurora,
-apply the v2 migration on PlanetScale, copy only defined v2 records, verify
-counts and EndpointID uniqueness, canary one team, switch the Worker secret,
-and keep Aurora read-only during rollback. No migration has been run yet.
+**Use the existing production PlanetScale database; do not create another
+database.** Team state stays in Durable Object SQLite through Drizzle. The
+shared database holds the global EndpointID ownership map and owner counts.
+Development and staging use their own scoped v2 records there.
+
+On September 15, 44 ownership entries were copied from the temporary v2
+databases to the existing production database, then the development, staging
+and production Workers were switched to that database. Existing legacy tables
+were preserved. This receipt covers the IROH ownership cutover; it does not
+claim that unrelated Cloud VM data has been migrated from Aurora.
+
+**Released legacy clients must continue working.** Keep the legacy backend and
+relay verification key usable while v2 rolls out. Relays accept the legacy key
+and the additional v2 key with the same signature, expiry, audience and endpoint
+checks. Apply and verify relay changes in every region used by the apps.
 
 PlanetScale is supported by the local tooling through
 `CMUX_DB_PROVIDER=planetscale` and `PLANETSCALE_DATABASE_URL`. The Worker uses
