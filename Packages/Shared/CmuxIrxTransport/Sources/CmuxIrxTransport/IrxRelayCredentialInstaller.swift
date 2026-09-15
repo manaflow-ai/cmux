@@ -61,6 +61,8 @@ actor IrxRelayCredentialInstaller {
         installed.removeAll()
     }
 
+    func pendingTaskForTesting() -> Task<Void, Never>? { task }
+
     private func run(id: UUID) async {
         defer {
             if taskID == id {

@@ -489,6 +489,9 @@ public actor IrxPeerEngine {
         }
     }
 
+    // Tests capture this before retirement and await its cancellation boundary.
+    func terminationWatcherForTesting() -> Task<Void, Never>? { terminationWatcher }
+
     private func sessionDied(_ died: IrxClientSession, viaKeepalive: Bool) async {
         guard session?.admit.session == died.admit.session else { return }
         session = nil

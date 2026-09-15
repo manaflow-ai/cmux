@@ -167,6 +167,9 @@ public actor IrxConnection {
 
     public nonisolated var underlying: Connection { connection }
 
+    // Capturing the owned task lets tests join cancellation instead of sleeping.
+    func keepaliveTaskForTesting() -> Task<Void, Never>? { keepaliveTask }
+
     public var isClosed: Bool {
         closedFlag || nativeClosureObserved || connection.closeReason() != nil
     }
