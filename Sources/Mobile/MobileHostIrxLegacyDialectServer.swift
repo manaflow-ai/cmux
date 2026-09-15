@@ -122,7 +122,7 @@ enum MobileHostIrxLegacyDialectServer {
                     authorization: .irohAdmission(admitted.peer),
                     artifactTransfers: artifactTransfers,
                     independentEventWriter: eventWriter,
-                    idleTimeoutNanoseconds: 0,
+                    firstFrameTimeoutNanoseconds: 0,
                     promoteUsableSession: { await admitted.markUsable() },
                     isCurrent: isCurrent
                 )
