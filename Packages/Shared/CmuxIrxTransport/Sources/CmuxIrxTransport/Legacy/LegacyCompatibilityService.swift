@@ -19,8 +19,10 @@ public actor LegacyCompatibilityService {
             let hex = value.map { String(format: "%02x", $0) }.joined()
             return "\(hex.prefix(8))-\(hex.dropFirst(8).prefix(4))-\(hex.dropFirst(12).prefix(4))-\(hex.dropFirst(16).prefix(4))-\(hex.dropFirst(20))"
         }
+        let deviceID = UUID(uuidString: identity.deviceID) == nil
+            ? uuid(from: identity.publicKeyData) : identity.deviceID
         return IrxIdentity(privateKeyData: identity.privateKeyData,
-            deviceID: uuid(from: identity.publicKeyData),
+            deviceID: deviceID,
             appInstanceID: uuid(from: Data(identity.publicKeyData.reversed())))
     }
 
@@ -139,7 +141,17 @@ public actor LegacyCompatibilityService {
         started = true
         publish()
         await startControl()
-        _ = try await discover(maximumAge: 0)
+        do {
+            _ = try await discover(maximumAge: 0)
+        } catch {
+            started = false
+            let oldControl = control
+            control = nil
+            await oldControl?.stop()
+            binding = nil
+            publish()
+            throw error
+        }
     }
 
     /// Ends this owner permanently. A later account/team uses a new service.
