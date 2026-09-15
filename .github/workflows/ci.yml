@@ -461,6 +461,12 @@ jobs:
     defaults:
       run:
         working-directory: web
+    env:
+      # Test doubles require the database variable to exist even when no real
+      # database connection is opened. Production build validation uses the
+      # same deterministic placeholder.
+      DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+      DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
