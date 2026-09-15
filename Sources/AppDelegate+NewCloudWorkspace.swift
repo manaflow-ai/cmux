@@ -57,6 +57,7 @@ extension AppDelegate {
                 return performNewCloudWorkspaceOnMachineAction(
                     machineID: machineID,
                     focus: context.tabManager.selectedTabId != nil,
+                    windowID: context.windowId,
                     debugSource: debugSource
                 )
             }
@@ -95,6 +96,7 @@ extension AppDelegate {
     func performNewCloudWorkspaceOnMachineAction(
         machineID: String,
         focus: Bool,
+        windowID: UUID? = nil,
         debugSource: String = "newWorkspace.cloud"
     ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
@@ -105,7 +107,8 @@ extension AppDelegate {
         return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)") {
             guard let workspaceID = try await coordinator.createOnMachine(
                 machineID: capturedMachineID,
-                focus: focus
+                focus: focus,
+                windowID: windowID
             ), !Task.isCancelled, coordinator.isAvailable else { return }
 #if DEBUG
             cmuxDebugLog(

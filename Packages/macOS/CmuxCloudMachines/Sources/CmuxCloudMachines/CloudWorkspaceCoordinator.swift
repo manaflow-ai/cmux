@@ -5,6 +5,7 @@ import Foundation
 /// selection prevents callers from silently routing the request to this Mac.
 public enum CloudWorkspaceCoordinatorError: Error, Equatable, Sendable {
     case machineUnavailable(String)
+    case targetWindowUnavailable(UUID)
 }
 
 /// Creates cloud workspaces from a fresh fleet response and returns their exact local identity.
@@ -15,6 +16,7 @@ public final class CloudWorkspaceCoordinator {
     private let allowsOperation: @MainActor () -> Bool
     private let loadMachines: @MainActor () async throws -> [CloudMachineDescriptor]
     private let createWorkspace: @MainActor (String, Bool) async throws -> UUID?
+    private let createWorkspaceWithContext: (@MainActor (String, Bool, UUID) async throws -> UUID?)?
 
     /// Whether Cloud Machines and the current authenticated account permit an action.
     public var isAvailable: Bool { allowsOperation() }
@@ -29,12 +31,14 @@ public final class CloudWorkspaceCoordinator {
         defaultMachineStore: DefaultCloudMachineStore,
         allowsOperation: @escaping @MainActor () -> Bool,
         loadMachines: @escaping @MainActor () async throws -> [CloudMachineDescriptor],
-        createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?
+        createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?,
+        createWorkspaceWithContext: (@escaping @MainActor (String, Bool, UUID) async throws -> UUID?)? = nil
     ) {
         self.defaultMachineStore = defaultMachineStore
         self.allowsOperation = allowsOperation
         self.loadMachines = loadMachines
         self.createWorkspace = createWorkspace
+        self.createWorkspaceWithContext = createWorkspaceWithContext
     }
 
     /// Creates one workspace using a caller-owned task.
@@ -61,7 +65,7 @@ public final class CloudWorkspaceCoordinator {
     ///   - focus: Whether to focus the newly opened local projection.
     /// - Returns: The exact created local workspace ID, or nil when unavailable.
     /// - Throws: Cancellation, machine unavailability, or a Cloud service failure.
-    public func createOnMachine(machineID: String, focus: Bool) async throws -> UUID? {
+    public func createOnMachine(machineID: String, focus: Bool, windowID: UUID? = nil) async throws -> UUID? {
         guard isAvailable else { return nil }
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else {
@@ -73,6 +77,9 @@ public final class CloudWorkspaceCoordinator {
         guard isAvailable,
               machines.contains(where: { $0.id == capturedMachineID }) else {
             throw CloudWorkspaceCoordinatorError.machineUnavailable(capturedMachineID)
+        }
+        if let windowID, let createWorkspaceWithContext {
+            return try await createWorkspaceWithContext(capturedMachineID, focus, windowID)
         }
         return try await createWorkspace(capturedMachineID, focus)
     }
