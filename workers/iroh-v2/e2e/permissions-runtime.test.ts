@@ -85,3 +85,13 @@ test("a discover-only Mac may enter a same-account opted-in host, but grants no 
   await post("/pairing", { enabled: false });
   expect((await post("/directory")).body.directory.inboundPeers).toEqual([]);
 });
+
+
+test("Mac permissions reject a different account, tag or app namespace", async () => {
+  for (const [name, input] of Object.entries({ account: { user: "bob" }, tag: { tag: "other" }, app: { namespace: "other" } })) {
+    const post = client("mac-isolation-" + name);
+    expect((await post("/mac-devices", input)).status).toBe(200);
+    const result = (await post("/directory")).body.directory;
+    expect(names(result.inboundPeers.map((p: any) => p.device))).not.toContain("mac-alice-peer");
+  }
+});

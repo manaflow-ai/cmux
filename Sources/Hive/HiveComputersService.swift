@@ -11,21 +11,24 @@ final class HiveComputersService {
 
     private let registry: DeviceSurfaceProviderRegistry
     private let openSidebar: @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?
-    private let selfInstance: SurfaceDeviceInstanceID
+    private let fixedSelfInstance: SurfaceDeviceInstanceID?
+    private var selfInstance: SurfaceDeviceInstanceID {
+        fixedSelfInstance ?? SurfaceDeviceInstanceID(deviceID: MobileHostIdentity.deviceID(), tag: MobileHostIdentity.instanceTag())
+    }
 
     init(
         registry: DeviceSurfaceProviderRegistry,
-        selfInstance: SurfaceDeviceInstanceID = SurfaceDeviceInstanceID(
-            deviceID: MobileHostIdentity.deviceID(), tag: MobileHostIdentity.instanceTag()
-        ),
+        selfInstance: SurfaceDeviceInstanceID? = nil,
         openSidebar: @escaping @MainActor (SurfaceDeviceInstanceID) -> RightSidebarRemoteApplyResult?
     ) {
         self.registry = registry
-        self.selfInstance = selfInstance
+        self.fixedSelfInstance = selfInstance
         self.openSidebar = openSidebar
     }
 
     private var controller: HivePairingController?
+    private var availabilityObserver: CloudFeatureAvailabilityObserver?
+    private var devicesAvailable = false
     private var auth: AuthCoordinator?
     private var identity: AuthenticatedSessionIdentity?
     private var teamID: String?
@@ -55,6 +58,9 @@ final class HiveComputersService {
             forName: SurfaceCatalog.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.publish() }
+        }
+        availabilityObserver = CloudFeatureAvailabilityObserver(isEnabled: { DevicesFeature.isAvailable() }) { [weak self] _ in
+            self?.observeAccount()
         }
         observeAccount()
         observePreferences()
@@ -98,6 +104,7 @@ final class HiveComputersService {
     }
 
     func refresh() async {
+        guard DevicesFeature.isAvailable() else { return }
         await loadTask?.value
         if let controller {
             do {
@@ -174,7 +181,9 @@ final class HiveComputersService {
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeAccount() }
         }
-        guard scope.0 != identity || scope.1 != teamID else { return }
+        let available = DevicesFeature.isAvailable()
+        guard scope.0 != identity || scope.1 != teamID || devicesAvailable != available else { return }
+        devicesAvailable = available
         identity = scope.0
         teamID = scope.1
         loadTask?.cancel()
@@ -182,7 +191,7 @@ final class HiveComputersService {
         controller = nil
         error = nil
         pairingsChanged()
-        guard let identity = scope.0 else { return }
+        guard available, let identity = scope.0 else { return }
         let source = HiveAccountTokenSource(auth: auth, identity: identity, teamID: scope.1)
         #if DEBUG
         let allowsLoopback = true
@@ -257,7 +266,7 @@ final class HiveComputersService {
             },
             isSignedIn: identity != nil, error: error ?? directory?.registryError,
             discoveryEnabled: registry.preferences?.discoveryEnabled ?? true,
-            incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? true
+            incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? false
         )
     }
 

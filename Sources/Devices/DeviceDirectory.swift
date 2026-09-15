@@ -60,7 +60,10 @@ final class DeviceDirectory {
     private var directoryChangesTask: Task<Void, Never>?
     private let makeSubscriber: @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber
     private let serviceURL: @MainActor @Sendable () -> URL?
-    private let selfInstance: SurfaceDeviceInstanceID
+    private let fixedSelfInstance: SurfaceDeviceInstanceID?
+    private var selfInstance: SurfaceDeviceInstanceID {
+        fixedSelfInstance ?? SurfaceDeviceInstanceID(deviceID: MobileHostIdentity.deviceID(), tag: MobileHostIdentity.instanceTag())
+    }
     private let clock: any Clock<Duration>
 
     private var registryDevices: [DeviceRegistryDirectoryClient.Device] = []
@@ -89,10 +92,7 @@ final class DeviceDirectory {
         makeSubscriber: @escaping @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber = { url, credentials in
             DevicePresenceSubscriber(serviceBaseURL: url, credentials: credentials)
         },
-        selfInstance: SurfaceDeviceInstanceID = SurfaceDeviceInstanceID(
-            deviceID: MobileHostIdentity.deviceID(),
-            tag: MobileHostIdentity.instanceTag()
-        ),
+        selfInstance: SurfaceDeviceInstanceID? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.identity = identity
@@ -107,7 +107,7 @@ final class DeviceDirectory {
         )
         self.serviceURL = serviceURL
         self.makeSubscriber = makeSubscriber
-        self.selfInstance = selfInstance
+        self.fixedSelfInstance = selfInstance
         self.clock = clock
     }
 

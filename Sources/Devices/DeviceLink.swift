@@ -174,7 +174,7 @@ final class DeviceLink {
 
     /// Keeps large replay replies encoded until their decoder leaves the UI actor.
     func requestData(_ method: String, params: [String: Any] = [:], timeoutNanoseconds: UInt64? = nil) async throws -> Data {
-        guard let client, phase == .connected else { throw DeviceLinkError.notConnected }
+        guard DevicesFeature.isEnabled, let client, phase == .connected else { throw DeviceLinkError.notConnected }
         let requestGeneration = generation
         let requestData = try MobileCoreRPCClient.requestData(method: method, params: params)
         do {

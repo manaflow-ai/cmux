@@ -72,7 +72,10 @@ export class PermissionTestDO {
           capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"] }, this.now);
         const descriptor = {
           ...device.descriptor,
-          identity: { ...device.descriptor.identity, deviceId: "mac-alice-peer" },
+          identity: { ...device.descriptor.identity, deviceId: "mac-alice-peer",
+            userId: input.user ?? device.descriptor.identity.userId,
+            buildTag: input.tag ?? device.descriptor.identity.buildTag,
+            appNamespace: input.namespace ?? device.descriptor.identity.appNamespace },
           endpointId: "f".repeat(64),
           metadata: { ...device.descriptor.metadata, pairingEnabled: false, capabilities: ["cmux.mac-devices.v1"] },
         };

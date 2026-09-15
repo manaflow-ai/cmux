@@ -700,7 +700,8 @@ final class MobileHostService {
         defaults: UserDefaults,
         buildFlavor: BuildFlavor
     ) -> Bool {
-        (defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool ?? false)
+        guard !ManagedDevicePolicy(defaults: defaults).isIncomingDeviceAccessDisabled else { return false }
+        return (defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool ?? false)
             || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
     }
 

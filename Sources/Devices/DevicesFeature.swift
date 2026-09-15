@@ -15,10 +15,12 @@ enum DevicesFeature {
     /// since a real managed profile cannot be simulated.
     nonisolated static func isEnabled(
         defaults: UserDefaults = .standard,
-        policy: ManagedDevicePolicy? = nil
+        policy: ManagedDevicePolicy? = nil,
+        cloudEnabled: Bool? = nil
     ) -> Bool {
         let policy = policy ?? ManagedDevicePolicy(defaults: defaults)
-        guard !policy.isDeviceDiscoveryDisabled else { return false }
+        guard isAvailable(defaults: defaults, policy: policy, cloudEnabled: cloudEnabled),
+              !policy.isDeviceDiscoveryDisabled else { return false }
         return localOptIn(defaults: defaults)
     }
 
@@ -28,8 +30,18 @@ enum DevicesFeature {
         return defaults.bool(forKey: key.userDefaultsKey)
     }
 
-    nonisolated static func isDiscoveryEnabled(defaults: UserDefaults = .standard) -> Bool {
-        isEnabled(defaults: defaults)
+    nonisolated static func isAvailable(
+        defaults: UserDefaults = .standard,
+        policy: ManagedDevicePolicy? = nil,
+        cloudEnabled: Bool? = nil
+    ) -> Bool {
+        let policy = policy ?? ManagedDevicePolicy(defaults: defaults)
+        return !policy.isEnforced(.disableCloud)
+            && (cloudEnabled ?? CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy))
+    }
+
+    nonisolated static func isDiscoveryEnabled(defaults: UserDefaults = .standard, cloudEnabled: Bool? = nil) -> Bool {
+        isEnabled(defaults: defaults, cloudEnabled: cloudEnabled)
     }
 
     nonisolated static func isDiscoveryManaged(

@@ -33,7 +33,7 @@ public struct ComputersSettingsSnapshot: Equatable, Sendable {
 
     public init(
         computers: [Computer] = [], isSignedIn: Bool = false, error: String? = nil,
-        discoveryEnabled: Bool = true, incomingAccessEnabled: Bool = true
+        discoveryEnabled: Bool = true, incomingAccessEnabled: Bool = false
     ) {
         self.computers = computers
         self.isSignedIn = isSignedIn

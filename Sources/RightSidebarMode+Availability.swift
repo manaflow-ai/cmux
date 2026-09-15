@@ -30,7 +30,7 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
-            devicesEnabled: true
+            devicesEnabled: false
         )
     }
 
@@ -55,7 +55,7 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
-            devicesEnabled: true
+            devicesEnabled: false
         )
     }
 
@@ -99,7 +99,7 @@ extension RightSidebarMode {
         case .dock:
             return dockEnabled
         case .machines:
-            return machinesEnabled || devicesEnabled
+            return machinesEnabled
         case .customSidebar:
             // Available once the custom-sidebars beta is on AND a right-side
             // sidebar has been picked (right_sidebar set custom <name>); the

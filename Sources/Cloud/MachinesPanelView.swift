@@ -616,7 +616,7 @@ struct MachinesPanelView: View {
             source: treeSource,
             devicesSection: CloudTreeDevicesSection(
                 discoveryEnabled: includesDevices,
-                incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? true,
+                incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
             ),

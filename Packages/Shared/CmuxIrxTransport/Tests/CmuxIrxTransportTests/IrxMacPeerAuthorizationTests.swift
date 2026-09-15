@@ -38,6 +38,14 @@ struct IrxMacPeerAuthorizationTests {
         #expect(selected.deviceRecordID == recordID)
     }
 
+    @Test("Discovery-only control does not authorize incoming sessions")
+    func outgoingOnlyControlHasNoInboundAuthority() throws {
+        let own = record(device: local, endpoint: String(repeating: "cd", count: 32), enabled: false)
+        _ = try V2ControlConfiguration(baseURL: URL(string: "https://broker.test")!, device: own.descriptor)
+        let authority = try V2InboundAdmissionAuthority(host: own.descriptor)
+        #expect(authority.authorizedPeer(endpointID: endpoint) == nil)
+    }
+
     @Test("Remote identities and disabled hosts fail closed")
     func rejectsUntrustedPeer() throws {
         let intent = IrxMacPeerAuthorization(deviceID: device, tag: "feature", endpointID: endpoint)

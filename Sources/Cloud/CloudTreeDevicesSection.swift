@@ -4,7 +4,7 @@ import Foundation
 struct CloudTreeDevicesSection: Equatable, Sendable {
     var count: Int = 0
     var discoveryEnabled: Bool = true
-    var incomingAccessEnabled: Bool = true
+    var incomingAccessEnabled: Bool = false
     var discoveryManaged: Bool = false
     var incomingAccessManaged: Bool = false
 }

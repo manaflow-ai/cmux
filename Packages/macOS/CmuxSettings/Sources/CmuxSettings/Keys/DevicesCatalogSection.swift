@@ -12,7 +12,7 @@ public struct DevicesCatalogSection: SettingCatalogSection {
     /// Allows this Mac to advertise and accept remote sessions from the account's devices.
     public let incomingAccessEnabled = DefaultsKey<Bool>(
         id: "devices.incomingAccess.enabled",
-        defaultValue: true,
+        defaultValue: false,
         userDefaultsKey: "devices.incomingAccess.enabled"
     )
 

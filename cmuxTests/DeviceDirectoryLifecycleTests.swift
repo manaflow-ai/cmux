@@ -217,19 +217,7 @@ struct DeviceDirectoryLifecycleTests {
             DevicePresenceSubscriber(serviceBaseURL: $0, credentials: $1)
         }
     ) -> DeviceDirectory {
-        let config = AuthConfig(
-            stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
-            magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
-            apiBaseURL: "http://127.0.0.1:1"
-        )
-        let auth = AuthCoordinator(
-            client: StackAuthClient(config: config, tokenStore: .memory, noAutomaticPrefetch: true),
-            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
-            anchor: AuthPresentationContextProvider(), config: config,
-            launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false)
-        )
+        let auth = makeAuth(defaults: defaults)
         return DeviceDirectory(
             auth: auth, identity: AuthenticatedSessionIdentity(generation: 0, accountID: "test"),
             teamID: teamID, pairing: UnpairedDevices(),
@@ -237,6 +225,65 @@ struct DeviceDirectoryLifecycleTests {
             serviceURL: serviceURL, makeSubscriber: makeSubscriber,
             selfInstance: SurfaceDeviceInstanceID(deviceID: "self", tag: "test"), clock: clock
         )
+    }
+
+    private func makeAuth(defaults: UserDefaults) -> AuthCoordinator {
+        let config = AuthConfig(
+            stack: CMUXAuthConfig(projectId: "test", publishableClientKey: "test"),
+            magicLinkCallbackURL: "http://127.0.0.1:1/auth/callback",
+            apiBaseURL: "http://127.0.0.1:1"
+        )
+        return AuthCoordinator(
+            client: StackAuthClient(config: config, tokenStore: .memory, noAutomaticPrefetch: true),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
+            anchor: AuthPresentationContextProvider(), config: config,
+            launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: [:], includesDevAuth: false)
+        )
+    }
+
+    @Test("Cloud availability stops directory work and re-enables it once without an open sidebar")
+    func cloudGateOwnsRegistryLifetime() async throws {
+        let suite = "DevicesRegistryGate-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let center = NotificationCenter()
+        let clock = SidebarTestManualClock()
+        var enabled = false
+        var directoryCreations = 0
+        var transportCreations = 0
+        let registry = DeviceSurfaceProviderRegistry(
+            notificationCenter: center,
+            sessionScope: { _ in (AuthenticatedSessionIdentity(generation: 1, accountID: "test"), "team") },
+            makeAutomaticClient: { _, _ in transportCreations += 1; return nil },
+            allowsAutomaticConnections: { true },
+            makeDirectory: { _, _, _, _, _ in
+                directoryCreations += 1
+                return makeDirectory(defaults: defaults, clock: clock, serviceURL: { nil })
+            },
+            isFeatureEnabled: { enabled }
+        )
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        #expect(!registry.isRunning)
+        #expect(directoryCreations == 0 && transportCreations == 0)
+        enabled = true
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        #expect(registry.isRunning)
+        #expect(directoryCreations == 1 && transportCreations == 1)
+        enabled = false
+        center.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+        await registry.refresh(force: true)
+        #expect(!registry.isRunning && registry.directory == nil && registry.providerCount == 0)
+        #expect(directoryCreations == 1 && transportCreations == 1)
+        enabled = true
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        #expect(registry.isRunning)
+        #expect(directoryCreations == 2 && transportCreations == 2)
+        enabled = false
+        center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        await clock.waitUntilIdle()
     }
 
     private final class UnpairedDevices: DeviceLinkAuthorizationSource {

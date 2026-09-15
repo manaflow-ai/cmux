@@ -30,29 +30,30 @@ struct DevicesSidebarModeTests {
         #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
     }
 
-    @Test("The two device preferences work without a beta opt-in")
-    func independentPreferencesWithoutBeta() {
+    @Test("The two device preferences remain independent within Cloud")
+    func independentPreferencesWithinCloud() {
         let defaults = makeDefaults()
         let keys = DevicesCatalogSection()
-        defaults.set(false, forKey: "devices.beta.enabled")
         defaults.set(true, forKey: keys.discoveryEnabled.userDefaultsKey)
         defaults.set(false, forKey: keys.incomingAccessEnabled.userDefaultsKey)
-        #expect(DevicesFeature.isDiscoveryEnabled(defaults: defaults))
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
-
+        #expect(DevicesFeature.isDiscoveryEnabled(defaults: defaults, cloudEnabled: true))
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
         defaults.set(false, forKey: keys.discoveryEnabled.userDefaultsKey)
         defaults.set(true, forKey: keys.incomingAccessEnabled.userDefaultsKey)
-        #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults))
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults, cloudEnabled: true))
+        #expect(MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
     }
 
-    @Test("My Devices remains reachable while discovery and Cloud Machines are off")
-    func disabledDiscoveryKeepsItsControlsReachable() {
+    @Test("A remote Cloud disable wins over saved device preferences")
+    func remoteCloudGateDisablesDevices() {
         let defaults = makeDefaults()
-        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        defaults.set(false, forKey: "devices.beta.enabled")
-        defaults.set(false, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
-        #expect(RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        defaults.set(true, forKey: DevicesCatalogSection().discoveryEnabled.userDefaultsKey)
+        defaults.set(true, forKey: DevicesCatalogSection().incomingAccessEnabled.userDefaultsKey)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, _ in nil }
+        let enabled = CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy, remoteEnabled: false)
+        #expect(!DevicesFeature.isEnabled(defaults: defaults, policy: policy, cloudEnabled: enabled))
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: enabled))
     }
 
     @Test("Device aliases open the same Cloud sidebar")
@@ -67,10 +68,10 @@ struct DevicesSidebarModeTests {
         #expect(RightSidebarMode.machines.canOpenAsPane)
     }
 
-    @Test("Cloud appears once when either machine source is enabled")
+    @Test("Cloud availability gates both machine sources")
     func availability() {
         #expect(RightSidebarMode.machines.isAvailable(feedEnabled: true, dockEnabled: true, machinesEnabled: true, devicesEnabled: false))
-        #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true))
+        #expect(!RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false, devicesEnabled: true))
         #expect(RightSidebarMode.machines.isAvailable(feedEnabled: false, dockEnabled: false, machinesEnabled: false) == false, "callers that predate Devices see it hidden")
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true, devicesEnabled: true)
@@ -78,7 +79,7 @@ struct DevicesSidebarModeTests {
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: true, dockEnabled: true, machinesEnabled: false, devicesEnabled: true)
-                == [.files, .find, .sessions, .feed, .dock, .machines]
+                == [.files, .find, .sessions, .feed, .dock]
         )
         #expect(
             RightSidebarMode.availableModes(feedEnabled: false, dockEnabled: false, machinesEnabled: true)
@@ -105,23 +106,20 @@ struct DevicesSidebarModeTests {
         let banned = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, key -> Any? in
             key == ManagedDevicePolicyKey.disableRemoteControl.rawValue ? (true as Any) : nil
         }
-        #expect(!DevicesFeature.isEnabled(defaults: defaults, policy: banned))
+        #expect(!DevicesFeature.isEnabled(defaults: defaults, policy: banned, cloudEnabled: true))
         let permissive = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil) { _, _ in nil }
-        #expect(DevicesFeature.isEnabled(defaults: defaults, policy: permissive))
+        #expect(DevicesFeature.isEnabled(defaults: defaults, policy: permissive, cloudEnabled: true))
     }
 
-    @Test("Discoverability controls the host independently of outgoing discovery")
+    @Test("Hosting remains opt-in and separate from discovery")
     func hostListenerGate() {
         let defaults = makeDefaults()
         let keys = DevicesCatalogSection()
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
         defaults.set(false, forKey: keys.discoveryEnabled.userDefaultsKey)
         defaults.set(true, forKey: keys.incomingAccessEnabled.userDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
-        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
-        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        #expect(MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
         defaults.set(false, forKey: keys.incomingAccessEnabled.userDefaultsKey)
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
-        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
     }
 }

@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 import Observation
@@ -31,12 +32,15 @@ final class DeviceSurfaceProviderRegistry {
     private var directoryObserver: NSObjectProtocol?
     private var authorizationObserver: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
+    private var availabilityObserver: CloudFeatureAvailabilityObserver?
     private var accessObserver: NSObjectProtocol?
     private var policyObserver: NSObjectProtocol?
     typealias DirectoryFactory = @MainActor (
         AuthCoordinator, AuthenticatedSessionIdentity, String?, any DeviceLinkAuthorizationSource, DeviceIrxClient?
     ) -> DeviceDirectory
 
+    private let notificationCenter: NotificationCenter
+    private let sessionScope: @MainActor (AuthCoordinator) -> (AuthenticatedSessionIdentity?, String?)
     private let makeDirectory: DirectoryFactory
     private let isFeatureEnabled: @MainActor () -> Bool
     private let makeAutomaticClient: @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient?
@@ -45,6 +49,10 @@ final class DeviceSurfaceProviderRegistry {
 
     init(
         preferences: DevicesPreferencesModel? = nil,
+        notificationCenter: NotificationCenter = .default,
+        sessionScope: @escaping @MainActor (AuthCoordinator) -> (AuthenticatedSessionIdentity?, String?) = {
+            ($0.authenticatedSessionIdentity, $0.resolvedTeamID)
+        },
         makeAutomaticClient: @escaping @MainActor (AuthenticatedSessionIdentity, String?) -> DeviceIrxClient? = { _, _ in nil },
         allowsAutomaticConnections: @escaping @MainActor () -> Bool = { false },
         makeDirectory: @escaping DirectoryFactory = { auth, identity, teamID, pairing, automaticClient in
@@ -52,6 +60,8 @@ final class DeviceSurfaceProviderRegistry {
         },
         isFeatureEnabled: @escaping @MainActor () -> Bool = { DevicesFeature.isDiscoveryEnabled() }
     ) {
+        self.notificationCenter = notificationCenter
+        self.sessionScope = sessionScope
         self.preferences = preferences
         self.makeAutomaticClient = makeAutomaticClient
         self.allowsAutomaticConnections = allowsAutomaticConnections
@@ -61,7 +71,7 @@ final class DeviceSurfaceProviderRegistry {
 
     deinit {
         for observer in [directoryObserver, authorizationObserver, defaultsObserver, accessObserver, policyObserver] {
-            if let observer { NotificationCenter.default.removeObserver(observer) }
+            if let observer { notificationCenter.removeObserver(observer) }
         }
     }
 
@@ -79,14 +89,17 @@ final class DeviceSurfaceProviderRegistry {
         self.auth = auth
         self.catalog = catalog
         self.authorization = authorization
-        let center = NotificationCenter.default
+        let center = notificationCenter
         if let authorizationObserver { center.removeObserver(authorizationObserver) }
         authorizationObserver = center.addObserver(forName: authorization.authorizationDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.authorizationDidChange() }
         }
         if let defaultsObserver { center.removeObserver(defaultsObserver) }
-        defaultsObserver = center.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.evaluate() }
+        defaultsObserver = center.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
+            self?.evaluate()
+        }
+        availabilityObserver = CloudFeatureAvailabilityObserver(notificationCenter: notificationCenter, isEnabled: isFeatureEnabled) { [weak self] _ in
+            self?.evaluate()
         }
         if let policyObserver { center.removeObserver(policyObserver) }
         policyObserver = center.addObserver(forName: ManagedDevicePolicy.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -120,13 +133,12 @@ final class DeviceSurfaceProviderRegistry {
     /// under the current account generation and team scope.
     func evaluate() {
         guard let auth, let catalog, let authorization else { return }
-        let identity = auth.authenticatedSessionIdentity
-        let teamID = auth.resolvedTeamID
+        let (identity, teamID) = sessionScope(auth)
         let shouldRun = isFeatureEnabled() && identity != nil
         let automatic = allowsAutomaticConnections()
         let scopeChanged = identity != self.identity || teamID != self.teamID || automatic != activeAutomaticConnections
         if directory != nil, !shouldRun || scopeChanged {
-            if let directoryObserver { NotificationCenter.default.removeObserver(directoryObserver) }
+            if let directoryObserver { notificationCenter.removeObserver(directoryObserver) }
             directoryObserver = nil
             directory?.stop()
             directory = nil
@@ -154,7 +166,7 @@ final class DeviceSurfaceProviderRegistry {
         )
         let directory = makeDirectory(auth, identity, teamID, authorization, runtime?.automaticClient)
         self.directory = directory
-        directoryObserver = NotificationCenter.default.addObserver(
+        directoryObserver = notificationCenter.addObserver(
             forName: DeviceDirectory.didChangeNotification,
             object: directory,
             queue: .main
@@ -172,7 +184,7 @@ final class DeviceSurfaceProviderRegistry {
     func reveal(instance: SurfaceDeviceInstanceID, windowID: UUID? = nil) {
         if let windowID { pendingWindowReveals[windowID] = instance }
         else { pendingReveal = instance }
-        NotificationCenter.default.post(
+        notificationCenter.post(
             name: Self.revealDeviceNotification,
             object: nil,
             userInfo: ["instance": instance.wireValue]

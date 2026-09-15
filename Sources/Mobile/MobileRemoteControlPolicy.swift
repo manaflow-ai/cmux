@@ -24,7 +24,7 @@ enum MobileRemoteControlPolicy {
     /// Whether the configuration profile disables remote control.
     static var isDisabled: Bool {
         if let overrideForTesting { return overrideForTesting }
-        return managedDevicePolicy.isEnforced(.disableRemoteControl)
+        return managedDevicePolicy.isEnforced(.disableRemoteControl) || managedDevicePolicy.isIncomingDeviceAccessDisabled
     }
 
     /// Convenience inverse of ``isDisabled``.
@@ -32,7 +32,8 @@ enum MobileRemoteControlPolicy {
 
     /// User availability and managed policy both gate every incoming transport.
     /// Outgoing device connections use their own discovery preference.
-    static func allowsIncomingAccess(defaults: UserDefaults = .standard) -> Bool {
+    static func allowsIncomingAccess(defaults: UserDefaults = .standard, cloudEnabled: Bool? = nil) -> Bool {
+        guard DevicesFeature.isAvailable(defaults: defaults, cloudEnabled: cloudEnabled) else { return false }
         let key = DevicesCatalogSection().incomingAccessEnabled
         let enabled = defaults.object(forKey: key.userDefaultsKey) as? Bool ?? key.defaultValue
         let policy = ManagedDevicePolicy(defaults: defaults)
