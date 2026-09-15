@@ -1,6 +1,6 @@
 # IROH v2 decisions
 
-Updated 15 September 2026, revision 22. Accepted directions are recorded here; unresolved implementation details are listed at the end. Revision 22 records the existing PlanetScale database requirement and preservation of released clients.
+Updated 15 September 2026, revision 23. Accepted directions are recorded here; unresolved implementation details are listed at the end. Revision 23 clarifies that new Macs must support older iOS apps; new iOS apps only need to support new Macs.
 
 ## Backend and scope
 
@@ -52,13 +52,21 @@ Team changes isolate cached credentials, directory revisions, pending work and k
 
 ## Client replacement scope
 
-**Accepted: this implementation retires and removes all client behavior incompatible with v2.** This applies to Mac, iOS, their IROH integration, shared networking code and generated contracts. Existing main is a behavior reference; the new release runs the accepted v2 design.
+**Accepted September 15: new Mac supports old and new iOS; new iOS only needs new Mac.** The Mac keeps one IROH endpoint and one credential owner. It publishes that endpoint to the v2 team directory and the existing account directory, and accepts the older iOS connection protocol. Older iOS uses the existing account authorization rules; modern peers require v2 permission. A modern permission denial must never fall back to older authorization.
 
-- Remove IROH calls and fallback paths to Vercel, pre-v2 endpoints and the older relay-minter integration. Recovery uses the accepted `/v2` HTTP equivalents and the same authorization rules.
-- Remove scheduled application presence messages, presence-based connection gates, periodic re-registration, redundant renewal/reconnect owners, and backend publication of direct addresses. Keep native transport keepalives and local/peer direct connection support.
-- Remove incompatible identity/team assumptions and networking that starts before pairing is enabled. Old cached credentials or unscoped identities cannot establish v2 trust or silently publish a Mac into a team. Any upgrade-state handling must obey the new identity and permission rules.
-- Delete obsolete adapters, flags, configuration, models and tests whose sole purpose is to retain a removed behavior. Adapt useful coverage to the v2 requirements. Do not leave an old path available through an error fallback or hidden flag.
-- Verify launch, upgrade, wake, reconnect, failed renewal and server-error paths use only the new lifecycle and permitted routes. Check both platforms for retired routes, unwanted listeners/timers and delayed callbacks that could restart old work.
+| iOS app | Mac app | Required support |
+| --- | --- | --- |
+| New | New | Yes, use v2 discovery and authorization. |
+| Old | New | Yes, retain older discovery and connection protocol on the Mac. |
+| New | Old | No. Updating the Mac is required. |
+| Old | Old | Preserve existing service and relay compatibility. |
+
+- Keep the existing production database and legacy services available for older apps. Sharing a database instance does not merge the account directory with the team directory; the new Mac must explicitly publish to both. Never copy legacy rows into v2 as trusted device records.
+- New iOS uses the v2 lifecycle exclusively. V2 recovery uses the accepted `/v2` HTTP equivalents and the same authorization rules.
+- The Mac's older-client service is an explicit compatibility path, not an error fallback for v2 clients. Both paths stop when pairing is disabled or the owning account/team lifecycle ends. Revocations close the corresponding sessions.
+- Remove scheduled v2 application presence messages, presence-based connection gates, redundant renewal/reconnect owners, and backend publication of direct addresses. Retain the older account service's required directory freshness while older iOS support is active.
+- Preserve saved computer names, customizations and local connection preferences when the iOS storage location changes. Old saved routes, credentials and identities do not grant v2 access. Preserve account/team/build boundaries and do not repeat the import after a user forgets a computer.
+- Verify both new-iOS/new-Mac and old-iOS/new-Mac, including discovery, terminal input/output and pairing disable. An all-new pair alone does not prove compatibility.
 
 **Version support remains required within v2.** Keep supported request/response schemas and their behavior for released v2 apps, including the long `client_upgrade_required` backoff. Removing incompatible code from the new release does not set the production shutdown date for already-shipped pre-v2 clients; release cutover and service retirement timing remain deployment decisions.
 
