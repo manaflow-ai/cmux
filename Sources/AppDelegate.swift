@@ -8432,11 +8432,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }()
             if !hasExplicitConfiguredAction {
+                let resolvedDestination = destination ?? {
+                    guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID,
+                          let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+                    return CloudWorkspaceGroupDestination(
+                        tabManager: context.tabManager,
+                        groupId: group.groupId,
+                        placement: group.placement,
+                        referenceWorkspaceId: group.referenceWorkspaceId,
+                        initialWorkspaceId: nil
+                    )
+                }()
                 return performNewCloudWorkspaceOnMachineAction(
                     machineID: machineID,
                     focus: context.tabManager.selectedTabId != nil,
                     debugSource: debugSource,
-                    destination: destination,
+                    destination: resolvedDestination,
                     windowID: context.windowId
                 )
             }

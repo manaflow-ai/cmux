@@ -1333,6 +1333,23 @@
         }
       }
     },
+    "cloudWorkspace.creation.failed.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected Cloud machine is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した Cloud マシンは利用できません。"
+          }
+        }
+      }
+    },
     "cloudTree.attachmentFailure.transportUnavailable": {
       "extractionState": "manual",
       "localizations": {
