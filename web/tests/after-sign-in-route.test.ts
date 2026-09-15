@@ -546,6 +546,18 @@ describe("sign out and sign back in", () => {
     expect(response.headers.get("set-cookie")).toContain("stack-access=;");
   });
 
+  test("signs out and redirects into sign-in for CLI authorization", async () => {
+    const confirmation = "/handler/cli-auth-confirm?login_code=test-login-code";
+    const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+  });
+
   test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {
     const malformed = [
       `/cloud/access?transaction=short&state=${publicationState}`,

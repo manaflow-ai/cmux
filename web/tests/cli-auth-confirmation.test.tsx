@@ -54,6 +54,28 @@ describe("CLI authorization account identity", () => {
     expect(html.indexOf("alex@example.com")).toBeLessThan(html.indexOf('<button type="button">Authorize</button>'));
   });
 
+  test("offers a different-account sign-in that preserves the CLI login code", () => {
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    const match = html.match(/<a[^>]+href="([^"]+)"[^>]*>Use a different account<\/a>/);
+    expect(match).toBeTruthy();
+
+    const switchURL = new URL(match![1], "https://cmux.test");
+    expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
+
+    const signInURL = new URL(
+      switchURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(signInURL.pathname).toBe("/handler/sign-in");
+
+    const confirmationURL = new URL(
+      signInURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(confirmationURL.pathname).toBe("/handler/cli-auth-confirm");
+    expect(confirmationURL.searchParams.get("login_code")).toBe("test-login-code");
+  });
+
   test("uses the current session account when it changes", () => {
     renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     user = { primaryEmail: "blair@example.com", selectedTeam: null };
