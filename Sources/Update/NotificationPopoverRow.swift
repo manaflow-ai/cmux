@@ -154,8 +154,7 @@ struct NotificationPopoverRow: View, Equatable {
             ZStack {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
-                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold)
-                    .foregroundColor(.primary.opacity(0.7))
+                CmuxSystemSymbolImage(systemName: "xmark", pointSize: 9, weight: .bold, tint: .primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)
         }

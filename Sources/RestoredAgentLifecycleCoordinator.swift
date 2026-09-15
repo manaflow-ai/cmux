@@ -24,6 +24,14 @@ final class RestoredAgentLifecycleCoordinator {
 
     private var completedGenerationsByPanelId: [UUID: RestoredAgentCompletedGeneration] = [:]
 
+    /// Startup input a restored launch types into its shell, retained until shell
+    /// integration reports the command running. Ghostty writes that input as soon
+    /// as the PTY exists, and a slow login shell can discard the typeahead while it
+    /// initializes, which leaves the pane at an idle prompt with nothing typed.
+    /// The owner replays the retained input once when that happens (#5473).
+    private var pendingStartupInputsByPanelId: [UUID: String] = [:]
+    private var armedStartupInputResendPanelIds: Set<UUID> = []
+
     /// Replaces one panel's mutable snapshot while preserving an in-flight restore target.
     func setSnapshot(_ snapshot: SessionRestorableAgentSnapshot?, panelId: UUID) {
         let resolvedSnapshot: SessionRestorableAgentSnapshot?
@@ -182,6 +190,62 @@ final class RestoredAgentLifecycleCoordinator {
         invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
+    /// Retains the startup input a restored launch will type into its shell.
+    /// Passing `nil` or an empty string forgets any earlier registration.
+    func registerStartupInput(_ input: String?, panelId: UUID) {
+        armedStartupInputResendPanelIds.remove(panelId)
+        guard let input, !input.isEmpty else {
+            pendingStartupInputsByPanelId.removeValue(forKey: panelId)
+            return
+        }
+        pendingStartupInputsByPanelId[panelId] = input
+    }
+
+    /// Forgets retained startup input once the shell ran it, the user took over
+    /// the pane, or the launch was abandoned.
+    func clearStartupInput(panelId: UUID) {
+        pendingStartupInputsByPanelId.removeValue(forKey: panelId)
+        armedStartupInputResendPanelIds.remove(panelId)
+    }
+
+    /// The retained startup input, so a pane transfer can carry it to the new owner.
+    func startupInput(panelId: UUID) -> String? {
+        pendingStartupInputsByPanelId[panelId]
+    }
+
+    /// Whether a restored launch is still waiting for its typed startup input to run.
+    func awaitsStartupInput(panelId: UUID) -> Bool {
+        resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand &&
+            pendingStartupInputsByPanelId[panelId] != nil
+    }
+
+    /// Arms one grace-period replay for a launch whose shell reported an idle
+    /// prompt while the launch still awaits its startup input. Returns `false`
+    /// when nothing is pending or a replay is already armed.
+    func armStartupInputResend(panelId: UUID) -> Bool {
+        guard awaitsStartupInput(panelId: panelId),
+              !armedStartupInputResendPanelIds.contains(panelId) else {
+            return false
+        }
+        armedStartupInputResendPanelIds.insert(panelId)
+        return true
+    }
+
+    /// Consumes the retained startup input when the shell is still idle after
+    /// the grace period and the launch never entered its command phase. A
+    /// prompt-then-command sequence that settled into `.autoResumeCommandRunning`
+    /// yields `nil`, and only one replay is ever handed out per restored launch.
+    func takeStartupInputForResend(
+        panelId: UUID,
+        shellState: PanelShellActivityState
+    ) -> String? {
+        armedStartupInputResendPanelIds.remove(panelId)
+        guard shellState == .promptIdle, awaitsStartupInput(panelId: panelId) else {
+            return nil
+        }
+        return pendingStartupInputsByPanelId.removeValue(forKey: panelId)
+    }
+
     /// Removes continuation metadata without discarding an invalidation fingerprint.
     func clearSessionRestore(panelId: UUID) {
         queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
@@ -189,6 +253,7 @@ final class RestoredAgentLifecycleCoordinator {
         snapshotsByPanelId.removeValue(forKey: panelId)
         resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         completedGenerationsByPanelId.removeValue(forKey: panelId)
+        clearStartupInput(panelId: panelId)
     }
 
     /// Resets every restored-session lifecycle collection.
@@ -199,6 +264,8 @@ final class RestoredAgentLifecycleCoordinator {
         invalidatedFingerprintsByPanelId.removeAll(keepingCapacity: false)
         resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         completedGenerationsByPanelId.removeAll(keepingCapacity: false)
+        pendingStartupInputsByPanelId.removeAll(keepingCapacity: false)
+        armedStartupInputResendPanelIds.removeAll(keepingCapacity: false)
     }
 
     /// Shell integration has observed the restored launch enter its command
@@ -263,8 +330,15 @@ final class RestoredAgentLifecycleCoordinator {
         snapshot: SessionRestorableAgentSnapshot?,
         resumeState: Workspace.RestoredAgentResumeState?,
         completedGeneration: RestoredAgentCompletedGeneration?,
-        resumeWorkingDirectory: String?
+        resumeWorkingDirectory: String?,
+        startupInput: String? = nil
     ) {
+        // A launch still awaiting its typed selector keeps the replay safety
+        // net across a Workspace/Dock move; any other phase has nothing to replay.
+        registerStartupInput(
+            resumeState == .awaitingAutoResumeCommand ? startupInput : nil,
+            panelId: panelId
+        )
         replaceQueuedRestoreSnapshot(
             Self.retainsStartupRestoreIdentity(resumeState) ? snapshot : nil,
             panelId: panelId

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
@@ -61,13 +62,6 @@ struct MobileWhatsNewPage: Identifiable {
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
 enum MobileWhatsNewCatalog {
-    /// Filled in precisely at the accompanying Mac release cut; the What's
-    /// New compat notice interpolates it. ONE value to edit at cut time.
-    static let requiredMacVersionLabel = L10n.string(
-        "mobile.connectionsUpdate.macUpdate.requiredVersion",
-        defaultValue: "the latest cmux NIGHTLY or cmux RELEASE"
-    )
-
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     static var entries: [MobileWhatsNewPage] {
@@ -172,19 +166,44 @@ enum MobileWhatsNewCatalog {
     /// App Store app has no older protocol version to revert to, so it gets
     /// the update requirement only; App Review's Guideline 2.2 rejection also
     /// bars beta-lane vocabulary from its UI.
-    static func macUpdateFootnote(buildType: MobileBuildType = .current()) -> String {
-        let requirement = String(
+    static func macUpdateFootnote(
+        buildType: MobileBuildType = .current(),
+        iosVersion: String? = nil,
+        policy: MobileMacCompatPolicy = .baked
+    ) -> String {
+        let version = iosVersion
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "0"
+        let tier = policy.tier(forIOSVersion: version)
+        let requirement = tier?.buildKinds[buildType.token]
+            ?? tier.map { MobileMacCompatPolicy.Requirement(stableMinVersion: $0.stableMinVersion, nightly: $0.nightly) }
+        let stableVersion = requirement?.stableMinVersion.description
+            ?? L10n.string(
+                "mobile.macUpdate.unknownStableMinimum",
+                defaultValue: "the current supported stable version"
+            )
+        let nightlyVersion: String
+        if let nightly = requirement?.nightly {
+            nightlyVersion = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
+        } else {
+            nightlyVersion = L10n.string(
+                "mobile.macUpdate.noNightlyMinimum",
+                defaultValue: "no minimum for this iOS build"
+            )
+        }
+        let requirementText = String(
             format: L10n.string(
-                "mobile.macUpdate.requiredOnMacFormat",
-                defaultValue: "Requires %@ on your Mac."
+                "mobile.macUpdate.requiredStableAndNightlyFormat",
+                defaultValue: "Requires cmux %@ or later on stable Macs. cmux NIGHTLY minimum: %@."
             ),
-            requiredMacVersionLabel
+            stableVersion,
+            nightlyVersion
         )
         guard buildType.usesInternalBuildVocabulary else {
-            return requirement
+            return requirementText
         }
         return [
-            requirement,
+            requirementText,
             L10n.string(
                 "mobile.macUpdate.revertShort",
                 defaultValue: "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."

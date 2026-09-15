@@ -282,3 +282,14 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
     expect(child?.links.length ?? 0).toBe(0);
   });
 });
+
+describe("always-kept operational routes", () => {
+  test("cron, internal, and Stripe webhook routes are priority paths", async () => {
+    const { isPriorityPath } = await import("../services/observability/sampler");
+    expect(isPriorityPath("/api/cron/vm-alerts")).toBe(true);
+    expect(isPriorityPath("/api/internal/iroh/retention")).toBe(true);
+    expect(isPriorityPath("/api/stripe/webhook")).toBe(true);
+    expect(isPriorityPath("/api/stripe/webhooks-other")).toBe(false);
+    expect(isPriorityPath("/api/devices/iroh/register")).toBe(false);
+  });
+});

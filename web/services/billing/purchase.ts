@@ -1,3 +1,4 @@
+import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
@@ -64,7 +65,6 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
-const STACK_USER_LOOKUP_PAGE_SIZE = 100;
 const MAX_STACK_USER_LOOKUP_PAGES = 100;
 
 type BillingDb = ReturnType<typeof cloudDb>;
@@ -128,6 +128,17 @@ export type StackBillingUser = ProBillingClaimUser & {
     primaryEmailVerified?: boolean;
     clientReadOnlyMetadata?: unknown;
   }): Promise<unknown>;
+  listContactChannels?(): Promise<readonly StackBillingContactChannel[]>;
+};
+
+/** The slice of a Stack contact channel the purchase email path uses. */
+export type StackBillingContactChannel = {
+  readonly id: string;
+  readonly type: string;
+  readonly value: string;
+  readonly isPrimary: boolean;
+  readonly isVerified: boolean;
+  sendVerificationEmail(options?: { callbackUrl?: string }): Promise<unknown>;
 };
 
 type StackBillingUserLookup = {
@@ -1171,6 +1182,7 @@ export async function findOrCreateBillingUser(
 export async function findBillingUserByEmail(
   stackApp: StackBillingApp,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<StackBillingUser | null> {
   const listUsers = stackApp.listUsers;
   if (!listUsers) {
@@ -1193,16 +1205,11 @@ export async function findBillingUserByEmail(
     );
   }
   if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
-    // Stack's free-text query is literal and does not understand Gmail's
-    // dot-insensitive namespace. Scan the provider's paginated user list as a
-    // bounded fallback, then apply the canonical comparison locally. An
-    // incomplete scan fails closed instead of creating the wrong account.
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+    await collectSnapshotLookupCandidates(
+      stackApp,
       matchingEmail,
       candidateByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
@@ -2826,6 +2833,7 @@ async function attachPurchaseEmailOrRecordClaim(
 export async function findUserIdByEmail(
   stackApp: StackBillingApp | null | undefined,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<string | null> {
   const listUsers = stackApp?.listUsers;
   if (!listUsers) {
@@ -2845,13 +2853,12 @@ export async function findUserIdByEmail(
       20,
     );
   }
-  if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+  if (ownersByID.size === 0 && isGmailAddress(literalEmail) && stackApp) {
+    await collectSnapshotLookupCandidates(
+      stackApp,
       normalizedEmail,
       ownersByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
@@ -2892,7 +2899,39 @@ async function collectBillingUserLookupCandidates(
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
-  throw new Error("Stack Auth user lookup exceeded its bounded page budget");
+  // The budget bounds latency inside a webhook. Exact canonical matches found
+  // so far are kept; a match beyond the budget would only ever be a dotted
+  // Gmail alias, which the identity-snapshot lookup covers and the purchase
+  // claim path can remap later. Failing the purchase here lost the sale.
+  console.warn("billing.user_lookup.page_budget_exhausted", { query: query ? "email" : "list" });
+  return foundCanonicalMatch;
+}
+
+export type BillingUserLookupOptions = {
+  /** Snapshot user ids for a canonical email; defaults to the identity snapshot table. */
+  readonly snapshotUserIds?: (canonicalEmail: string) => Promise<readonly string[]>;
+};
+
+async function collectSnapshotLookupCandidates(
+  stackApp: Pick<StackBillingApp, "getUser">,
+  matchingEmail: string,
+  candidates: Map<string, StackBillingUserLookup>,
+  snapshotUserIds: NonNullable<BillingUserLookupOptions["snapshotUserIds"]>,
+): Promise<void> {
+  // Stack's query is a literal substring match and cannot express Gmail's
+  // dot-insensitive namespace; scanning the whole user list no longer fits a
+  // webhook (80k users, including anonymous ones). Our identity snapshot holds
+  // every user who has signed in, so it answers the dotted-alias case exactly.
+  for (const id of await snapshotUserIds(matchingEmail)) {
+    if (candidates.has(id)) continue;
+    const user = await stackApp.getUser(id);
+    if (
+      user?.primaryEmail &&
+      canonicalizeEmailForMatching(user.primaryEmail) === matchingEmail
+    ) {
+      candidates.set(id, user as StackBillingUserLookup);
+    }
+  }
 }
 
 function compareStackUserLookup(
@@ -3034,23 +3073,82 @@ async function requestPurchaseMagicLink(
       },
       async () => {
         await mutationLease.refresh();
-        const result = await input.stackApp!.sendMagicLinkEmail!(input.email, {
-          callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+        await deliverPurchaseSignInEmail(input.stackApp!, {
+          email: input.email,
+          stackUserId: input.stackUserId,
         });
-        if (isFailedStackResult(result)) {
-          throw new PurchaseMagicLinkProviderRejectedError(
-            "Stack sign-in link request failed",
-          );
-        }
       },
     );
-  } catch {
+  } catch (error) {
     // The billing rows are already durable. A failed message can be retried by
     // the recovery endpoint, so email delivery must not roll back a purchase.
     console.warn("billing.purchase.magic_link_failed", {
-      failure: "provider_unavailable",
+      failure: error instanceof PurchaseMagicLinkProviderRejectedError
+        ? "provider_rejected"
+        : "provider_unavailable",
+      message: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+const PURCHASE_VERIFICATION_CALLBACK = "https://cmux.com/handler/email-verification";
+
+/**
+ * Send the purchaser the one email that lets them reach their entitlement.
+ *
+ * Stack refuses a sign-in (magic) link for an address that belongs to an
+ * existing unverified user, and the checkout shell is created exactly that
+ * way, so the sign-in link alone never reached a new purchaser. When Stack
+ * refuses it, send the mailbox verification link for that contact channel
+ * instead: verifying the address is what lets the purchaser sign in, and the
+ * after-sign-in handler then transfers the parked claim.
+ */
+/** Stack refused a sign-in link because the address belongs to an unverified user. */
+function isUnverifiedMailboxRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "USER_EMAIL_ALREADY_EXISTS") return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
+}
+
+export async function deliverPurchaseSignInEmail(
+  stackApp: Pick<StackBillingApp, "sendMagicLinkEmail" | "getUser">,
+  input: { readonly email: string; readonly stackUserId: string },
+): Promise<"magic_link" | "verification"> {
+  if (!stackApp.sendMagicLinkEmail) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack cannot send sign-in links");
+  }
+  try {
+    const result = await stackApp.sendMagicLinkEmail(input.email, {
+      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+    });
+    if (!isFailedStackResult(result)) return "magic_link";
+  } catch (error) {
+    // The SDK throws the refusal as a KnownError rather than returning a
+    // failed result. Anything else (transport, timeout) may have sent the
+    // message, so it stays ambiguous and keeps its delivery marker.
+    if (!isUnverifiedMailboxRefusal(error)) throw error;
+  }
+  const matching = canonicalizeEmailForMatching(input.email);
+  const user = await stackApp.getUser(input.stackUserId);
+  const channels = (await user?.listContactChannels?.()) ?? [];
+  const channel = channels.find(
+    (candidate) =>
+      candidate.type === "email" &&
+      !candidate.isVerified &&
+      canonicalizeEmailForMatching(candidate.value) === matching,
+  );
+  if (!channel) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack sign-in link request failed");
+  }
+  const verification = await channel.sendVerificationEmail({
+    callbackUrl: PURCHASE_VERIFICATION_CALLBACK,
+  });
+  if (isFailedStackResult(verification)) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack verification email request failed");
+  }
+  return "verification";
 }
 
 async function stackUserIdForStripeCustomer(

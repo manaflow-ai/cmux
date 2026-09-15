@@ -1,3 +1,4 @@
+import CMUXMobileCore
 public import Foundation
 internal import CmuxMobilePairedMac
 import os
@@ -18,6 +19,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     private let requestTimeout: TimeInterval
     private let migrationDefaults: UserDefaults
     private let migrationClock: @Sendable () -> Date
+    private let retryAfterGate = CmxRetryAfterGate()
 
     /// Create a backup client for one presence service base URL and token source.
     public init(
@@ -144,6 +146,9 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         routeDisclosureDate: Date,
         expectedRevision: Int? = nil
     ) async -> PairedMacBackupUploadOutcome {
+        guard await retryAfterGate.remainingSeconds() == nil else {
+            return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
+        }
         guard !ops.isEmpty else {
             return PairedMacBackupUploadOutcome(succeeded: true, resolvedTeamID: nil)
         }
@@ -168,6 +173,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         do {
             let (responseData, response) = try await session.data(for: request)
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                await recordRetryAfterIfNeeded(http)
                 pairedMacBackupLog.warning("paired-mac backup upload failed: HTTP \(http.statusCode)")
                 return PairedMacBackupUploadOutcome(succeeded: false, resolvedTeamID: nil)
             }
@@ -316,6 +322,7 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         expectedUserID: String?,
         scope: PairedMacBackupClientScopeSelection
     ) async -> PairedMacFetchedSnapshot? {
+        guard await retryAfterGate.remainingSeconds() == nil else { return nil }
         guard let request = await makeRequest(
             method: "GET",
             body: nil,
@@ -325,7 +332,11 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         ) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else { return nil }
+            if http.statusCode == 429 {
+                await recordRetryAfterIfNeeded(http)
+            }
+            guard (200...299).contains(http.statusCode) else {
                 pairedMacBackupLog.warning("paired-mac backup fetch failed: HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
                 return nil
             }
@@ -344,6 +355,15 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
             pairedMacBackupLog.warning("paired-mac backup fetch error: \(String(describing: error), privacy: .public)")
             return nil
         }
+    }
+
+    private func recordRetryAfterIfNeeded(_ response: HTTPURLResponse) async {
+        guard response.statusCode == 429 else { return }
+        let seconds = CmxRetryAfterPolicy.seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+        await retryAfterGate.extend(by: seconds)
     }
 
     public func clientScope() async -> String? {

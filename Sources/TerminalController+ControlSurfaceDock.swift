@@ -134,6 +134,7 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             focus: false,
             preloadInitialNavigationInBackground: kind == .browser
         )

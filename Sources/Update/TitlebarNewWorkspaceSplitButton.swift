@@ -49,7 +49,12 @@ struct TitlebarNewWorkspaceSplitButton: View {
                 ZStack {
                     Rectangle()
                         .fill(Color.clear)
-                    CmuxSystemSymbolImage(systemName: "plus", pointSize: config.iconSize, weight: .medium)
+                    CmuxSystemSymbolImage(
+                        systemName: "plus",
+                        pointSize: config.iconSize,
+                        weight: .medium,
+                        tint: foregroundColor.opacity(foregroundOpacity)
+                    )
                 }
                 .frame(width: primaryWidth, height: config.buttonSize)
                 .contentShape(Rectangle())
@@ -86,7 +91,8 @@ struct TitlebarNewWorkspaceSplitButton: View {
                     CmuxSystemSymbolImage(
                         systemName: "chevron.down",
                         pointSize: TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: config),
-                        weight: .bold
+                        weight: .bold,
+                        tint: foregroundColor.opacity(foregroundOpacity)
                     )
                 }
                 .frame(width: dropdownWidth, height: config.buttonSize)

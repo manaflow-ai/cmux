@@ -273,7 +273,9 @@ extension AgentHibernationController {
         snapshot: AgentHibernationTranscriptGuard.TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
         snapshotDisposal: AgentHibernationTranscriptGuard.PostTeardownSnapshotDisposal = .deleteWhenSafe,
-        awaitProcessExit: (@Sendable () async -> Bool)? = nil
+        awaitProcessExit: (@Sendable () async -> Bool)? = nil,
+        initialRetryDelaysNanoseconds: [UInt64] = AgentHibernationTranscriptGuard.initialRestoreCheckDelaysNanoseconds,
+        backstopDelaysSeconds: [UInt64] = AgentHibernationTranscriptGuard.restoreCheckDelaysSeconds
     ) -> Bool {
         let transcriptPath = snapshot.transcriptPath
         let requestID = UUID()
@@ -282,6 +284,8 @@ extension AgentHibernationController {
             await AgentHibernationTranscriptGuard.runPostTeardownRestoreChecks(
                 snapshot: snapshot,
                 processIDs: processIDs,
+                initialRetryDelaysNanoseconds: initialRetryDelaysNanoseconds,
+                backstopDelaysSeconds: backstopDelaysSeconds,
                 snapshotDisposal: snapshotDisposal,
                 awaitProcessExit: awaitProcessExit,
                 shouldContinue: {

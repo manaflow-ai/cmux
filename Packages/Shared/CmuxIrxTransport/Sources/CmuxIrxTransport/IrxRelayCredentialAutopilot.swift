@@ -1,11 +1,11 @@
+import CMUXMobileCore
 public import Foundation
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
 /// (min(refreshAfter, expiry-120s) minus jitter), rotates with insertRelay
-/// alone (make-before-break), and on mint failure retries at half the
-/// remaining validity so retries speed up toward expiry instead of backing
-/// off past it. The relay closes connections at the signed expiry, so this
-/// loop is what makes 15 minutes without a disconnect possible at all.
+/// alone (make-before-break), and on mint failure uses bounded exponential
+/// backoff independent of token expiry. This avoids turning an outage into a
+/// one-second request storm.
 public actor IrxRelayCredentialAutopilot {
     private let broker: IrxBrokerService
     private let endpoint: IrxEndpointSupervisor
@@ -90,6 +90,7 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     private func run(generation: UInt64, rotationGeneration: UInt64) async {
+        var failureCount = 0
         while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -108,6 +109,7 @@ public actor IrxRelayCredentialAutopilot {
             }
             do {
                 let minted = try await broker.mintRelayCredentials()
+                failureCount = 0
                 guard generation == loopGeneration, !Task.isCancelled else { return }
                 // This check must live inside the endpoint-side mutation too:
                 // the actor can re-enter while the broker request above is
@@ -123,7 +125,15 @@ public actor IrxRelayCredentialAutopilot {
             } catch {
                 if Task.isCancelled || generation != loopGeneration { return }
                 let expiry = credentials.map(\.expiresAt).max() ?? Date()
-                let delay = IrxRelayCredentialPolicy.retryDelay(expiresAt: expiry, now: Date())
+                let delay = IrxRelayCredentialPolicy.retryDelay(
+                    expiresAt: expiry,
+                    now: Date(),
+                    retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
+                        .retryAfterSeconds,
+                    failureCount: failureCount,
+                    jitterUnitInterval: Double.random(in: 0 ... 1)
+                )
+                failureCount = min(failureCount + 1, 20)
                 journal.record(
                     "credential-autopilot", "mint-failed",
                     [

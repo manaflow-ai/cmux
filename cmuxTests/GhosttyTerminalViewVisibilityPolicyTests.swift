@@ -407,6 +407,107 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         )
     }
 
+    @Test func workspaceRevealKeepsTerminalSizeUntilAnUnchangedGeometryPass() async throws {
+        let size = NSSize(width: 480, height: 320)
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let container = PortalBindLayoutCountingView(frame: NSRect(origin: .zero, size: size))
+        let anchor = NSView(frame: container.bounds)
+        window.contentView = container
+        container.addSubview(anchor)
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+            window.close()
+            panel.surface.teardownSurface()
+        }
+
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        panel.hostedView.setVisibleInUI(true)
+        await flushPortalReconciliationPasses()
+        window.displayIfNeeded()
+        container.layoutSubtreeIfNeeded()
+        panel.hostedView.layoutSubtreeIfNeeded()
+        _ = panel.hostedView.reconcileGeometryNow()
+        _ = panel.hostedView.surfaceView.forceRefreshSurface()
+        @MainActor func terminalSize() throws -> CGSize {
+            let sample = try #require(panel.surface.rawSizingSample())
+            return CGSize(width: CGFloat(sample.surfaceWidthPx), height: CGFloat(sample.surfaceHeightPx))
+        }
+        let initialTerminalSize = try terminalSize()
+        try #require(initialTerminalSize.width > 0)
+        let portal = try #require(
+            TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(window)]
+        )
+
+        panel.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
+        anchor.frame.size.width = 280
+        _ = portal.updateEntryVisibility(
+            forHostedId: ObjectIdentifier(panel.hostedView),
+            visibleInUI: true
+        )
+        panel.hostedView.setVisibleInUI(true)
+        container.needsLayout = true
+        container.resetLayoutCount()
+
+        // Deliver the same external geometry pass used by workspace reveal
+        // synchronously, before its queued follow-up. The override only selects
+        // notification delivery; the native surface is not in a live resize.
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
+        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        #expect(container.layoutCount > 0)
+        #expect(panel.hostedView.frame.width == 280)
+        #expect(
+            try terminalSize() == initialTerminalSize,
+            "The pass that changes layout must not publish an intermediate terminal size"
+        )
+
+        // The next layout restores the workspace's original pane geometry.
+        // There is no reason to resize its native surface or notify its PTY.
+        anchor.frame.size = size
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
+        await flushPortalReconciliationPasses()
+        #expect(panel.hostedView.frame.size == size)
+        #expect(try terminalSize() == initialTerminalSize)
+
+        // Finishing settlement must also unblock later, intentional resizes.
+        anchor.frame.size.width = 360
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
+        await flushPortalReconciliationPasses()
+        // Native size publication also waits for AppKit's display/layout
+        // turn. Main-queue barriers alone do not drive that turn in an async test.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while (try terminalSize()).width >= initialTerminalSize.width,
+              clock.now < deadline {
+            window.displayIfNeeded()
+            panel.hostedView.layoutSubtreeIfNeeded()
+            _ = panel.hostedView.reconcileGeometryNow()
+            await flushPortalReconciliationPasses()
+        }
+        #expect(panel.hostedView.frame.width == 360)
+        #expect((try terminalSize()).width < initialTerminalSize.width)
+        #expect(
+            (try terminalSize()).width ==
+                floor(panel.hostedView.surfaceView.bounds.width * window.backingScaleFactor)
+        )
+    }
+
     private func attentionStrokeHexes(in view: NSView) -> [String] {
         shapeLayers(in: view.layer).compactMap { layer in
             guard let strokeColor = layer.strokeColor,

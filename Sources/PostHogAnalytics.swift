@@ -293,8 +293,13 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
-    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
-        var properties: [String: Any] = [:]
+    nonisolated private static func versionProperties(
+        infoDictionary: [String: Any],
+        flavor: BuildFlavor = BuildFlavor.current
+    ) -> [String: Any] {
+        // `channel` answers "stable, NIGHTLY or DEV?" for every Mac event; the
+        // web side carries the same value on checkout as `checkout_channel`.
+        var properties: [String: Any] = ["channel": flavor.rawValue]
         if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
             properties["app_version"] = value
         }

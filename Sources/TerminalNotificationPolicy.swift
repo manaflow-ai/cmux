@@ -22,35 +22,6 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var soundContext: NotificationSoundOverrideContext? = nil
 }
 
-/// Agent-event context attached to notifications that originate from an agent
-/// completion signal (CLI agent hooks, PTY prompt-turn detection). Purely
-/// informational input for the user's notification-policy hooks — hooks can
-/// filter on it (e.g. silence subagent completions) but cannot patch it.
-/// Absent entirely for non-agent notifications (OSC 9/99/777, legacy senders).
-struct TerminalNotificationPolicyAgentContext: Codable, Sendable, Equatable {
-    /// Stable lowercase agent slug (`claude`, `codex`, `grok`, …).
-    var kind: String?
-    /// `AgentNotifyCategory` raw value (`turn-complete`, `needs-permission`,
-    /// `idle-reminder`).
-    var category: String?
-    /// Whether background work was still running when the turn ended.
-    var pending: Bool?
-    /// Whether the event came from a nested subagent session.
-    var isSubagent: Bool?
-
-    init(
-        kind: String? = nil,
-        category: String? = nil,
-        pending: Bool? = nil,
-        isSubagent: Bool? = nil
-    ) {
-        self.kind = kind
-        self.category = category
-        self.pending = pending
-        self.isSubagent = isSubagent
-    }
-}
-
 struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     var record: Bool = true
     var markUnread: Bool = true
@@ -251,6 +222,9 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     /// Present only for agent-originated notifications; omitted from the hook
     /// stdin JSON otherwise. Additive to the version-1 envelope contract.
     var agent: TerminalNotificationPolicyAgentContext?
+    /// Present only for remote-origin notifications (a `cmux ssh` host, a cloud
+    /// machine); omitted for local ones. Informational, never hook-patchable.
+    var origin: TerminalNotificationPolicyOriginContext?
     var effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
     var stop: Bool?
 
@@ -259,6 +233,7 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
         notification: TerminalNotificationPolicyPayload,
         context: TerminalNotificationPolicyContext,
         agent: TerminalNotificationPolicyAgentContext? = nil,
+        origin: TerminalNotificationPolicyOriginContext? = nil,
         effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects(),
         stop: Bool? = nil
     ) {
@@ -266,6 +241,7 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
         self.notification = notification
         self.context = context
         self.agent = agent
+        self.origin = origin
         self.effects = effects
         self.stop = stop
     }
@@ -285,6 +261,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let isFocusedPanel: Bool
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
+    let origin: TerminalNotificationOrigin
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -299,7 +276,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         isAppFocused: Bool,
         isFocusedPanel: Bool,
         agent: TerminalNotificationPolicyAgentContext? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -315,6 +293,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.isFocusedPanel = isFocusedPanel
         self.agent = agent
         self.soundContext = soundContext
+        self.origin = origin
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -351,7 +330,8 @@ enum TerminalNotificationPolicyEngine {
                 focusedPanel: request.isFocusedPanel,
                 soundContext: request.soundContext
             ),
-            agent: request.agent
+            agent: request.agent,
+            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)
@@ -677,6 +657,9 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
+        // `local`, `ssh-relay:<workspace>`, or `cloud-vm:<machine>`: lets a hook treat
+        // remote-origin title/body as untrusted text (never interpolate into code).
+        env["CMUX_NOTIFICATION_ORIGIN"] = envelope.origin?.value ?? TerminalNotificationOrigin.localWireValue
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
         if let agent = envelope.agent {
             if let kind = agent.kind {
@@ -1060,8 +1043,9 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
                 into: envelope.context,
                 preservingSoundContext: envelope.context.soundContext
             ) ?? envelope.context,
-            // Agent context is informational input, not hook-patchable state.
+            // Agent and origin context are informational input, not hook-patchable state.
             agent: envelope.agent,
+            origin: envelope.origin,
             effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )

@@ -33,6 +33,11 @@ import {
   type BillingInterval,
 } from "../../../../services/billing/plans";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
+import {
+  checkoutAttributionFromRequest,
+  checkoutAttributionMetadata,
+  type CheckoutAttribution,
+} from "../../../../services/analytics/checkoutAttribution";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -94,6 +99,12 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
     interval,
     cmuxScheme: callbackScheme,
   });
+  // Analytics only. Which page or app button opened checkout, and from which
+  // build channel; see services/analytics/checkoutAttribution.ts.
+  const attribution = checkoutAttributionFromRequest({
+    searchParams: request.nextUrl.searchParams,
+    referer: request.headers.get("referer"),
+  });
   if (configuredRelayURL) {
     return NextResponse.redirect(configuredRelayURL);
   }
@@ -120,6 +131,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       stackServerApp,
       interval,
       callbackScheme,
+      attribution,
     );
   }
   if (plan === "team") {
@@ -128,6 +140,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       stackServerApp,
       interval,
       callbackScheme,
+      attribution,
     );
   }
   // checkoutPlan only yields "pro" | "team" | null (null handled above); this is
@@ -140,6 +153,7 @@ async function stripeProCheckout(
   stackServerApp: CheckoutStackServerApp,
   interval: BillingInterval,
   callbackScheme: string,
+  attribution: CheckoutAttribution,
 ) {
   try {
     const user =
@@ -177,6 +191,7 @@ async function stripeProCheckout(
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
+      ...checkoutAttributionMetadata(attribution),
     };
 
     const session = await stripe().checkout.sessions.create({
@@ -208,6 +223,9 @@ async function stripeProCheckout(
       subject: { scope: "user", stackUserId },
       plan: "pro",
       billingInterval: interval,
+      attribution,
+      signedIn: !user.isAnonymous,
+      existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
     }));
     return NextResponse.redirect(session.url);
   } catch (error) {
@@ -225,6 +243,7 @@ async function stripeTeamCheckout(
   stackServerApp: CheckoutStackServerApp,
   interval: BillingInterval,
   callbackScheme: string,
+  attribution: CheckoutAttribution,
 ) {
   let teamId: string | undefined;
   try {
@@ -259,6 +278,7 @@ async function stripeTeamCheckout(
       app: "cmux",
       billingInterval: interval,
       nativeCallbackScheme: callbackScheme,
+      ...checkoutAttributionMetadata(attribution),
     };
 
     const customerId =
@@ -291,6 +311,9 @@ async function stripeTeamCheckout(
       subject: { scope: "team", stackTeamId: resolvedTeamId },
       plan: "team",
       billingInterval: interval,
+      attribution,
+      signedIn: !user.isAnonymous,
+      existingStripeCustomer: Boolean(stripeBillingStatus.customerId),
     }));
     return NextResponse.redirect(session.url);
   } catch (error) {

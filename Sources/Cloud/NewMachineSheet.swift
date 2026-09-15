@@ -1,7 +1,8 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: one base-image size and what the plan allows.
+/// The New Machine sheet: one image size and what the plan allows. Every
+/// machine is the same devbox with a screen, so there is nothing else to ask.
 /// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
 /// window. Create closes it at once; the machine coming up is shown by the
 /// Machines panel, not here, so the sheet never holds the window.
@@ -38,7 +39,7 @@ struct NewMachineSheet: View {
                 )
                 : String(
                     localized: "machines.new.subtitle",
-                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
+                    defaultValue: "A cloud computer with devtools and coding agents preinstalled. Its home directory is reset when the machine is recreated."
                 ))
                 .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)
@@ -104,7 +105,7 @@ struct NewMachineSheet: View {
         ScrollView(.vertical) {
             Text(text)
                 .font(.system(size: 11, design: .monospaced))
-                .copyOnlyTextSelection(for: text)
+                .textSelection(.disabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
         }
@@ -118,6 +119,7 @@ struct NewMachineSheet: View {
                 .strokeBorder(Color.red.opacity(0.35), lineWidth: 1)
         )
         .accessibilityIdentifier("NewMachineSheet.error")
+        .cloudErrorCopyMenu(text)
     }
 
     private var buttons: some View {

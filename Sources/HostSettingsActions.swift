@@ -391,8 +391,8 @@ final class HostSettingsActions: SettingsHostActions {
     var isCloudMachinesAvailable: Bool {
         CloudMachinesFeature.isEnabled
     }
-
     func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? {
+        guard CloudMachinesFeature.isEnabled else { return nil }
         guard let client = VMClient.shared else { return nil }
         guard let page = try? await client.listPage(), let limits = page.limits else { return nil }
         // Same classifier as the Machines panel so Settings and the panel never
@@ -414,7 +414,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openCloudMachinesBilling() {
-        ProUpgradePresenter.present()
+        ProUpgradePresenter.present(source: .settingsCloudMachines)
     }
 
     func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {

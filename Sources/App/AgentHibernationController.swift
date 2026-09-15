@@ -58,9 +58,7 @@ struct AgentHibernationRecord {
 @MainActor
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
-
     static let unableToProtectRetrySeconds: TimeInterval = 120
-
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     var evaluationPhase: EvaluationPhase = .idle
@@ -77,11 +75,11 @@ final class AgentHibernationController {
     var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
     var committedTerminationCleanupByPanelID: [UUID: CommittedTerminationCleanup] = [:]
+    var sessionEndPreservationIntentsByPanel: [AgentHibernationPanelKey: AgentHibernationSessionEndIntent] = [:]
     let processSnapshotCoordinator = AgentHibernationProcessSnapshotCoordinator()
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
-
     private init() {}
 
     func start() {
@@ -504,6 +502,7 @@ final class AgentHibernationController {
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
+        sessionEndPreservationIntentsByPanel = sessionEndPreservationIntentsByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, confirmation in
             currentKeys.contains(key) &&
                 (confirmation.trigger != trigger || selectedKeys.contains(key))

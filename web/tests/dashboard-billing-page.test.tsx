@@ -102,10 +102,10 @@ describe("dashboard billing page", () => {
       "Upgrade when you need cloud agents.",
     );
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=month"',
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=month"',
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain("Get Pro");
     expect(html).toContain("Get Teams");
@@ -133,10 +133,10 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year"',
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=year&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;interval=year"',
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=year&amp;cmux_placement=dashboard_billing"',
     );
   });
 

@@ -1186,23 +1186,37 @@ enum FilePreviewTextLoader {
     }
 
     @concurrent
-    static func load(url: URL) async -> Result {
-        loadSynchronously(url: url)
+    static func load(
+        url: URL,
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
+    ) async -> Result {
+        loadSynchronously(
+            url: url,
+            maximumBytes: maximumBytes,
+            decodeUTF16: decodeUTF16
+        )
     }
 
-    static func loadSynchronously(url: URL) -> Result {
+    static func loadSynchronously(
+        url: URL,
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
+    ) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .unavailable
         }
         guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              fileSize >= 0,
-              UInt64(fileSize) <= maximumLoadedTextBytes else {
+              fileSize >= 0 else {
+            return .unavailable
+        }
+        if let maximumBytes, UInt64(fileSize) > maximumBytes {
             return .unavailable
         }
 
         do {
             let data = try Data(contentsOf: url)
-            guard let decoded = decodeText(data) else {
+            guard let decoded = decodeText(data, decodeUTF16: decodeUTF16) else {
                 return .unavailable
             }
             return .loaded(content: decoded.content, encoding: decoded.encoding)
@@ -1211,11 +1225,14 @@ enum FilePreviewTextLoader {
         }
     }
 
-    private static func decodeText(_ data: Data) -> (content: String, encoding: String.Encoding)? {
+    private static func decodeText(
+        _ data: Data,
+        decodeUTF16: Bool
+    ) -> (content: String, encoding: String.Encoding)? {
         if let decoded = String(data: data, encoding: .utf8) {
             return (decoded, .utf8)
         }
-        if let decoded = String(data: data, encoding: .utf16) {
+        if decodeUTF16, let decoded = String(data: data, encoding: .utf16) {
             return (decoded, .utf16)
         }
         if let decoded = String(data: data, encoding: .isoLatin1) {
@@ -1270,8 +1287,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    var fileChangeWatcher: FileWatcher?
-    var fileChangeTask: Task<Void, Never>?
+    var fileContentChangeCoordinator: FileContentChangeCoordinator
+    var fileContentObservationID: UUID?
+    var fileContentObservationLifetime: FileContentObservationLifetime?
     var fileChangeReloadTask: Task<Void, Never>?
     /// The one container currently projecting this panel's tab metadata.
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
@@ -1302,6 +1320,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1316,6 +1335,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1366,8 +1387,29 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     /// Retargets container-scoped identity after a live panel transfer.
-    func updateWorkspaceId(_ workspaceId: UUID) {
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+    ) {
         self.workspaceId = workspaceId
+        guard let fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        let wasWatching = fileContentObservationID != nil
+        stopWatchingForFileChanges()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if wasWatching, !isClosed {
+            startWatchingForFileChanges()
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -1616,8 +1658,26 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let fileURL = fileURL
         let encoding = textEncoding
         let textSaver = textSaver
-        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
-            let result = await textSaver(currentContent, fileURL, encoding)
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             textSaver, fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                using: textSaver,
+                excluding: fileContentObservationID
+            )
+            if let self {
+                fileContentChangeCoordinator.republishSuccessfulSaveIfNeeded(
+                    result,
+                    to: self.fileContentChangeCoordinator,
+                    at: fileURL.path,
+                    excluding: self.fileContentObservationID
+                )
+            }
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -1665,6 +1725,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 }
+
+extension FilePreviewPanel: FileContentChangeObservingPanel {}
 
 struct FilePreviewPanelView: View {
     @ObservedObject var panel: FilePreviewPanel
