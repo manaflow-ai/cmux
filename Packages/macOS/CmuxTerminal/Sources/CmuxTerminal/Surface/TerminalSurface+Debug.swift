@@ -223,8 +223,9 @@ extension TerminalSurface {
     ///
     /// Most package tests pass a pointer serviced by `GhosttyRuntimeTestStubs`,
     /// so clipboard and font callback wiring remains enabled by default.
-    /// Renderer callback wiring is opt-in because some teardown fixtures use
-    /// synthetic pointers that are not backed by the renderer test stubs.
+    /// Renderer callback wiring is opt-in because teardown fixtures may install
+    /// synthetic pointers without native callback ownership, while Ghostty's
+    /// renderer registration contract is one-shot for each runtime surface.
     @MainActor
     public func installRuntimeSurfaceForTesting(
         _ runtimeSurface: ghostty_surface_t,
@@ -274,7 +275,7 @@ extension TerminalSurface {
                 callbackContext: callbackContext
             )
         }
-        if configureRendererCallbacks {
+        if configureNativeCallbacks && configureRendererCallbacks {
             precondition(
                 ghostty_surface_set_render_presented_callback(
                     runtimeSurface,
