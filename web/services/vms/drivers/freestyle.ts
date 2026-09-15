@@ -11,6 +11,7 @@ import {
 } from "freestyle";
 
 import { createHash, randomBytes } from "node:crypto";
+import { isIP } from "node:net";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
@@ -407,8 +408,8 @@ export function freestyleNetworkAddressMetadata(
   const ipv4 = network?.ipv4?.trim();
   const ipv6 = network?.ipv6?.trim();
   return {
-    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
-    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+    ...(ipv4 && isIP(ipv4) === 4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 && isIP(ipv6) === 6 ? { networkIpv6: ipv6 } : {}),
   };
 }
 
@@ -963,13 +964,11 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
-            if (networkId && Object.keys(freestyleNetworkAddressMetadata(data)).length === 0) {
-              // A private machine without a provider-assigned address cannot
-              // be reached through the owner's tunnel. Keep this hard failure
-              // before publishing the database row; transient guest-side
-              // announcement failures are handled by the attach path.
-              throw new ProviderError("freestyle", "Private network has no usable assigned address");
-            }
+            // Validate the provider-assigned VPC address without issuing the
+            // guest-side announcement exec. The baked supervisor announces on
+            // clone boot; attach performs the strict announcement before
+            // handing out the private daemon route.
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
             if (options.imageSize) {
               // One snapshot per size: the machine already boots at the shape
               // that was sold, so nothing is read back and nothing is grown.
@@ -1500,12 +1499,16 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  private async announcePrivateAddresses(vm: Vm, data: FreestyleRouteAddresses): Promise<void> {
+  private async announcePrivateAddresses(
+    vm: Vm,
+    data: FreestyleRouteAddresses,
+    options: { readonly validateOnly?: boolean } = {},
+  ): Promise<void> {
     const addresses = (data.vpcs ?? data.networks ?? [])
       .flatMap((network) => [network.ipv4, network.ipv6])
       .filter((address): address is string => typeof address === "string" && address.trim() !== "")
       .map((address) => address.trim());
-    await Effect.runPromise(announceFreestyleNetwork(vm, addresses));
+    await Effect.runPromise(announceFreestyleNetwork(vm, addresses, options));
   }
 
 
