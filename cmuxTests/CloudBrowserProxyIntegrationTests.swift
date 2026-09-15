@@ -57,20 +57,25 @@ struct CloudBrowserProxyIntegrationTests {
         for (panel, server, url) in [(firstPanel, first, firstURL), (secondPanel, second, secondURL)] {
             let page = try #require(try await panel.webView.evaluateJavaScript("""
                 ({href: location.href, origin: location.origin,
-                  marker: document.body.dataset.machine, asset: window.cloudAsset})
+                  marker: document.body.dataset.machine, asset: window.cloudAsset,
+                  rewrite: window.__cmuxRewriteRemoteLoopbackURL?.('http://localhost:8000/echo') || 'missing'})
                 """) as? [String: String])
             #expect(page["href"] == url.absoluteString)
             #expect(page["origin"] == "http://\(server.address):8000")
             #expect(page["marker"] == server.marker)
             #expect(page["asset"] == "\(server.marker)-asset")
+            #expect(page["rewrite"] == "http://\(server.address):8000/echo")
             #expect(panel.webView.url == url)
 
             let posted = try #require(try await panel.webView.callAsyncJavaScript("""
+                try {
                 const response = await fetch('/echo?source=browser', {
                   method: 'POST', body: 'body-from-' + document.body.dataset.machine,
                   signal: AbortSignal.timeout(5000)
                 });
-                return await response.json();
+                const text = await response.text();
+                try { return JSON.parse(text); } catch (e) { throw new Error('relative response ' + response.status + ': ' + text.slice(0, 200)); }
+                } catch (e) { throw new Error('relative POST: ' + e.name + ': ' + e.message + ' at ' + location.href); }
                 """, arguments: [:], in: nil, contentWorld: .page) as? [String: String])
             #expect(posted["machine"] == server.marker)
             #expect(posted["host"] == "\(server.address):8000")
@@ -79,11 +84,14 @@ struct CloudBrowserProxyIntegrationTests {
             // The page's own localhost/0.0.0.0 links are rewritten to this VM's
             // private origin before WebKit's authenticated CONNECT proxy runs.
             let absoluteLoopback = try #require(try await panel.webView.callAsyncJavaScript("""
+                try {
                 const response = await fetch('http://localhost:8000/echo', {
                   method: 'POST', body: 'absolute-loopback',
                   signal: AbortSignal.timeout(5000)
                 });
-                return await response.json();
+                const text = await response.text();
+                try { return JSON.parse(text); } catch (e) { throw new Error('absolute response ' + response.status + ': ' + text.slice(0, 200)); }
+                } catch (e) { throw new Error('absolute localhost POST: ' + e.name + ': ' + e.message + ' at ' + location.href); }
                 """, arguments: [:], in: nil, contentWorld: .page) as? [String: String])
             #expect(absoluteLoopback["machine"] == server.marker)
             #expect(absoluteLoopback["host"] == "\(server.address):8000")
@@ -369,7 +377,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
             if request.target == "/asset.js" {
                 contentType = "application/javascript"
                 data = Data("window.cloudAsset = '\(marker)-asset';".utf8)
-            } else if request.target.hasPrefix("/echo?") {
+            } else if request.target == "/echo" || request.target.hasPrefix("/echo?") {
                 contentType = "application/json"
                 data = try JSONSerialization.data(withJSONObject: ["machine": marker, "host": record.host, "body": record.body])
             } else {
