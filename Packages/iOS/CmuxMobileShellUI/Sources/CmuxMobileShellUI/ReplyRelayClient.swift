@@ -80,6 +80,7 @@ public struct NoopReplyRelay: ReplyRelaying {
 public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
+    private let keychainAccessGroup: String?
     private let session: URLSession
     private let now: @Sendable () -> Date
     private let envelopeCache = ReplyEnvelopeCache()
@@ -95,11 +96,13 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     public init(
         serviceBaseURL: URL?,
         accessToken: @escaping @Sendable () async -> String?,
+        keychainAccessGroup: String? = nil,
         session: URLSession = .shared,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
+        self.keychainAccessGroup = keychainAccessGroup
         self.session = session
         self.now = now
     }
@@ -116,7 +119,8 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             + "/v1/replies"
         guard let url = comps.url else { return false }
         guard let identity = try? PhonePushKeyStore.current(
-            bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+            bundleID: Bundle.main.bundleIdentifier ?? "cmux",
+            accessGroup: keychainAccessGroup
         ), let accountID = reply.accountID, !accountID.isEmpty else { return false }
         guard let macInstallationID = reply.macInstallationID, !macInstallationID.isEmpty else { return false }
         let tuple = PhonePushDeviceTuple(

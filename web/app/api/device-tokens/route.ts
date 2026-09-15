@@ -254,10 +254,25 @@ function parseRegistrationInput(
     return { ok: false, response: jsonResponse({ error: "client_namespace_mismatch" }, 403) };
   }
   if (platform !== "ios") return { ok: false, response: jsonResponse({ error: "invalid_platform" }, 400) };
-  if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
+  const pushKeys = parsePushKeyFields(installationId, pushKeyId, pushPublicKey);
+  if (!pushKeys) {
     return { ok: false, response: jsonResponse({ error: "invalid_push_key" }, 400) };
   }
-  return { ok: true, value: { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey } };
+  return { ok: true, value: { deviceToken, bundle, platform, ...pushKeys } };
+}
+
+function parsePushKeyFields(
+  installationId: string,
+  pushKeyId: string,
+  pushPublicKey: string,
+): Pick<RegistrationInput, "installationId" | "pushKeyId" | "pushPublicKey"> | null {
+  if (!installationId && !pushKeyId && !pushPublicKey) {
+    return { installationId: "legacy", pushKeyId: "legacy", pushPublicKey: "" };
+  }
+  if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
+    return null;
+  }
+  return { installationId, pushKeyId, pushPublicKey };
 }
 
 function registrationResponse(registration: {

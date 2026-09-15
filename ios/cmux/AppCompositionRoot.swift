@@ -231,7 +231,8 @@ final class AppCompositionRoot {
             notificationSettings: pushNotificationSettings,
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
-                accessToken: { try? await replyRelayAccessToken() }
+                accessToken: { try? await replyRelayAccessToken() },
+                keychainAccessGroup: auth.keychainAccessGroup
             ),
             authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )

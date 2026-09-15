@@ -188,7 +188,10 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
 
     private nonisolated static func decryptedCmux(from userInfo: [AnyHashable: Any]) -> [String: Any]? {
         guard let original = userInfo["cmux"] as? [String: Any],
-              let raw = original["encryptedPayloads"] as? [[String: Any]],
+              let raw = original["encryptedPayloads"] as? [[String: Any]] else {
+            return userInfo["cmux"] as? [String: Any]
+        }
+        guard
               let installation = try? PhonePushKeyStore.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
                   accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
