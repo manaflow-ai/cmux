@@ -164,6 +164,9 @@ extension ControlCommandCoordinator {
                 if let dev = surface.developerToolsVisible {
                     item["developer_tools_visible"] = .bool(dev)
                 }
+                if let filePath = surface.filePath {
+                    item["file_path"] = .string(filePath)
+                }
                 if surface.isTerminal {
                     item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
                     item["initial_command"] = orNull(surface.initialCommand)
