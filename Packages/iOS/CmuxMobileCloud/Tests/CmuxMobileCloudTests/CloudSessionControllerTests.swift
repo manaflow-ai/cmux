@@ -40,7 +40,8 @@ import Testing
         #expect(controller.tunnel == .starting)
         await settle { controller.machines == .loaded([CloudMachine(id: "vm1", provider: "freestyle", status: "running")]) }
 
-        let identity = try await #require(store.stored)
+        let storedIdentity = await store.stored
+        let identity = try #require(storedIdentity)
         #expect(controller.tunnel == .ready(fingerprint: identity.fingerprint))
         #expect(service.calls.enroll.count == 1)
         #expect(service.calls.enroll[0].publicKey == identity.keyPair.publicKey)
