@@ -11,7 +11,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud shortcuts retain their execution machine", .serialized)
+@Suite("Cloud shortcuts retain their execution machine", .serialized, .timeLimit(.minutes(1)))
 struct CloudTerminalShortcutRoutingTests {
     enum Entry: CaseIterable { case right, down, tab, splitButton, socketSplit, socketTab }
 
@@ -55,6 +55,118 @@ struct CloudTerminalShortcutRoutingTests {
         SurfaceCatalog.shared.unregister(machine: h.provider.machine)
         try invoke(entry, h)
         assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("A rapid split chain uses each completed predecessor's remote tab")
+    func orderedPendingChain() async throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        var calls = h.provider.calls.stream.makeAsyncIterator()
+        try invoke(.down, h)
+        let first = try #require(await calls.next())
+        #expect(first.nearTabID == "tab-source")
+        try invoke(.right, h)
+        try invoke(.tab, h)
+        let lastPanel = try #require(h.workspace.focusedPanelId)
+        let last = try #require(h.workspace.cloudPendingCreations[lastPanel])
+        #expect(h.provider.callCount == 1)
+        assertOnlyCloudPanelsAdded(h)
+        h.provider.succeed(first.number)
+        let second = try #require(await calls.next())
+        #expect(second.nearTabID == "tab-created-1")
+        h.provider.succeed(second.number)
+        let third = try #require(await calls.next())
+        #expect(third.nearTabID == "tab-created-2")
+        h.provider.succeed(third.number)
+        let completed = try await last.resolution.value()
+        #expect(completed.panelID == lastPanel)
+        #expect(completed.resource.machine == h.provider.machine)
+        #expect(h.provider.callCount == 3)
+    }
+
+    @Test("Parent failure settles dependent shortcuts as Cloud failures", arguments: [false, true])
+    func parentFailure(transportCancelled: Bool) async throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        var calls = h.provider.calls.stream.makeAsyncIterator()
+        try invoke(.down, h)
+        let first = try #require(await calls.next())
+        try invoke(.right, h)
+        let panel = try #require(h.workspace.focusedPanelId)
+        let child = try #require(h.workspace.cloudPendingCreations[panel])
+        h.provider.fail(first.number, error: transportCancelled ? CancellationError() : CloudDiagnosticFailure.network)
+        do { _ = try await child.resolution.value(); Issue.record("dependent request unexpectedly succeeded") }
+        catch { #expect(error as? CloudDiagnosticFailure == (transportCancelled ? .cancelled : .network)) }
+        #expect(h.provider.callCount == 1)
+        #expect(h.workspace.cloudMaterializationFailures[panel] != nil)
+        assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("Explicit command and cwd keep the Cloud execution target")
+    func remoteLaunchOptions() async throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        var calls = h.provider.calls.stream.makeAsyncIterator()
+        let pane = try #require(h.workspace.bonsplitController.focusedPaneId)
+        let outcome = h.workspace.newTerminalSurfaceOutcome(inPane: pane, workingDirectory: "/remote/custom", initialCommand: "pwd")
+        #expect(outcome.isAccepted)
+        let call = try #require(await calls.next())
+        #expect(call.command == ["sh", "-lc", "pwd"])
+        #expect(call.cwd == "/remote/custom")
+        #expect(call.remoteWorkspaceID == "ws-source")
+        assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("Explicit local materialization remains available without implicit fallback")
+    func explicitLocalMaterialization() throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        let pane = try #require(h.workspace.bonsplitController.focusedPaneId)
+        let result = h.workspace.newTerminalSurfaceOutcome(inPane: pane, initialCommand: "/usr/bin/true",
+            suppressWorkspaceRemoteStartupCommand: true)
+        #expect(result.panel != nil)
+        #expect(result.panel?.surface.ioMode != .manualMirror)
+        #expect(h.provider.callCount == 0)
+    }
+
+    @Test("Closing a pending parent does not strand its child or start a local shell")
+    func parentClosed() async throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        var calls = h.provider.calls.stream.makeAsyncIterator()
+        try invoke(.down, h)
+        _ = try #require(await calls.next())
+        let parentID = try #require(h.workspace.focusedPanelId)
+        try invoke(.right, h)
+        let childID = try #require(h.workspace.focusedPanelId)
+        let child = try #require(h.workspace.cloudPendingCreations[childID])
+        h.workspace.cancelReservedCloudTerminalPane(panelID: parentID)
+        do { _ = try await child.resolution.value(); Issue.record("closed parent unexpectedly resolved") }
+        catch { #expect(error as? CloudDiagnosticFailure == .notFound) }
+        #expect(h.provider.callCount == 1)
+        assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("Initial input is queued for the Cloud terminal")
+    func initialInput() throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        h.manager.newSurface(initialInput: "pwd")
+        let panel = try #require(h.workspace.focusedPanelId)
+        let pending = try #require(h.workspace.cloudPendingCreations[panel])
+        #expect(pending.inputRelay.pendingCount == 1)
+        assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("A local workspace still creates local terminals")
+    func localWorkspace() throws {
+        let h = try CloudShortcutTestHarness(projected: false)
+        defer { h.tearDown() }
+        h.workspace.cloudVMBinding = nil
+        h.manager.newSurface()
+        let panel = try #require(h.workspace.focusedPanelId)
+        #expect(h.workspace.terminalPanel(for: panel)?.surface.ioMode != .manualMirror)
+        #expect(h.workspace.cloudPendingCreations.isEmpty)
     }
 
     private func assertOnlyCloudPanelsAdded(_ h: CloudShortcutTestHarness) {
