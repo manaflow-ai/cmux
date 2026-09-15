@@ -3890,6 +3890,7 @@
     "email": "E-posta",
     "emailUnavailable": "e-posta kullanılamıyor",
     "organization": "Kuruluş",
-    "personalAccount": "kişisel hesap"
+    "personalAccount": "kişisel hesap",
+    "switchAccountButton": "Farklı bir hesap kullan"
   }
 }

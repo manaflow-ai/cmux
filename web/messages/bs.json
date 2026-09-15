@@ -3892,6 +3892,7 @@
     "email": "E-mail",
     "emailUnavailable": "e-mail nije dostupan",
     "organization": "Organizacija",
-    "personalAccount": "lični račun"
+    "personalAccount": "lični račun",
+    "switchAccountButton": "Koristi drugi račun"
   }
 }

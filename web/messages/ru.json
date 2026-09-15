@@ -3892,6 +3892,7 @@
     "email": "Электронная почта",
     "emailUnavailable": "адрес электронной почты недоступен",
     "organization": "Организация",
-    "personalAccount": "личный аккаунт"
+    "personalAccount": "личный аккаунт",
+    "switchAccountButton": "Использовать другой аккаунт"
   }
 }

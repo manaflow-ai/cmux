@@ -5552,6 +5552,7 @@
     "email": "Email",
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
-    "personalAccount": "personal account"
+    "personalAccount": "personal account",
+    "switchAccountButton": "Use a different account"
   }
 }

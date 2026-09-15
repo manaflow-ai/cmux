@@ -3892,6 +3892,7 @@
     "email": "Email",
     "emailUnavailable": "email non disponibile",
     "organization": "Organizzazione",
-    "personalAccount": "account personale"
+    "personalAccount": "account personale",
+    "switchAccountButton": "Usa un altro account"
   }
 }

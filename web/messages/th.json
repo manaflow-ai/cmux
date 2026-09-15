@@ -3897,6 +3897,7 @@
     "email": "อีเมล",
     "emailUnavailable": "ไม่พบอีเมล",
     "organization": "องค์กร",
-    "personalAccount": "บัญชีส่วนตัว"
+    "personalAccount": "บัญชีส่วนตัว",
+    "switchAccountButton": "ใช้บัญชีอื่น"
   }
 }

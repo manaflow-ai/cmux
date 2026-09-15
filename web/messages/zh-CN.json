@@ -3892,6 +3892,7 @@
     "email": "电子邮件",
     "emailUnavailable": "电子邮件地址不可用",
     "organization": "组织",
-    "personalAccount": "个人账户"
+    "personalAccount": "个人账户",
+    "switchAccountButton": "使用其他账号"
   }
 }

@@ -5462,6 +5462,7 @@
     "email": "メールアドレス",
     "emailUnavailable": "メールアドレスを取得できません",
     "organization": "組織",
-    "personalAccount": "個人アカウント"
+    "personalAccount": "個人アカウント",
+    "switchAccountButton": "別のアカウントを使用"
   }
 }

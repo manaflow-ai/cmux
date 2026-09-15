@@ -3891,6 +3891,7 @@
     "email": "Correo electrónico",
     "emailUnavailable": "correo electrónico no disponible",
     "organization": "Organización",
-    "personalAccount": "cuenta personal"
+    "personalAccount": "cuenta personal",
+    "switchAccountButton": "Usar otra cuenta"
   }
 }
