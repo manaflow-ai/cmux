@@ -183,7 +183,7 @@ struct CloudTerminalShortcutRoutingTests {
         defer { h.tearDown() }
         let pane = try #require(h.workspace.bonsplitController.focusedPaneId)
         let tab = try #require(h.workspace.bonsplitController.selectedTab(inPane: pane))
-        _ = h.workspace.bonsplitController.splitPane(pane, orientation: .horizontal, movingTab: tab.id)
+        _ = h.workspace.bonsplitController.splitPane(pane, orientation: .horizontal, movingTab: tab.id, insertFirst: false)
         assertOnlyCloudPanelsAdded(h)
     }
 
