@@ -39,10 +39,22 @@ extension AppDelegate {
                 return true
             }()
             if !hasExplicitConfiguredAction {
+                let destination: CloudWorkspaceGroupDestination? = {
+                    guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID,
+                          let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+                    return CloudWorkspaceGroupDestination(
+                        tabManager: context.tabManager,
+                        groupId: group.groupId,
+                        placement: group.placement,
+                        referenceWorkspaceId: group.referenceWorkspaceId,
+                        initialWorkspaceId: nil
+                    )
+                }()
                 return performNewCloudWorkspaceOnMachineAction(
                     machineID: machineID,
                     focus: context.tabManager.selectedTabId != nil,
                     windowID: context.windowId,
+                    destination: destination,
                     debugSource: debugSource
                 )
             }
@@ -81,6 +93,7 @@ extension AppDelegate {
         machineID: String,
         focus: Bool,
         windowID: UUID? = nil,
+        destination: CloudWorkspaceGroupDestination? = nil,
         debugSource: String = "newWorkspace.cloud"
     ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
@@ -88,7 +101,7 @@ extension AppDelegate {
               coordinator.isAvailable else { return false }
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else { return false }
-        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)", {
+        return operationController.start(key: "new-cloud-workspace", {
             guard let workspaceID = try await coordinator.createOnMachine(
                 machineID: capturedMachineID, focus: focus, windowID: windowID
             ), !Task.isCancelled, coordinator.isAvailable else { return }
@@ -98,6 +111,7 @@ extension AppDelegate {
                     "workspace=\(workspaceID.uuidString.prefix(8))"
             )
 #endif
+            destination?.apply(workspaceID: workspaceID)
         }, onFailure: { [weak self] error in
             self?.presentCloudWorkspaceCreationFailure(
                 machineID: capturedMachineID,
@@ -131,7 +145,15 @@ extension AppDelegate {
             localized: "cloudWorkspace.creation.failed.detail",
             defaultValue: "The workspace could not be created on %@. %@"
         )
-        alert.informativeText = String(format: format, machineID, error.localizedDescription)
+        let detail: String = if case CloudWorkspaceCoordinatorError.machineUnavailable = error {
+            String(
+                localized: "cloudWorkspace.creation.failed.unavailable",
+                defaultValue: "The selected Cloud machine is unavailable."
+            )
+        } else {
+            error.localizedDescription
+        }
+        alert.informativeText = String(format: format, machineID, detail)
         alert.addButton(withTitle: String(localized: "common.retry", defaultValue: "Retry"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
@@ -162,7 +184,7 @@ extension AppDelegate {
         let focus = context?.tabManager.selectedTabId != nil
         // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
         // events while the remote receipt is still being discovered/attached.
-        return operationController.start(key: "new-cloud-workspace.default") {
+        return operationController.start(key: "new-cloud-workspace") {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
                   !Task.isCancelled,
                   coordinator.isAvailable else { return }
