@@ -32,7 +32,7 @@ public final class CloudWorkspaceCoordinator {
         allowsOperation: @escaping @MainActor () -> Bool,
         loadMachines: @escaping @MainActor () async throws -> [CloudMachineDescriptor],
         createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?,
-        createWorkspaceWithContext: (@escaping @MainActor (String, Bool, UUID) async throws -> UUID?)? = nil
+        createWorkspaceWithContext: (@MainActor (String, Bool, UUID) async throws -> UUID?)? = nil
     ) {
         self.defaultMachineStore = defaultMachineStore
         self.allowsOperation = allowsOperation
