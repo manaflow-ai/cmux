@@ -690,9 +690,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup:
-                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .portsGroup:
+            case .browsersGroup, .portsGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
@@ -749,10 +747,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
-                // Copying a port URL does not start a forward. The browser's
-                // explicit Ports table owns local forwarding addresses.
+                // Copying the private URL never creates a forward.
                 items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {
@@ -797,7 +793,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }
-            items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [window = outlineView?.window] in actions.setupVPN(window) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
