@@ -129,6 +129,15 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         return envelope["result"] as? [String: Any] ?? [:]
     }
 
+    /// Sends a legacy test-only control command when a v2 request would add
+    /// unnecessary JSON routing to a startup readiness probe.
+    func socketCommand(
+        _ command: String,
+        responseTimeout: TimeInterval = 10.0
+    ) -> String? {
+        ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(command)
+    }
+
     // MARK: - Browser fixture helpers
 
     /// Resolves a fixture page next to this source file (works in CI checkouts,

@@ -51,11 +51,7 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         )
         var mainHopReady = false
         for _ in 0..<12 where !mainHopReady {
-            mainHopReady = socketEnvelope(
-                method: "debug.app.activate",
-                params: [:],
-                responseTimeout: 10
-            )?["ok"] as? Bool == true
+            mainHopReady = socketCommand("activate_app", responseTimeout: 10) == "OK"
         }
         XCTAssertTrue(mainHopReady, "The app did not service a main-thread activation hop")
         let sid = try openFixture("hover-popover")
