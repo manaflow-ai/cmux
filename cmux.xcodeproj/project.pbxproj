@@ -3707,7 +3707,6 @@
 		F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */; };
 		C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */; };
 		9FBB4835E80375A89F991904 /* Workspace+CloudTerminalTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D15247C6C5F506232DD3CB /* Workspace+CloudTerminalTarget.swift */; };
-		7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */; };
 		C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */; };
 		A5FB120D /* Workspace+CustomLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120E /* Workspace+CustomLayout.swift */; };
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
@@ -7576,7 +7575,6 @@
 		380FC55EF1BE4EBC8E8352FC /* Workspace+CloudTerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalCreation.swift"; sourceTree = "<group>"; };
 		C12537000000000000000308 /* Workspace+CloudTerminalReservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalReservation.swift"; sourceTree = "<group>"; };
 		29D15247C6C5F506232DD3CB /* Workspace+CloudTerminalTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudTerminalTarget.swift"; sourceTree = "<group>"; };
-		E5748A8176DB3678214B1436 /* Workspace+CloudVPNSetupPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CloudVPNSetupPane.swift"; sourceTree = "<group>"; };
 		C54860020000000000000002 /* Workspace+CmuxNavigationDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CmuxNavigationDescriptor.swift"; sourceTree = "<group>"; };
 		A5FB120E /* Workspace+CustomLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomLayout.swift"; sourceTree = "<group>"; };
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
@@ -14800,7 +14798,6 @@
 				F1C91A5607ED4F70923F8F91 /* Workspace+CloudTerminalCreation.swift in Sources */,
 				C12537000000000000000307 /* Workspace+CloudTerminalReservation.swift in Sources */,
 				9FBB4835E80375A89F991904 /* Workspace+CloudTerminalTarget.swift in Sources */,
-				7806088FC566EAEFDB186931 /* Workspace+CloudVPNSetupPane.swift in Sources */,
 				C54860020000000000000001 /* Workspace+CmuxNavigationDescriptor.swift in Sources */,
 				A5FB120D /* Workspace+CustomLayout.swift in Sources */,
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
