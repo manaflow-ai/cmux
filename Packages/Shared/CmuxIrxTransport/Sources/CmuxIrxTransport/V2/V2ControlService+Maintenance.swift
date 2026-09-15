@@ -17,6 +17,12 @@ extension V2ControlService {
         guard runID == run, directorySyncTaskID == taskID else { return }
         directorySyncTask = nil
         directorySyncTaskID = nil
+        // A directory.changed event can arrive while the current refresh is
+        // blocked persisting its snapshot. Keep the newest requested revision
+        // and immediately drain it after the in-flight operation completes.
+        if wantedDirectoryRevision > (cache.directory?.revision ?? 0) {
+            requestDirectoryRefresh(run: run)
+        }
     }
 
     func scheduleMaintenance(run: UUID) {
