@@ -9,48 +9,7 @@ import Testing
 #endif
 
 @MainActor
-struct NewWorkspaceMachineContextTests {
-    @Test func focusedMachinesSelectionWinsAndLocalSelectionStaysLocal() {
-        #expect(
-            NewWorkspaceMachineContext(
-                selection: .cloud("machine-b"),
-                selectedWorkspaceCloudMachineID: "machine-a",
-                machinesPanelOwnsFocus: true
-            ).target == .cloud("machine-b")
-        )
-        #expect(
-            NewWorkspaceMachineContext(
-                selection: .local,
-                selectedWorkspaceCloudMachineID: "machine-a",
-                machinesPanelOwnsFocus: true
-            ).target == .local
-        )
-        #expect(
-            NewWorkspaceMachineContext(
-                selection: .pending,
-                selectedWorkspaceCloudMachineID: "machine-a",
-                machinesPanelOwnsFocus: true
-            ).target == .unavailable
-        )
-    }
-
-    @Test func workspaceBindingWinsWhenMachinesPanelDoesNotOwnFocus() {
-        #expect(
-            NewWorkspaceMachineContext(
-                selection: .cloud("machine-b"),
-                selectedWorkspaceCloudMachineID: "machine-a",
-                machinesPanelOwnsFocus: false
-            ).target == .cloud("machine-a")
-        )
-        #expect(
-            NewWorkspaceMachineContext(
-                selection: .none,
-                selectedWorkspaceCloudMachineID: nil,
-                machinesPanelOwnsFocus: false
-            ).target == .local
-        )
-    }
-
+struct CloudWorkspaceMachineContextRoutingTests {
     @Test func cmdNUsesCapturedMachineAfterSelectionChanges() async throws {
         let appDelegate = AppDelegate()
         let store = DefaultCloudMachineStore(defaults: UserDefaults(suiteName: "CloudCmdNTargetTests.\(UUID().uuidString)")!)
@@ -71,11 +30,11 @@ struct NewWorkspaceMachineContextTests {
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: nil)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
         let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
-        appDelegate.setNewWorkspaceMachineSelection(.cloud("machine-b"), in: tabManager)
+        appDelegate.setCloudTreeSelection(CloudTreeSelection(nodeID: "machine-b", machine: .cloud("machine-b")), in: tabManager)
         context.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .machines)
 
         #expect(appDelegate.performNewWorkspaceAction(tabManager: tabManager, debugSource: "test.cmdN.machine"))
-        appDelegate.setNewWorkspaceMachineSelection(.cloud("machine-a"), in: tabManager)
+        appDelegate.setCloudTreeSelection(CloudTreeSelection(nodeID: "machine-a", machine: .cloud("machine-a")), in: tabManager)
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         #expect(createdMachine == "machine-b")
     }

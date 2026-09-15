@@ -19,6 +19,7 @@ public final class CloudWorkspaceCoordinator {
     ///   - allowsOperation: Reads live feature and account availability.
     ///   - loadMachines: Loads the complete, authoritative fleet, throwing on failure.
     ///   - createWorkspace: Creates and opens a workspace on the selected machine.
+    ///   - createWorkspaceWithContext: Optionally projects into a caller-owned window identified by UUID.
     public init(
         defaultMachineStore: DefaultCloudMachineStore,
         allowsOperation: @escaping @MainActor () -> Bool,
@@ -67,6 +68,7 @@ public final class CloudWorkspaceCoordinator {
     /// - Parameters:
     ///   - machineID: Immutable Cloud machine identity captured at invocation.
     ///   - focus: Whether to focus the newly opened local projection.
+    ///   - windowID: Optional originating window identity for pinned projection.
     /// - Returns: The exact created local workspace ID, or nil when unavailable.
     /// - Throws: Cancellation, machine unavailability, or a Cloud service failure.
     public func createOnMachine(machineID: String, focus: Bool, windowID: UUID? = nil) async throws -> UUID? {

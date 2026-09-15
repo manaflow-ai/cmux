@@ -80,6 +80,12 @@ final class CloudWorkspaceOperationController {
             } catch is CancellationError {
                 // Cancellation is the expected result of sign-out or disabling Cloud Machines.
             } catch {
+                // Release the keyed slot before presenting recovery UI. A Retry
+                // action can therefore submit the same intent immediately.
+                if self?.keyedTaskIDs[key] == operationID {
+                    self?.keyedTaskIDs.removeValue(forKey: key)
+                    self?.keyedTasks.removeValue(forKey: key)
+                }
                 onFailure(error)
                 Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app", category: "CloudWorkspace")
                     .error("Keyed Cloud workspace operation failed: \(String(describing: error), privacy: .private)")
