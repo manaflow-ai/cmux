@@ -5260,7 +5260,7 @@ class TerminalController {
         let supportedActions = [
             "pin", "unpin", "rename", "clear_name",
             "set_description", "clear_description",
-            "move_up", "move_down", "move_top",
+            "move_up", "move_down", "move_top", "move_bottom",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
             "set_color", "clear_color", "mobile_connect"
@@ -5387,6 +5387,10 @@ class TerminalController {
 
             case "move_top":
                 tabManager.moveTabToTop(workspace.id)
+                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+
+            case "move_bottom":
+                tabManager.moveTabToBottom(workspace.id)
                 finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
 
             case "close_others":
