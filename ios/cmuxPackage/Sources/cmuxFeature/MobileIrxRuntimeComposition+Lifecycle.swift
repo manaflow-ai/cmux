@@ -164,7 +164,7 @@ extension MobileIrxRuntimeComposition {
             }
             for record in directory.devices where !record.revoked {
                 let peer = record.descriptor.endpointID
-                if previousRelays[peer] != record.descriptor.metadata.relayURLs {
+                if let previous = previousRelays[peer], previous != record.descriptor.metadata.relayURLs {
                     await enginesByPeer[peer]?.relayHintChanged(trigger: "v2-directory-relay")
                 }
             }

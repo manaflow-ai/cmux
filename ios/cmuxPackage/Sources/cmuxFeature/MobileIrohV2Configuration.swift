@@ -48,16 +48,31 @@ public struct MobileIrohV2Configuration: Sendable {
             values[key] ?? defaults.string(forKey: "cmux.iroh.v2.config." + key)
                 ?? bundle.object(forInfoDictionaryKey: key) as? String
         }
-        let environment = override("CMUX_IROH_V2_ENVIRONMENT") ?? defaultEnvironment
+        let requestedEnvironment = override("CMUX_IROH_V2_ENVIRONMENT")
+        // Never let a typo route a release build to the development Worker.
+        let environment = requestedEnvironment.flatMap { value in
+            ["production", "staging", "development"].contains(value) ? value : nil
+        } ?? defaultEnvironment
         let origin: String
         switch environment {
         case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
         case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
         default: origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
         }
-        guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),
-              url.scheme == "https", url.host != nil else {
-            preconditionFailure("Invalid IROH v2 Worker origin")
+        func validOrigin(_ candidate: String?) -> URL? {
+            guard let candidate, let url = URL(string: candidate),
+                  url.scheme == "https", url.host != nil else { return nil }
+            return url
+        }
+        let url: URL
+        if let overridden = validOrigin(override("CMUX_IROH_V2_BASE_URL")) {
+            url = overridden
+        } else {
+            defaults.removeObject(forKey: "cmux.iroh.v2.config.CMUX_IROH_V2_BASE_URL")
+            guard let derived = validOrigin(origin) else {
+                preconditionFailure("Invalid built-in IROH v2 Worker origin")
+            }
+            url = derived
         }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return Self(baseURL: url, environment: environment, projectID: projectID,

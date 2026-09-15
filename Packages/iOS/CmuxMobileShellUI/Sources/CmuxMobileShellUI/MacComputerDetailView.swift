@@ -190,7 +190,7 @@ struct MacComputerDetailView: View {
         } message: {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
-                defaultValue: "A numeric IP where this computer is reachable, like 192.168.1.20 or 192.168.1.20:64000. Without a port, the Mac's advertised port is used."
+                defaultValue: "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
             ))
         }
         .confirmationDialog(

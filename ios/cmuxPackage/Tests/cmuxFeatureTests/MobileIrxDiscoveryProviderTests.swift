@@ -78,6 +78,37 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(candidates.isEmpty)
     }
 
+    @Test("an older discovery revision cannot overwrite the current projection")
+    func staleRevisionIsIgnored() async throws {
+        let newerMac = Self.binding(
+            bindingID: "newer", deviceID: "123e4567-e89b-42d3-a456-426614174044",
+            platform: "mac", endpointFill: "c"
+        )
+        let olderMac = Self.binding(
+            bindingID: "older", deviceID: "123e4567-e89b-42d3-a456-426614174055",
+            platform: "mac", endpointFill: "d"
+        )
+        let newer = V2Directory(
+            devices: [newerMac], issuedAt: 1_800_000_000,
+            permissionExpiresAt: 2_000_000_000, relayURLs: [], revision: 2, teamID: "team-a"
+        )
+        let older = V2Directory(
+            devices: [olderMac], issuedAt: 1_800_000_000,
+            permissionExpiresAt: 2_000_000_000, relayURLs: [], revision: 1, teamID: "team-a"
+        )
+        let sequence = DirectorySequenceBox([newer, older])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil,
+            discover: { sequence.next() }, invalidateSnapshot: {},
+            revokeBinding: { _ in }, authenticatedAccountID: { "account-a" }
+        )
+
+        let first = await provider.discoverLiveMacs()
+        let second = await provider.discoverLiveMacs()
+        #expect(first.map(\.deviceID) == [newerMac.descriptor.identity.deviceID])
+        #expect(second.map(\.deviceID) == [newerMac.descriptor.identity.deviceID])
+    }
+
     @Test("forget revokes exactly the matching device's bindings")
     func forgetRevokesMatches() async throws {
         let mac = "123e4567-e89b-42d3-a456-426614174011"
@@ -123,5 +154,19 @@ private final class RevokedBox: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         storage.append(value)
+    }
+}
+
+private final class DirectorySequenceBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [V2Directory]
+
+    init(_ values: [V2Directory]) { self.values = values }
+
+    func next() -> V2Directory? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !values.isEmpty else { return nil }
+        return values.removeFirst()
     }
 }

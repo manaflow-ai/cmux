@@ -31,7 +31,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     private var scope: UInt64 = 0
     private var runtimeObservation: Task<Void, Never>?
     private var observedScope: String?
-    private var observedDirectory: V2Directory?
+    private var lastAppliedDirectoryRevision: Int?
     private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     deinit { runtimeObservation?.cancel() }
@@ -53,17 +53,32 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
                 guard let self, !Task.isCancelled else { return }
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
-                guard owner == (await irx.directoryScopeID()) else { continue }
-                guard owner != observedScope || directory != observedDirectory else { continue }
-                observedScope = owner
-                observedDirectory = directory
-                scope &+= 1
-                let generation = scope
-                await routeCatalog.activate(scope: generation)
-                if let directory { await routeCatalog.replace(with: directory, scope: generation) }
+                guard let owner, owner == (await irx.directoryScopeID()) else { continue }
+                guard let directory else { continue }
+                guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
         }
+    }
+
+    /// Applies directory snapshots through one monotonic projection path. An
+    /// older async observation can never replace a newer revision.
+    @discardableResult
+    private func applyDirectory(_ directory: V2Directory, owner: String) async -> Bool {
+        if observedScope != owner {
+            observedScope = owner
+            lastAppliedDirectoryRevision = nil
+        }
+        guard lastAppliedDirectoryRevision.map({ directory.revision >= $0 }) ?? true else {
+            return false
+        }
+        guard lastAppliedDirectoryRevision != directory.revision else { return false }
+        lastAppliedDirectoryRevision = directory.revision
+        scope &+= 1
+        let generation = scope
+        await routeCatalog.activate(scope: generation)
+        guard observedScope == owner, lastAppliedDirectoryRevision == directory.revision else { return false }
+        return await routeCatalog.replace(with: directory, scope: generation)
     }
 
     /// Closure-injected core, so tests can drive it without the actor stack.
@@ -107,10 +122,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         let owner = await authenticatedScopeID()
         guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
-        scope &+= 1
-        let currentScope = scope
-        await routeCatalog.activate(scope: currentScope)
-        await routeCatalog.replace(with: discovery, scope: currentScope)
+        guard let owner else { return [] }
+        _ = await applyDirectory(discovery, owner: owner)
         return await routeCatalog.liveMacCandidates(
             preferredTag: preferredTag,
             compatibleWith: compatibilityPolicy,

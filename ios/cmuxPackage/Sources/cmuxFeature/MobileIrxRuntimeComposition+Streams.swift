@@ -9,8 +9,8 @@ extension MobileIrxRuntimeComposition {
     ) async throws -> CmxIndependentEventByteStream {
         let peerHex = try peerTarget(for: request)
         let session = try await ensureSession(forPeer: peerHex, trigger: "server-events")
-        guard claimedEventSessions[peerHex] != session.admit.session else {
-            throw CompositionError.unsupportedRoute
+        guard claimedEventSessions[peerHex] == nil else {
+            throw IrxConnectionError.closed(nil)
         }
         claimedEventSessions[peerHex] = session.admit.session
         let connection = session.connection
@@ -31,10 +31,21 @@ extension MobileIrxRuntimeComposition {
                     continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { _ in
+            continuation.onTermination = { [weak self] _ in
                 pump.cancel()
+                Task { [weak self] in
+                    await self?.releaseEventClaim(
+                        peerHex: peerHex,
+                        sessionID: session.admit.session
+                    )
+                }
             }
         }
+    }
+
+    func releaseEventClaim(peerHex: String, sessionID: String) {
+        guard claimedEventSessions[peerHex] == sessionID else { return }
+        claimedEventSessions.removeValue(forKey: peerHex)
     }
 
     public func openTerminalLane(

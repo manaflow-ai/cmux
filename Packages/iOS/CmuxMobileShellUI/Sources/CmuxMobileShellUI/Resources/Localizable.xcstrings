@@ -5118,6 +5118,17 @@
         }
       }
     },
+    "mobile.connections.direct.addMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
+          }
+        }
+      }
+    },
     "mobile.connections.route.remove": {
       "extractionState": "manual",
       "localizations": {
