@@ -67,8 +67,8 @@ func screenAnchoredHostKeepsPrimaryScrollLocal() async throws {
 }
 
 @MainActor
-@Test("a reconnect keeps confirmed primary scrolling pixel precise until the first new frame")
-func reconnectPreservesPrimaryScrollLease() async throws {
+@Test("a reconnect forwards scroll until a fresh screen is confirmed")
+func reconnectRequiresFreshPrimaryScreenConfirmation() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities([
         "events.v1",
@@ -87,11 +87,11 @@ func reconnectPreservesPrimaryScrollLease() async throws {
     store.terminalActiveScreenBySurfaceID["live-terminal"] = .primary
 
     // The client teardown path clears the negotiated transport and active
-    // screen. The confirmed primary lease must bridge that short reconnect
-    // window so gestures stay pixel precise.
+    // screen. Until a fresh frame confirms the screen, forward gestures to
+    // the Mac so alternate-screen wheel input cannot be swallowed locally.
     store.remoteClient = nil
     #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == nil)
-    #expect(store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
+    #expect(!store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
 
     store.recordTerminalRenderGridDelivery(
         try renderGridFrame(

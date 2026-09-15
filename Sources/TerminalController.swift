@@ -1911,6 +1911,7 @@ class TerminalController {
             }
             return v2AsyncResultCall(id: request.id, timeoutSeconds: durationSeconds + 30) {
                 let startedAt = ContinuousClock.now
+                let clock = ContinuousClock()
                 var cycles = 0
                 var closedConnectionIDs: [String] = []
                 while startedAt.duration(to: ContinuousClock.now) < .seconds(durationSeconds) {
@@ -1922,10 +1923,14 @@ class TerminalController {
                     mobileReconnectDebugLog.info(
                         "debug.reconnect_loop cycle=\(cycles) closed=\(closed.count) interval_s=\(intervalSeconds)"
                     )
-                    let remaining = durationSeconds - Double(cycles - 1) * intervalSeconds
+                    let elapsed = startedAt.duration(to: ContinuousClock.now)
+                    let elapsedComponents = elapsed.components
+                    let elapsedSeconds = Double(elapsedComponents.seconds)
+                        + Double(elapsedComponents.attoseconds) / 1_000_000_000_000_000_000
+                    let remaining = durationSeconds - elapsedSeconds
                     guard remaining > 0 else { break }
                     let delay = min(intervalSeconds, remaining)
-                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    try? await clock.sleep(for: .seconds(delay))
                 }
                 return .ok([
                     "duration_seconds": durationSeconds,
