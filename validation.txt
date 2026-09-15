@@ -1,0 +1,35 @@
+::warning::No logged-in console user (or no passwordless sudo) on this runner; running in the current bootstrap. XCTest will fail here if this runner has no GUI session.
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug -destination platform=macOS -derivedDataPath /Users/cmux/Library/Developer/Xcode/DerivedData/cmux-cloud-cache/cmux-austin-mini-0.1 -clonedSourcePackagesDirPath /Users/cmux/.cache/cmux-job/SourcePackages/cmux-austin-mini-0.1 -disableAutomaticPackageResolution -resultBundlePath /tmp/issue-12657-tests-7.xcresult -maximum-test-execution-time-allowance 180 SWIFT_ENABLE_BATCH_MODE=NO DEBUG_INFORMATION_FORMAT= GCC_GENERATE_DEBUGGING_SYMBOLS=NO "OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1" CMUX_SKIP_ZIG_BUILD=1 "-only-testing:cmuxTests/TerminalWindowPortalLifecycleTests" "-only-testing:cmuxTests/GhosttyDrawableSizeRetryTests" test
+
+Build settings from command line:
+    CMUX_SKIP_ZIG_BUILD = 1
+    DEBUG_INFORMATION_FORMAT = 
+    GCC_GENERATE_DEBUGGING_SYMBOLS = NO
+
+
+Focused final results:
+
+final-app-tests.log
+	 Executed 44 tests, with 0 failures (0 unexpected) in 79.368 (79.378) seconds
+	 Executed 44 tests, with 0 failures (0 unexpected) in 79.368 (79.378) seconds
+	 Executed 44 tests, with 0 failures (0 unexpected) in 79.368 (79.379) seconds
+✔ Test run with 2 tests in 1 suite passed after 0.126 seconds.
+** TEST SUCCEEDED **
+
+core-phase-tests.log
+✔ Test run with 4 tests in 1 suite passed after 0.001 seconds.
+
+final-fixture-recheck.log
+	 Executed 1 test, with 0 failures (0 unexpected) in 12.174 (12.174) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 12.174 (12.174) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 12.174 (12.175) seconds
+** TEST SUCCEEDED **
+
+baseline-failed.log
+/Users/cmux/.cache/cmux-job/reload-cloud/work/cmux-austin-mini-0.1/src/cmuxTests/TerminalWindowPortalLifecycleHiddenRefreshTests.swift:245: error: -[cmuxTests.TerminalWindowPortalLifecycleTests testWindowLiveResizeKeepsCommittedTerminalSizeUntilEnd] : XCTAssertEqual failed: ("180") is not equal to ("520") - A live resize must keep the committed renderer width until the final geometry pass
+/Users/cmux/.cache/cmux-job/reload-cloud/work/cmux-austin-mini-0.1/src/cmuxTests/TerminalWindowPortalLifecycleHiddenRefreshTests.swift:250: error: -[cmuxTests.TerminalWindowPortalLifecycleTests testWindowLiveResizeKeepsCommittedTerminalSizeUntilEnd] : XCTAssertEqual failed: ("120") is not equal to ("280") - A live resize must keep the committed renderer height until the final geometry pass
+	 Executed 1 test, with 2 failures (0 unexpected) in 0.856 (0.856) seconds
+	 Executed 1 test, with 2 failures (0 unexpected) in 0.856 (0.856) seconds
+	 Executed 1 test, with 2 failures (0 unexpected) in 0.856 (0.857) seconds
+** TEST FAILED **

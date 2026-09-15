@@ -1,11 +1,15 @@
 # Issue 12657 visual evidence
 
-Synthetic Codex conversation: 40 numbered terminal-resize verification lines, no repository edits or tools requested.
+Synthetic Codex conversation: 40 numbered terminal-resize verification lines; no repository edits or tools requested.
 
-- `before.png`: original main build `211b8bb35`, after narrowing/widening the window. The Codex text reaches/crops at the pane edge.
-- `after.png`: runtime fix build `4b349d9f96` (runtime sources unchanged in `78996ee50d`), after quitting/relaunching cmux, restoring the workspace, resuming the same Codex conversation, and repeating divider and native window resizing. Text wraps within the pane and the input remains aligned.
-- `after-resume-resize.mp4`: 22-second full-screen Cua Driver recording of the resumed Codex session through narrower/wider pane-divider drags. H.264, 2560x1440. This is a stream-copy trim of a verified 58-second full-screen recording; the raw recording remains in the task's local durable artifact directory.
+- `before.png`: original main build `211b8bb35`, after narrowing/widening the window. Codex text reaches/crops at the pane edge.
+- `after.png`: final app build `5c6b07309cac74cef144dc0dacb5d06a0aaed722`, after restoring the two-pane workspace, resuming the same Codex conversation, four pane-divider drags, and narrowing/widening the native window. Output and input wrap within the pane.
+- `after-divider.png`: the same final build after the repeated fullscreen divider drags.
+- `after-resume-resize.mp4`: 44-second full-display Cua Driver recording of the final build's resumed Codex session through repeated narrower/wider divider drags. H.264, 2560x1440. A stream-copy edit removes idle intervals from the inspected 88-second raw full-display recording. The raw video, edit intervals, early/final frames, and ffprobe metadata remain in the local task artifact directory. No pixels were cropped or replaced.
+- `validation.txt`: executed focused test names/results, regression-baseline assertions, and the app test invocation.
 
-Visual host: leased `cmuxs-mac-mini-2`, macOS 26.5. Codex CLI 0.0.0. Claude Code was installed but unauthenticated on this host, so authenticated Claude streaming after restore remains a dogfood check.
+Visual host: leased `cmuxs-mac-mini-2`, macOS 26.5. Codex CLI 0.0.0. The workspace was restored and the conversation resumed through the tag-bound CLI during setup; visible resize gestures were driven through Cua Driver. The recording includes a nonblocking macOS Dock Tile Extension Added notification for another dev tag. It contains no unrelated desktop windows.
 
-These captures demonstrate this observed resize/reflow path, not a guarantee against every previously reported intermittent compositing failure. The app PR is https://github.com/manaflow-ai/cmux/pull/12662.
+Claude Code 2.1.271 was installed but unauthenticated on this host. Authenticated Claude streaming after restore and the reporter's unknown macOS version remain unverified. These captures demonstrate this observed Codex resize/reflow path, not every reported intermittent garbling failure.
+
+App PR: https://github.com/manaflow-ai/cmux/pull/12662
