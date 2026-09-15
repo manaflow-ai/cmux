@@ -1,5 +1,7 @@
 import XCTest
 import Foundation
+import CoreGraphics
+import ImageIO
 
 /// Socket-level regressions for browser automation reliability.
 ///
@@ -32,6 +34,144 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(state["mouseEnterCount"] as? Int, 1)
         XCTAssertEqual(state["popoverVisible"] as? Bool, true)
         XCTAssertEqual(state["popoverInsideViewport"] as? Bool, true)
+    }
+
+    /// The user-visible regression is native pointer routing through the
+    /// mounted WKWebView. Exercise that path with XCUITest's real hover event,
+    /// then prove the web content still occupies the complete browser panel and
+    /// the popover is painted at its right edge.
+    func testNativeXCUITHoverRevealsPopoverAtPaneEdge() throws {
+        let app = try launchApp()
+        let sid = try openFixture("hover-popover")
+        app.activate()
+
+        let browserPane = app.otherElements["BrowserPanelContent.\(sid)"].firstMatch
+        XCTAssertTrue(
+            browserPane.waitForExistence(timeout: 8),
+            "Expected the browser panel content accessibility element. sid=\(sid)"
+        )
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 8), "Expected the browser WKWebView")
+
+        let paneRightGap = browserPane.frame.maxX - webView.frame.maxX
+        XCTAssertLessThanOrEqual(
+            paneRightGap,
+            12,
+            "The WKWebView must fill the browser panel before hover. pane=\(browserPane.frame) webView=\(webView.frame)"
+        )
+
+        // The fixture places the button 80 points from the web viewport's
+        // right edge and 141 points below its top edge. Use screen coordinates
+        // derived from the live XCUI frame so this remains stable across CI
+        // display sizes while still sending a native pointer event.
+        let target = webView.coordinate(withNormalizedOffset: .zero).withOffset(
+            CGVector(
+                dx: max(1, webView.frame.width - 80),
+                dy: min(max(1, webView.frame.height - 1), 141)
+            )
+        )
+        target.hover()
+
+        let visibleState = try waitForHoverState(surfaceID: sid)
+        XCTAssertEqual(visibleState["trustedPointerEnterCount"] as? Int, 1)
+        XCTAssertEqual(visibleState["trustedMouseEnterCount"] as? Int, 1)
+        XCTAssertEqual(visibleState["popoverVisible"] as? Bool, true)
+        XCTAssertEqual(visibleState["popoverInsideViewport"] as? Bool, true)
+
+        let screenshot = app.screenshot()
+        let appAttachment = XCTAttachment(screenshot: screenshot)
+        appAttachment.name = "native-xcuitest-hover-popover-window"
+        appAttachment.lifetime = .keepAlways
+        add(appAttachment)
+
+        let panelScreenshot = browserPane.screenshot()
+        let panelAttachment = XCTAttachment(screenshot: panelScreenshot)
+        panelAttachment.name = "native-xcuitest-hover-popover-panel"
+        panelAttachment.lifetime = .keepAlways
+        add(panelAttachment)
+
+        let marker = try XCTUnwrap(
+            markerBounds(in: panelScreenshot),
+            "Expected the magenta hover popover to be painted in the app window"
+        )
+        XCTAssertGreaterThan(
+            marker.bounds.maxX,
+            CGFloat(marker.imageWidth) * 0.9,
+            "Expected the painted popover to reach the browser pane edge. marker=\(marker.bounds) imageWidth=\(marker.imageWidth) pane=\(browserPane.frame)"
+        )
+    }
+
+    private func waitForHoverState(surfaceID: String) throws -> [String: Any] {
+        var state: [String: Any]?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let candidate = try? self.evalValue(
+                    "window.__cmuxHoverState()",
+                    surfaceID: surfaceID
+                ) as? [String: Any],
+                    candidate?["popoverVisible"] as? Bool == true else {
+                    return false
+                }
+                state = candidate
+                return true
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [expectation], timeout: 5),
+            .completed,
+            "Native hover did not reveal the fixture popover"
+        )
+        return try XCTUnwrap(state, "Expected hover state after native pointer event")
+    }
+
+    private struct MarkerBounds {
+        let bounds: CGRect
+        let imageWidth: Int
+    }
+
+    private func markerBounds(in screenshot: XCUIScreenshot) -> MarkerBounds? {
+        guard let source = CGImageSourceCreateWithData(screenshot.pngRepresentation as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width > 0,
+              image.height > 0 else {
+            return nil
+        }
+
+        let width = image.width
+        let height = image.height
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let decoded = pixels.withUnsafeMutableBytes { rawBuffer -> Bool in
+            guard let context = CGContext(
+                data: rawBuffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard decoded else { return nil }
+
+        var bounds: CGRect?
+        for y in stride(from: 0, to: height, by: 2) {
+            for x in stride(from: 0, to: width, by: 2) {
+                let index = y * bytesPerRow + x * 4
+                let red = pixels[index]
+                let green = pixels[index + 1]
+                let blue = pixels[index + 2]
+                let alpha = pixels[index + 3]
+                guard red > 220, blue > 220, green < 80, alpha > 200 else { continue }
+                let point = CGRect(x: CGFloat(x), y: CGFloat(y), width: 2, height: 2)
+                bounds = bounds.map { $0.union(point) } ?? point
+            }
+        }
+        guard let bounds else { return nil }
+        return MarkerBounds(bounds: bounds, imageWidth: width)
     }
 
     /// Regression: browser.navigate used to acknowledge only that WKWebView.load

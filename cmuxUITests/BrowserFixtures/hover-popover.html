@@ -16,7 +16,7 @@
     height: 64px;
     padding: 8px;
     box-sizing: border-box;
-    background: #f2b84b;
+    background: #ff00ff;
     color: #111;
     border-radius: 6px;
   }
@@ -29,17 +29,33 @@
   <div id="popover" role="status">Popover</div>
 </div>
 <script>
-  const state = { pointerEnterCount: 0, mouseEnterCount: 0 };
+  const state = {
+    pointerEnterCount: 0,
+    mouseEnterCount: 0,
+    trustedPointerEnterCount: 0,
+    trustedMouseEnterCount: 0,
+  };
   const trigger = document.getElementById('trigger');
   const popover = document.getElementById('popover');
-  trigger.addEventListener('pointerenter', () => { state.pointerEnterCount += 1; popover.dataset.visible = 'true'; });
-  trigger.addEventListener('mouseenter', () => { state.mouseEnterCount += 1; });
+  trigger.addEventListener('pointerenter', event => {
+    state.pointerEnterCount += 1;
+    if (event.isTrusted) state.trustedPointerEnterCount += 1;
+    popover.dataset.visible = 'true';
+  });
+  trigger.addEventListener('mouseenter', event => {
+    state.mouseEnterCount += 1;
+    if (event.isTrusted) state.trustedMouseEnterCount += 1;
+  });
   window.__cmuxHoverState = () => {
     const rect = popover.getBoundingClientRect();
     return {
       pointerEnterCount: state.pointerEnterCount,
       mouseEnterCount: state.mouseEnterCount,
+      trustedPointerEnterCount: state.trustedPointerEnterCount,
+      trustedMouseEnterCount: state.trustedMouseEnterCount,
       popoverVisible: popover.dataset.visible === 'true',
+      popoverRight: rect.right,
+      viewportWidth: innerWidth,
       popoverInsideViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
     };
   };
