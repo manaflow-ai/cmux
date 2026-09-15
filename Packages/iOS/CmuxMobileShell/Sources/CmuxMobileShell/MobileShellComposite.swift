@@ -1091,6 +1091,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device tree simply keeps its registry "last seen" hints.
     private let presence: (any PresenceSubscribing)?
     let identityProvider: (any MobileIdentityProviding)?
+    let phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks?
     let teamIDProvider: @Sendable () async -> String?
     let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
@@ -1809,6 +1810,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
+        phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
         routePinger: any CmxRoutePinging = CmxNetworkRoutePinger(),
@@ -1870,6 +1872,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.personalIrohForget = personalIrohForget
         self.presence = presence
         self.identityProvider = identityProvider
+        self.phonePushKeyExchangeHooks = phonePushKeyExchangeHooks
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
         self.routePinger = routePinger
@@ -5461,6 +5464,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
+        await exchangePhonePushKeyIfConfigured(client: client, status: status)
         let capabilities = Set(status.capabilities)
         if !capabilities.contains("events.v1") {
             mobileShellLog.info(
@@ -10463,6 +10467,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         lastError = MobileShellConnectionError.invalidResponse
                         continue routeLoop
                     }
+                    await exchangePhonePushKeyIfConfigured(client: client, status: status)
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
                         surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxPhonePush
 import OSLog
 
 private let phoneReplySweepLog = Logger(subsystem: "dev.cmux", category: "phone-reply-inbox")
@@ -42,10 +43,13 @@ final class PhoneReplyInboxCoordinator {
     private var sweepTask: Task<Void, Never>?
     private var sweepQueuedWhileRunning = false
     private var seenReplyIds: PhoneReplySeenSet
+    private var decryptFailureCounts: [String: Int] = [:]
+    private static let maxDecryptFailures = 3
     /// Injected so tests drive the debounce and retry delays deterministically
     /// (house rule: no bare Task.sleep in runtime code). Cancellation of the
     /// owning task propagates through the injected sleeper's own throw.
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let now: () -> Date
     /// Coalesce bursts (nudge frame + reconcile + activation) into one fetch.
     private let debounce: Duration = .milliseconds(500)
     /// Poll cadence while a fetched reply is transiently undeliverable
@@ -57,10 +61,12 @@ final class PhoneReplyInboxCoordinator {
         defaults: UserDefaults = .standard,
         sleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         seenReplyIds = PhoneReplySeenSet(defaults: defaults)
         self.sleep = sleep
+        self.now = now
     }
 
     func configure(client: PhoneReplyInboxClient) {
@@ -114,6 +120,10 @@ final class PhoneReplyInboxCoordinator {
             #endif
             return
         }
+        let pendingReplyIDs = Set(pending.map(\.replyId))
+        decryptFailureCounts = decryptFailureCounts.filter {
+            pendingReplyIDs.contains($0.key)
+        }
         #if DEBUG
         cmuxDebugLog("phoneReply.sweepFetched count=\(pending.count)")
         #endif
@@ -126,40 +136,55 @@ final class PhoneReplyInboxCoordinator {
                 ackIds.append(reply.replyId)
                 continue
             }
+            guard let decrypted = decrypt(
+                reply,
+                accountID: await MainActor.run { client.authenticatedAccountID() }
+            ) else {
+                let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
+                decryptFailureCounts[reply.replyId] = failures
+                if failures == Self.maxDecryptFailures {
+                    phoneReplySweepLog.error(
+                        "relayed phone reply still unavailable after decrypt failures reply=\(reply.replyId.prefix(8), privacy: .public)"
+                    )
+                }
+                retryableCount += 1
+                continue
+            }
+            decryptFailureCounts.removeValue(forKey: reply.replyId)
             var params: [String: Any] = [
-                "surface_id": reply.surfaceId,
+                "surface_id": decrypted.surfaceId,
                 // Keep the reply text separate from its submit key. Appending a
                 // carriage return to terminal.input is a raw byte write and
                 // inserts a newline in full-screen agent editors instead of
                 // submitting the prompt. The Mac applies the retarget policy
                 // from the parked record before invoking terminal.paste.
-                "text": reply.text,
+                "text": decrypted.text,
                 "submit_key": "return",
             ]
-            if !reply.workspaceId.isEmpty {
-                params["workspace_id"] = reply.workspaceId
+            if let workspaceId = decrypted.workspaceId, !workspaceId.isEmpty {
+                params["workspace_id"] = workspaceId
             }
-            let outcome = inject(params, reply.retargetsToLiveSurfaceOwner)
+            let outcome = inject(params, decrypted.retargetsToLiveSurfaceOwner)
             #if DEBUG
-            cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
+            cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(decrypted.surfaceId.prefix(8))")
             #endif
             switch outcome {
             case .delivered:
                 seenReplyIds.insert(reply.replyId)
                 ackIds.append(reply.replyId)
                 phoneReplySweepLog.info(
-                    "relayed phone reply delivered surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply delivered surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             case .permanentlyUndeliverable:
                 seenReplyIds.insert(reply.replyId)
                 ackIds.append(reply.replyId)
                 phoneReplySweepLog.error(
-                    "relayed phone reply dropped: target gone surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply dropped: target gone surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             case .retryable:
                 retryableCount += 1
                 phoneReplySweepLog.info(
-                    "relayed phone reply deferred surface=\(reply.surfaceId.prefix(8), privacy: .public)"
+                    "relayed phone reply deferred surface=\(decrypted.surfaceId.prefix(8), privacy: .public)"
                 )
             }
         }
@@ -172,6 +197,73 @@ final class PhoneReplyInboxCoordinator {
             guard (try? await sleep(retryDelay)) != nil else { return }
             sweepSoon(reason: "retryable-replies")
         }
+    }
+
+    private struct DecryptedReply: Decodable {
+        let replyId: String
+        let accountID: String
+        let issuedAtEpochSeconds: TimeInterval
+        let expiresAtEpochSeconds: TimeInterval
+        let workspaceId: String?
+        let surfaceId: String
+        let retargetsToLiveSurfaceOwner: Bool
+        let text: String
+    }
+
+    private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptedReply? {
+        if let encryptedPayload = reply.encryptedPayload {
+            return decrypt(
+                reply,
+                encryptedPayload: encryptedPayload,
+                accountID: accountID
+            )
+        }
+        guard let accountID,
+              let workspaceId = reply.workspaceId,
+              let surfaceId = reply.surfaceId,
+              let text = reply.text else { return nil }
+        return DecryptedReply(
+            replyId: reply.replyId,
+            accountID: accountID,
+            issuedAtEpochSeconds: Double(reply.createdAtMs) / 1000,
+            expiresAtEpochSeconds: Double(reply.expiresAtMs) / 1000,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: reply.retargetsToLiveSurfaceOwner,
+            text: text
+        )
+    }
+
+    private func decrypt(
+        _ reply: PhoneReplyRecord,
+        encryptedPayload: PhonePushEncryptedPayload,
+        accountID: String?
+    ) -> DecryptedReply? {
+        guard let identity = try? PhonePushKeyStore.current(
+            bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+        ), let tuple = Optional(encryptedPayload.tuple),
+            tuple.accountID == accountID,
+            tuple.macDeviceID == MobileHostIdentity.deviceID(),
+            tuple.macInstanceTag == MobileHostIdentity.instanceTag(),
+            let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple),
+            let data = try? PhonePushCrypto.decrypt(
+            envelope: encryptedPayload,
+            tuple: tuple,
+            recipientInstallationID: identity.installationID,
+            recipientKeyID: identity.keyID,
+            trustedSenderKeyID: sender.keyID,
+            senderPublicKey: sender.publicKey,
+            privateKey: identity.privateKey
+        ) else { return nil }
+        guard let result = try? JSONDecoder().decode(DecryptedReply.self, from: data),
+              result.replyId == reply.replyId,
+              result.accountID == accountID else { return nil }
+        guard PhonePushReplyFreshness.accepts(
+            issuedAt: result.issuedAtEpochSeconds,
+            expiresAt: result.expiresAtEpochSeconds,
+            now: now().timeIntervalSince1970
+        ) else { return nil }
+        return result
     }
 }
 

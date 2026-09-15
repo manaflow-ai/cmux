@@ -918,6 +918,9 @@ final class MobileHostService {
                         }
                     )
                 }
+                if request.method == "phone_push.keys.exchange" {
+                    return await MobileHostService.shared.handlePhonePushKeyExchange(request)
+                }
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
                     executionContext: MobileHostRPCExecutionContext(

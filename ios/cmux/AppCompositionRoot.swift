@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxPhonePush
 import CmuxSentryReporting
 import Foundation
 import SwiftUI
@@ -214,14 +215,17 @@ final class AppCompositionRoot {
             notificationSettings: pushNotificationSettings,
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
-                accessToken: { try? await replyRelayAccessToken() }
-            )
+                accessToken: { try? await replyRelayAccessToken() },
+                keychainAccessGroup: auth.keychainAccessGroup
+            ),
+            authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
+                PhonePushActiveAccountStore.clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(

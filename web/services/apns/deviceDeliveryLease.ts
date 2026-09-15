@@ -57,6 +57,8 @@ export async function claimDeviceDeliveryTargets(
         deviceToken: deviceTokens.deviceToken,
         bundleId: deviceTokens.bundleId,
         environment: deviceTokens.environment,
+        installationId: deviceTokens.installationId,
+        pushKeyId: deviceTokens.pushKeyId,
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
       })
       .from(deviceTokens)
@@ -101,6 +103,8 @@ export async function claimDeviceDeliveryTargets(
         deviceToken: row.deviceToken,
         bundleId: row.bundleId,
         environment: row.environment,
+        installationId: row.installationId,
+        pushKeyId: row.pushKeyId,
       })),
     };
   });
