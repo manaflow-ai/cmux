@@ -183,9 +183,9 @@ struct CloudBrowserProxyIntegrationTests {
     }
 
     private func prepare(panel: BrowserPanel, model: CloudPortAccessModel, server: CloudBrowserProxyTestServer) async throws -> URL {
-        panel.prepareCloudBrowserStore(machineID: server.marker)
         let remoteURL = try #require(URL(string: "http://\(server.address):8000/page?source=cmdclick#retained"))
         panel.cloudAccess.configure(model: model, url: remoteURL)
+        panel.prepareCloudBrowserStore(machineID: server.marker)
         model.connectBrowser()
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while !model.isReady && ContinuousClock.now < deadline { await Task.yield() }
