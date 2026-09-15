@@ -110,11 +110,13 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             ))
         case .portsGroup:
+            let helpAction: (@MainActor (NSWindow?) -> Void)? =
+                showsCloudVPNWarning ? cloudVPNSetup : nil
             return AnyView(CloudTreeGroupRowContent(
                 title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
                 count: nil,
                 style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
+                helpAction: helpAction
             ))
         case .port(let resource, let url, _):
             return AnyView(CloudTreeLeafRow(
