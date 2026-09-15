@@ -26,8 +26,10 @@ import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiLayoutSelector,
   cmuxTuiRunCommand,
   resolveCmuxTuiSource,
@@ -112,6 +114,11 @@ const CHECKS: readonly string[] = [
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
+  // Coding-agent hooks: the work user's Claude Code and Codex hooks are
+  // installed and current (helper byte-equal to the pinned one, cmux marker
+  // in both provider configs, codex trust table), and the daemon user's own
+  // status verb reports both providers installed.
+  `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
   // Agent-config generator: a login shell under a throwaway HOME with fake
   // model-plane env (placeholder keys, never a token) materializes the codex
   // custom provider plus the pi openai-codex override (no route-token

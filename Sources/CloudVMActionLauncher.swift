@@ -118,6 +118,11 @@ final class CloudVMActionLauncher {
                     title: String(localized: "command.cloudVM.failed.title.status", defaultValue: "Couldn't Read Machine Status"),
                     action: generic
                 )
+            case "resize":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.resize", defaultValue: "Couldn't Resize Machine"),
+                    action: generic
+                )
             case "shell", "desktop", "open":
                 return FailurePresentation(
                     title: String(localized: "command.cloudVM.failed.title.open", defaultValue: "Couldn't Open Machine"),
@@ -300,6 +305,7 @@ final class CloudVMActionLauncher {
             return false
         }
 
+        let operationContext = AppDelegate.shared?.cloudOperations?.begin(.resolve(arguments.joined(separator: " ")))
         let process = Process()
         process.executableURL = cliURL
         process.arguments = ["--socket", socketPath, "--id-format", "uuids"] + arguments
@@ -309,6 +315,7 @@ final class CloudVMActionLauncher {
         for (key, value) in environmentOverrides {
             environment[key] = value
         }
+        if let operationContext { environment.merge(operationContext.environment) { _, new in new } }
         environment.removeValue(forKey: "CMUX_SOCKET")
         process.environment = environment
 
@@ -343,6 +350,11 @@ final class CloudVMActionLauncher {
                     machineId: Self.createdMachineId(from: output),
                     wasCancelled: wasCancelled
                 )
+                if let operationContext {
+                    let diagnosticError: Error? = wasCancelled ? CancellationError()
+                        : terminationStatus == 0 ? nil : CloudMachineLink.LinkError.exited(status: terminationStatus, output: "")
+                    await operationContext.recorder.finish(operationContext, error: diagnosticError)
+                }
                 onCompletion?(completion)
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation, !wasCancelled {
                     Self.shared.presentCommandResult(
@@ -383,6 +395,7 @@ final class CloudVMActionLauncher {
 #endif
             return true
         } catch {
+            if let operationContext { Task { await operationContext.recorder.finish(operationContext, error: error) } }
             outputCollector.cancel()
             if presentsFailureAlert {
                 presentStartFailure(
@@ -497,6 +510,7 @@ final class CloudVMActionLauncher {
             : CmuxAlertContent(flattenedText: informativeText, separatingScrollableDetails: safeOutput)
         let window = Self.presentationWindow(preferred: preferredWindow, key: NSApp.keyWindow, main: NSApp.mainWindow)
         content.apply(to: alert, presentingWindow: window)
+        CloudErrorCopy.install(in: alert, text: "\(title)\n\(content.flattenedText)")
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {

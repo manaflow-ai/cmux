@@ -178,7 +178,8 @@ private struct ComputerVisibilityRow: View {
                     ComputerBuildBadge(label: buildLabel)
                 }
                 if gateWarningPairingIDs.contains(computer.id)
-                    || MobileMacListAuthState.shared.compatibilityEntry(pairingID: computer.id).isOutdated {
+                    || (MobileMacListAuthState.shared.hasSnapshot
+                        && MobileMacListAuthState.shared.compatibilityEntry(pairingID: computer.id).isOutdated) {
                     Button {
                         showingHiddenVersionGateWarning = true
                     } label: {
