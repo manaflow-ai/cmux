@@ -2024,6 +2024,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
+        directoryObservationTask?.cancel()
+        directoryObservationTask = nil
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
@@ -2275,6 +2277,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
+        directoryObservationTask?.cancel()
+        directoryObservationTask = nil
         presenceTask?.cancel()
         presenceTask = nil
         presenceMap = PresenceMap()
@@ -2578,6 +2582,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+        case directoryChanged
         case foreground
         case liveness
         case eventStreamEnded
@@ -2586,7 +2591,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case automaticBackoffExpired
         case connectionMethodChanged
 
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+        var reschedulesSecondaryAggregation: Bool { self != .presencePush && self != .directoryChanged }
 
         /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
         /// `b` slot so an export names WHY each recovery cycle began. Values
@@ -2596,6 +2601,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .networkChange: 1
             case .manual: 2
             case .presencePush: 3
+            case .directoryChanged: 11
             case .foreground: 4
             case .liveness: 5
             case .eventStreamEnded: 6
@@ -2611,6 +2617,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
             case .presencePush: return "presencePush"
+            case .directoryChanged: return "directoryChanged"
             case .foreground: return "foreground"
             case .liveness: return "liveness"
             case .eventStreamEnded: return "eventStreamEnded"
@@ -3819,6 +3826,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// snapshot; the device tree then overlays live online/offline state on the
     /// registry rows instead of registry "last seen" staleness guesses.
     public private(set) var presenceMap = PresenceMap()
+    private var directoryObservationTask: Task<Void, Never>?
     private var presenceTask: Task<Void, Never>?
 
     /// Start or stop the presence subscription to match the session: running
@@ -3826,6 +3834,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
     /// `resumeForegroundRefresh()` for stores constructed already-signed-in.
     func evaluatePresenceSubscription() {
+        if isSignedIn, let discovery = personalIrohDiscovery {
+            if directoryObservationTask == nil {
+                directoryObservationTask = Task { @MainActor [weak self] in
+                    for await _ in discovery.directoryUpdates() {
+                        guard let self, !Task.isCancelled, self.isSignedIn else { return }
+                        await self.loadRegistryDevices()
+                        if self.connectionState == .connected {
+                            self.scheduleSecondaryAggregation(discoverLivePeers: true)
+                        } else {
+                            self.recoverMobileConnection(trigger: .directoryChanged)
+                        }
+                    }
+                }
+            }
+        } else {
+            directoryObservationTask?.cancel()
+            directoryObservationTask = nil
+        }
         if isSignedIn, presence != nil {
             startPresenceSubscription()
         } else {
