@@ -7,7 +7,7 @@ import Testing
 @Suite struct AuthCoordinatorCloudTokenTests {
     @Test func cloudRequestDuringBootstrapAllowsPersonalAutoLogin() async throws {
         let user = CMUXAuthUser(id: "personal", primaryEmail: "person@example.invalid", displayName: nil)
-        let client = FakeAuthClient(user: user)
+        let client = FakeAuthClient(user: user, signInRefreshToken: "personal-refresh")
         let coordinator = makeCoordinator(client: client, launch: AuthLaunchOptions(
             clearAuthRequested: false,
             mockDataEnabled: false,
