@@ -171,7 +171,8 @@ mod unix {
         let (directory, created) = match open_directory_at(libc::AT_FDCWD, path.as_os_str()) {
             Ok(directory) => (directory, false),
             Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
-                if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+                if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty())
+                {
                     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
                 }
                 let created = create_directory_at(libc::AT_FDCWD, path.as_os_str())?;
