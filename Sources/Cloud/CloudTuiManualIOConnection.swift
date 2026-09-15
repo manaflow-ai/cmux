@@ -41,11 +41,15 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingLineSearchOffset = 0
     // This storage is queue-owned and reused for every socket read.
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
-    private var pendingWrites: [Data] = []
+    private var pendingWrites: [CloudTuiManualIOWrite] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
+    private var inputWindow = CloudTuiManualIOInputWindow()
+    private let admission = CloudTuiManualIOAdmission()
     private var closed = false
+
+    var inputCapacity: AsyncStream<Void> { admission.capacityChanges }
 
     init(
         socketPath: String,
@@ -122,26 +126,63 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Enqueues an already framed JSON line. Used by the input router so it can
     /// preserve ordering while a connection is being rebound.
-    func send(line: Data) {
-        queue.async { [self, line] in
-            guard !closed, descriptor >= 0 else { return }
-            guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
-                // Commands are small and ordered. If a peer stops accepting
-                // them for long enough to exhaust this bound, dropping one
-                // command would be worse than restarting the attachment with
-                // a fresh replay, so close and let the owner reconnect.
-                closeLocked()
-                return
-            }
-            pendingWrites.append(line)
-            pendingWriteBytes += line.count
-            flushWritesLocked()
+    /// A true result reserves handoff capacity; it does not certify delivery.
+    @discardableResult
+    func send(line: Data) -> Bool {
+        enqueue(line, needsReceipt: false)
+    }
+
+    /// Receipts retire on the socket queue without yielding to the renderer.
+    /// Shared-stream reads still follow frame demand: a paused consumer stops
+    /// input at 32 outstanding replies, and its next demand resumes the window.
+    /// Returns false if bounded handoff admission is closed or exhausted.
+    @discardableResult
+    func sendInput(line: Data) -> Bool {
+        enqueue(line, needsReceipt: true)
+    }
+
+    private func enqueue(_ line: Data, needsReceipt: Bool) -> Bool {
+        switch admission.reserve(line.count) {
+        case .closed: return false
+        case .rejected: return false
+        case .reserved: break
         }
+        let write = CloudTuiManualIOWrite(line: line, reservation: CloudTuiManualIOReservation(
+            admission: admission, bytes: line.count
+        ))
+        queue.async { [self, write] in
+            enqueueCommandLocked(write, needsReceipt: needsReceipt)
+        }
+        return true
+    }
+
+    private func enqueueCommandLocked(_ write: CloudTuiManualIOWrite, needsReceipt: Bool) {
+        guard !closed, descriptor >= 0 else { return }
+        inputWindow.append(write, needsReceipt: needsReceipt)
+        flushInputLocked()
+    }
+
+    private func flushInputLocked() {
+        while !closed, let line = inputWindow.next() { enqueueWriteLocked(line) }
+    }
+
+    private func enqueueWriteLocked(_ write: CloudTuiManualIOWrite) {
+        guard !closed, descriptor >= 0 else { return }
+        guard pendingWriteBytes + write.line.count <= pendingWriteByteLimit else {
+            // Close a stalled attachment instead of dropping a command and
+            // presenting later input as though the missing bytes were sent.
+            closeLocked()
+            return
+        }
+        pendingWrites.append(write)
+        pendingWriteBytes += write.line.count
+        flushWritesLocked()
     }
 
     /// Closes only this attachment connection. The remote terminal session stays
     /// owned by cmux-tui and can be attached again later.
     func close() {
+        admission.invalidate()
         queue.async { [self] in
             closeLocked()
         }
@@ -262,6 +303,11 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingLineSearchOffset = 0
                 guard !line.isEmpty,
                       let frame = CloudTuiManualIOFrameDecoder().decode(line) else { continue }
+                if case let .response(0, ok, _, _, _, _, _) = frame, inputWindow.acknowledge() {
+                    guard ok else { closeLocked(); return }
+                    flushInputLocked()
+                    continue
+                }
                 let continuation = nextFrameContinuation
                 nextFrameContinuation = nil
                 suspendReadSourceLocked()
@@ -310,13 +356,13 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func flushWritesLocked() {
         guard !closed, isConnected, descriptor >= 0 else { return }
         while let first = pendingWrites.first, !closed {
-            let remaining = first.count - pendingWriteOffset
+            let remaining = first.line.count - pendingWriteOffset
             guard remaining > 0 else {
                 pendingWrites.removeFirst()
                 pendingWriteOffset = 0
                 continue
             }
-            let result: Int = first.withUnsafeBytes { rawBuffer in
+            let result: Int = first.line.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return 0 }
                 return Darwin.write(
                     descriptor,
@@ -327,7 +373,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             if result > 0 {
                 pendingWriteOffset += result
                 pendingWriteBytes -= result
-                if pendingWriteOffset == first.count {
+                if pendingWriteOffset == first.line.count {
                     pendingWrites.removeFirst()
                     pendingWriteOffset = 0
                 }
@@ -359,6 +405,8 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
+        admission.invalidate()
+        inputWindow = CloudTuiManualIOInputWindow()
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0

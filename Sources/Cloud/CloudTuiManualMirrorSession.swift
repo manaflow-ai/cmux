@@ -214,20 +214,19 @@ final class CloudTuiManualMirrorSession {
         guard phase != .stopped else { return }
         manualMirrorLogger.info("visibility terminal=\(self.terminalID, privacy: .private(mask: .hash)) visible=\(visible)")
         if !visible {
-            // Do not let a hidden portal continue to resize a shared remote
-            // PTY. The release is connection-scoped and idempotent; closing
-            // the attachment remains the fallback for an older peer.
+            // Release hidden geometry; positive IDs keep these replies out
+            // of the connection's reserved input-receipt stream (ID zero).
             if let connection, attachResponseReceived {
                 if let remoteLease,
                    let command = commandBuilder.releaseAttachedViewSize(
                        surfaceID: remoteSurfaceID,
-                       lease: remoteLease
+                       lease: remoteLease, requestID: takeRequestID()
                    ) {
                     connection.send(command)
                 } else {
                     connection.send(
                         commandBuilder.releaseSizing(
-                            surfaceID: remoteSurfaceID
+                            surfaceID: remoteSurfaceID, requestID: takeRequestID()
                         )
                     )
                 }
