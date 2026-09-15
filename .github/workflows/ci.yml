@@ -1,21 +1,12 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # Changes to CI guard scripts also retrigger the full workflow through this path.
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Always create the gate. The changes job owns routing; workflow-level path
+  # filters leave source-only PRs untested and need a competing fallback status.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - Resources/bin/cmux-hermes-agent-wrapper
-      - tests/test_hermes_wrapper_hooks.py
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -429,7 +420,7 @@ jobs:
       contents: read
     # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
     # workflow_dispatch keeps the same guard available for explicit CI runs.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -529,6 +520,7 @@ jobs:
     if: ${{ needs.changes.outputs.web == 'true' }}
     name: web-production-build
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -542,7 +534,8 @@ jobs:
       - name: Run the Vercel production build
         env:
           VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
-          SKIP_ENV_VALIDATION: "1"
+          # These are syntactically valid fixtures, never production credentials.
+          # Keep environment validation and the compiler's type checks enabled.
           RESEND_API_KEY: "re_ci_build"
           CMUX_FEEDBACK_FROM_EMAIL: "ci@manaflow.com"
           STACK_SECRET_SERVER_KEY: "ci-build-only"
@@ -2695,6 +2688,26 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          for name in ("changes", "workflow-guard-tests", "linux-preflight", "tests"):
+              if needs.get(name, {}).get("result") != "success":
+                  bad[name] = needs.get(name, {}).get("result", "missing")
+          routes = needs.get("changes", {}).get("outputs", {})
+          for name, route in {
+              "web-typecheck": "web",
+              "web-production-build": "web",
+              "web-db-migrations": "web",
+              "react-apps-check": "web",
+              "app-host-unit-tests": "macos",
+              "swift-package-tests": "macos",
+              "tests-build-and-lag": "macos",
+              "release-build": "macos",
+              "agent-session-web-resources": "agent_session_web",
+          }.items():
+              if routes.get(route) not in {"true", "false"}:
+                  bad[route] = "missing or invalid route"
+              elif routes[route] == "true" and needs.get(name, {}).get("result") != "success":
+                  bad[name] = needs.get(name, {}).get("result", "missing")
 
           if bad:
               for name, result in bad.items():

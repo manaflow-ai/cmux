@@ -67,6 +67,8 @@ def is_web_change(path: str) -> bool:
     if path == "CHANGELOG.md":
         return True
     return path in {
+        ".vercelignore",
+        "vercel.json",
         "package.json",
         "bun.lock",
         "biome.json",
