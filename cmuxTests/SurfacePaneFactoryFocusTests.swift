@@ -2,13 +2,11 @@ import AppKit
 import Bonsplit
 import CmuxPanes
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Cmd+T / Cmd+D in a pane that projects a cloud terminal create the machine's new
 /// terminal through ``SurfacePaneFactory`` (`Workspace+CloudPaneRouting`). The factory
 /// drives the socket `surface.create` / `surface.split` handlers, which honor a focus
@@ -182,7 +180,6 @@ import Testing
         workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
         #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
     }
-
     @Test("A failed Cloud route never falls back to a local terminal")
     func failedCloudRouteDoesNotCreateLocalPanel() throws {
         let harness = try Harness()
@@ -241,8 +238,11 @@ import Testing
         #expect(outcome.isAccepted == false)
         #expect(workspace.panels.count == panelCount)
         #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+        let surfaceOutcome = workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false)
+        #expect(surfaceOutcome.isAccepted == false)
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
     }
-
     /// Ensures a suspended older request cannot replace a newer request's failure.
     @Test("Superseded cloud pane failures are ignored")
     func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
