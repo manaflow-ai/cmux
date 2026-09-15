@@ -1952,10 +1952,11 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            # CmuxFoundation has several process-tree suites whose child
-            # fixtures share global process resources; run each suite in its
-            # own Swift Testing process just like the auth/transport suites.
-            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
+            # These packages have suites whose fixtures share process-global
+            # resources (including CmuxTerminal's Ghostty runtime stubs); run
+            # each suite in its own Swift Testing process just like the
+            # auth/transport suites.
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxTerminal)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
