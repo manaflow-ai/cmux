@@ -1,247 +1,152 @@
-#if os(iOS)
+#if os(iOS) && DEBUG
 import CmuxMobileShellModel
 import SwiftUI
 
-#if DEBUG
-/// DEBUG-only selector for exercising each first-pair route source.
+/// Local route-acceptance prototype, separate from first-pair discovery preferences.
 struct MobileMacDiscoveryStrategyLabView: View {
     @AppStorage(MobileMacDiscoveryStrategyStore.strategyKey)
     private var rawStrategy = MobileMacDiscoveryStrategy.automatic.rawValue
-    @State private var pathUI = MobileTailscalePathUIVariant.perPath
-    @State private var enabledPaths: Set<String> = []
-    @State private var showsPathDetails = false
-    @State private var showsEnableConfirmation = false
+    @State private var layout = MobileTailscaleSuggestionView.Layout.inline
+    @State private var tailscaleOnly = true
+    @State private var acceptedIDs: Set<String> = [MobileTailscaleLabRoute.saved.id]
+    @State private var reviewingRoute: MobileTailscaleLabRoute?
 
-    private let suggestedPaths = [
-        SuggestedTailscalePath(
-            id: "ipv4",
-            title: "Tailscale IPv4",
-            address: "100.101.22.14:49152",
-            detail: "Available on this network"
-        ),
-        SuggestedTailscalePath(
-            id: "ipv6",
-            title: "Tailscale IPv6",
-            address: "fd7a:115c:a1e0::42:49152",
-            detail: "Available on this network"
-        ),
-    ]
-
-    private var strategy: MobileMacDiscoveryStrategy {
-        MobileMacDiscoveryStrategy(rawValue: rawStrategy) ?? .automatic
+    private var suggestions: [MobileTailscaleLabRoute] {
+        MobileTailscaleLabRoute.samples.filter { !acceptedIDs.contains($0.id) }
     }
 
     var body: some View {
         Form {
             Section {
-                Picker("Discovery strategy", selection: $rawStrategy) {
-                    ForEach(MobileMacDiscoveryStrategy.allCases) { option in
-                        Text(option == .tailscale ? "Tailscale Only" : option.title)
-                            .tag(option.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-            } header: {
-                Text("First-pair route")
-            } footer: {
-                Text("The next Computers refresh uses this strategy. QR / Manual intentionally disables live broker candidates.")
-            }
-
-            Section {
-                Picker("Computer detail UI", selection: $pathUI) {
-                    ForEach(MobileTailscalePathUIVariant.allCases) { option in
+                Picker(String(localized: "mobile.pathDiscoveryLab.layout", defaultValue: "Suggestion layout", bundle: .module), selection: $layout) {
+                    ForEach(MobileTailscaleSuggestionView.Layout.allCases) { option in
                         Text(option.title).tag(option)
                     }
                 }
-                .pickerStyle(.inline)
+                .accessibilityIdentifier("MobileTailscaleLabLayout")
+                Picker(String(localized: "mobile.pathDiscoveryLab.mode", defaultValue: "Connection mode", bundle: .module), selection: $tailscaleOnly) {
+                    Text(String(localized: "mobile.pathDiscoveryLab.automatic", defaultValue: "Automatic", bundle: .module)).tag(false)
+                    Text(String(localized: "mobile.pathDiscoveryLab.tailscaleOnly", defaultValue: "Tailscale Only", bundle: .module)).tag(true)
+                }
+                .accessibilityIdentifier("MobileTailscaleLabMode")
             } header: {
-                Text("Tailscale enablement UI")
+                Text(String(localized: "mobile.pathDiscoveryLab.preview", defaultValue: "Computer Details preview", bundle: .module))
             } footer: {
-                Text("All three variants use the same enablement state. Suggested paths start disabled.")
+                Text(String(localized: "mobile.pathDiscoveryLab.sample", defaultValue: "Sample routes for trying the UI. Changes apply only to this preview.", bundle: .module))
             }
 
             Section {
-                if strategy == .tailscale {
-                    switch pathUI {
-                    case .perPath:
-                        perPathEnablement
-                    case .grouped:
-                        groupedEnablement
-                    case .confirmation:
-                        confirmationEnablement
-                    }
-                } else {
-                    Label("Choose Tailscale Only above to preview suggested paths.", systemImage: "point.3.connected.trianglepath.dotted")
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(String(localized: "mobile.pathDiscoveryLab.iroh", defaultValue: "Iroh", bundle: .module), systemImage: "network")
+                    Text(tailscaleOnly ? String(localized: "mobile.pathDiscoveryLab.irohPaused", defaultValue: "Saved. Unavailable in Tailscale Only mode.", bundle: .module) : String(localized: "mobile.pathDiscoveryLab.irohReady", defaultValue: "Available in Automatic mode.", bundle: .module))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityIdentifier("MobileTailscaleSavedRoute-iroh")
+                ForEach(MobileTailscaleLabRoute.samples.filter { acceptedIDs.contains($0.id) }) { route in
+                    MobileTailscaleRouteSummaryView(route: route)
+                        .accessibilityIdentifier("MobileTailscaleSavedRoute-\(route.id)")
+                        .swipeActions {
+                            Button(String(localized: "mobile.pathDiscoveryLab.remove", defaultValue: "Remove route", bundle: .module), role: .destructive) {
+                                acceptedIDs.remove(route.id)
+                            }
+                        }
+                }
             } header: {
-                Text("Computer Details preview")
+                Text(String(localized: "mobile.pathDiscoveryLab.routes", defaultValue: "Routes", bundle: .module))
+            } footer: {
+                Text(String(localized: "mobile.pathDiscoveryLab.routesFooter", defaultValue: "Connection mode determines which saved routes can be used.", bundle: .module))
             }
 
-            Section("Selected path") {
-                Label(strategy.detail, systemImage: strategy == .qr ? "qrcode" : "point.3.connected.trianglepath.dotted")
-                    .foregroundStyle(.secondary)
+            if tailscaleOnly {
+                Section {
+                    if suggestions.isEmpty {
+                        Label(String(localized: "mobile.pathDiscoveryLab.allAdded", defaultValue: "All suggestions added to routes", bundle: .module), systemImage: "checkmark.circle")
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("MobileTailscaleSuggestionsEmpty")
+                    }
+                    ForEach(suggestions) { route in
+                        MobileTailscaleSuggestionView(route: route, layout: layout) {
+                            if layout == .review {
+                                reviewingRoute = route
+                            } else {
+                                accept(route)
+                            }
+                        }
+                    }
+                } header: {
+                    Text(String(localized: "mobile.pathDiscoveryLab.suggestions", defaultValue: "Suggested Tailscale routes", bundle: .module))
+                } footer: {
+                    Text(String(localized: "mobile.pathDiscoveryLab.suggestionsFooter", defaultValue: "Suggestions stay unused until you add them. IPv4 and IPv6 belong to one route.", bundle: .module))
+                }
+            }
+
+            Section {
+                Button(String(localized: "mobile.pathDiscoveryLab.reset", defaultValue: "Reset sample routes", bundle: .module)) {
+                    acceptedIDs = [MobileTailscaleLabRoute.saved.id]
+                    reviewingRoute = nil
+                }
+                .accessibilityIdentifier("MobileTailscaleLabReset")
+            }
+
+            Section {
+                Picker(String(localized: "mobile.pathDiscoveryLab.strategy", defaultValue: "Discovery strategy", bundle: .module), selection: $rawStrategy) {
+                    ForEach(MobileMacDiscoveryStrategy.allCases) { option in
+                        Text(discoveryTitle(option)).tag(option.rawValue)
+                    }
+                }
+            } header: {
+                Text(String(localized: "mobile.pathDiscoveryLab.firstPair", defaultValue: "Live first-pair discovery", bundle: .module))
+            } footer: {
+                Text(String(localized: "mobile.pathDiscoveryLab.discoveryFooter", defaultValue: "Separate from this preview. The next Computers refresh uses this strategy. QR / Manual skips live discovery.", bundle: .module))
             }
         }
-        .navigationTitle("Path Discovery Lab")
+        .navigationTitle(String(localized: "mobile.pathDiscoveryLab.title", defaultValue: "Path Discovery Lab", bundle: .module))
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("MobileMacDiscoveryStrategyLab")
-    }
-
-    private var enabledCount: Int {
-        suggestedPaths.reduce(into: 0) { count, path in
-            count += enabledPaths.contains(path.id) ? 1 : 0
-        }
-    }
-
-    private var perPathEnablement: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Tailscale Only")
-                .font(.headline)
-            Text("Suggested paths")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            ForEach(suggestedPaths) { path in
-                pathToggle(path)
-            }
-            Text("Enable one or more paths. cmux will validate the active Tailscale interface before dialing.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityIdentifier("MobileTailscalePathsPerPath")
-    }
-
-    private var groupedEnablement: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("Use suggested Tailscale paths", isOn: Binding(
-                get: { enabledCount > 0 },
-                set: { isEnabled in
-                    enabledPaths = isEnabled ? Set(suggestedPaths.map(\.id)) : []
-                }
-            ))
-            .accessibilityIdentifier("MobileTailscalePathsGroupedToggle")
-
-            Text(enabledCount == 0
-                ? "2 paths detected, currently disabled"
-                : "\(enabledCount) of \(suggestedPaths.count) paths enabled")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            DisclosureGroup("Show paths", isExpanded: $showsPathDetails) {
-                ForEach(suggestedPaths) { path in
-                    pathToggle(path)
-                }
-            }
-            .accessibilityIdentifier("MobileTailscalePathsDetails")
-
-            Text("The group switch enables all suggestions. Use Show paths to control IPv4 and IPv6 separately.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .accessibilityIdentifier("MobileTailscalePathsGrouped")
-    }
-
-    private var confirmationEnablement: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Suggested paths found")
-                .font(.headline)
-            Text("2 Tailscale paths are available. They remain disabled until you approve them.")
-                .foregroundStyle(.secondary)
-            ForEach(suggestedPaths) { path in
-                HStack(spacing: 10) {
-                    Image(systemName: enabledPaths.contains(path.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(enabledPaths.contains(path.id) ? Color.accentColor : Color.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(path.title)
-                        Text(path.address)
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.secondary)
+        .sheet(item: $reviewingRoute) { route in
+            NavigationStack {
+                Form {
+                    Section {
+                        MobileTailscaleRouteSummaryView(route: route, showsAddresses: true)
+                    } footer: {
+                        Text(String(localized: "mobile.pathDiscoveryLab.acceptFooter", defaultValue: "Add this Tailscale route and both its addresses alongside your saved routes.", bundle: .module))
                     }
-                    Spacer()
+                    Section {
+                        Button(String(localized: "mobile.pathDiscoveryLab.add", defaultValue: "Add to routes", bundle: .module)) {
+                            accept(route)
+                            reviewingRoute = nil
+                        }
+                        .accessibilityIdentifier("MobileTailscaleConfirmAdd-\(route.id)")
+                    }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    enabledPaths.formSymmetricDifference([path.id])
+                .navigationTitle(String(localized: "mobile.pathDiscoveryLab.review", defaultValue: "Review route", bundle: .module))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(String(localized: "mobile.pathDiscoveryLab.cancel", defaultValue: "Cancel", bundle: .module), role: .cancel) {
+                            reviewingRoute = nil
+                        }
+                        .accessibilityIdentifier("MobileTailscaleCancelAdd")
+                    }
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(path.title)
-                .accessibilityValue(enabledPaths.contains(path.id) ? "Enabled" : "Disabled")
-                .accessibilityIdentifier("MobileTailscalePathsConfirmation-\(path.id)")
             }
-            Button("Enable suggested paths") {
-                showsEnableConfirmation = true
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("MobileTailscalePathsEnableSuggested")
-            Button("Keep disabled", role: .cancel) {
-                enabledPaths.removeAll()
-            }
-            .accessibilityIdentifier("MobileTailscalePathsKeepDisabled")
-            Text("Approval enables the selected suggestions. Transport still checks the live Tailscale path before use.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            .presentationDetents([.medium, .large])
         }
-        .confirmationDialog(
-            "Enable Tailscale paths?",
-            isPresented: $showsEnableConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Enable") {
-                enabledPaths = Set(suggestedPaths.map(\.id))
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("cmux will use these paths only after the active Tailscale interface and route identity are verified.")
-        }
-        .accessibilityIdentifier("MobileTailscalePathsConfirmation")
     }
 
-    private func pathToggle(_ path: SuggestedTailscalePath) -> some View {
-        Toggle(isOn: Binding(
-            get: { enabledPaths.contains(path.id) },
-            set: { isEnabled in
-                if isEnabled {
-                    enabledPaths.insert(path.id)
-                } else {
-                    enabledPaths.remove(path.id)
-                }
-            }
-        )) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(path.title)
-                Text(path.address)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
-                Text(path.detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityIdentifier("MobileTailscalePathToggle-\(path.id)")
+    /// Every layout accepts the same route identity, including all its addresses.
+    private func accept(_ route: MobileTailscaleLabRoute) {
+        acceptedIDs.insert(route.id)
     }
-}
 
-private struct SuggestedTailscalePath: Identifiable {
-    let id: String
-    let title: String
-    let address: String
-    let detail: String
-}
-
-private enum MobileTailscalePathUIVariant: String, CaseIterable, Identifiable {
-    case perPath
-    case grouped
-    case confirmation
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .perPath: "Per-path toggles"
-        case .grouped: "Grouped + details"
-        case .confirmation: "Confirm first"
+    private func discoveryTitle(_ strategy: MobileMacDiscoveryStrategy) -> String {
+        switch strategy {
+        case .automatic: String(localized: "mobile.pathDiscoveryLab.automatic", defaultValue: "Automatic", bundle: .module)
+        case .tailscale: String(localized: "mobile.pathDiscoveryLab.tailscaleOnly", defaultValue: "Tailscale Only", bundle: .module)
+        case .relay: String(localized: "mobile.pathDiscoveryLab.relay", defaultValue: "Relay", bundle: .module)
+        case .qr: String(localized: "mobile.pathDiscoveryLab.qr", defaultValue: "QR / Manual", bundle: .module)
         }
     }
 }
-#endif
 #endif

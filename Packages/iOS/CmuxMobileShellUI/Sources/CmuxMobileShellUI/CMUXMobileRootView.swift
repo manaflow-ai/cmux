@@ -129,6 +129,24 @@ struct CMUXMobileRootView: View {
     }
     #endif
 
+    private var shouldShowPathDiscoveryLabPreview: Bool {
+        #if os(iOS) && DEBUG && targetEnvironment(simulator)
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_PATH_DISCOVERY_LAB"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    @ViewBuilder private var pathDiscoveryLabPreview: some View {
+        #if os(iOS) && DEBUG && targetEnvironment(simulator)
+        NavigationStack {
+            MobileMacDiscoveryStrategyLabView()
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
     private var shouldShowTerminalLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.terminalLayoutPreviewEnabled
@@ -479,7 +497,9 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowPushReadinessPreview {
+        if shouldShowPathDiscoveryLabPreview {
+            pathDiscoveryLabPreview
+        } else if shouldShowPushReadinessPreview {
             pushReadinessPreview
         } else if shouldShowChangesPreview {
             changesPreview

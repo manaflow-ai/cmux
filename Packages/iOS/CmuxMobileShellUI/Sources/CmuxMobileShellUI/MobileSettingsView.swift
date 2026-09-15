@@ -372,7 +372,7 @@ struct MobileSettingsView: View {
                         MobileMacDiscoveryStrategyLabView()
                     } label: {
                         Label(
-                            "Path Discovery Lab",
+                            String(localized: "mobile.pathDiscoveryLab.title", defaultValue: "Path Discovery Lab", bundle: .module),
                             systemImage: "point.3.connected.trianglepath.dotted"
                         )
                     }

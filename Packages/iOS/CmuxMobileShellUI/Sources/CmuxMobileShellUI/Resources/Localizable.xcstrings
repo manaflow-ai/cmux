@@ -1,6 +1,358 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.pathDiscoveryLab.acceptFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add this Tailscale route and both its addresses alongside your saved routes."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to routes"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.addresses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show addresses"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.allAdded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All suggestions added to routes"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.automatic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.details": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expandable addresses"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.discoveryFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate from this preview. The next Computers refresh uses this strategy. QR / Manual skips live discovery."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.families": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPv4 + IPv6 · One route"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.firstPair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live first-pair discovery"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.inline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline Add"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.irohPaused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved. Unavailable in Tailscale Only mode."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.irohReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Available in Automatic mode."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.layout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggestion layout"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection mode"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Details preview"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.qr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "QR / Manual"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.relay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove route"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset sample routes"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review route"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.reviewFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review before adding"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.routes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Routes"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.routesFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection mode determines which saved routes can be used."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.sample": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample routes for trying the UI. Changes apply only to this preview."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.strategy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discovery strategy"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.suggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggested Tailscale routes"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.suggestionsFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggestions stay unused until you add them. IPv4 and IPv6 belong to one route."
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.tailscaleOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale Only"
+          }
+        }
+      }
+    },
+    "mobile.pathDiscoveryLab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path Discovery Lab"
+          }
+        }
+      }
+    },
     "mobile.signIn.billingRecovery": {
       "extractionState": "manual",
       "localizations": {
