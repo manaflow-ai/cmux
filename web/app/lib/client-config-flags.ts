@@ -90,22 +90,17 @@ export function isClientConfigFlagEnabled(
   return normalized.length > 0 && normalized !== "false";
 }
 
-// One config fetch per page load, shared by every flag consumer; a failed
-// fetch clears the cache so a later mount can retry.
-let cachedClientConfig: Promise<ClientConfig> | null = null;
-
 export function useClientConfigFlag(key: string): ClientConfigFlagValue | undefined {
   const [value, setValue] = useState<ClientConfigFlagValue | undefined>(undefined);
 
   useEffect(() => {
+    // getClientConfig owns the shared TTL cache, including full navigations.
     let cancelled = false;
-    cachedClientConfig ??= getClientConfig();
-    cachedClientConfig
+    getClientConfig()
       .then((config) => {
         if (!cancelled) setValue(rawClientConfigFlagValue(config, key));
       })
       .catch(() => {
-        cachedClientConfig = null;
         if (!cancelled) setValue(undefined);
       });
     return () => {
