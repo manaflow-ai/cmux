@@ -38,8 +38,8 @@ public final class CloudSessionController {
     public var isFlowPresented = false
 
     /// Cloud machines selected for the shared Computers/workspace picker.
-    /// A fresh install shows every machine. Once the user changes one switch,
-    /// the selected set is persisted locally and survives relaunches.
+    /// A fresh install shows every machine. Hidden machine ids are persisted
+    /// locally, so newly-created machines remain visible by default.
     public var visibleMachines: [CloudMachine] {
         machines.elements.filter(isMachineVisible)
     }
@@ -52,7 +52,7 @@ public final class CloudSessionController {
     private let deviceName: String
     private let approvalClock: any Clock<Duration>
     private let visibilityDefaults: UserDefaults
-    private let visibilityDefaultsKey = "mobile.cloud.visibleMachineIDs.v1"
+    private let visibilityDefaultsKey = "mobile.cloud.hiddenMachineIDs.v2"
 
     private var liveTunnel: (any CloudTunnel)?
     private var identity: CloudDeviceIdentity?
@@ -193,22 +193,15 @@ public final class CloudSessionController {
 
     /// Returns whether a machine is included in the shared computer picker.
     public func isMachineVisible(_ machine: CloudMachine) -> Bool {
-        guard let stored = visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String] else {
-            return true
-        }
-        return stored.contains(machine.id)
+        let hidden = visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String] ?? []
+        return !hidden.contains(machine.id)
     }
 
     /// Includes or excludes a Cloud machine from the shared picker. The
-    /// default state is all machines visible, so the first toggle materializes
-    /// the current catalog before applying the user's change.
+    /// default state is all machines visible, so only hidden ids are stored.
     public func setMachineVisible(_ machine: CloudMachine, visible: Bool) {
-        var ids = Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? machines.elements.map(\.id))
-        if visible {
-            ids.insert(machine.id)
-        } else {
-            ids.remove(machine.id)
-        }
+        var ids = Set((visibilityDefaults.array(forKey: visibilityDefaultsKey) as? [String]) ?? [])
+        if visible { ids.remove(machine.id) } else { ids.insert(machine.id) }
         visibilityDefaults.set(Array(ids).sorted(), forKey: visibilityDefaultsKey)
     }
 
