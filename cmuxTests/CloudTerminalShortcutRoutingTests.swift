@@ -169,6 +169,24 @@ struct CloudTerminalShortcutRoutingTests {
         #expect(h.workspace.cloudPendingCreations.isEmpty)
     }
 
+    @Test("Closing the final pane of a Cloud workspace replaces it on Cloud")
+    func closingLastPane() throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        _ = h.workspace.closePanel(h.source, force: true)
+        assertOnlyCloudPanelsAdded(h)
+    }
+
+    @Test("Dragging the only tab into a split keeps the replacement on Cloud")
+    func dragOnlyTabToSplit() throws {
+        let h = try CloudShortcutTestHarness()
+        defer { h.tearDown() }
+        let pane = try #require(h.workspace.bonsplitController.focusedPaneId)
+        let tab = try #require(h.workspace.bonsplitController.selectedTab(inPane: pane))
+        _ = h.workspace.bonsplitController.splitPane(pane, orientation: .horizontal, movingTab: tab.id)
+        assertOnlyCloudPanelsAdded(h)
+    }
+
     private func assertOnlyCloudPanelsAdded(_ h: CloudShortcutTestHarness) {
         let added = h.workspace.panels.values.compactMap { $0 as? TerminalPanel }.filter { $0.id != h.source }
         #expect(!added.isEmpty)
