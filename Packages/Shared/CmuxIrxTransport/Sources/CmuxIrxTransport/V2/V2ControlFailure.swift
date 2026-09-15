@@ -24,4 +24,21 @@ public enum V2ControlFailure: Error, Sendable, Equatable {
     case capacityExceeded
     /// A local state write failed; no authentication storage was changed.
     case persistenceFailed
+
+    /// Bounded diagnostic labels, without request bodies, credentials, or exception text.
+    public var diagnosticCode: String {
+        switch self {
+        case .server(let response): return response.code.rawValue
+        case .http(let status, _): return "http_\(status)"
+        case .socketClosed(let code, _): return "socket_closed_\(code)"
+        case .cooldown: return "cooldown"
+        case .unavailable: return "unavailable"
+        case .requestTimedOut: return "request_timed_out"
+        case .stopped: return "stopped"
+        case .invalidWireData: return "invalid_wire_data"
+        case .scopeMismatch: return "scope_mismatch"
+        case .capacityExceeded: return "capacity_exceeded"
+        case .persistenceFailed: return "persistence_failed"
+        }
+    }
 }
