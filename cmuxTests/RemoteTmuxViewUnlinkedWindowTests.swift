@@ -106,6 +106,16 @@ import Testing
         #expect(topologyNotifies == 0)
         #expect(connection.pendingCommandKindsForTesting == pendingBefore)
     }
+
+    @Test func parserReadsUnlinkedWindowNotifications() {
+        var parser = RemoteTmuxControlStreamParser()
+        let stream = "%unlinked-window-add @7\n%unlinked-window-renamed @7 my window\n%sessions-changed\n"
+        #expect(parser.feed(Data(stream.utf8)) == [
+            .unlinkedWindowAdd(windowId: 7),
+            .unlinkedWindowRenamed(windowId: 7, name: "my window"),
+            .sessionsChanged,
+        ])
+    }
 }
 
 /// A scripted tmux server behind a view coordinator's control stream.

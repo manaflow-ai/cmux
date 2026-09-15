@@ -1044,12 +1044,31 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+            // A session was created or killed somewhere on the server. Only the shared view
+            // stream mirrors other sessions, so only it re-reads the server. The topology notify
+            // is what schedules the view coordinator's reconcile.
+            if isSharedViewStream { observers.notifyTopologyChanged() }
         case .clientDetached:
             record("client-detached")
             replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()
+        case let .unlinkedWindowAdd(id):
+            // A window appeared in a session this client is not attached to. On the shared view
+            // stream that is every window created outside cmux: nothing links it into the view,
+            // so no %window-add follows until the coordinator reconciles, and the topology notify
+            // is what schedules that. A per-session client mirrors only its own session, whose
+            // windows arrive as %window-add.
+            record("unlinked-window-add @\(id)")
+            if isSharedViewStream { observers.notifyTopologyChanged() }
+        case let .unlinkedWindowRenamed(id, _):
+            // No tab to retitle. A window with a tab is in this client's session (on the view
+            // stream, linked into it), so tmux reports its renames as %window-renamed. A window
+            // that is not linked yet takes its current name from the list-windows that runs once
+            // it is. tmux sends this for every automatic rename in such a window, so it must not
+            // reconcile.
+            record("unlinked-window-renamed @\(id)")
         case let .windowClose(id):
             let closingPaneIDs = Set(windowsByID[id]?.paneIDsInOrder ?? [])
                 .union(pendingLayouts[id]?.node.paneIDsInOrder ?? [])

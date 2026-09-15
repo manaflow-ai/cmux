@@ -252,6 +252,10 @@ struct RemoteTmuxControlStreamParser {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .windowAdd(windowId: id)
         }
+        if line.hasPrefix("%unlinked-window-add ") {
+            guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
+            return .unlinkedWindowAdd(windowId: id)
+        }
         if line.hasPrefix("%window-close ") || line.hasPrefix("%unlinked-window-close ") {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             return .windowClose(windowId: id)
@@ -260,6 +264,10 @@ struct RemoteTmuxControlStreamParser {
             guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
             let name = Self.fieldsFrom(line, 2)
             return .windowRenamed(windowId: id, name: name)
+        }
+        if line.hasPrefix("%unlinked-window-renamed ") {
+            guard let id = Self.fieldId(line, 1, sigil: "@") else { return .unparsed(line) }
+            return .unlinkedWindowRenamed(windowId: id, name: Self.fieldsFrom(line, 2))
         }
         if line.hasPrefix("%layout-change ") {
             guard let id = Self.fieldId(line, 1, sigil: "@"),
