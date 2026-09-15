@@ -210,15 +210,43 @@ final class PhoneReplyInboxCoordinator {
     }
 
     private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptedReply? {
+        if let encryptedPayload = reply.encryptedPayload {
+            return decrypt(
+                reply,
+                encryptedPayload: encryptedPayload,
+                accountID: accountID
+            )
+        }
+        guard let accountID,
+              let workspaceId = reply.workspaceId,
+              let surfaceId = reply.surfaceId,
+              let text = reply.text else { return nil }
+        return DecryptedReply(
+            replyId: reply.replyId,
+            accountID: accountID,
+            issuedAtEpochSeconds: Double(reply.createdAtMs) / 1000,
+            expiresAtEpochSeconds: Double(reply.expiresAtMs) / 1000,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: reply.retargetsToLiveSurfaceOwner,
+            text: text
+        )
+    }
+
+    private func decrypt(
+        _ reply: PhoneReplyRecord,
+        encryptedPayload: PhonePushEncryptedPayload,
+        accountID: String?
+    ) -> DecryptedReply? {
         guard let identity = try? PhonePushKeyStore.current(
             bundleID: Bundle.main.bundleIdentifier ?? "cmux"
-        ), let tuple = Optional(reply.encryptedPayload.tuple),
+        ), let tuple = Optional(encryptedPayload.tuple),
             tuple.accountID == accountID,
             tuple.macDeviceID == MobileHostIdentity.deviceID(),
             tuple.macInstanceTag == MobileHostIdentity.instanceTag(),
             let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple),
             let data = try? PhonePushCrypto.decrypt(
-            envelope: reply.encryptedPayload,
+            envelope: encryptedPayload,
             tuple: tuple,
             recipientInstallationID: identity.installationID,
             recipientKeyID: identity.keyID,

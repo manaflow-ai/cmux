@@ -7,12 +7,18 @@ import OSLog
 private let phoneReplyLog = Logger(subsystem: "dev.cmux", category: "phone-reply-inbox")
 
 /// One phone inline-notification reply parked in the presence worker
-/// (`workers/presence/src/replies.ts`). Wire and stored shapes are identical.
+/// (`workers/presence/src/replies.ts`). The optional encrypted fields allow
+/// replies parked by older clients to drain during the migration.
 struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let replyId: String
     let macDeviceId: String
-    let macInstanceTag: String
-    let encryptedPayload: PhonePushEncryptedPayload
+    let macInstanceTag: String?
+    let encryptedPayload: PhonePushEncryptedPayload?
+    let workspaceId: String?
+    let surfaceId: String?
+    let notificationId: String?
+    let retargetsToLiveSurfaceOwner: Bool
+    let text: String?
     let createdAtMs: UInt64
     let expiresAtMs: UInt64
 
@@ -24,10 +30,28 @@ struct PhoneReplyRecord: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         replyId = try container.decode(String.self, forKey: .replyId)
         macDeviceId = try container.decode(String.self, forKey: .macDeviceId)
-        macInstanceTag = try container.decode(String.self, forKey: .macInstanceTag)
-        encryptedPayload = try container.decode(PhonePushEncryptedPayload.self, forKey: .encryptedPayload)
+        macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        encryptedPayload = try container.decodeIfPresent(
+            PhonePushEncryptedPayload.self,
+            forKey: .encryptedPayload
+        )
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
+        surfaceId = try container.decodeIfPresent(String.self, forKey: .surfaceId)
+        notificationId = try container.decodeIfPresent(String.self, forKey: .notificationId)
+        retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .retargetsToLiveSurfaceOwner
+        ) ?? true
+        text = try container.decodeIfPresent(String.self, forKey: .text)
         createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
         expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
+        guard encryptedPayload != nil || (workspaceId != nil && surfaceId != nil && text != nil) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .replyId,
+                in: container,
+                debugDescription: "reply has neither encrypted nor legacy content"
+            )
+        }
     }
 }
 
