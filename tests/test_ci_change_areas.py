@@ -684,6 +684,58 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     assert 'allowed = {"success", "skipped"}' in block
 
 
+def test_ci_status_requires_selected_web_build_and_valid_routing() -> None:
+    script = workflow_job_step_script("ci-status", "Check routed CI jobs")
+    needs = linux_preflight_needs(outputs={"macos": "false", "agent_session_web": "false"})
+    needs.update({name: {"result": "success"} for name in ("linux-preflight", "tests")})
+    for name in ("app-host-unit-tests", "swift-package-tests", "tests-build-and-lag", "release-build"):
+        needs[name] = {"result": "skipped"}
+
+    def check(payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", "-c", script], cwd=ROOT,
+                              env={**os.environ, "CI_NEEDS": json.dumps(payload)},
+                              text=True, capture_output=True, timeout=15)
+
+    assert check(needs).returncode == 0
+    for result in ("failure", "cancelled", "skipped"):
+        broken = {**needs, "web-production-build": {"result": result}}
+        outcome = check(broken)
+        assert outcome.returncode != 0, (result, outcome.stdout)
+        assert "web-production-build" in outcome.stderr
+    missing = dict(needs)
+    del missing["web-production-build"]
+    assert check(missing).returncode != 0
+    assert check({**needs, "changes": {"result": "skipped"}}).returncode != 0
+    docs = {**needs, "changes": {"result": "success", "outputs": {
+        "web": "false", "macos": "false", "agent_session_web": "false",
+    }}}
+    for name in ("web-production-build", "web-typecheck", "web-db-migrations", "react-apps-check"):
+        docs[name] = {"result": "skipped"}
+    assert check(docs).returncode == 0
+
+
+def test_web_and_mixed_changes_reach_production_build_routing() -> None:
+    for paths in (["web/app/api/coderouter/new/route.ts"],
+                  ["web/services/coderouter/accounts.ts", "README.md"],
+                  ["web/bun.lock"], [".vercelignore"]):
+        result, outputs = run_detect_step_for_paths(paths)
+        assert result.returncode == 0
+        assert "web=true" in outputs, paths
+
+
+def test_ci_trigger_cannot_filter_out_source_changes_or_publish_a_second_status() -> None:
+    # The detector's behavioral tests are meaningful only if GitHub starts it.
+    # Keep filtering at job level and prohibit another writer of its gate name.
+    header = CI_WORKFLOW.read_text().split("\njobs:", 1)[0]
+    assert "  pull_request:" in header
+    assert "paths:" not in header and "paths-ignore:" not in header
+    assert "  push:" in header and "branches: [main]" in header
+    for workflow in CI_WORKFLOW.parent.glob("*.yml"):
+        if workflow != CI_WORKFLOW:
+            assert "    name: ci-status" not in workflow.read_text(), workflow
+            assert "  ci-status:" not in workflow.read_text(), workflow
+
+
 def test_required_tests_status_waits_for_app_host_matrix() -> None:
     block = workflow_job_block("tests")
 
