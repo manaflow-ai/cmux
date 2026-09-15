@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hover-popover</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #20242b; color: white; font: 16px system-ui; }
+  #stage { position: relative; min-height: 320px; padding: 24px; }
+  #trigger { position: absolute; right: 24px; top: 120px; width: 112px; height: 42px; }
+  #popover {
+    display: none;
+    position: fixed;
+    right: 8px;
+    top: 72px;
+    width: 144px;
+    height: 64px;
+    padding: 8px;
+    box-sizing: border-box;
+    background: #f2b84b;
+    color: #111;
+    border-radius: 6px;
+  }
+  #popover[data-visible="true"] { display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <button id="trigger">Hover me</button>
+  <div id="popover" role="status">Popover</div>
+</div>
+<script>
+  const state = { pointerEnterCount: 0, mouseEnterCount: 0 };
+  const trigger = document.getElementById('trigger');
+  const popover = document.getElementById('popover');
+  trigger.addEventListener('pointerenter', () => { state.pointerEnterCount += 1; popover.dataset.visible = 'true'; });
+  trigger.addEventListener('mouseenter', () => { state.mouseEnterCount += 1; });
+  window.__cmuxHoverState = () => {
+    const rect = popover.getBoundingClientRect();
+    return {
+      pointerEnterCount: state.pointerEnterCount,
+      mouseEnterCount: state.mouseEnterCount,
+      popoverVisible: popover.dataset.visible === 'true',
+      popoverInsideViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+    };
+  };
+</script>
+</body>
+</html>
