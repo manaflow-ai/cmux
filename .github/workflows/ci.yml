@@ -496,6 +496,9 @@ jobs:
         run: bun run vercel-build
 
       - name: Web tests
+        env:
+          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
         run: bun run test
 
       - name: Install browser for instant navigation tests
