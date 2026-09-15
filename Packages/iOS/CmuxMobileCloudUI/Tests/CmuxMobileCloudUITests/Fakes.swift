@@ -38,7 +38,7 @@ final class FakeTerminalSession: CloudTerminalSession, @unchecked Sendable {
 final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
     let session = FakeTerminalSession()
     var failure: (any Error)?
-    func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
+    func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, trustedCarrier: Bool, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
         if let failure { throw failure }
         return session
     }

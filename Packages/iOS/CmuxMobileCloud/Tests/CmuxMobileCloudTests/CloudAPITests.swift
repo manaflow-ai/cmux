@@ -153,6 +153,24 @@ import Testing
         #expect(decoding.errorMessage(from: Data(#"{"error":"vm_not_found","message":"No such machine"}"#.utf8)) == "No such machine")
         #expect(decoding.errorMessage(from: Data("nope".utf8)) == nil)
     }
+
+    @Test(arguments: ["true", "false", "null"])
+    func decodesExplicitCarrierTrust(value: String) throws {
+        let data = Data("""
+        {"transport":"cmux-remote","route":"ws://[fd00::10]:1337/v1/link","session":"cmux","trustedCarrier":\(value)}
+        """.utf8)
+        let endpoint = try decoding.attachEndpoint(from: data)
+        #expect(endpoint.trustedCarrier == (value == "true"))
+        #expect(endpoint.invitation == nil)
+    }
+
+    @Test(arguments: ["1", "0", "\"true\"", "{}"])
+    func rejectsMalformedCarrierTrust(value: String) {
+        let data = Data("""
+        {"transport":"cmux-remote","route":"ws://[fd00::10]:1337/v1/link","session":"cmux","trustedCarrier":\(value)}
+        """.utf8)
+        #expect(throws: CloudAPIError.self) { try decoding.attachEndpoint(from: data) }
+    }
 }
 
 @Suite struct CloudSessionFailureTests {

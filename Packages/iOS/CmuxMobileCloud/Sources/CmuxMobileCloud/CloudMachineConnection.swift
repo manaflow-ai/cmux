@@ -1,5 +1,8 @@
 public import Foundation
 public import Observation
+import OSLog
+
+private let cloudLinkLog = Logger(subsystem: "dev.cmux.ios", category: "cloud-link")
 
 /// One machine's daemon link and terminal catalog.
 ///
@@ -115,8 +118,9 @@ public final class CloudMachineConnection {
         if let connectTask { return try await connectTask.value }
         let task = Task<any CloudTerminalSession, any Error> { [service, connector, tunnel, identity, stateDirectory, deviceName, approvalClock, machine] in
             let endpoint = try await service.openAttach(machineID: machine.id, deviceFingerprint: identity.fingerprint)
+            cloudLinkLog.info("Cloud link started trustedCarrier=\(endpoint.trustedCarrier, privacy: .public) invitation=\(endpoint.invitation != nil, privacy: .public)")
             var approval: Task<Void, Never>?
-            if let invitation = endpoint.invitation {
+            if !endpoint.trustedCarrier, let invitation = endpoint.invitation {
                 approval = Task {
                     await Self.approveUntilGranted(
                         service: service,
@@ -131,7 +135,8 @@ public final class CloudMachineConnection {
                 route: endpoint.route,
                 stateDirectory: stateDirectory,
                 deviceName: deviceName,
-                invitation: endpoint.invitation?.uri,
+                invitation: endpoint.trustedCarrier ? nil : endpoint.invitation?.uri,
+                trustedCarrier: endpoint.trustedCarrier,
                 tunnel: tunnel
             )
         }

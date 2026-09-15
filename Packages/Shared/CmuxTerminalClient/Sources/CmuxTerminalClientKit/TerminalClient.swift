@@ -49,26 +49,38 @@ public final class TerminalClient: @unchecked Sendable {
     /// Connect by route. `stateDirectory` must persist across launches and be
     /// private to this device. Pass `invitation` for the first contact with a
     /// daemon and nil afterwards. A nil invitation with no enrolled daemon for
-    /// the route throws an error mentioning "invitation".
+    /// the route throws an error mentioning "invitation". `trustedCarrier` is
+    /// an explicit Cloud API grant and requires a route inside `wireGuard`.
     public static func connect(
         route: String,
         stateDirectory: URL,
         deviceName: String,
         invitation: String? = nil,
+        trustedCarrier: Bool = false,
         wireGuard: WireGuardNet? = nil,
         timeout: Duration = .seconds(30)
     ) throws -> TerminalClient {
         var error = [CChar](repeating: 0, count: 1024)
-        let raw = invitation.withOptionalCString { invitationPointer in
-            cmux_terminal_client_connect_route(
-                route,
-                stateDirectory.path,
-                deviceName,
-                invitationPointer,
-                wireGuard?.raw,
-                &error,
-                error.count,
-                timeout.milliseconds)
+        let raw: OpaquePointer?
+        if trustedCarrier {
+            guard invitation == nil else {
+                throw TerminalClientError.failed("Trusted Cloud access cannot also use an invitation")
+            }
+            raw = cmux_terminal_client_connect_trusted_route(
+                route, stateDirectory.path, deviceName, wireGuard?.raw,
+                &error, error.count, timeout.milliseconds)
+        } else {
+            raw = invitation.withOptionalCString { invitationPointer in
+                cmux_terminal_client_connect_route(
+                    route,
+                    stateDirectory.path,
+                    deviceName,
+                    invitationPointer,
+                    wireGuard?.raw,
+                    &error,
+                    error.count,
+                    timeout.milliseconds)
+            }
         }
         guard let raw else { throw TerminalClientError.failed(String(cString: error)) }
         return TerminalClient(raw: raw, wireGuard: wireGuard)

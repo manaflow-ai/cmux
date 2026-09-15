@@ -32,6 +32,15 @@ invitation: the library looks up the daemon whose remembered route matches
 daemon fails with an error that says to connect with an invitation; the caller
 fetches a new invitation from the control plane and retries.
 
+Current Cloud servers can instead return `trustedCarrier: true`. Call
+`cmux_terminal_client_connect_trusted_route` only for that explicit authenticated
+response. It uses the same Carrier authentication as the Mac client and requires
+a live WireGuard tunnel plus a literal destination IP inside its AllowedIPs.
+DNS names and routes outside the tunnel are rejected before connecting, so the
+ordinary dialer's OS fallback cannot grant trust. The encrypted connection pins
+the daemon key for reconnects and remembers a carrier record separately from
+invitation enrollment. A missing invitation alone never enables this mode.
+
 ## Reaching a private address
 
 A cmux Cloud machine sits on its owner's private network and opens no public

@@ -228,6 +228,7 @@ import Testing
         #expect(connector.connects.count == 1)
         #expect(connector.connects[0].route == "ws://[fd00::10]:1337/v1/link")
         #expect(connector.connects[0].invitation == "cmux-remote+invite://abc")
+        #expect(!connector.connects[0].trustedCarrier)
         #expect(connector.connects[0].hasTunnel)
         #expect(connector.connects[0].deviceName == "Lawrence's iPhone")
         #expect(service.calls.attach.count == 1)

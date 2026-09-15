@@ -33,6 +33,7 @@ public struct CmuxTerminalClientCloudConnector: CloudTerminalConnecting {
         stateDirectory: URL,
         deviceName: String,
         invitation: String?,
+        trustedCarrier: Bool,
         tunnel: (any CloudTunnel)?
     ) async throws -> any CloudTerminalSession {
         let net = (tunnel as? KitTunnel)?.net
@@ -42,6 +43,7 @@ public struct CmuxTerminalClientCloudConnector: CloudTerminalConnecting {
                 stateDirectory: stateDirectory,
                 deviceName: deviceName,
                 invitation: invitation,
+                trustedCarrier: trustedCarrier,
                 wireGuard: net
             )
             return KitSession(client: client)

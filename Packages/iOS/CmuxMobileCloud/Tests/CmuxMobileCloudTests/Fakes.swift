@@ -122,9 +122,9 @@ final class FakeConnector: CloudTerminalConnecting, @unchecked Sendable {
     let session = FakeTerminalSession()
     var failure: (any Error)?
 
-    func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
+    func connect(route: String, stateDirectory: URL, deviceName: String, invitation: String?, trustedCarrier: Bool, tunnel: (any CloudTunnel)?) async throws -> any CloudTerminalSession {
         lock.withLock {
-            $0.append(Connect(route: route, stateDirectory: stateDirectory, deviceName: deviceName, invitation: invitation, hasTunnel: tunnel != nil))
+            $0.append(Connect(route: route, stateDirectory: stateDirectory, deviceName: deviceName, invitation: invitation, trustedCarrier: trustedCarrier, hasTunnel: tunnel != nil))
         }
         if let failure { throw failure }
         return session

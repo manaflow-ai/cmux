@@ -74,7 +74,17 @@ public struct CloudAPIResponseDecoding: Sendable {
            let invitationId = raw["invitationId"] as? String, !invitationId.isEmpty {
             invitation = .init(uri: uri, invitationId: invitationId)
         }
-        return CloudAttachEndpoint(route: route, session: session, invitation: invitation)
+        // Only an explicit server opt-in enables private-tunnel trust. A
+        // missing invitation alone must never weaken authentication.
+        guard let trust = try? JSONDecoder().decode(AttachTrust.self, from: data) else {
+            throw CloudAPIError.malformedResponse("attach trustedCarrier must be a boolean")
+        }
+        let trustedCarrier = trust.trustedCarrier == true
+        return CloudAttachEndpoint(route: route, session: session, invitation: invitation, trustedCarrier: trustedCarrier)
+    }
+
+    private struct AttachTrust: Decodable {
+        let trustedCarrier: Bool?
     }
 
     /// `POST .../cmux-remote/approve` → whether the claim is approved.

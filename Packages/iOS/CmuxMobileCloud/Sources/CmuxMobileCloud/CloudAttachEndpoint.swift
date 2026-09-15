@@ -23,11 +23,15 @@ public struct CloudAttachEndpoint: Sendable, Equatable {
     public var session: String
     /// Present on a device's first contact with this machine.
     public var invitation: Invitation?
+    /// The authenticated control plane permits authentication through the
+    /// private tunnel instead of an invitation or previously enrolled key.
+    public var trustedCarrier: Bool
 
     /// Creates an attach endpoint.
-    public init(route: String, session: String, invitation: Invitation? = nil) {
+    public init(route: String, session: String, invitation: Invitation? = nil, trustedCarrier: Bool = false) {
         self.route = route
         self.session = session
         self.invitation = invitation
+        self.trustedCarrier = trustedCarrier
     }
 }

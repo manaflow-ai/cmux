@@ -66,6 +66,7 @@ public protocol CloudTerminalConnecting: Sendable {
         stateDirectory: URL,
         deviceName: String,
         invitation: String?,
+        trustedCarrier: Bool,
         tunnel: (any CloudTunnel)?
     ) async throws -> any CloudTerminalSession
 }

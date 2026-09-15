@@ -63,6 +63,19 @@ CmuxTerminalClient *cmux_terminal_client_connect_route(
     char *error_buffer,
     size_t error_capacity,
     uint64_t timeout_milliseconds);
+// Explicit opt-in from the authenticated Cloud API: authenticate through the
+// private WireGuard tunnel without an invitation. wireguard MUST be non-null;
+// route MUST be a ws/wss literal IP covered by that tunnel's AllowedIPs.
+// It never falls back to an ordinary OS connection. Other ownership/error
+// contracts are identical to cmux_terminal_client_connect_route.
+CmuxTerminalClient *cmux_terminal_client_connect_trusted_route(
+    const char *route,
+    const char *state_dir,
+    const char *device_name,
+    const CmuxWireGuardNet *wireguard,
+    char *error_buffer,
+    size_t error_capacity,
+    uint64_t timeout_milliseconds);
 // Both attach functions attach the requested terminal on an existing client.
 // Reattaching the same terminal is a no-op. Attaching a different terminal
 // requires detach first. error_buffer follows the connect buffer contract.
