@@ -8,11 +8,13 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     private static let maximumSubtitleUTF16Units = 120
     private static let maximumBodyUTF16Units = 500
     private static let maximumIdentifierUTF16Units = 200
-    private static let maximumRequestBytes = 8 * 1024
+    public static let maximumEncryptedPayloads = 200
+    public static let maximumRequestBytes = 1024 * 1024
 
-    private enum EncodingError: Error {
+    public enum EncodingError: Error, Equatable {
         case identifierTooLong
         case requestTooLarge
+        case tooManyEncryptedPayloads
     }
 
     /// A lowercase identifier shared by retries of the same request.
@@ -56,7 +58,9 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         expirationEpochSeconds: Int,
         expectedAccountID: String? = nil,
         expectedSessionGeneration: UInt64? = nil,
-        targetBundleIdentifier: String? = nil
+        targetBundleIdentifier: String? = nil,
+        macPushPublicKey: String? = nil,
+        macInstallationID: String? = nil
     ) throws {
         let canonicalCorrelation = correlationID.uuidString.lowercased()
         let normalizedNotificationID = payload.kind == .notify
@@ -69,17 +73,19 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             "correlationId": canonicalCorrelation,
             "expirationEpochSeconds": expirationEpochSeconds,
         ]
+        if let macPushPublicKey { object["macPushPublicKey"] = macPushPublicKey }
+        if let macInstallationID { object["macInstallationID"] = macInstallationID }
         switch payload.kind {
         case .notify:
             object["title"] = payload.hideContent
                 ? "cmux"
-                : Self.boundedText(
+                : try Self.boundedText(
                     payload.title,
                     maximumUTF16Units: Self.maximumTitleUTF16Units
                 )
             object["subtitle"] = payload.hideContent
                 ? ""
-                : Self.boundedText(
+                : try Self.boundedText(
                     payload.subtitle,
                     maximumUTF16Units: Self.maximumSubtitleUTF16Units
                 )
@@ -88,13 +94,16 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
                     localized: "push.hidden.body",
                     defaultValue: "New terminal activity"
                 )
-                : Self.boundedText(
+                : try Self.boundedText(
                     payload.body,
                     maximumUTF16Units: Self.maximumBodyUTF16Units
                 )
             object["retargetsToLiveSurfaceOwner"] =
                 payload.retargetsToLiveSurfaceOwner
             object["replyShape"] = payload.replyShape
+            object["category"] = payload.replyShape == "inline"
+                ? "cmux.terminal.reply"
+                : "cmux.terminal"
             if let value = try Self.boundedIdentifier(payload.workspaceId) {
                 object["workspaceId"] = value
             }
@@ -144,10 +153,12 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         expirationEpochSeconds: Int,
         expectedAccountID: String? = nil,
         expectedSessionGeneration: UInt64? = nil,
-        targetBundleIdentifier: String? = nil,
-        macPushPublicKey: String? = nil
+        targetBundleIdentifier: String? = nil
     ) throws {
         guard !encryptedPayloads.isEmpty else { throw EncodingError.requestTooLarge }
+        guard encryptedPayloads.count <= Self.maximumEncryptedPayloads else {
+            throw EncodingError.tooManyEncryptedPayloads
+        }
         let canonicalCorrelation = correlationID.uuidString.lowercased()
         var object: [String: Any] = [
             "kind": payload.kind.rawValue,
@@ -159,7 +170,6 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         ]
         if let macDeviceId = payload.macDeviceId { object["macDeviceId"] = macDeviceId }
         if let macInstanceTag = payload.macInstanceTag { object["macInstanceTag"] = macInstanceTag }
-        if let macPushPublicKey { object["macPushPublicKey"] = macPushPublicKey }
         let encoded = try JSONSerialization.data(withJSONObject: object)
         guard encoded.count <= Self.maximumRequestBytes else { throw EncodingError.requestTooLarge }
         self.init(
@@ -215,18 +225,10 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     private static func boundedText(
         _ value: String,
         maximumUTF16Units: Int
-    ) -> String {
+    ) throws -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.utf16.count > maximumUTF16Units else { return trimmed }
-        var usedUTF16Units = 0
-        return String(trimmed.prefix { character in
-            let count = String(character).utf16.count
-            guard usedUTF16Units + count <= maximumUTF16Units else {
-                return false
-            }
-            usedUTF16Units += count
-            return true
-        })
+        throw EncodingError.requestTooLarge
     }
 
     private static func boundedIdentifier(_ value: String?) throws -> String? {

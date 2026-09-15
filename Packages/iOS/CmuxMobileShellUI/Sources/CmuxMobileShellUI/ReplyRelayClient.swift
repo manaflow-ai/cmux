@@ -5,11 +5,14 @@ import Foundation
 
 /// One inline notification reply handed to the server-side inbox.
 public struct RelayedReply: Equatable, Sendable {
+    public let accountID: String?
     /// Stable idempotency key: the retry ladder re-sends the same id, so the
     /// server can never park one reply twice.
     public let replyId: String
     /// The Mac claimed by the originating push; the inbox routes by it.
     public let macDeviceId: String
+    public let macInstallationID: String?
+    public let macBuildID: String?
     /// The workspace claim from the push, if it carried one. The Mac uses it
     /// as the confined target, or as the preferred owner when retargeting is
     /// permitted.
@@ -31,11 +34,17 @@ public struct RelayedReply: Equatable, Sendable {
         workspaceId: String?,
         surfaceId: String,
         text: String,
+        accountID: String? = nil,
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil,
         macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         self.replyId = replyId
+        self.accountID = accountID
         self.macDeviceId = macDeviceId
+        self.macInstallationID = macInstallationID
+        self.macBuildID = macBuildID
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         self.text = text
@@ -72,6 +81,8 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
     private let session: URLSession
+    private let now: @Sendable () -> Date
+    private let envelopeCache = ReplyEnvelopeCache()
     /// One service-owned deadline suppresses every outer reply-ladder wake.
     /// The coordinator may check again after five seconds, but no HTTP request
     /// escapes until the server's deadline has passed.
@@ -84,11 +95,13 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     public init(
         serviceBaseURL: URL?,
         accessToken: @escaping @Sendable () async -> String?,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
         self.session = session
+        self.now = now
     }
 
     public func relay(_ reply: RelayedReply) async -> Bool {
@@ -102,41 +115,50 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/replies"
         guard let url = comps.url else { return false }
-        guard let key = PhonePushPeerKeyStore.load(
-            macDeviceID: reply.macDeviceId,
-            instanceTag: reply.macInstanceTag
-        ), let identity = try? PhonePushKeyStore.current(
+        guard let identity = try? PhonePushKeyStore.current(
             bundleID: Bundle.main.bundleIdentifier ?? "cmux"
-        ) else { return false }
+        ), let accountID = reply.accountID, !accountID.isEmpty else { return false }
+        guard let macInstallationID = reply.macInstallationID, !macInstallationID.isEmpty else { return false }
+        let tuple = PhonePushDeviceTuple(
+            accountID: accountID,
+            teamID: nil,
+            iosBuildID: Bundle.main.bundleIdentifier ?? "cmux",
+            iosInstallationID: identity.installationID,
+            macDeviceID: reply.macDeviceId,
+            macInstanceTag: reply.macInstanceTag,
+            macBuildID: reply.macBuildID
+        )
+        guard reply.macBuildID != nil,
+              let peer = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else { return false }
+        let issuedAt = now().timeIntervalSince1970
         let plaintext: [String: Any] = [
             "replyId": reply.replyId,
+            "accountID": accountID,
             "macDeviceId": reply.macDeviceId,
             "surfaceId": reply.surfaceId,
             "retargetsToLiveSurfaceOwner": reply.retargetsToLiveSurfaceOwner,
             "text": reply.text,
+            "issuedAtEpochSeconds": issuedAt,
+            "expiresAtEpochSeconds": issuedAt + 15 * 60,
         ]
         var plaintextWithWorkspace = plaintext
         if let workspaceId = reply.workspaceId, !workspaceId.isEmpty { plaintextWithWorkspace["workspaceId"] = workspaceId }
         guard let plaintextData = try? JSONSerialization.data(withJSONObject: plaintextWithWorkspace),
-              let encrypted = try? PhonePushCrypto.encrypt(
+              let candidate = try? PhonePushCrypto.encrypt(
                   plaintext: plaintextData,
-                  tuple: PhonePushDeviceTuple(
-                      accountID: nil,
-                      teamID: nil,
-                      iosBuildID: Bundle.main.bundleIdentifier ?? "cmux",
-                      iosInstallationID: identity.installationID,
-                      macDeviceID: reply.macDeviceId,
-                      macInstanceTag: reply.macInstanceTag,
-                      macBuildID: nil
-                  ),
-                  recipientPublicKey: key,
+                  tuple: tuple,
+                  recipientPublicKey: peer.publicKey,
                   keyID: "reply-\(identity.keyID)",
-                  installationID: identity.installationID
-              ) else { return false }
+                  senderKeyID: identity.keyID,
+                  senderPrivateKey: identity.privateKey,
+                  installationID: macInstallationID
+              ),
+              let candidateData = try? JSONEncoder().encode(candidate) else { return false }
+        let encryptedData = await envelopeCache.valueOrInsert(for: reply.replyId, candidate: candidateData)
         var body: [String: Any] = [
             "replyId": reply.replyId,
             "macDeviceId": reply.macDeviceId,
-            "encryptedPayload": try! JSONSerialization.jsonObject(with: JSONEncoder().encode(encrypted)),
+            "encryptedPayload": try! JSONSerialization.jsonObject(with: encryptedData),
         ]
         if let macInstanceTag = reply.macInstanceTag { body["macInstanceTag"] = macInstanceTag }
         var request = URLRequest(url: url)
@@ -160,6 +182,16 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         } catch {
             return false
         }
+    }
+}
+
+private actor ReplyEnvelopeCache {
+    private var values: [String: Data] = [:]
+
+    func valueOrInsert(for replyId: String, candidate: Data) -> Data {
+        if let value = values[replyId] { return value }
+        values[replyId] = candidate
+        return candidate
     }
 }
 #endif

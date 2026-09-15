@@ -4,13 +4,16 @@ export const MAX_DEVICE_TOKENS_PER_ACCOUNT = 200;
 
 export const MAX_PUSH_TITLE_CHARS = 120;
 export const MAX_PUSH_SUBTITLE_CHARS = 120;
+import { isEncryptedPushPayload } from "./encryptedPayload";
+
 export const MAX_PUSH_BODY_CHARS = 500;
 export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_CORRELATION_ID_CHARS = 64;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
 // APNs has a small provider-payload ceiling. Eight installations leaves room
 // for the envelope and routing fields while keeping one request fanout safe.
-export const MAX_ENCRYPTED_PUSH_PAYLOADS = 8;
+export const MAX_ENCRYPTED_PUSH_PAYLOADS = MAX_DEVICE_TOKENS_PER_USER;
+export const MAX_ENCRYPTED_PUSH_REQUEST_BYTES = 1024 * 1024;
 /** Max dismissed-notification ids one dismiss push may carry; the Mac chunks. */
 export const MAX_PUSH_DISMISS_IDS = 64;
 /** Badge ceiling; iOS renders large numbers fine but a runaway count is a bug. */
@@ -144,8 +147,15 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
     return { ok: false, error: "missing_encrypted_payloads" };
   }
   const encryptedList = encryptedPayloads ?? [];
-  if (encryptedList.some((entry) => entry === null || typeof entry !== "object" || Array.isArray(entry))) {
+  if (encryptedList.some((entry) => !isEncryptedPushPayload(entry))) {
     return { ok: false, error: "invalid_encrypted_payload" };
+  }
+  if (encryptedList.length > 0) {
+    const identities = new Set(encryptedList.map((entry) => entry.installationID));
+    if (identities.size !== encryptedList.length) return { ok: false, error: "duplicate_encrypted_recipient" };
+    if (["title", "subtitle", "body", "workspaceId", "surfaceId", "notificationIds"].some((key) => Object.hasOwn(body, key))) {
+      return { ok: false, error: "plaintext_push_content" };
+    }
   }
   const macPushPublicKey = body.macPushPublicKey == null ? "" : boundedString(body.macPushPublicKey, 128);
   if (macPushPublicKey == null) return { ok: false, error: "invalid_mac_push_key" };
@@ -175,7 +185,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
 
   const dismissedIds = parseDismissedIds(body.notificationIds);
   if (!dismissedIds.ok) return { ok: false, error: dismissedIds.error };
-  if (kind === "dismiss" && dismissedIds.value.length === 0) {
+  if (kind === "dismiss" && dismissedIds.value.length === 0 && encryptedList.length === 0) {
     return { ok: false, error: "missing_dismissed_ids" };
   }
 

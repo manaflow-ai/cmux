@@ -188,7 +188,13 @@ public struct MobileAuthComposition {
             pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
             session: .shared
         )
-        deferredSignIn.set { await push.syncTokenIfPossible() }
+        deferredSignIn.set {
+            let accountID = await MainActor.run { coordinator.currentUser?.id }
+            if let accountID {
+                PhonePushActiveAccountStore.set(accountID)
+            }
+            await push.syncTokenIfPossible()
+        }
         self.coordinator = coordinator
         self.pushRegistration = push
         self.protectedDataAvailability = availability

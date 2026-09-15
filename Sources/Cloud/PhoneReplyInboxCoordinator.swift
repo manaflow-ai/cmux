@@ -47,6 +47,7 @@ final class PhoneReplyInboxCoordinator {
     /// (house rule: no bare Task.sleep in runtime code). Cancellation of the
     /// owning task propagates through the injected sleeper's own throw.
     private let sleep: @Sendable (Duration) async throws -> Void
+    private let now: () -> Date
     /// Coalesce bursts (nudge frame + reconcile + activation) into one fetch.
     private let debounce: Duration = .milliseconds(500)
     /// Poll cadence while a fetched reply is transiently undeliverable
@@ -58,10 +59,12 @@ final class PhoneReplyInboxCoordinator {
         defaults: UserDefaults = .standard,
         sleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
-        }
+        },
+        now: @escaping () -> Date = Date.init
     ) {
         seenReplyIds = PhoneReplySeenSet(defaults: defaults)
         self.sleep = sleep
+        self.now = now
     }
 
     func configure(client: PhoneReplyInboxClient) {
@@ -127,7 +130,10 @@ final class PhoneReplyInboxCoordinator {
                 ackIds.append(reply.replyId)
                 continue
             }
-            guard let decrypted = decrypt(reply) else {
+            guard let decrypted = decrypt(
+                reply,
+                accountID: client.authenticatedAccountID()
+            ) else {
                 retryableCount += 1
                 continue
             }
@@ -180,29 +186,42 @@ final class PhoneReplyInboxCoordinator {
     }
 
     private struct DecryptedReply: Decodable {
+        let replyId: String
+        let accountID: String
+        let issuedAtEpochSeconds: TimeInterval
+        let expiresAtEpochSeconds: TimeInterval
         let workspaceId: String?
         let surfaceId: String
         let retargetsToLiveSurfaceOwner: Bool
         let text: String
     }
 
-    private func decrypt(_ reply: PhoneReplyRecord) -> DecryptedReply? {
+    private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptedReply? {
         guard let identity = try? PhonePushKeyStore.current(
             bundleID: Bundle.main.bundleIdentifier ?? "cmux"
-        ), let data = try? PhonePushCrypto.decrypt(
+        ), let tuple = Optional(reply.encryptedPayload.tuple),
+            tuple.accountID == accountID,
+            tuple.macDeviceID == MobileHostIdentity.deviceID(),
+            tuple.macInstanceTag == MobileHostIdentity.instanceTag(),
+            let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple),
+            let data = try? PhonePushCrypto.decrypt(
             envelope: reply.encryptedPayload,
-            tuple: PhonePushDeviceTuple(
-                accountID: nil,
-                teamID: nil,
-                iosBuildID: MobileIOSPairingTargetStore().pushTargetNamespace?.bundleIdentifier ?? "cmux",
-                iosInstallationID: reply.encryptedPayload.installationID,
-                macDeviceID: reply.macDeviceId,
-                macInstanceTag: reply.macInstanceTag,
-                macBuildID: nil
-            ),
+            tuple: tuple,
+            recipientInstallationID: identity.installationID,
+            recipientKeyID: identity.keyID,
+            trustedSenderKeyID: sender.keyID,
+            senderPublicKey: sender.publicKey,
             privateKey: identity.privateKey
         ) else { return nil }
-        return try? JSONDecoder().decode(DecryptedReply.self, from: data)
+        guard let result = try? JSONDecoder().decode(DecryptedReply.self, from: data),
+              result.replyId == reply.replyId,
+              result.accountID == accountID else { return nil }
+        guard PhonePushReplyFreshness.accepts(
+            issuedAt: result.issuedAtEpochSeconds,
+            expiresAt: result.expiresAtEpochSeconds,
+            now: now().timeIntervalSince1970
+        ) else { return nil }
+        return result
     }
 }
 

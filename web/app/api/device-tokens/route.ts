@@ -40,6 +40,7 @@ export async function GET(request: Request): Promise<Response> {
   const bundle = normalizeApnsBundle(bundleId);
   if (!bundle) return jsonResponse({ error: "invalid_bundle_id" }, 400);
   const rows = await cloudDb().select({
+    accountID: deviceTokens.userId,
     installationID: deviceTokens.installationId,
     keyID: deviceTokens.pushKeyId,
     publicKey: deviceTokens.pushPublicKey,
@@ -107,14 +108,30 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   let registration: {
     limitReached: boolean;
     deliveryBusyRetryAfterSeconds?: number;
+    conflict?: boolean;
   };
   try {
     registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
+      const [existingInstallation] = await tx
+        .select({
+          id: deviceTokens.id,
+          userId: deviceTokens.userId,
+          deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+        })
+        .from(deviceTokens)
+        .where(and(
+          eq(deviceTokens.bundleId, bundle.bundleId),
+          eq(deviceTokens.installationId, installationId),
+        ))
+        .limit(1)
+        .for("update");
+
       const [existingToken] = await tx
         .select({
+          id: deviceTokens.id,
           userId: deviceTokens.userId,
           bundleId: deviceTokens.bundleId,
           deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
@@ -127,8 +144,10 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         .limit(1)
         .for("update");
 
-      const deliveryLeaseUntilMs =
-        existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
+      const deliveryLeaseUntilMs = Math.max(
+        existingInstallation?.deliveryLeaseUntil?.getTime() ?? 0,
+        existingToken?.deliveryLeaseUntil?.getTime() ?? 0,
+      );
       if (deliveryLeaseUntilMs > Date.now()) {
         return {
           limitReached: false,
@@ -139,7 +158,16 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         };
       }
 
-      if (existingToken?.userId !== user.id) {
+      if (
+        (existingInstallation && existingInstallation.userId !== user.id)
+        || (existingToken && existingToken.userId !== user.id)
+      ) {
+        return { limitReached: false, conflict: true };
+      }
+
+      const ownedInstallation = existingInstallation?.userId === user.id;
+      const ownedToken = existingToken?.userId === user.id;
+      if (!ownedInstallation && !ownedToken) {
         const [accountRegistrationCount] = await tx
           .select({ total: count() })
           .from(deviceTokens)
@@ -174,9 +202,29 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         }
       }
 
-      await tx
-        .insert(deviceTokens)
-        .values({
+      if (ownedToken && existingToken && ownedInstallation
+          && existingInstallation && existingToken.id !== existingInstallation.id) {
+        await tx.delete(deviceTokens).where(eq(deviceTokens.id, existingToken.id));
+      }
+
+      const rowToUpdate = existingInstallation ?? existingToken;
+      if (rowToUpdate) {
+        await tx
+          .update(deviceTokens)
+          .set({
+            userId: user.id,
+            deviceToken,
+            bundleId: bundle.bundleId,
+            environment: bundle.environment,
+            platform,
+            installationId,
+            pushKeyId,
+            pushPublicKey,
+            updatedAt: new Date(),
+          })
+          .where(eq(deviceTokens.id, rowToUpdate.id));
+      } else {
+        await tx.insert(deviceTokens).values({
           userId: user.id,
           deviceToken,
           bundleId: bundle.bundleId,
@@ -185,23 +233,8 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           installationId,
           pushKeyId,
           pushPublicKey,
-        })
-        .onConflictDoUpdate({
-          target: [
-            deviceTokens.bundleId,
-            deviceTokens.deviceToken,
-          ],
-          set: {
-            userId: user.id,
-            bundleId: bundle.bundleId,
-            environment: bundle.environment,
-            platform,
-            installationId,
-            pushKeyId,
-            pushPublicKey,
-            updatedAt: new Date(),
-          },
         });
+      }
 
       return { limitReached: false };
     });
@@ -221,6 +254,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       },
       429,
     );
+  }
+  if (registration.conflict) {
+    return jsonResponse({ error: "push_registration_conflict" }, 409);
   }
   if (registration.deliveryBusyRetryAfterSeconds != null) {
     return new Response(

@@ -1011,6 +1011,9 @@ export const deviceTokens = pgTable(
       table.bundleId,
       table.deviceToken,
     ),
+    uniqueIndex("device_tokens_bundle_installation_unique")
+      .on(table.bundleId, table.installationId)
+      .where(sql`${table.installationId} <> 'legacy'`),
   ],
 );
 

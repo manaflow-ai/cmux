@@ -37,24 +37,27 @@ public struct PhonePushEncryptedPayload: Codable, Equatable, Sendable {
     public let installationID: String
     public let keyID: String
     public let version: Int
-    public let ephemeralPublicKey: String
-    public let nonce: String
+    public let senderKeyID: String
+    public let encapsulatedKey: String
     public let ciphertext: String
+    public let tuple: PhonePushDeviceTuple
 
     public init(
         installationID: String,
         keyID: String,
-        version: Int = 1,
-        ephemeralPublicKey: String,
-        nonce: String,
-        ciphertext: String
+        version: Int = 2,
+        senderKeyID: String,
+        encapsulatedKey: String,
+        ciphertext: String,
+        tuple: PhonePushDeviceTuple
     ) {
         self.installationID = installationID
         self.keyID = keyID
         self.version = version
-        self.ephemeralPublicKey = ephemeralPublicKey
-        self.nonce = nonce
+        self.senderKeyID = senderKeyID
+        self.encapsulatedKey = encapsulatedKey
         self.ciphertext = ciphertext
+        self.tuple = tuple
     }
 }
 
@@ -72,6 +75,16 @@ public struct PhonePushRecipient: Codable, Equatable, Sendable {
     }
 }
 
+public struct PhonePushPeerDescriptor: Codable, Equatable, Sendable {
+    public let keyID: String
+    public let publicKey: Data
+
+    public init(keyID: String, publicKey: Data) {
+        self.keyID = keyID
+        self.publicKey = publicKey
+    }
+}
+
 public enum PhonePushCryptoError: Error, Sendable {
     case invalidKey
     case invalidEnvelope
@@ -79,72 +92,118 @@ public enum PhonePushCryptoError: Error, Sendable {
     case keychain(OSStatus)
 }
 
+public enum PhonePushReplyFreshness {
+    public static let clockSkew: TimeInterval = 30
+    public static let maximumLifetime: TimeInterval = 15 * 60
+
+    public static func accepts(
+        issuedAt: TimeInterval,
+        expiresAt: TimeInterval,
+        now: TimeInterval
+    ) -> Bool {
+        issuedAt <= now + clockSkew
+            && expiresAt >= now - clockSkew
+            && expiresAt > issuedAt
+            && expiresAt - issuedAt <= maximumLifetime
+    }
+}
+
 public enum PhonePushCrypto {
-    public static let algorithm = "x25519-hkdf-sha256-chacha20poly1305-v1"
+    public static let algorithm = "x25519-hpke-sha256-chacha20poly1305-v2"
 
     public static func encrypt(
         plaintext: Data,
         tuple: PhonePushDeviceTuple,
         recipientPublicKey: Data,
         keyID: String,
+        senderKeyID: String,
+        senderPrivateKey: Curve25519.KeyAgreement.PrivateKey,
         installationID: String
     ) throws -> PhonePushEncryptedPayload {
         let recipient = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: recipientPublicKey)
-        let ephemeral = Curve25519.KeyAgreement.PrivateKey()
-        let shared = try ephemeral.sharedSecretFromKeyAgreement(with: recipient)
-        let key = shared.hkdfDerivedSymmetricKey(
-            using: SHA256.self,
-            salt: Data("cmux-phone-push-v1".utf8),
-            sharedInfo: aad(tuple: tuple, keyID: keyID),
-            outputByteCount: 32
+        let info = info(tuple: tuple, keyID: keyID, senderKeyID: senderKeyID)
+        var sender = try HPKE.Sender(
+            recipientKey: recipient,
+            ciphersuite: .Curve25519_SHA256_ChachaPoly,
+            info: info,
+            authenticatedBy: senderPrivateKey
         )
-        let sealed = try ChaChaPoly.seal(plaintext, using: key, authenticating: aad(tuple: tuple, keyID: keyID))
-        let combinedCiphertext = sealed.ciphertext + Data(sealed.tag)
+        let ciphertext = try sender.seal(plaintext, authenticating: aad(tuple: tuple, keyID: keyID, senderKeyID: senderKeyID))
         return PhonePushEncryptedPayload(
             installationID: installationID,
             keyID: keyID,
-            ephemeralPublicKey: ephemeral.publicKey.rawRepresentation.base64EncodedString(),
-            nonce: sealed.nonce.withUnsafeBytes { Data($0).base64EncodedString() },
-            ciphertext: combinedCiphertext.base64EncodedString()
+            senderKeyID: senderKeyID,
+            encapsulatedKey: sender.encapsulatedKey.base64EncodedString(),
+            ciphertext: ciphertext.base64EncodedString(),
+            tuple: tuple
         )
     }
 
     public static func decrypt(
         envelope: PhonePushEncryptedPayload,
         tuple: PhonePushDeviceTuple,
+        recipientInstallationID: String,
+        recipientKeyID: String,
+        trustedSenderKeyID: String,
+        senderPublicKey: Data,
         privateKey: Curve25519.KeyAgreement.PrivateKey
     ) throws -> Data {
-        guard envelope.version == 1,
-              let ephemeralData = Data(base64Encoded: envelope.ephemeralPublicKey),
-              let nonceData = Data(base64Encoded: envelope.nonce),
-              let combined = Data(base64Encoded: envelope.ciphertext),
-              combined.count >= 16 else { throw PhonePushCryptoError.invalidEnvelope }
-        let ephemeral = try Curve25519.KeyAgreement.PublicKey(rawRepresentation: ephemeralData)
-        let shared = try privateKey.sharedSecretFromKeyAgreement(with: ephemeral)
-        let key = shared.hkdfDerivedSymmetricKey(
-            using: SHA256.self,
-            salt: Data("cmux-phone-push-v1".utf8),
-            sharedInfo: aad(tuple: tuple, keyID: envelope.keyID),
-            outputByteCount: 32
-        )
+        guard envelope.version == 2,
+              envelope.installationID == recipientInstallationID,
+              envelope.keyID == recipientKeyID,
+              envelope.senderKeyID == trustedSenderKeyID,
+              envelope.tuple == tuple,
+              let encapsulatedData = Data(base64Encoded: envelope.encapsulatedKey),
+              let ciphertext = Data(base64Encoded: envelope.ciphertext),
+              let sender = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: senderPublicKey)
+        else { throw PhonePushCryptoError.invalidEnvelope }
         do {
-            let nonce = try ChaChaPoly.Nonce(data: nonceData)
-            let sealed = try ChaChaPoly.SealedBox(
-                nonce: nonce,
-                ciphertext: Data(combined.dropLast(16)),
-                tag: Data(combined.suffix(16))
+            var recipient = try HPKE.Recipient(
+                privateKey: privateKey,
+                ciphersuite: .Curve25519_SHA256_ChachaPoly,
+                info: info(
+                    tuple: tuple,
+                    keyID: envelope.keyID,
+                    senderKeyID: envelope.senderKeyID
+                ),
+                encapsulatedKey: encapsulatedData,
+                authenticatedBy: sender
             )
-            return try ChaChaPoly.open(sealed, using: key, authenticating: aad(tuple: tuple, keyID: envelope.keyID))
+            return try recipient.open(
+                ciphertext,
+                authenticating: aad(
+                    tuple: tuple,
+                    keyID: envelope.keyID,
+                    senderKeyID: envelope.senderKeyID
+                )
+            )
         } catch {
             throw PhonePushCryptoError.authenticationFailed
         }
     }
 
-    private static func aad(tuple: PhonePushDeviceTuple, keyID: String) -> Data {
+    private static func info(
+        tuple: PhonePushDeviceTuple,
+        keyID: String,
+        senderKeyID: String
+    ) -> Data {
+        Data("cmux-phone-push-v2|\(keyID)|\(senderKeyID)|".utf8)
+            + canonicalTupleData(tuple)
+    }
+
+    private static func aad(
+        tuple: PhonePushDeviceTuple,
+        keyID: String,
+        senderKeyID: String
+    ) -> Data {
+        Data("cmux-phone-push-v2|\(keyID)|\(senderKeyID)|".utf8)
+            + canonicalTupleData(tuple)
+    }
+
+    private static func canonicalTupleData(_ tuple: PhonePushDeviceTuple) -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let tupleData = (try? encoder.encode(tuple)) ?? Data()
-        return Data("\(algorithm)|\(keyID)|".utf8) + tupleData
+        return (try? encoder.encode(tuple)) ?? Data()
     }
 }
 
@@ -229,16 +288,96 @@ public enum PhonePushKeyStore {
 }
 
 public enum PhonePushPeerKeyStore {
-    private static let prefix = "cmux.phone-push.peer."
+    private static let prefix = "cmux.phone-push.peer.v2."
+    private nonisolated(unsafe) static var defaults: UserDefaults {
+        #if os(iOS)
+        return UserDefaults(suiteName: PhonePushActiveAccountStore.appGroupIdentifier) ?? .standard
+        #else
+        return .standard
+        #endif
+    }
+
+    public static func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
+        guard !descriptor.keyID.isEmpty else { return }
+        defaults.set(try? JSONEncoder().encode(descriptor), forKey: key(for: tuple))
+    }
+
+    public static func pin(_ publicKey: Data, keyID: String, for tuple: PhonePushDeviceTuple) {
+        pin(PhonePushPeerDescriptor(keyID: keyID, publicKey: publicKey), for: tuple)
+    }
+
+    public static func pinnedDescriptor(for tuple: PhonePushDeviceTuple) -> PhonePushPeerDescriptor? {
+        guard let data = defaults.data(forKey: key(for: tuple)) else { return nil }
+        return try? JSONDecoder().decode(PhonePushPeerDescriptor.self, from: data)
+    }
+
+    public static func pinnedKey(for tuple: PhonePushDeviceTuple) -> Data? {
+        pinnedDescriptor(for: tuple)?.publicKey
+    }
 
     public static func save(_ publicKey: Data, macDeviceID: String, instanceTag: String?) {
-        let key = prefix + macDeviceID + "." + (instanceTag ?? "default")
-        UserDefaults.standard.set(publicKey.base64EncodedString(), forKey: key)
+        let tuple = PhonePushDeviceTuple(
+            accountID: nil,
+            teamID: nil,
+            iosBuildID: "legacy",
+            iosInstallationID: "legacy",
+            macDeviceID: macDeviceID,
+            macInstanceTag: instanceTag,
+            macBuildID: nil
+        )
+        pin(publicKey, keyID: "legacy", for: tuple)
     }
 
     public static func load(macDeviceID: String, instanceTag: String?) -> Data? {
-        let key = prefix + macDeviceID + "." + (instanceTag ?? "default")
-        guard let value = UserDefaults.standard.string(forKey: key) else { return nil }
-        return Data(base64Encoded: value)
+        let tuple = PhonePushDeviceTuple(
+            accountID: nil,
+            teamID: nil,
+            iosBuildID: "legacy",
+            iosInstallationID: "legacy",
+            macDeviceID: macDeviceID,
+            macInstanceTag: instanceTag,
+            macBuildID: nil
+        )
+        return pinnedKey(for: tuple)
+    }
+
+    private static func key(for tuple: PhonePushDeviceTuple) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = (try? encoder.encode(tuple)) ?? Data()
+        return prefix + data.base64EncodedString()
+    }
+}
+
+public enum PhonePushActiveAccountStore {
+    public static let appGroupIdentifier = "group.dev.cmux.ios"
+    private static let accountKeyPrefix = "cmux.activeAccountID."
+
+    private static var hostBundleIdentifier: String? {
+        let bundle = Bundle.main
+        let hostID = bundle.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String
+        let value = hostID ?? bundle.bundleIdentifier
+        guard let value, !value.isEmpty, !value.contains("$(") else { return nil }
+        return value
+    }
+
+    private static func accountKey(bundleID: String?) -> String? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        return accountKeyPrefix + bundleID
+    }
+
+    public static func current() -> String? {
+        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return nil }
+        return UserDefaults(suiteName: appGroupIdentifier)?.string(forKey: key)
+    }
+
+    public static func set(_ accountID: String) {
+        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
+        UserDefaults(suiteName: appGroupIdentifier)?.set(accountID, forKey: key)
+    }
+
+    public static func clear() {
+        guard let key = accountKey(bundleID: hostBundleIdentifier) else { return }
+        UserDefaults(suiteName: appGroupIdentifier)?.removeObject(forKey: key)
     }
 }

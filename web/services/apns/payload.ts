@@ -89,8 +89,9 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
       sound: "default",
     };
     if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-    if (input.replyShape === "text") aps.category = CMUX_APNS_REPLY_CATEGORY;
-    return { aps, cmux: { encryptedPayloads: encrypted, ...(input.macPushPublicKey ? { macPushPublicKey: input.macPushPublicKey } : {}) } };
+    // The extension restores the reply category from the decrypted payload.
+    aps.category = CMUX_APNS_CATEGORY;
+    return { aps, cmux: encryptedRouting(input) };
   }
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
@@ -143,12 +144,21 @@ function buildDismissPayload(input: ApnsNotificationInput): Record<string, unkno
   const aps: Record<string, unknown> = { "content-available": 1 };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
   const cmux: Record<string, unknown> = input.encryptedPayloads?.length
-    ? { encryptedPayloads: input.encryptedPayloads, ...(input.macPushPublicKey ? { macPushPublicKey: input.macPushPublicKey } : {}) }
+    ? encryptedRouting(input)
     : { dismissedIds: [...(input.dismissedIds ?? [])] };
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.correlationId) cmux.correlationId = input.correlationId;
   return { aps, cmux };
+}
+
+function encryptedRouting(input: ApnsNotificationInput): Record<string, unknown> {
+  return {
+    encryptedPayloads: input.encryptedPayloads,
+    ...(input.macDeviceId ? { macDeviceId: input.macDeviceId } : {}),
+    ...(input.macInstanceTag ? { macInstanceTag: input.macInstanceTag } : {}),
+    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+  };
 }
 
 /**

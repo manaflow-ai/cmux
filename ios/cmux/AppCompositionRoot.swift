@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxPhonePush
 import CmuxSentryReporting
 import Foundation
 import SwiftUI
@@ -231,13 +232,15 @@ final class AppCompositionRoot {
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
                 accessToken: { try? await replyRelayAccessToken() }
-            )
+            ),
+            authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
+                PhonePushActiveAccountStore.clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(

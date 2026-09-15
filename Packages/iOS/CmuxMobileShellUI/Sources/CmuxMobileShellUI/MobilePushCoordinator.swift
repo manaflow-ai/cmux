@@ -143,6 +143,7 @@ public final class MobilePushCoordinator {
     /// POST. The Mac fetches and types the reply on its own schedule.
     @ObservationIgnored private let replyRelay: any ReplyRelaying
     @ObservationIgnored private let replyFailureNotifier: any ReplyFailureNoticing
+    @ObservationIgnored private let authenticatedAccountIDProvider: @MainActor () -> String?
     /// Grace past ``PendingReplyState/lifetime`` so an in-flight final send
     /// isn't raced by its own failure notice.
     private static let replyFailureNoticeSlack: TimeInterval = 10
@@ -226,6 +227,7 @@ public final class MobilePushCoordinator {
         backgroundRuntime: any BackgroundReplyRuntimeAsserting = SystemBackgroundReplyRuntime(),
         replyRelay: any ReplyRelaying = NoopReplyRelay(),
         replyFailureNotifier: any ReplyFailureNoticing = SystemReplyFailureNotifier(),
+        authenticatedAccountID: @escaping @MainActor () -> String? = { nil },
         notificationSettingsClock: any Clock<Duration> = ContinuousClock(),
         notificationSettingsTimeout: Duration = .seconds(5),
         authorizationRequestTimeout: Duration = .seconds(120)
@@ -235,6 +237,7 @@ public final class MobilePushCoordinator {
         self.backgroundRuntime = backgroundRuntime
         self.replyRelay = replyRelay
         self.replyFailureNotifier = replyFailureNotifier
+        self.authenticatedAccountIDProvider = authenticatedAccountID
         self.notificationSettingsClock = notificationSettingsClock
         self.notificationSettingsTimeout = notificationSettingsTimeout
         self.authorizationRequestTimeout = authorizationRequestTimeout
@@ -269,6 +272,10 @@ public final class MobilePushCoordinator {
 
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { enabledMirror }
+
+    public func currentAuthenticatedAccountID() -> String? {
+        authenticatedAccountIDProvider()
+    }
 
     /// Commits an opt-in/opt-out choice synchronously, then reconciles OS and
     /// backend state for that generation. A later choice invalidates every
@@ -1046,6 +1053,8 @@ public final class MobilePushCoordinator {
         surfaceId: String?,
         macDeviceId: String?,
         macInstanceTag: String? = nil,
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil,
         retargetsToLiveSurfaceOwner: Bool
     ) async {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -1059,6 +1068,8 @@ public final class MobilePushCoordinator {
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
             macInstanceTag: macInstanceTag,
+            macInstallationID: macInstallationID,
+            macBuildID: macBuildID,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         ))
@@ -1365,10 +1376,13 @@ public final class MobilePushCoordinator {
         let accepted = await replyRelay.relay(RelayedReply(
             replyId: pending.replyId,
             macDeviceId: macDeviceId,
-            macInstanceTag: pending.macInstanceTag,
             workspaceId: pending.workspaceId,
             surfaceId: surfaceId,
             text: pending.text,
+            accountID: authenticatedAccountIDProvider(),
+            macInstallationID: pending.macInstallationID,
+            macBuildID: pending.macBuildID,
+            macInstanceTag: pending.macInstanceTag,
             retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner
         ))
         replySendInFlight = false

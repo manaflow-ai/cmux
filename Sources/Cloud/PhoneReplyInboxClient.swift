@@ -51,6 +51,11 @@ final class PhoneReplyInboxClient {
         self.auth = auth
     }
 
+    @MainActor
+    func authenticatedAccountID() -> String? {
+        auth?.authenticatedSessionIdentity?.accountID
+    }
+
     private struct FetchEnvelope: Decodable {
         let replies: [PhoneReplyRecord]
     }

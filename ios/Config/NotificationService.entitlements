@@ -6,5 +6,9 @@
     <array>
         <string>$(AppIdentifierPrefix)$(CMUX_HOST_BUNDLE_IDENTIFIER)</string>
     </array>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.dev.cmux.ios</string>
+    </array>
 </dict>
 </plist>

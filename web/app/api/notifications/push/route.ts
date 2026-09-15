@@ -14,7 +14,7 @@ import {
   withApnsApiRoute,
 } from "../../../../services/apns/routeHandler";
 import {
-  MAX_PUSH_REQUEST_BYTES,
+  MAX_ENCRYPTED_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -119,7 +119,7 @@ async function sendPush(
   }
   if (!user) return unauthorized();
 
-  const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
+  const body = await readBoundedJsonObject(request, MAX_ENCRYPTED_PUSH_REQUEST_BYTES);
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
@@ -142,6 +142,14 @@ async function sendPush(
       return jsonResponse({ error: "invalid_target_namespace" }, 400);
     }
   }
+  if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
+  const matchesOwner = payload.value.encryptedPayloads?.every((envelope) => {
+    const tuple = envelope.tuple as Record<string, unknown>;
+    return tuple.accountID === user.id && tuple.iosBuildID === targetNamespace.bundleId
+      && tuple.macDeviceID === payload.value.macDeviceId
+      && (tuple.macInstanceTag ?? null) === payload.value.macInstanceTag;
+  });
+  if (!matchesOwner) return jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(

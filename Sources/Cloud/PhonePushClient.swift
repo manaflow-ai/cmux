@@ -438,6 +438,9 @@ final class PhonePushClient {
         targetBundleIdentifier: String
     ) -> PhonePushRequestEnvelope? {
         guard !pushRecipients.isEmpty,
+              !identity.accountID.isEmpty,
+              let macDeviceID = payload.macDeviceId,
+              let macBuildID = Bundle.main.bundleIdentifier,
               let macKey = try? PhonePushKeyStore.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "cmux"
               ) else { return nil }
@@ -449,22 +452,26 @@ final class PhonePushClient {
                 expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
                 expectedAccountID: identity.accountID,
                 expectedSessionGeneration: identity.generation,
-                targetBundleIdentifier: targetBundleIdentifier
+                targetBundleIdentifier: targetBundleIdentifier,
+                macPushPublicKey: macKey.publicKeyData.base64EncodedString(),
+                macInstallationID: macKey.installationID
             ).body
             let encrypted = try pushRecipients.map { recipient in
                 try PhonePushCrypto.encrypt(
                     plaintext: plaintext,
                     tuple: PhonePushDeviceTuple(
-                        accountID: nil,
+                        accountID: identity.accountID,
                         teamID: nil,
                         iosBuildID: recipient.bundleID,
                         iosInstallationID: recipient.installationID,
-                        macDeviceID: payload.macDeviceId,
+                        macDeviceID: macDeviceID,
                         macInstanceTag: payload.macInstanceTag,
-                        macBuildID: Bundle.main.bundleIdentifier
+                        macBuildID: macBuildID
                     ),
                     recipientPublicKey: recipient.publicKey,
                     keyID: recipient.keyID,
+                    senderKeyID: macKey.keyID,
+                    senderPrivateKey: macKey.privateKey,
                     installationID: recipient.installationID
                 )
             }
@@ -475,8 +482,7 @@ final class PhonePushClient {
                 expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
                 expectedAccountID: identity.accountID,
                 expectedSessionGeneration: identity.generation,
-                targetBundleIdentifier: targetBundleIdentifier,
-                macPushPublicKey: macKey.publicKeyData.base64EncodedString()
+                targetBundleIdentifier: targetBundleIdentifier
             )
         } catch {
             _ = macKey

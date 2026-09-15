@@ -100,6 +100,8 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
                 surfaceId: ids.surfaceId,
                 macDeviceId: ids.macDeviceId,
                 macInstanceTag: ids.macInstanceTag,
+                macInstallationID: ids.macInstallationID,
+                macBuildID: ids.macBuildID,
                 retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
             )
             await pushCoordinator?.handleDismiss(
@@ -180,42 +182,36 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     }
 
     private nonisolated static func rememberPeerKey(from userInfo: [AnyHashable: Any]) {
-        guard let cmux = userInfo["cmux"] as? [String: Any],
-              let value = cmux["macPushPublicKey"] as? String,
-              let key = Data(base64Encoded: value),
-              let macDeviceID = cmux["macDeviceId"] as? String else { return }
-        PhonePushPeerKeyStore.save(
-            key,
-            macDeviceID: macDeviceID,
-            instanceTag: cmux["macInstanceTag"] as? String
-        )
+        // Push data is never allowed to establish a peer-key pin. Pins are
+        // installed by the authenticated pairing/session exchange.
     }
 
     private nonisolated static func decryptedCmux(from userInfo: [AnyHashable: Any]) -> [String: Any]? {
         guard let original = userInfo["cmux"] as? [String: Any],
               let raw = original["encryptedPayloads"] as? [[String: Any]],
-              let macDeviceID = original["macDeviceId"] as? String,
               let installation = try? PhonePushKeyStore.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
                   accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
-              ) else { return original }
+              ) else { return nil }
         let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
             .compactMap { try? JSONDecoder().decode(PhonePushEncryptedPayload.self, from: $0) }
-        guard let envelope = candidates.first(where: { $0.installationID == installation.installationID }),
+        guard let envelope = candidates.first(where: {
+            $0.installationID == installation.installationID
+                && $0.tuple.iosInstallationID == installation.installationID
+                && $0.tuple.iosBuildID == (Bundle.main.bundleIdentifier ?? "dev.cmux.ios")
+        }),
+              PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
+              let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
               let data = try? PhonePushCrypto.decrypt(
                   envelope: envelope,
-                  tuple: PhonePushDeviceTuple(
-                      accountID: nil,
-                      teamID: nil,
-                      iosBuildID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
-                      iosInstallationID: installation.installationID,
-                      macDeviceID: macDeviceID,
-                      macInstanceTag: original["macInstanceTag"] as? String,
-                      macBuildID: nil
-                  ),
+                  tuple: envelope.tuple,
+                  recipientInstallationID: installation.installationID,
+                  recipientKeyID: installation.keyID,
+                  trustedSenderKeyID: sender.keyID,
+                  senderPublicKey: sender.publicKey,
                   privateKey: installation.privateKey
               ), let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return original
+            return nil
         }
         var merged = original
         merged.merge(payload) { _, new in new }
@@ -239,16 +235,20 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         surfaceId: String?,
         macDeviceId: String?,
         macInstanceTag: String?,
+        macInstallationID: String?,
+        macBuildID: String?,
         retargetsToLiveSurfaceOwner: Bool
     ) {
         guard let cmux = decryptedCmux(from: userInfo) else {
-            return (nil, nil, nil, nil, true)
+            return (nil, nil, nil, nil, nil, nil, true)
         }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
             cmux["macDeviceId"] as? String,
             cmux["macInstanceTag"] as? String,
+            cmux["macInstallationID"] as? String,
+            cmux["macBuildID"] as? String,
             cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }
