@@ -25,9 +25,7 @@ import json
 import os
 import pathlib
 import shlex
-import socket
 import struct
-import sys
 import time
 import uuid
 
@@ -179,9 +177,14 @@ def prepare(args) -> None:
                 '(p/"server.pid").write_text(str(child.pid)); print(child.pid)')
             vm_exec(c, machine, command)
             probe = 'python3 -c ' + shlex.quote(
-                'import urllib.request,time; '
-                '[(time.sleep(.1)) for _ in range(10)]; '
-                'print(urllib.request.urlopen("http://127.0.0.1:8000/api/ready",timeout=5).read().decode())')
+                'import urllib.request,time\n'
+                'deadline=time.monotonic()+10\n'
+                'while True:\n'
+                ' try:\n'
+                '  print(urllib.request.urlopen("http://127.0.0.1:8000/api/ready",timeout=1).read().decode()); break\n'
+                ' except OSError:\n'
+                '  if time.monotonic()>=deadline: raise\n'
+                '  time.sleep(.1)')
             fixture['server_probe'] = json.loads(vm_exec(c, machine, probe)['stdout'])
             workspace = c._call('vm.workspace_new', dict(id=machine, name=identity, focus=False), timeout_s=240)
             fixture.update(workspace)
@@ -252,6 +255,8 @@ def assert_pages(args) -> None:
 
 def cleanup(args) -> None:
     state = json.loads(args.state.read_text())
+    if state['socket'] != os.environ['CMUX_SOCKET_PATH']:
+        raise ValueError('State belongs to another tagged app')
     errors = []
     with client() as c:
         for fixture in reversed(state['fixtures']):

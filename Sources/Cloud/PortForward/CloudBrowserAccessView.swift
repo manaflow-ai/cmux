@@ -16,14 +16,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             phase: model.phase,
-                            message: state.error ?? model.failureMessage ?? (model.phase == .needsVPN ? model.vpn.unavailableMessage : nil),
-                            setupTitle: model.vpn.state == .awaitingApproval
-                                ? String(localized: "cloud.vpn.setup.openSettings", defaultValue: "Open System Settings")
-                                : String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"),
-                            onSetup: {
-                                if model.vpn.state == .awaitingApproval { SystemExtensionSettingsLink.open() }
-                                else { Task { await model.vpn.connect() } }
-                            },
+                            message: state.error ?? model.failureMessage,
                             onRetry: {
                                 state.retry()
                                 navigateIfReady()
@@ -34,9 +27,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                 .task(id: model.phase) { navigateIfReady() }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, setupTitle: String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…"), onSetup: {
-                    AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredTabManager: AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId))
-                }, onRetry: nil)
+                CloudBrowserConnectionCard(address: "", phase: .failed(message), message: message, onRetry: nil)
             } else {
                 content()
             }

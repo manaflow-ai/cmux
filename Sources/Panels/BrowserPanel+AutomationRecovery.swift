@@ -149,6 +149,12 @@ extension BrowserPanel {
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
+        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
+            replacement.configuration.userContentController.addUserScript(WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
+                injectionTime: .atDocumentStart, forMainFrameOnly: false
+            ))
+        }
         return replacement
     }
 

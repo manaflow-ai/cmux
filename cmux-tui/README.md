@@ -68,7 +68,7 @@ Shared routing options can precede the scope, as in
 `cmux --session agents server status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
 Use the `remote` command group for authenticated network access:
-`cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`cmux remote connect|ssh|forward|browser-proxy|rpc`, `remote enroll`, and
 `remote known-daemons`. `remote stop` stops only a replaceable SSH sidecar.
 Use `server stop` for a listener owned by `server start`; it also stops the
 local owner and its workspaces. Start the owning process with `server start`
@@ -81,8 +81,9 @@ Cloud links can share one user-space WireGuard peer through `cmux wg hub`.
 The hub reads an owner-only WireGuard config, exposes an owner-only Unix SOCKS5
 socket, and accepts only literal IP addresses inside `AllowedIPs`. Clients use
 `remote connect --wireguard-hub <socket>`. Packagers must check that
-`remote-probe --json` reports the `wireguard-hub` capability before they ship a
-desktop build that requires private Cloud routes.
+`remote-probe --json` reports both the `wireguard-hub` and `browser-proxy`
+capabilities before they ship a desktop build that requires private Cloud
+routes.
 
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 

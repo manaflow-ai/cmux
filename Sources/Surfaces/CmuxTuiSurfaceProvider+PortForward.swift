@@ -17,7 +17,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Create the browser with native connection state before attempting access.
-    /// The user chooses forwarding explicitly in that pane.
+    /// The app-owned browser proxy connects through userspace WireGuard automatically.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
@@ -48,7 +48,10 @@ extension CmuxTuiSurfaceProvider {
         }
         let port = privateURL.port ?? (privateURL.scheme == "https" ? 443 : 80)
         browser.webView.stopLoading()
-        browser.cloudAccess.configure(model: accessModel(port: port, address: address), url: privateURL)
+        let model = accessModel(port: port, address: address)
+        browser.cloudAccess.configure(model: model, url: privateURL)
+        browser.prepareCloudBrowserStore(machineID: machineID)
+        model.connectBrowser()
         browser.showCloudAddress(privateURL)
     }
 
@@ -84,6 +87,13 @@ extension CmuxTuiSurfaceProvider {
                 },
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
+                },
+                startBrowserProxy: { [weak self] in
+                    guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
+                    let generation = self.currentLifecycleGeneration
+                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    return endpoint
                 }
             )
         }

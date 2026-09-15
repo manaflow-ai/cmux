@@ -1984,6 +1984,31 @@ final class BrowserPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
     let cloudAccess = CloudBrowserAccessState()
+    private var cloudBrowserMachineID: String?
+    private var cloudBrowserStoreIdentity: UUID?
+    private var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
+
+    /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.
+    func prepareCloudBrowserStore(machineID: String) {
+        let identifier = CloudBrowserRouting.storeID(panelID: id, profileID: profileID, machineID: machineID)
+        guard cloudBrowserStoreIdentity != identifier else { return }
+        cloudBrowserMachineID = machineID
+        cloudBrowserStoreIdentity = identifier
+        cloudBrowserProxyEndpoint = nil
+        websiteDataStore = preservesExplicitEphemeralWebsiteDataStore
+            ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: identifier)
+        replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
+                                     reason: "cloud_browser_route", restoreAfterReplacement: false)
+    }
+
+    /// Apply proxy credentials before the first request, with no system-network fallback.
+    func prepareCloudBrowserNavigation() {
+        guard let endpoint = cloudAccess.model?.browserProxy,
+              let address = cloudAccess.model?.target.host else { return }
+        guard endpoint != cloudBrowserProxyEndpoint else { return }
+        cloudBrowserProxyEndpoint = endpoint
+        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+    }
 
     func showCloudAddress(_ url: URL) { currentURL = url }
 
@@ -4103,6 +4128,13 @@ final class BrowserPanel: Panel, ObservableObject {
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
 
+        if cloudBrowserMachineID != nil {
+            if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {
+                webView.configuration.websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+            }
+            return
+        }
+
         let store = webView.configuration.websiteDataStore
         guard let endpoint = remoteProxyEndpoint else {
             // Local panes mirror an active system proxy with loopback excluded
@@ -4271,7 +4303,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassesRemoteWorkspaceProxy
-        let targetStore = preservesExplicitEphemeralWebsiteDataStore
+        let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
             : isRemoteWorkspace
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
@@ -4341,7 +4373,11 @@ final class BrowserPanel: Panel, ObservableObject {
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 
-        if !usesRemoteWorkspaceProxy {
+        if let machineID = cloudBrowserMachineID {
+            let identifier = CloudBrowserRouting.storeID(panelID: id, profileID: resolvedProfileID, machineID: machineID)
+            cloudBrowserStoreIdentity = identifier
+            websiteDataStore = WKWebsiteDataStore(forIdentifier: identifier)
+        } else if !usesRemoteWorkspaceProxy {
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
@@ -5158,28 +5194,33 @@ final class BrowserPanel: Panel, ObservableObject {
             let data: Data
             let response: URLResponse
             do {
-                let remoteSession = remoteProxyURLSession()
-                defer { remoteSession?.finishTasksAndInvalidate() }
-                if let remoteSession {
-#if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=proxy " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
-#endif
-                    (data, response) = try await remoteSession.data(for: effectiveRequest)
+                let cloudIconURL = cloudAccess.rewrittenLoopbackURL(iconURL) ?? iconURL
+                if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.owns(cloudIconURL) {
+                    (data, response) = try await CloudBrowserRouting.favicon(url: cloudIconURL, webView: webView)
                 } else {
+                    let remoteSession = remoteProxyURLSession()
+                    defer { remoteSession?.finishTasksAndInvalidate() }
+                    if let remoteSession {
 #if DEBUG
-                    cmuxDebugLog(
-                        "browser.favicon.fetch " +
-                        "panel=\(id.uuidString.prefix(5)) " +
-                        "via=direct " +
-                        "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
-                    )
+                        cmuxDebugLog(
+                            "browser.favicon.fetch " +
+                            "panel=\(id.uuidString.prefix(5)) " +
+                            "via=proxy " +
+                            "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                        )
 #endif
-                    (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+                        (data, response) = try await remoteSession.data(for: effectiveRequest)
+                    } else {
+#if DEBUG
+                        cmuxDebugLog(
+                            "browser.favicon.fetch " +
+                            "panel=\(id.uuidString.prefix(5)) " +
+                            "via=direct " +
+                            "url=\(effectiveRequest.url?.absoluteString ?? "<nil>")"
+                        )
+#endif
+                        (data, response) = try await URLSession.shared.data(for: effectiveRequest)
+                    }
                 }
             } catch {
 #if DEBUG
@@ -5381,6 +5422,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> WKNavigation? {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
+            prepareCloudBrowserNavigation()
         } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
             $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),
@@ -5463,7 +5505,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
         }
-        if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+        if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
@@ -5571,7 +5613,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
-        guard remoteProxyEndpoint != nil else { return request }
+        guard cloudBrowserMachineID == nil, remoteProxyEndpoint != nil else { return request }
         guard let url = request.url else { return request }
         guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
 
@@ -6363,6 +6405,10 @@ extension BrowserPanel {
     /// Reload the current page
     @discardableResult
     func reload() -> WKNavigation? {
+        if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
+            cloudAccess.retry()
+            return nil
+        }
         if prepareForReload(reason: "reload", mode: .soft) {
             return nil
         }
@@ -6372,6 +6418,10 @@ extension BrowserPanel {
 
     /// Reload the current page, bypassing WebKit's cache.
     func hardReload() {
+        if cloudAccess.model?.usesBrowserProxy == true, cloudAccess.error != nil || cloudAccess.model?.isReady != true {
+            cloudAccess.retry()
+            return
+        }
         if prepareForReload(reason: "hardReload", mode: .hard) {
             return
         }

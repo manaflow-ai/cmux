@@ -708,6 +708,10 @@
 		69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */; };
 		57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E3C21B3A59A40EF4132513 /* CloudBrowserAccessView.swift */; };
 		4990A466C95D003D532E770D /* CloudBrowserConnectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */; };
+		138E016D7D6ED8A32924752A /* CloudBrowserProxyEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38099D37FA94CF18B69FF97E /* CloudBrowserProxyEndpoint.swift */; };
+		BD85C5CFA3F5C1D251113A3B /* CloudBrowserProxyIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C52DA6FA70B4E57FB460D23 /* CloudBrowserProxyIntegrationTests.swift */; };
+		F152BBE797E53B28B4F91FE7 /* CloudBrowserProxyProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE4C1C11A4BEA32B7D90E01E /* CloudBrowserProxyProcess.swift */; };
+		EA00C01A1F5287765D8117C5 /* CloudBrowserRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF04D7E65B3CF1EDF513AFE /* CloudBrowserRouting.swift */; };
 		D01100800000000000000006 /* CloudCatalogQueryTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */; };
 		010CCC9F785F4023BAE36375 /* CloudDiagnosticFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */; };
 		E60073D256A0581591C1DC89 /* CloudDiagnosticReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */; };
@@ -4558,6 +4562,10 @@
 		857300CAB44EEA5406233466 /* CloudBrowserAccessState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserAccessState.swift"; sourceTree = "<group>"; };
 		A5E3C21B3A59A40EF4132513 /* CloudBrowserAccessView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserAccessView.swift"; sourceTree = "<group>"; };
 		F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudBrowserConnectionCard.swift"; sourceTree = "<group>"; };
+		38099D37FA94CF18B69FF97E /* CloudBrowserProxyEndpoint.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBrowserProxyEndpoint.swift; sourceTree = "<group>"; };
+		3C52DA6FA70B4E57FB460D23 /* CloudBrowserProxyIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudBrowserProxyIntegrationTests.swift; sourceTree = "<group>"; };
+		FE4C1C11A4BEA32B7D90E01E /* CloudBrowserProxyProcess.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBrowserProxyProcess.swift; sourceTree = "<group>"; };
+		CEF04D7E65B3CF1EDF513AFE /* CloudBrowserRouting.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudBrowserRouting.swift; sourceTree = "<group>"; };
 		D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCatalogQueryTestProvider.swift; sourceTree = "<group>"; };
 		FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticFailure.swift"; sourceTree = "<group>"; };
 		F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticReport.swift"; sourceTree = "<group>"; };
@@ -11319,6 +11327,7 @@
 				E107EF903AAF714086F52BC4 /* SurfaceSocketCommandTests.swift */,
 				7A0CE1000000000000000729 /* SocksV5ClientTests.swift */,
 				7A0CE100000000000000072B /* CloudPortRoutePlanTests.swift */,
+				3C52DA6FA70B4E57FB460D23 /* CloudBrowserProxyIntegrationTests.swift */,
 				1E6077A4B6CC441EB3668651 /* CloudPrivateRouteSelectionTests.swift */,
 				7A0CE100000000000000072D /* CloudTunnelStatusBlockerTests.swift */,
 				7A0CE100000000000000072F /* CloudTunnelBannerTests.swift */,
@@ -11371,6 +11380,9 @@
 				D01100800000000000000009 /* CloudHubConnection.swift */,
 				03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */,
 				7A0CE1000000000000000717 /* CloudLoopbackPortForward.swift */,
+				CEF04D7E65B3CF1EDF513AFE /* CloudBrowserRouting.swift */,
+				FE4C1C11A4BEA32B7D90E01E /* CloudBrowserProxyProcess.swift */,
+				38099D37FA94CF18B69FF97E /* CloudBrowserProxyEndpoint.swift */,
 				7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */,
 				7A0CE100000000000000071B /* CloudPortRoutePlan.swift */,
 				F6C9B67C2F9E4E6801EDB7F4 /* CloudBrowserConnectionCard.swift */,
@@ -12455,6 +12467,9 @@
 				69AA6941BCDDF67E7B44CA26 /* CloudBrowserAccessState.swift in Sources */,
 				57C7774B1620767AED6F13B7 /* CloudBrowserAccessView.swift in Sources */,
 				4990A466C95D003D532E770D /* CloudBrowserConnectionCard.swift in Sources */,
+				138E016D7D6ED8A32924752A /* CloudBrowserProxyEndpoint.swift in Sources */,
+				F152BBE797E53B28B4F91FE7 /* CloudBrowserProxyProcess.swift in Sources */,
+				EA00C01A1F5287765D8117C5 /* CloudBrowserRouting.swift in Sources */,
 				010CCC9F785F4023BAE36375 /* CloudDiagnosticFailure.swift in Sources */,
 				E60073D256A0581591C1DC89 /* CloudDiagnosticReport.swift in Sources */,
 				32E508E45F3E7B0832FB99EA /* CloudDiagnosticsView.swift in Sources */,
@@ -14936,6 +14951,7 @@
 				D15E75C8E60487168BA7E9DF /* CloudActivationPolicyTests.swift in Sources */,
 				C6D4C5A38097BB05AB98E460 /* CloudAgentSkillLauncherTests.swift in Sources */,
 				C12537000000000000000317 /* CloudAttachmentReconcileDecisionTests.swift in Sources */,
+				BD85C5CFA3F5C1D251113A3B /* CloudBrowserProxyIntegrationTests.swift in Sources */,
 				D01100800000000000000006 /* CloudCatalogQueryTestProvider.swift in Sources */,
 				C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */,
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,
