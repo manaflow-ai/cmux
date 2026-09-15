@@ -151,6 +151,14 @@ import Testing
         #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
     }
 
+    @Test func oldServerCatalogCannotHidePairingRequirement() async {
+        let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
+        let center = makeCenter(buildType: .beta, payload: payload)
+        await center.refresh()
+        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.unseenPages.map(\.id) == ["connections.v2", "connections.v1"])
+    }
+
     @Test func explicitEmptyServerCatalogStillHidesNativePages() async {
         let payload = #"{"visibleEntryIds":[],"announcements":[]}"#
         let center = makeCenter(buildType: .beta, payload: payload)

@@ -30,6 +30,9 @@ public final class MobileWhatsNewCenter {
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
+    /// The pairing requirement is part of the client contract, so an older
+    /// cached visibility list must not hide it from team builds.
+    private static let requiredBinaryEntryIDs: Set<String> = ["connections.v2"]
 
     private let requestURL: URL?
     private let appVersion: String
@@ -151,11 +154,14 @@ public final class MobileWhatsNewCenter {
         }
         guard let remoteList else { return channelAllowed }
         let visible = Set(remoteList.visibleEntryIds)
+        guard !visible.isEmpty else { return [] }
         let recognized = visible.intersection(Set(channelAllowed.map(\.id)))
-        guard !visible.isEmpty, recognized.isEmpty else {
-            return channelAllowed.filter { visible.contains($0.id) }
+        guard !recognized.isEmpty else {
+            return channelAllowed
         }
-        return channelAllowed
+        return channelAllowed.filter {
+            visible.contains($0.id) || Self.requiredBinaryEntryIDs.contains($0.id)
+        }
     }
 
     /// Cached announcements targeted at this app version, resolved to
