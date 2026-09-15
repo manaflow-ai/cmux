@@ -124,7 +124,6 @@ struct SessionSplitContainerLayoutCodec {
             return
         }
     }
-
     /// Rebuilds a saved pane tree around the panels that are already alive.
     /// This is used by closed-panel history: creating a terminal just to make
     /// Bonsplit accept a split would execute the wrong Cloud creation path.
@@ -139,6 +138,8 @@ struct SessionSplitContainerLayoutCodec {
         let desiredTabs = desiredPanelIDs.compactMap { panelIDMap[$0] ?? $0 }
             .compactMap(tabIDForPanelID)
         guard desiredTabs.count == desiredPanelIDs.count else { return false }
+        let livePanelIDs = Set(controller.allPaneIds.flatMap { controller.tabs(inPane: $0).compactMap { tabIDForPanelID($0.id) } })
+        guard livePanelIDs.isSubset(of: Set(desiredTabs)) else { return false }
         for pane in controller.allPaneIds where pane != root {
             for tab in controller.tabs(inPane: pane) {
                 _ = controller.moveTab(tab.id, toPane: root)
@@ -166,7 +167,6 @@ struct SessionSplitContainerLayoutCodec {
         applyDividerPositions(snapshotNode: layout, liveNode: controller.treeSnapshot())
         return true
     }
-
     private func snapshot(
         node: ExternalTreeNode,
         panelIdForTabId: (TabID) -> UUID?

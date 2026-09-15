@@ -79,20 +79,17 @@ struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
     var entry: ClosedItemHistoryEntry
-
     init(id: UUID = UUID(), closedAt: Date = Date(), entry: ClosedItemHistoryEntry) {
         self.id = id
         self.closedAt = closedAt
         self.entry = entry
     }
 }
-
 struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
     let id: UUID
     let title: String
     let detail: String
     let closedAt: Date
-
     var menuSubtitle: String {
         let closed = String(
             format: String(localized: "historyPane.closedAtFormat", defaultValue: "Closed %@"),
@@ -104,7 +101,6 @@ struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
             closed
         )
     }
-
     var menuTitle: String {
         HistoryMenuLineFormatter.titleWithSubtitle(
             title: title,
@@ -112,13 +108,11 @@ struct ClosedItemHistoryMenuItem: Identifiable, Equatable {
         )
     }
 }
-
 struct ClosedItemHistoryMenuSnapshot: Equatable {
     let items: [ClosedItemHistoryMenuItem]
     let totalItemCount: Int
     let isLimited: Bool
 }
-
 enum ClosedWindowRestoreValidation {
     static func hasUsableRestoredContent(
         snapshot: SessionWindowSnapshot,
@@ -130,9 +124,17 @@ enum ClosedWindowRestoreValidation {
         return restoredPanelIdsByWorkspaceIndex.contains { !$0.isEmpty }
     }
 }
-
 @MainActor
 final class ClosedItemHistoryStore: ObservableObject {
+    private static func remapLayout(_ layout: SessionWorkspaceLayoutSnapshot?, using map: [UUID: UUID]) -> SessionWorkspaceLayoutSnapshot? {
+        guard let layout else { return nil }
+        switch layout {
+        case .pane(let pane):
+            return .pane(SessionPaneLayoutSnapshot(panelIds: pane.panelIds.map { map[$0] ?? $0 }, selectedPanelId: pane.selectedPanelId.map { map[$0] ?? $0 }, isFullWidthTabMode: pane.isFullWidthTabMode))
+        case .split(let split):
+            return .split(SessionSplitLayoutSnapshot(orientation: split.orientation, dividerPosition: split.dividerPosition, first: remapLayout(split.first, using: map)!, second: remapLayout(split.second, using: map)!))
+        }
+    }
     /// Bounds the shared reopen history to a useful recency window without
     /// allowing persisted panel snapshots to grow for the life of the file.
     static let defaultTotalCapacity = 500
@@ -142,7 +144,6 @@ final class ClosedItemHistoryStore: ObservableObject {
         workspaceCapacity: defaultWorkspaceCapacity,
         fileURL: defaultHistoryFileURL()
     )
-
     @Published private(set) var revision: UInt64 = 0
     @Published private var records: [ClosedItemHistoryRecord] = []
     private let notificationCenter: NotificationCenter
@@ -153,7 +154,6 @@ final class ClosedItemHistoryStore: ObservableObject {
     private var needsPersistenceAfterPersistedRecordsLoad = false
     private var shouldDiscardPersistedRecordsOnLoad = false
     private var pendingPersistedRecordMutations: [PendingPersistedRecordMutation] = []
-
     private enum PendingPersistedRecordMutation {
         case remapPanelWorkspaceIds(
             oldWorkspaceId: UUID,
@@ -581,7 +581,7 @@ final class ClosedItemHistoryStore: ObservableObject {
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
                     panelEntry.sourceSnapshotWorkspaceId,
-                layout: panelEntry.layout,
+                layout: remapLayout(panelEntry.layout, using: panelIdMap),
                 projection: panelEntry.projection
             )))
         }

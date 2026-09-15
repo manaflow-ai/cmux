@@ -331,6 +331,10 @@ struct LastSurfaceClosePreferenceTests {
             manager.selectWorkspace(workspace)
             let browserId = try #require(workspace.focusedPanelId)
             #expect(workspace.panels[browserId] is BrowserPanel)
+            let machine = SurfaceMachineID.cloud("reopen-browser-\(UUID().uuidString)")
+            let browserResource = SurfaceResourceID(machine: machine, kind: .browser, key: "tab:browser")
+            SurfaceCatalog.shared.record(SurfaceProjection(resource: browserResource, workspaceID: workspace.id, panelID: browserId, remoteWorkspaceID: "ws-browser"))
+            defer { SurfaceCatalog.shared.endProjections(panelID: browserId, reason: .replaced) }
 
             workspace.markCloseHistoryEligible(panelId: browserId)
             #expect(workspace.closePanel(browserId, force: true))
