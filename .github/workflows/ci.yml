@@ -499,7 +499,7 @@ jobs:
         env:
           DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
           DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
-        run: bun run test
+        run: bun run test -- --max-concurrency=1
 
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
