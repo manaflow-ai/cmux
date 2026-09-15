@@ -17,8 +17,9 @@ struct PresentedSurfaceFixture {
     let surface: TerminalSurface
     let window: NSWindow
     let runtimeSurface: UnsafeMutableRawPointer
+    let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>
 
-    init(windowVisibleAtCreation: Bool = true) {
+    init(windowVisibleAtCreation: Bool = true, installRendererCallbacks: Bool = true) {
         registry = TerminalSurfaceRegistry()
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -73,11 +74,14 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        surface.rendererRuntimeSurfaceDidCreate()
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
+        callbackContext = surface.installRendererCallbackContextForTesting()
+        if installRendererCallbacks {
+            surface.installRendererRuntimeSurfaceForTesting(runtimeSurface)
+        } else {
+            surface.installRuntimeSurfaceForTesting(runtimeSurface)
         }
+        surface.rendererRuntimeSurfaceDidCreate()
+        surface.acknowledgeRendererPresentationForTesting()
     }
 
     func tearDown() {
@@ -89,8 +93,6 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
-        }
+        surface.acknowledgeRendererPresentationForTesting()
     }
 }
