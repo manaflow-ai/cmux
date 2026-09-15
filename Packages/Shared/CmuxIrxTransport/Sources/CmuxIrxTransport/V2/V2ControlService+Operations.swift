@@ -138,6 +138,10 @@ extension V2ControlService {
             cache.directory = directory
             failure = nil
             try await persist(run: run)
+            // Persistence suspends this actor. A change received meanwhile
+            // joins the existing refresh task, so drain it before that task
+            // finishes or its wakeup would be lost.
+            guard directory.revision >= wantedDirectoryRevision else { continue }
             return directory
         }
         throw V2ControlFailure.server(V2ErrorResponse(code: .revisionConflict, requestID: "directory-refresh", retryable: true, retryAfterMS: 1000, schemaID: .errorV1))
