@@ -1,0 +1,122 @@
+name: React Doctor Web
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "web/**"
+      - ".github/workflows/react-doctor-web.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/react-doctor-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  react-doctor-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22.22.2
+          package-manager-cache: false
+
+      - name: Run React Doctor full web scan
+        id: react-doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_file="$RUNNER_TEMP/react-doctor-web-report.json"
+          echo "report-file=$report_file" >> "$GITHUB_OUTPUT"
+          npm exec --yes --package react-doctor@latest -- \
+            react-doctor web \
+            --full \
+            --json \
+            --json-compact \
+            --no-score \
+            --fail-on none \
+            > "$report_file"
+
+      - name: Summarize React Doctor report
+        if: always()
+        shell: bash
+        env:
+          REPORT_FILE: ${{ steps.react-doctor.outputs.report-file }}
+        run: |
+          set -euo pipefail
+          if [ -z "${REPORT_FILE:-}" ] || [ ! -f "$REPORT_FILE" ]; then
+            echo "React Doctor report was not generated." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          node <<'NODE'
+          const fs = require("fs");
+          const reportPath = process.env.REPORT_FILE;
+          const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+          const diagnostics = report.diagnostics ?? report.projects?.flatMap((project) => project.diagnostics ?? []) ?? [];
+          const countBy = (key) => {
+            const counts = new Map();
+            for (const diagnostic of diagnostics) {
+              const value = diagnostic[key] ?? "(none)";
+              counts.set(value, (counts.get(value) ?? 0) + 1);
+            }
+            return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+          };
+          const projectRows = (report.projects ?? [])
+            .map((entry) => {
+              const project = entry.project ?? {};
+              return `| ${project.projectName ?? "(unknown)"} | ${project.framework ?? "(unknown)"} | ${project.reactVersion ?? "(unknown)"} | ${project.sourceFileCount ?? 0} |`;
+            })
+            .join("\n");
+          const topRules = countBy("rule").slice(0, 10).map(([rule, count]) => `| ${rule} | ${count} |`).join("\n");
+          const topFiles = countBy("filePath").slice(0, 10).map(([filePath, count]) => `| ${filePath} | ${count} |`).join("\n");
+          const summary = [
+            "# React Doctor Web",
+            "",
+            `- Version: ${report.version ?? "(unknown)"}`,
+            `- Mode: ${report.mode ?? "(unknown)"}`,
+            `- Errors: ${report.summary?.errorCount ?? 0}`,
+            `- Warnings: ${report.summary?.warningCount ?? 0}`,
+            `- Affected files: ${report.summary?.affectedFileCount ?? 0}`,
+            `- Total diagnostics: ${report.summary?.totalDiagnosticCount ?? 0}`,
+            "",
+            "## Projects",
+            "",
+            "| Name | Framework | React | Source files |",
+            "| --- | --- | --- | --- |",
+            projectRows || "| (none) | (none) | (none) | 0 |",
+            "",
+            "## Top Rules",
+            "",
+            "| Rule | Count |",
+            "| --- | ---: |",
+            topRules || "| (none) | 0 |",
+            "",
+            "## Top Files",
+            "",
+            "| File | Count |",
+            "| --- | ---: |",
+            topFiles || "| (none) | 0 |",
+            "",
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          NODE
+
+      - name: Upload React Doctor report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: react-doctor-web-report
+          path: ${{ steps.react-doctor.outputs.report-file }}
+          if-no-files-found: error
