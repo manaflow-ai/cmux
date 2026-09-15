@@ -248,6 +248,46 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    @Test func testIrohAdmissionCanWaitForFirstRPCAfterTransportHandshake() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let transport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let sessionTask = Task {
+            await MobileHostService.acceptTransport(
+                transport,
+                authorization: authorization,
+                firstFrameTimeoutNanoseconds: 0,
+                idleTimeoutNanoseconds: 0,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+
+        // Iroh has already authenticated the peer before this application
+        // lane starts. It may be idle while the client finishes setup.
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(await transport.observedCloseCount() == 0)
+
+        try await transport.enqueue(Self.mobileHostStatusFrame(id: "delayed-first-rpc"))
+        _ = await transport.waitForSentBufferCount(1)
+        #expect(await transport.observedCloseCount() == 0)
+
+        await transport.finishReceiving()
+        _ = await sessionTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
