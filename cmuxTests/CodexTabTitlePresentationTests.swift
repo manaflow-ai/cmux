@@ -211,11 +211,13 @@ struct CodexTabTitlePresentationTests {
         // Mirror title events intentionally do not overwrite the local stable
         // title. They still must clear any transient projection inherited
         // before the workspace became a mirror.
-        #expect(!workspace.updatePanelTitle(panelId: panelId, title: "remote-name"))
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "remote-name"))
 
         let tab = try #require(workspace.bonsplitController.tab(tabId))
         #expect(tab.title == "some-name")
         #expect(!tab.isLoading)
+        #expect(workspace.panelTitles[panelId] == "some-name")
+        #expect(!workspace.updatePanelTitle(panelId: panelId, title: "remote-name"))
     }
 
     @Test("another agent lifecycle key does not borrow Codex title markers")
