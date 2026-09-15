@@ -65,8 +65,8 @@ final class cmuxUITests: XCTestCase {
             image.swipeLeft()
             let olderTitle = sheet.staticTexts["What's New in cmux"].firstMatch
             XCTAssertTrue(olderTitle.waitForExistence(timeout: 5))
-            let olderDetail = app.staticTexts.matching(NSPredicate(
-                format: "label BEGINSWITH %@", "Choosing Tailscale Only shows exactly"
+            let olderDetail = sheet.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
             )).firstMatch
             assertFitted(olderDetail)
             XCTAssertGreaterThan(abs(olderTitle.frame.minY - pairingTop), 20, "Swiping must resize the sheet")
