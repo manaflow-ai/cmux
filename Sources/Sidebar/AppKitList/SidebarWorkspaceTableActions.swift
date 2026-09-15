@@ -42,6 +42,8 @@ struct SidebarWorkspaceTableActions {
     let closeWorkspace: (UUID) -> Void
     let createWorkspaceAtEnd: () -> Void
     let createEmptyWorkspaceGroup: () -> Void
+    /// Clears sidebar membership without changing the active workspace.
+    let clearWorkspaceSelection: () -> Void
     let beginWorkspaceDrag: (UUID) -> Void
     let movingWorkspaceCount: ((UUID) -> Int)?
     let endWorkspaceDrag: () -> Void
@@ -81,6 +83,7 @@ struct SidebarWorkspaceTableActions {
         closeWorkspace: @escaping (UUID) -> Void,
         createWorkspaceAtEnd: @escaping () -> Void,
         createEmptyWorkspaceGroup: @escaping () -> Void,
+        clearWorkspaceSelection: @escaping () -> Void = {},
         beginWorkspaceDrag: @escaping (UUID) -> Void,
         movingWorkspaceCount: ((UUID) -> Int)?,
         endWorkspaceDrag: @escaping () -> Void,
@@ -106,6 +109,7 @@ struct SidebarWorkspaceTableActions {
         self.closeWorkspace = closeWorkspace
         self.createWorkspaceAtEnd = createWorkspaceAtEnd
         self.createEmptyWorkspaceGroup = createEmptyWorkspaceGroup
+        self.clearWorkspaceSelection = clearWorkspaceSelection
         self.beginWorkspaceDrag = beginWorkspaceDrag
         self.movingWorkspaceCount = movingWorkspaceCount
         self.endWorkspaceDrag = endWorkspaceDrag

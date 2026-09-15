@@ -952,6 +952,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
         cmuxDebugLog("sidebar.table.click row=\(row) rows=\(rows.count)")
 #endif
+        if row < 0 {
+            cancelSelectionIntent()
+            restoreVisibleCellPaint()
+            actions?.clearWorkspaceSelection()
+            return
+        }
         guard rows.indices.contains(row) else { return }
         // Capture modifiers from the clicking EVENT at action time: a
         // deferred or coalesced apply must not re-read the keyboard later,
@@ -2053,15 +2059,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func emptyAreaMenu() -> NSMenu {
         let menu = NSMenu()
-        let item = NSMenuItem(
+        let item = SidebarRowMenuActionItem(
             title: String(
                 localized: "contextMenu.workspaceGroup.newEmpty",
                 defaultValue: "New Empty Workspace Group"
-            ),
-            action: #selector(createEmptyWorkspaceGroupFromMenu),
-            keyEquivalent: ""
-        )
-        item.target = self
+            )
+        ) { [weak self] in self?.createEmptyWorkspaceGroup() }
         let shortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
         if let keyEquivalent = shortcut.menuItemKeyEquivalent {
             item.keyEquivalent = keyEquivalent
@@ -2069,10 +2072,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         menu.addItem(item)
         return menu
-    }
-
-    @objc private func createEmptyWorkspaceGroupFromMenu() {
-        createEmptyWorkspaceGroup()
     }
 
     func pointerDidLeaveTable() {
