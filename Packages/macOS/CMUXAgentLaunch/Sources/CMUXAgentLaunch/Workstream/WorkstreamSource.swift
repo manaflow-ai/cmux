@@ -12,6 +12,7 @@ public enum WorkstreamSource: String, Codable, Sendable, CaseIterable, Equatable
     case cursor
     case opencode
     case gemini
+    case grok
     case hermesAgent = "hermes-agent"
     case copilot
     case codebuddy
