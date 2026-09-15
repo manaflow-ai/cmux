@@ -176,6 +176,39 @@ struct CodexTabTitlePresentationTests {
         #expect(tab.isLoading)
     }
 
+    @Test(
+        "catalog title writes share lifecycle and ownership reconciliation",
+        arguments: [Workspace.CustomTitleSource.user, .remote]
+    )
+    func catalogTitleWritesReconcileCodexPresentation(claimedSource: Workspace.CustomTitleSource) throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let tabId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.updatePanelTitle(panelId: panelId, title: "some-name"))
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        #expect(workspace.setPanelCustomTitle(
+            panelId: panelId, title: "Generated lane", source: .auto,
+            propagateToCloud: false, catalog: .shared
+        ))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(workspace.setPanelCustomTitle(
+            panelId: panelId, title: "Generated lane", source: claimedSource,
+            propagateToCloud: false, catalog: .shared
+        ))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "Generated lane")
+        #expect(workspace.bonsplitController.tab(tabId)?.isLoading == true)
+
+        #expect(workspace.setPanelCustomTitle(
+            panelId: panelId, title: nil, propagateToCloud: false, catalog: .shared
+        ))
+        #expect(workspace.bonsplitController.tab(tabId)?.title == "◐ some-name")
+        #expect(workspace.panelTitles[panelId] == "some-name")
+        #expect(workspace.panelCustomTitles[panelId] == nil)
+    }
+
     @Test("a remote tmux mirror clears stale Codex tab presentation state")
     func remoteMirrorDoesNotRetainCodexMarkerOrLoading() throws {
         let workspace = Workspace()
