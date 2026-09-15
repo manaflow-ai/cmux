@@ -1125,7 +1125,7 @@ struct CloudSCPIntegrationTests {
         try process.run()
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let report = String(decoding: data, as: UTF8.self)
+        let report = String(bytes: data, encoding: .utf8) ?? "Invalid UTF-8 test output"
         #expect(process.terminationStatus == 0, "\(report)")
         #expect(report.contains("PASS watch and bounded control messages without file bytes"), "\(report)")
     }

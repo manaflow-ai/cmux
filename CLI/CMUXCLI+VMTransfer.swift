@@ -344,7 +344,16 @@ extension CMUXCLI {
         let generated = CLIProcessRunner.runProcess(executablePath: "/usr/bin/ssh-keygen", arguments: ["-q", "-t", "ed25519", "-N", "", "-C", "cmux-scp", "-f", identity.path], stdinText: "", timeout: 15)
         guard generated.status == 0 else { throw CLIError(message: "Cloud file transfer could not create its SSH key.") }
         let publicKey = try String(contentsOf: identity.appendingPathExtension("pub"), encoding: .utf8)
-        let endpoint = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
+        var endpoint = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
+        func refreshGrantIfNeeded() throws {
+            guard endpoint.expiresAtUnix - Date().timeIntervalSince1970 < 60 else { return }
+            let renewed = try vmSCPTransferEndpoint(vmID: vmID, publicKey: publicKey, client: client)
+            guard renewed.hostPublicKey == endpoint.hostPublicKey,
+                  renewed.username == endpoint.username else {
+                throw CLIError(message: "Cloud file transfer stopped because the SSH host identity changed.")
+            }
+            endpoint = renewed
+        }
         try ("cmux-scp " + endpoint.hostPublicKey + "\n").write(to: transferDirectory.appendingPathComponent("known_hosts"), atomically: true, encoding: .utf8)
         let parent = (destination as NSString).deletingLastPathComponent
         let template = (parent.isEmpty ? "." : parent) + "/.cmux-push.XXXXXXXXXX"
@@ -361,6 +370,7 @@ extension CMUXCLI {
         let cleanup = "rm -rf -- \(shellQuote(remoteDirectory))"
         defer {
             do {
+                try refreshGrantIfNeeded()
                 _ = try runSCPProcess("/usr/bin/ssh", arguments: ["-p", String(endpoint.port), "--", endpoint.destination, cleanup], endpoint: endpoint, directory: transferDirectory)
             } catch { cliWriteStderr("Cloud transfer staging cleanup failed.\n") }
         }
@@ -369,6 +379,9 @@ extension CMUXCLI {
             "/usr/bin/scp", arguments: ["-q", "-P", String(endpoint.port), "--", localFile.path, endpoint.destination + ":" + remoteStaging],
             endpoint: endpoint, directory: transferDirectory
         )
+        // An established SFTP session can outlive its grant. Refresh before
+        // opening the next SSH connection, without replaying the uploaded data.
+        try refreshGrantIfNeeded()
         let verify = "set -eu; actual=$(sha256sum < \(shellQuote(remoteStaging))); test \"${actual%% *}\" = \(shellQuote(localDigest)); "
         let finalize: String
         if isDirectory {
@@ -398,6 +411,7 @@ extension CMUXCLI {
         let port: Int
         let username: String
         let hostPublicKey: String
+        let expiresAtUnix: TimeInterval
         var destination: String { "\(username)@\(host)" }
     }
 
@@ -409,12 +423,11 @@ extension CMUXCLI {
               username.range(of: "^[A-Za-z_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
               let hostPublicKey = response["host_public_key"] as? String,
               hostPublicKey.range(of: "^ssh-ed25519 [A-Za-z0-9+/]+={0,2}$", options: .regularExpression) != nil,
-              let expires = (response["expires_at_unix"] as? Int)
-                ?? (response["expires_at_unix"] as? Double).map(Int.init),
-              Double(expires) > Date().timeIntervalSince1970 else {
+              let expires = response["expires_at_unix"] as? Double,
+              expires.isFinite, expires > Date().timeIntervalSince1970 else {
             throw CLIError(message: "Cloud SCP requires a private connection and a verified SSH host key.")
         }
-        return VMSCPTransferEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey)
+        return VMSCPTransferEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expires)
     }
 
     @discardableResult
