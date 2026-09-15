@@ -23,6 +23,8 @@ struct MobileWhatsNewSheet: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pageHeights: [String: CGFloat] = [:]
     @State private var footerHeight: CGFloat = 0
+    @State private var detents: Set<PresentationDetent> = [.large]
+    @State private var selectedDetent: PresentationDetent = .large
 
     private var usesFullHeight: Bool {
         if dynamicTypeSize.isAccessibilitySize { return true }
@@ -82,9 +84,25 @@ struct MobileWhatsNewSheet: View {
         .background(PlatformPalette.systemBackground)
         .accessibilityIdentifier("MobileWhatsNewSheet")
         .presentationSizing(.fitted)
-        .presentationDetents([contentHeight.map { .height($0) } ?? .large])
+        .presentationDetents(detents, selection: $selectedDetent)
+        .onChange(of: contentHeight, initial: true) { _, height in
+            resizeSheet(to: height)
+        }
         .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
+    }
+
+    private func resizeSheet(to height: CGFloat?) {
+        let target = height.map { PresentationDetent.height($0) } ?? .large
+        guard target != selectedDetent else { return }
+        // Both endpoints must exist while the system animates its selection.
+        detents.insert(target)
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3), completionCriteria: .removed) {
+            selectedDetent = target
+        } completion: {
+            guard selectedDetent == target else { return }
+            detents = [target]
+        }
     }
 
     @ViewBuilder

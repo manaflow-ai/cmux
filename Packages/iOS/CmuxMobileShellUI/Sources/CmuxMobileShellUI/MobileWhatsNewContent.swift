@@ -220,6 +220,7 @@ struct MobileWhatsNewPairingSetupContent: View {
                 Text(page.title)
                     .font(layout.titleFont)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(L10n.string(
                     "mobile.pairingOptInUpdate.requirement",
