@@ -1026,8 +1026,8 @@ extension Workspace {
               panels[anchorPanelId] != nil else {
             return nil
         }
-        guard let scaffold = SessionSplitContainerLayoutCodec(controller: bonsplitController).createRestorePlaceholderSplit(
-            inPane: paneId(forPanelId: anchorPanelId) ?? bonsplitController.allPaneIds.first!,
+        guard let sourcePane = paneId(forPanelId: anchorPanelId) ?? bonsplitController.allPaneIds.first, let scaffold = SessionSplitContainerLayoutCodec(controller: bonsplitController).createRestorePlaceholderSplit(
+            inPane: sourcePane,
             orientation: placement.orientation,
             insertFirst: placement.insertFirst
         ) else {
