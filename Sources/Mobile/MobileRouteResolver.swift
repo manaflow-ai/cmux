@@ -449,7 +449,7 @@ extension CmxAttachRoute {
             "endpoint": endpointPayload,
             "priority": priority
         ]
-        if let groupID { payload["group_id"] = groupID }
+        if let groupID { payload["groupID"] = groupID }
         return payload
     }
 }
