@@ -11,3 +11,4 @@ Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTest
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTerminalLaneCoordinatorTests.swift	sleep-then-assert	upstream coordinator readiness timing assertion
 web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
 Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	legacy QUIC teardown grace assertion; remove when transport exposes an event-driven closure signal
+cmuxTests/DeviceTerminalMirrorTests.swift\tsleep-then-assert\tdeliberately hung transport cancellation test; completion is driven by cancellation stream
