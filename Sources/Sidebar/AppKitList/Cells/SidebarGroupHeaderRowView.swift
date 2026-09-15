@@ -35,6 +35,22 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     override var isFlipped: Bool { true }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard SidebarSecondaryClick.isActive(NSApp.currentEvent) else { return hit }
+        let local = convert(point, from: superview)
+        guard !isHidden, alphaValue > 0.01, bounds.contains(local) else { return hit }
+        return self
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
+        super.rightMouseDown(with: event)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
