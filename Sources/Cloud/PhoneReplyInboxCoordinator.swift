@@ -43,6 +43,8 @@ final class PhoneReplyInboxCoordinator {
     private var sweepTask: Task<Void, Never>?
     private var sweepQueuedWhileRunning = false
     private var seenReplyIds: PhoneReplySeenSet
+    private var decryptFailureCounts: [String: Int] = [:]
+    private static let maxDecryptFailures = 3
     /// Injected so tests drive the debounce and retry delays deterministically
     /// (house rule: no bare Task.sleep in runtime code). Cancellation of the
     /// owning task propagates through the injected sleeper's own throw.
@@ -134,9 +136,20 @@ final class PhoneReplyInboxCoordinator {
                 reply,
                 accountID: await MainActor.run { client.authenticatedAccountID() }
             ) else {
-                retryableCount += 1
+                let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
+                decryptFailureCounts[reply.replyId] = failures
+                if failures >= Self.maxDecryptFailures {
+                    ackIds.append(reply.replyId)
+                    decryptFailureCounts.removeValue(forKey: reply.replyId)
+                    phoneReplySweepLog.error(
+                        "relayed phone reply dropped after decrypt failures reply=\(reply.replyId.prefix(8), privacy: .public)"
+                    )
+                } else {
+                    retryableCount += 1
+                }
                 continue
             }
+            decryptFailureCounts.removeValue(forKey: reply.replyId)
             var params: [String: Any] = [
                 "surface_id": decrypted.surfaceId,
                 // Keep the reply text separate from its submit key. Appending a

@@ -297,6 +297,8 @@ public enum PhonePushKeyStore {
 
 public enum PhonePushPeerKeyStore {
     private static let prefix = "cmux.phone-push.peer.v2."
+    private static let registryKey = prefix + "registry"
+    private static let maximumEntries = 128
     private static let lock = NSLock()
     private nonisolated(unsafe) static var defaults: UserDefaults {
         #if os(iOS)
@@ -309,7 +311,22 @@ public enum PhonePushPeerKeyStore {
     public static func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
         guard !descriptor.keyID.isEmpty else { return }
         lock.withLock {
-            defaults.set(try? JSONEncoder().encode(descriptor), forKey: key(for: tuple))
+            let storageKey = key(for: tuple)
+            defaults.set(try? JSONEncoder().encode(descriptor), forKey: storageKey)
+            var orderedKeys = defaults.stringArray(forKey: registryKey) ?? []
+            let discoveredKeys = defaults.dictionaryRepresentation().keys.filter {
+                $0.hasPrefix(prefix) && $0 != registryKey
+            }
+            for discoveredKey in discoveredKeys where !orderedKeys.contains(discoveredKey) {
+                orderedKeys.append(discoveredKey)
+            }
+            orderedKeys.removeAll { $0 == storageKey }
+            orderedKeys.append(storageKey)
+            while orderedKeys.count > maximumEntries {
+                let staleKey = orderedKeys.removeFirst()
+                defaults.removeObject(forKey: staleKey)
+            }
+            defaults.set(orderedKeys, forKey: registryKey)
         }
     }
 
