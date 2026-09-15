@@ -2,6 +2,57 @@ import CmuxRemoteSession
 import Foundation
 import os
 
+#if DEBUG
+/// Environment overrides, in seconds, for the remote-tmux waits that decide how long a test
+/// takes. DEBUG only, and read once.
+///
+/// Three waits set the floor on a test case's wall clock. A case whose stream never publishes a
+/// topology pays the attach readiness barrier's 15 seconds. A case that closes a mirror on a
+/// stream too wedged to answer pays the detach backstop's 3 seconds. A case that loses its
+/// transport pays a 1 second first backoff and up to 10 seconds later on. None of the three has
+/// an event that could shorten it — they exist precisely because the peer stopped answering — so
+/// a suite of a few hundred cases costs hours unless a test can name a smaller number.
+///
+/// Unset means the shipped default, so a test that sets nothing behaves exactly like the
+/// product. Each value is read the first time its timer is used, so a test has to set the
+/// variable (launch environment, or `setenv` early in the process) before the first connection
+/// is created.
+///
+/// A value has to parse as a finite number greater than zero. Anything else — empty, prose, `0`,
+/// negative, `inf` — is ignored in favour of the default, because a mistyped value that turned a
+/// barrier into a no-op would make every case pass without waiting for the thing under test.
+enum RemoteTmuxDebugTimers {
+    /// Override for the attach readiness barrier, `RemoteTmuxController.mirrorTopologyBarrierSeconds`
+    /// (default 15).
+    static let topologyBarrierSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_TOPOLOGY_BARRIER_SECONDS")
+    /// Override for the deliberate-detach backstop,
+    /// ``RemoteTmuxControlConnection/deliberateDetachBackstopSeconds`` (default 3).
+    static let detachBackstopSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_DETACH_BACKSTOP_SECONDS")
+    /// Override for the first reconnect backoff, `reconnectBaseDelaySeconds` (default 1).
+    static let reconnectBaseSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_RECONNECT_BASE_SECONDS")
+    /// Override for the reconnect backoff cap, `reconnectMaxDelaySeconds` (default 10).
+    static let reconnectMaxSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_RECONNECT_MAX_SECONDS")
+    /// Override for how long an attach must hold to count as working,
+    /// ``RemoteTmuxControlConnection/workingConnectionSeconds`` (default 30).
+    static let workingConnectionSeconds = secondsFromEnvironment(
+        "CMUX_REMOTE_TMUX_WORKING_CONNECTION_SECONDS")
+
+    private static func secondsFromEnvironment(_ name: String) -> Double? {
+        guard let raw = ProcessInfo.processInfo.environment[name]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let seconds = Double(raw),
+            seconds.isFinite,
+            seconds > 0
+        else { return nil }
+        return seconds
+    }
+}
+#endif
+
 /// A live tmux control-mode connection to one remote session.
 ///
 /// Spawns `ssh -tt <ControlMaster> host tmux -CC attach -t <session>` as a
@@ -30,6 +81,10 @@ final class RemoteTmuxControlConnection {
 
     private(set) var started = false
     private(set) var enterReceived = false
+    /// Whether any spawn on this connection has reached control mode. Unlike
+    /// ``enterReceived`` it survives a respawn, which is what lets a retry tell "the
+    /// session I was in went away" from "I never got in at all".
+    private(set) var everReachedControlMode = false
     /// The connection's lifecycle phase. Drives reconnect-on-transport-loss and the
     /// disconnected UI; `exited` is derived from it.
     private(set) var connectionState: ConnectionState = .connecting {
@@ -41,6 +96,9 @@ final class RemoteTmuxControlConnection {
                 finishConnectionWaiters(connected: true)
             case .ended:
                 finishConnectionWaiters(connected: false)
+                // A connection that ends before publishing any window never had a mirror to
+                // offer; fail its readiness waiters rather than leaving them to time out.
+                resolveInitialTopology(ready: false)
             case .connecting, .reconnecting:
                 break
             }
@@ -104,6 +162,18 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
+    /// In-flight raw-line queries (see ``queryWithTimeout(_:timeout:reconnectOnTimeout:)``),
+    /// keyed by the token carried on their `.rawQuery` command. Flushed with
+    /// `.unanswered` on any stream reset so an awaiting coordinator never hangs.
+    var rawQueryCompletions: [UUID: (RemoteTmuxRawQueryOutcome) -> Void] = [:]
+    var rawQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    /// `true` when this connection is the multiplexer's shared per-host view stream
+    /// (a hidden `cmux-view-*` session with other sessions' windows linked in), rather
+    /// than a dedicated per-session connection. Enables the host-wide session-digest
+    /// subscription and the extra topology notifications a shared stream needs.
+    var isSharedViewStream = false
+    /// Whether the ``sessionDigestSubscriptionName`` `refresh-client -B` is active.
+    var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
     /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
@@ -123,8 +193,70 @@ final class RemoteTmuxControlConnection {
     private var stderrTask: Task<Void, Never>?
     private var parser = RemoteTmuxControlStreamParser()
     private var ingestTask: Task<Void, Never>?
-    private var processGeneration: UInt64 = 0
+    /// Bumped on every spawn. Readable across the type's extensions so a completion that
+    /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
+    /// answer describes a stream that no longer exists. Writable only here.
+    private(set) var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    /// A `detach-client` cmux sent is still waiting for tmux's `%exit`. That exit is cmux's own
+    /// doing, so it must not reach the exit observers as a session that ended remotely.
+    private var awaitingDeliberateDetach = false
+    private var deliberateDetachBackstop: DispatchWorkItem?
+    /// How many times a `%exit` has been treated as a possible transport death and answered with a
+    /// reattach. Reset by a successful attach, so it counts consecutive failures rather than a
+    /// lifetime total.
+    private var transportDeathReattachCount = 0
+    /// Past this many consecutive transport-death reattaches, believe the `%exit`.
+    static let maxTransportDeathReattempts = 3
+    /// When the current spawn reached control mode, or nil if it never has.
+    private var controlModeEnteredAt: ContinuousClock.Instant?
+    /// How long an attach has to hold before it counts as having worked.
+    ///
+    /// A tunnel that dies a second after every attach still publishes windows on each one, so
+    /// "the mirror recovered" cannot be read off the attach alone. Both the reattach budget and
+    /// the reconnect backoff reset on this instead: a connection that lasted is a recovery, and a
+    /// flap is not.
+    ///
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_WORKING_CONNECTION_SECONDS`, so a test can drive both
+    /// sides of the rule without holding a fake connection open for half a minute.
+    static let workingConnectionSeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.workingConnectionSeconds { return override }
+        #endif
+        return 30
+    }()
+    /// Whether the attach now ending held long enough to count as a recovery.
+    private var connectionHeldLongEnough: Bool {
+        guard let enteredAt = controlModeEnteredAt else { return false }
+        return enteredAt.duration(to: .now) >= .seconds(Self.workingConnectionSeconds)
+    }
+    /// Whether a `%exit` from a persistent-remote transport is answered with a reattach.
+    ///
+    /// Always true in the product. It exists as a constant so the behaviour can be built out for a
+    /// red/green comparison — the claim "without this, an externally detached mirror closes" is
+    /// worth measuring rather than reading off the code path. Overridable only at compile time via
+    /// `CMUX_NO_TRANSPORT_DEATH_REATTACH`, so no runtime surface ships.
+    #if CMUX_NO_TRANSPORT_DEATH_REATTACH
+    static let reattachOnPossibleTransportDeath = false
+    #else
+    static let reattachOnPossibleTransportDeath = true
+    #endif
+
+    #if DEBUG
+    /// Test seam: moves the current attach's control-mode entry back in time, so a case can drive
+    /// both sides of ``workingConnectionSeconds`` without holding a fake connection open for it.
+    func backdateControlModeEntryForTesting(bySeconds seconds: Double) {
+        guard let enteredAt = controlModeEnteredAt else { return }
+        controlModeEnteredAt = enteredAt.advanced(by: .seconds(-seconds))
+    }
+    #endif
+
+    /// Called when an attach that lasted ends, so the cap counts consecutive failures.
+    func clearTransportDeathReattachBudget() {
+        guard transportDeathReattachCount > 0 else { return }
+        record("transport-death-reattach-recovered after=\(transportDeathReattachCount)")
+        transportDeathReattachCount = 0
+    }
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
     var windowReorderBatchFailed = false
@@ -133,6 +265,27 @@ final class RemoteTmuxControlConnection {
     var windowReorderVerificationGeneration: UInt64?
     var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
+
+    /// Whether this connection ever delivered a usable initial topology.
+    ///
+    /// Reaching control mode is not the same as having something to mirror. Measured against a
+    /// real host: the stream sent the DCS intro, `%begin/%end`, `%session-changed`, and then
+    /// `%exit` — no window ever arrived. `%enter` had already moved `connectionState` to
+    /// `.connected`, so ``waitUntilConnected()`` returned true, the caller created a workspace,
+    /// and the RPC reported success for a mirror that could never populate. The user saw an empty
+    /// workspace with a local placeholder shell.
+    ///
+    /// Sticky on purpose: once a connection has published windows it stays `.ready`, so a later
+    /// normal end (the session being killed, the last window closing) is not confused with an
+    /// initial attach that never worked.
+    enum InitialTopologyState: Equatable {
+        case pending
+        case ready
+        case failed
+    }
+
+    private(set) var initialTopologyState: InitialTopologyState = .pending
+    private var topologyWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
     /// consumed. That first block is matched explicitly (see the `.commandResult`
@@ -141,7 +294,9 @@ final class RemoteTmuxControlConnection {
     /// result slot stolen by the attach block. Reset per spawn (each ssh re-attach
     /// produces a fresh attach block).
     private var attachBlockDrained = false
-    private let createIfMissing: Bool
+    /// How the initial attach opens the session. Reconnects always use `.attach`; see
+    /// ``spawnProcess(mode:)``.
+    let attachMode: RemoteTmuxControlAttachMode
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
@@ -158,11 +313,59 @@ final class RemoteTmuxControlConnection {
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
+    /// Set when a reconnect stopped because the host wants interactive authentication
+    /// and a consumer was told. No retry is scheduled while this is true: the mirror is
+    /// deliberately parked (frozen, not ended) until ``resumeAfterInteractiveAuth()``
+    /// or ``stop()``.
+    private var awaitingInteractiveAuth = false
     /// stderr text captured for the in-flight spawn, inspected when a reconnect
     /// attempt's process exits to tell "session genuinely gone" from "host still
     /// unreachable". Reset at the start of each spawn.
     private var stderrBuffer = ""
     private var preControlOutputBuffer = ""
+    /// Set the first time the pre-control region looks like an unanswered prompt, and never unset for
+    /// this process.
+    ///
+    /// The region is capped at ``maxStderrBytes`` and drops its oldest bytes, so recomputing the answer
+    /// on demand meant a chatty transport could push the prompt out of the window and the observation
+    /// would silently become false — a login that was seen and then forgotten. Reset per spawn along
+    /// with the buffer it summarises.
+    private var sawUnansweredCredentialPrompt = false
+    /// Whether the bytes before control mode are an unanswered credential prompt: a transport waiting
+    /// for a passcode it has no terminal to ask on.
+#if DEBUG
+    /// The pre-control region as the classifier sees it, capped, for diagnostics only. Distinguishes
+    /// "nothing arrived" from "something arrived and did not match", which look identical from outside.
+    /// Debug-only: its sole reader is a `cmuxDebugLog` call, so the release binary does not carry it.
+    var preControlObservationForDebug: String {
+        let combined = preControlOutputBuffer + parser.unterminatedTail
+        let flat = combined.replacingOccurrences(of: "\n", with: "\\n")
+        return flat.count <= 200 ? flat : String(flat.suffix(200))
+    }
+#endif
+
+    var isAwaitingCredentials: Bool {
+        guard !enterReceived else { return false }
+        if sawUnansweredCredentialPrompt { return true }
+        // The tail is not in the buffer yet: a prompt is written without a newline, which is what makes
+        // it a prompt, so it lives only in the parser until one arrives.
+        return RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(parser.unterminatedTail)
+    }
+
+    /// Latches the observation while the bytes that carry it are still in the region.
+    ///
+    /// A prompt is also the moment to offer the login. The transport asking for a
+    /// passcode does not fail and does not exit — it prints the prompt and waits — so
+    /// nothing else is coming, and leaving it to the attach deadline means the user
+    /// stares at a frozen mirror for the length of the timeout and then gets an error
+    /// about the host instead of the login that would have worked.
+    private func noteCredentialPromptIfSeen() {
+        guard !enterReceived, !sawUnansweredCredentialPrompt else { return }
+        guard RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+            preControlOutputBuffer + parser.unterminatedTail) else { return }
+        sawUnansweredCredentialPrompt = true
+        parkForInteractiveAuth(reason: "credential-prompt")
+    }
     /// Last client size applied via ``setClientSize(columns:rows:)``, re-applied
     /// after a reconnect so the resumed session keeps the mirror's grid instead of
     /// reverting to ssh's default 80×24.
@@ -259,10 +462,34 @@ final class RemoteTmuxControlConnection {
     static let attachRedrawKickGapMs = 350
 
     /// Base reconnect backoff (seconds); doubled each attempt up to ``reconnectMaxDelaySeconds``.
-    private static let reconnectBaseDelaySeconds: Double = 1
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_RECONNECT_BASE_SECONDS` so a test that drives a
+    /// transport death does not spend a second waiting for each retry; see ``RemoteTmuxDebugTimers``.
+    private static let reconnectBaseDelaySeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.reconnectBaseSeconds { return override }
+        #endif
+        return 1
+    }()
     /// Cap on the reconnect backoff (seconds). Retries continue indefinitely at this
     /// interval until the network returns or the session is found to be gone.
-    private static let reconnectMaxDelaySeconds: Double = 10
+    /// DEBUG builds honor `CMUX_REMOTE_TMUX_RECONNECT_MAX_SECONDS`, which matters for a case that
+    /// takes several attempts: without lowering the cap the backoff reaches 10 seconds per retry.
+    private static let reconnectMaxDelaySeconds: Double = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.reconnectMaxSeconds { return override }
+        #endif
+        return 10
+    }()
+    /// How long ``detachThenStop(timeout:)`` waits for tmux's `%exit` before tearing the transport
+    /// down anyway (seconds). DEBUG builds honor `CMUX_REMOTE_TMUX_DETACH_BACKSTOP_SECONDS`: a
+    /// stream that cannot publish a topology also cannot confirm a detach, so every teardown in a
+    /// failure case pays this wait in full.
+    nonisolated static let deliberateDetachBackstopSeconds: TimeInterval = {
+        #if DEBUG
+        if let override = RemoteTmuxDebugTimers.detachBackstopSeconds { return override }
+        #endif
+        return 3
+    }()
     /// Cap on captured stderr (bytes) so a noisy/hostile remote can't grow it unbounded.
     private static let maxStderrBytes = 8 * 1024
     /// Cap queued stdin bytes while the dedicated writer is backpressured. Above
@@ -329,15 +556,26 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
+    /// How this connection is carried, derived from the host's transport unless a caller
+    /// overrides it (which tests do, to assert argv without spawning anything).
+    let transportProfile: RemoteTmuxTransportProfile
+
     init(
         host: RemoteTmuxHost,
         sessionName: String,
-        createIfMissing: Bool = false,
+        attachMode: RemoteTmuxControlAttachMode = .attach,
+        transportProfile: RemoteTmuxTransportProfile? = nil,
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) {
+        self.transportProfile = transportProfile
+            ?? host.transport.profile(
+                port: host.transportPort,
+                terminalPath: host.transportTerminalPath,
+                broker: host.transportBroker
+            )
         self.host = host
         self.sessionName = sessionName
-        self.createIfMissing = createIfMissing
+        self.attachMode = attachMode
         self.pendingPaneSeedByteLimit = max(0, pendingPaneSeedByteLimit)
     }
 
@@ -345,8 +583,8 @@ final class RemoteTmuxControlConnection {
     func start() throws {
         guard !started else { return }
         try host.ensureControlSocketDirectory()
-        // The initial connect honors `createIfMissing`; reconnects never create.
-        try spawnProcess(createIfMissing: createIfMissing)
+        // The initial connect honors the caller's mode; reconnects never create.
+        try spawnProcess(mode: attachMode)
         started = true
     }
 
@@ -398,13 +636,13 @@ final class RemoteTmuxControlConnection {
     /// Resets the per-process state (parser, pending-command FIFO, captured stderr,
     /// `enterReceived`) so a reconnect starts from a clean control stream.
     ///
-    /// - Parameter createIfMissing: `true` only for the initial connect. Reconnect
-    ///   attempts pass `false` (`attach-session`), so a session killed during the
-    ///   outage fails the re-attach (→ `.ended`) instead of being silently recreated.
-    private func spawnProcess(createIfMissing: Bool) throws {
+    /// - Parameter mode: the caller's mode only on the initial connect. Reconnect
+    ///   attempts pass `.attach`, so a session killed during the outage fails the
+    ///   re-attach (→ `.ended`) instead of being silently recreated.
+    private func spawnProcess(mode: RemoteTmuxControlAttachMode) throws {
         // A fresh control stream cannot retain the prior parser or command FIFO.
         #if DEBUG
-        cmuxDebugLog("remote.stream.reset pendingCommands=\(pendingCommands.count) createIfMissing=\(createIfMissing)")
+        cmuxDebugLog("remote.stream.reset pendingCommands=\(pendingCommands.count) mode=\(mode)")
         #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
@@ -420,14 +658,78 @@ final class RemoteTmuxControlConnection {
         attachBlockDrained = false
         stderrBuffer = ""
         preControlOutputBuffer = ""
+        sawUnansweredCredentialPrompt = false
         enterReceived = false
+        controlModeEnteredAt = nil
+
+        // The remote command has to fit one canonical line, and this is the only place every
+        // caller passes through.
+        //
+        // The socket boundary already refuses an over-long session name, but only on
+        // `remote.tmux.attach`. The CLI drives `remote.tmux.mirror` and `remote.tmux.window`,
+        // whose names come from discovery rather than from a parameter, so they never reach that
+        // check — a real session with a long name, mirrored over a transport that types its
+        // command, produced an attach that timed out with nothing to explain it. Checking here
+        // covers every entrypoint by construction instead of once per RPC.
+        if let overrun = transportProfile.commandLengthOverrun(
+            sessionName: sessionName, mode: mode
+        ) {
+            let detail = "remote command is \(overrun.actual) bytes, over this transport's "
+                + "\(overrun.budget)-byte limit; the remote shell would never receive it"
+            record("transport-command-too-long")
+            stderrBuffer.append(detail + "\n")
+            // Throws rather than reporting an exit, and the difference is the whole point.
+            //
+            // This runs inside `start()`, before the caller has registered anything: `attach` adds
+            // only `onSessionChanged` when it caches the connection, and the mirror's `onExit`
+            // arrives later still. An earlier version ended the connection here and returned
+            // normally, so `notifyExit()` fired with nobody listening, `started` was set, `attach`
+            // cached the connection despite its "insert only after a successful launch" contract,
+            // and `mirrorSession` reported success — leaving a permanently dead mirror workspace
+            // with no error surfaced anywhere. On the multiplexer path the same call fired
+            // re-entrantly, because `RemoteTmuxViewConnection` registers observers before `start()`.
+            //
+            // Throwing uses the failure route both callers already handle: nothing is cached, and
+            // the error reaches the user.
+            throw RemoteTmuxError.launchFailed(detail)
+        }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: RemoteTmuxHost.defaultSSHExecutablePath())
-        proc.arguments = host.controlModeArguments(
+        let transportExecutable = transportProfile.executablePath()
+        // The last gate before this string becomes a process. Everything upstream validates its own
+        // inputs, but a broker reaches here from configuration rather than from the socket, and this
+        // is the only point that sees what is actually about to run. Absolute path, no hidden
+        // characters, and it has to exist: a relative name would be resolved against the app's PATH,
+        // which for a GUI app is not the user's, and the failure then looks like an unreachable host
+        // instead of a bad path.
+        guard RemoteTmuxBrokerRegistry.isAcceptableExecutable(
+            transportExecutable,
+            fileExists: { FileManager.default.isExecutableFile(atPath: $0) }
+        ) else {
+            let detail = "refusing to launch '\(transportExecutable)': a transport executable must be"
+                + " an absolute path to an existing executable file"
+            record("transport-executable-rejected")
+            stderrBuffer.append(detail + "\n")
+            throw RemoteTmuxError.launchFailed(detail)
+        }
+        let transportArgv = transportProfile.controlStreamArgv(
+            host: host,
             sessionName: sessionName,
-            createIfMissing: createIfMissing
+            mode: mode
         )
+        if transportProfile.requiresPseudoTerminal {
+            // Not because the transport is silent on pipes — it is not, measured — but because
+            // without usable terminal modes the client cannot go raw and the same stream arrives
+            // far larger, padded with full-screen redraws. See requiresPseudoTerminal.
+            record("transport-pty")
+            proc.executableURL = URL(fileURLWithPath: RemoteTmuxPseudoTerminal.allocatorPath)
+            proc.arguments = RemoteTmuxPseudoTerminal.wrap(
+                executable: transportExecutable, arguments: transportArgv
+            )
+        } else {
+            proc.executableURL = URL(fileURLWithPath: transportExecutable)
+            proc.arguments = transportArgv
+        }
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -528,14 +830,173 @@ final class RemoteTmuxControlConnection {
         connectionWaiters.removeValue(forKey: token)?(connected)
     }
 
+    /// Suspends until this connection has published a usable initial topology, or until it is
+    /// clear it never will. Callers that create a workspace for a mirror should await this rather
+    /// than ``waitUntilConnected()``, which only proves the stream reached control mode.
+    func waitUntilInitialTopology() async -> Bool {
+        switch initialTopologyState {
+        case .ready: return true
+        case .failed: return false
+        case .pending: break
+        }
+
+        let token = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                switch initialTopologyState {
+                case .ready:
+                    continuation.resume(returning: true)
+                    return
+                case .failed:
+                    continuation.resume(returning: false)
+                    return
+                case .pending:
+                    break
+                }
+                topologyWaiters[token] = { ready in
+                    continuation.resume(returning: ready)
+                }
+                if Task.isCancelled {
+                    finishTopologyWaiter(token, ready: false)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.finishTopologyWaiter(token, ready: false)
+            }
+        }
+    }
+
+    /// How many callers are currently suspended on the readiness barrier.
+    ///
+    /// Exists so a test can wait for a waiter to be genuinely registered instead of sleeping and
+    /// hoping: resolving before the waiter arrives makes the barrier answer from its already-resolved
+    /// shortcut, so the pending path under test is never exercised and the assertion passes anyway.
+    var initialTopologyWaiterCount: Int { topologyWaiters.count }
+
+    /// Moves the sticky readiness state once, and releases anyone waiting on it.
+    func resolveInitialTopology(ready: Bool) {
+        guard initialTopologyState == .pending else { return }
+        initialTopologyState = ready ? .ready : .failed
+        record(ready ? "initial-topology-ready" : "initial-topology-failed")
+        let waiters = Array(topologyWaiters.values)
+        topologyWaiters.removeAll()
+        for waiter in waiters { waiter(ready) }
+    }
+
+    private func finishTopologyWaiter(_ token: UUID, ready: Bool) {
+        topologyWaiters.removeValue(forKey: token)?(ready)
+    }
+
+    /// Asks tmux to drop this control client, then tears the transport down once it confirms.
+    ///
+    /// ``stop()`` alone is a complete detach only when killing the local client closes the pty
+    /// tmux is attached to. A transport whose remote half outlives its client
+    /// (``RemoteTmuxTransportProfile/remoteHalfSurvivesLocalExit``) leaves the client attached
+    /// forever, so the session collects one stale client per closed mirror.
+    ///
+    /// The wait is on tmux's own `%exit`, which is the confirmation that the client is gone.
+    /// `timeout` is only a backstop for a stream that has already stopped answering; without one a
+    /// wedged stream would keep the transport alive for good.
+    /// State for one bounded wait: the continuation, the observer registration to undo, and the
+    /// deadline to cancel. Held in a box so the exit callback can reach the token it was
+    /// registered under, which does not exist until registration returns.
+    @MainActor private final class ExitWait {
+        var continuation: CheckedContinuation<Void, Never>?
+        var token: ObserverToken?
+        var deadline: DispatchWorkItem?
+        var finished = false
+    }
+
+    /// Whether this connection owes tmux a goodbye before the app exits.
+    ///
+    /// Only a transport whose remote half outlives the local client does: killing an ssh client
+    /// closes the pty and tmux reaps that client itself. For the others — et among them — a
+    /// client that vanishes without detaching stays attached on the server forever, and while it
+    /// is attached its per-window size claims act as a ceiling on every window it claimed, for
+    /// everyone else working there.
+    var owesDeliberateDetach: Bool {
+        transportProfile.remoteHalfSurvivesLocalExit && connectionState == .connected
+    }
+
+    /// Sends `detach-client` and waits for the connection to end, bounded by `timeout`.
+    ///
+    /// The acknowledgement is the point. Handing the bytes to the writer proves nothing: they sit
+    /// on a serial queue, then in a pipe, then inside a transport process the caller is about to
+    /// terminate — each of which can drop them. The end of the connection is the evidence that
+    /// the server let go.
+    ///
+    /// One continuation, resumed by whichever edge arrives first and never twice. An earlier
+    /// version raced these as two children of a task group and hung the app on quit: cancelling
+    /// the group cannot stop a `withCheckedContinuation` that nobody resumes, so the group never
+    /// returned and termination stalled behind it.
+    func detachAwaitingExit(timeout: TimeInterval) async {
+        guard owesDeliberateDetach else { return }
+        let wait = ExitWait()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            wait.continuation = continuation
+            wait.token = addObserver(onExit: { [weak self] in self?.finishExitWait(wait) })
+            let deadline = DispatchWorkItem { [weak self] in
+                self?.record("detach-exit-not-acknowledged")
+                self?.finishExitWait(wait)
+            }
+            wait.deadline = deadline
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            detachThenStop(timeout: timeout)
+            // The stop above can end the connection synchronously, before the observer was ever
+            // going to fire; check once so that case is not left waiting out the deadline.
+            if exited { finishExitWait(wait) }
+        }
+    }
+
+    /// Resumes a bounded wait exactly once, whichever edge got there first.
+    private func finishExitWait(_ wait: ExitWait) {
+        guard !wait.finished else { return }
+        wait.finished = true
+        wait.deadline?.cancel()
+        wait.deadline = nil
+        if let token = wait.token { removeObserver(token) }
+        wait.token = nil
+        let continuation = wait.continuation
+        wait.continuation = nil
+        continuation?.resume()
+    }
+
+    func detachThenStop(timeout: TimeInterval = RemoteTmuxControlConnection.deliberateDetachBackstopSeconds) {
+        guard transportProfile.remoteHalfSurvivesLocalExit,
+              connectionState == .connected,
+              sendInternal("detach-client", kind: .other) else {
+            stop()
+            return
+        }
+        record("detach-client-sent")
+        awaitingDeliberateDetach = true
+        // Strong on purpose. Callers reach this through `removeCachedConnection(forKey:)?.detachThenStop()`,
+        // which drops the last reference in the same expression, so a weak capture could leave nobody
+        // alive to receive tmux's `%exit` or to run this backstop — the detach would then depend
+        // entirely on the enqueued bytes escaping a deallocating object. The queue holds this item for
+        // at most `timeout`, and `stop()` cancels it, so the retain is bounded either way.
+        let backstop = DispatchWorkItem {
+            guard self.awaitingDeliberateDetach else { return }
+            self.record("detach-client-unconfirmed")
+            self.stop()
+        }
+        deliberateDetachBackstop = backstop
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: backstop)
+    }
+
     /// Detaches: terminating ssh kills the control client but leaves the remote
     /// tmux session alive for resume. Permanently ends the connection — no reconnect.
     func stop() {
+        awaitingDeliberateDetach = false
+        deliberateDetachBackstop?.cancel()
+        deliberateDetachBackstop = nil
         // Mark `.ended` FIRST so the deliberate teardown's stream-end is ignored and
         // never fires `onExit` or a reconnect: only a genuine remote end (a real
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        awaitingInteractiveAuth = false
         cancelScheduledWork()
         teardownProcessHandles()
     }
@@ -585,8 +1046,76 @@ final class RemoteTmuxControlConnection {
         stderrPipeReader = nil
         stdinWriter?.close()
         stdinWriter = nil
-        process?.terminate()
+        terminateProcessTree(process)
         process = nil
+    }
+
+    /// Ends a spawned transport and everything it started.
+    ///
+    /// `Process.terminate()` signals one pid, and a transport is rarely one process: cmux may
+    /// launch a pty allocator that execs a broker that finally execs the client. Signalling only
+    /// the allocator leaves the broker and client running, and because the client holds the
+    /// remote end open they keep their session too — two such trees were found alive hours after
+    /// their respawns, each still holding a control client on the remote server.
+    ///
+    /// Signalling the allocator's process GROUP does not fix it either: `/usr/bin/script` puts
+    /// its command in a group of its own (measured — the allocator and its payload had different
+    /// pgids, and the payload survived a group kill). So the tree is walked instead, children
+    /// before parents, and each process that leads its own group takes that group with it.
+    ///
+    /// SIGTERM first because these clients close their remote end on it; anything still alive a
+    /// moment later is sent SIGKILL, so a client that ignores the polite signal cannot outlive
+    /// the stream that owns it.
+    private func terminateProcessTree(_ proc: Process?) {
+        guard let proc, proc.processIdentifier > 0 else { return }
+        let root = proc.processIdentifier
+        let tree = Self.processTree(root: root)
+        for pid in tree.reversed() { Self.signalProcess(pid, SIGTERM) }
+        proc.terminate()
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for pid in tree.reversed() where Darwin.kill(pid, 0) == 0 {
+                Self.signalProcess(pid, SIGKILL)
+            }
+        }
+    }
+
+    /// `root` and its descendants, parents before children, bounded in depth so a pathological
+    /// tree cannot make teardown expensive.
+    nonisolated static func processTree(root: pid_t, childrenOf: (pid_t) -> [pid_t] = childPIDs) -> [pid_t] {
+        var out: [pid_t] = [root]
+        var frontier = [root]
+        for _ in 0..<4 {
+            let next = frontier.flatMap(childrenOf).filter { !out.contains($0) }
+            if next.isEmpty { break }
+            out.append(contentsOf: next)
+            frontier = next
+        }
+        return out
+    }
+
+    /// Sends `signal` to `pid`, and to its process group when `pid` leads one. A leader's group
+    /// holds the processes it started that the walk cannot see (anything spawned between the
+    /// listing and the signal).
+    nonisolated private static func signalProcess(_ pid: pid_t, _ signal: Int32) {
+        guard pid > 1 else { return }
+        if getpgid(pid) == pid { _ = Darwin.kill(-pid, signal) }
+        _ = Darwin.kill(pid, signal)
+    }
+
+    /// Direct children of `pid`, via the kernel process table (no subprocess, so teardown does
+    /// not spawn anything while it is tearing down).
+    nonisolated static let childPIDs: (pid_t) -> [pid_t] = { parent in
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var length = 0
+        guard sysctl(&name, 4, nil, &length, nil, 0) == 0, length > 0 else { return [] }
+        let count = length / MemoryLayout<kinfo_proc>.stride
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        guard sysctl(&name, 4, &procs, &length, nil, 0) == 0 else { return [] }
+        let actual = length / MemoryLayout<kinfo_proc>.stride
+        return procs[0..<min(actual, count)].compactMap { entry in
+            entry.kp_eproc.e_ppid == parent ? entry.kp_proc.p_pid : nil
+        }
     }
 
     // MARK: - Internals
@@ -686,7 +1215,12 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    private func ingest(_ data: Data) {
+    /// Feeds stream bytes through this connection's own parser.
+    ///
+    /// Internal rather than private so a test can drive the real path: the pre-control credential
+    /// check reads the parser's unterminated tail, and a test that brings its own parser would not
+    /// exercise it.
+    func ingest(_ data: Data) {
         for message in parser.feed(data) {
             handle(message)
         }
@@ -699,9 +1233,54 @@ final class RemoteTmuxControlConnection {
         case .ended:
             return
         case .connecting, .connected:
-            // The control stream died without `%exit` — a transport loss. Keep the
-            // mirror frozen and reconnect.
-            beginReconnecting()
+            // The control stream died without `%exit`. What that means depends on who owns
+            // reconnection: for ssh it is a transport loss cmux recovers from, but a
+            // transport that reconnects internally does not end for a network drop, so its
+            // exit is the session genuinely ending.
+            // A transport that could not start will not start on the next try either, and
+            // retrying hides the reason: end-of-stream no longer implies the session is over, so
+            // without this the mirror waits out the attach timeout with nothing to explain it.
+            if RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer) {
+                record("stream-end-unrecoverable")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+                return
+            }
+            // A first attach that never reached control mode gets the same reading a
+            // reconnect attempt gets. This is the only classification the multiplexed
+            // path has: it opens no probe connection, so if the stream itself does not
+            // say "this host wants a login", nothing does, and a host that asks for a
+            // passcode reports as an unexplained failure instead of offering one.
+            if !enterReceived {
+                await stderrTask?.value
+                guard generation == processGeneration,
+                      connectionState == .connecting || connectionState == .connected
+                else { return }
+                let disposition = RemoteTmuxReconnectDisposition.classify(
+                    stderr: stderrBuffer,
+                    preControlOutput: preControlOutputBuffer,
+                    decoding: decoding
+                )
+                if disposition == .authRequired {
+                    parkForInteractiveAuth(reason: "attach")
+                    return
+                }
+            }
+            switch RemoteTmuxStreamEndDisposition.forStreamEnd(hasReachedControlMode: enterReceived) {
+            case .reconnect:
+                // Keep the mirror frozen and reconnect.
+                beginReconnecting()
+            case .sessionOver:
+                // Either the session ended, or the transport never started — both are terminal, and
+                // both must report rather than retry.
+                record(enterReceived ? "stream-end-session-over" : "stream-end-before-connect")
+                connectionState = .ended
+                cancelScheduledWork()
+                teardownProcessHandles()
+                observers.notifyExit()
+            }
         case .reconnecting:
             // A reconnect attempt's process exited before reaching control mode
             // (a successful attach would have moved us to `.connected` via `.enter`).
@@ -713,17 +1292,29 @@ final class RemoteTmuxControlConnection {
             // stop or stderr overflow aborting this reconnect attempt).
             guard generation == processGeneration,
                   connectionState == .reconnecting else { return }
-            // Classify: a session/server found gone is a genuine end; anything else
-            // (host unreachable, refused) is transient — keep retrying with backoff.
-            let sessionGone = decoding.stderrIndicatesSessionGone(stderrBuffer)
-                || decoding.controlOutputIndicatesSessionGone(preControlOutputBuffer)
+            // Classify into four outcomes, not two. A session/server found gone is a genuine end.
+            // A transport that cannot run at all is equally terminal, and looping on it burns the
+            // backoff forever while hiding the reason. A host asking for interactive authentication
+            // is NOT transient: the reconnect runs `BatchMode=yes` on pipes with no tty, so no
+            // number of retries can satisfy a password / MFA / FIDO touch — retrying forever leaves
+            // the mirror frozen with nothing on screen to explain why. Everything else (unreachable,
+            // refused) stays transient and keeps retrying.
+            let disposition = RemoteTmuxReconnectDisposition.classify(
+                stderr: stderrBuffer,
+                preControlOutput: preControlOutputBuffer,
+                decoding: decoding
+            )
+            let unrecoverable = RemoteTmuxSSHTransport.indicatesUnrecoverableTransportFailure(stderrBuffer)
             teardownProcessHandles()
-            if sessionGone {
+            if disposition == .sessionGone || unrecoverable {
+                if unrecoverable { record("reconnect-unrecoverable") }
                 record("reconnect-session-gone")
                 connectionState = .ended
                 reconnectTask?.cancel()
                 reconnectTask = nil
                 observers.notifyExit()
+            } else if disposition == .authRequired {
+                parkForInteractiveAuth(reason: "reconnect")
             } else {
                 scheduleReconnectAttempt()
             }
@@ -732,10 +1323,49 @@ final class RemoteTmuxControlConnection {
 
     // MARK: - Reconnect
 
+    private func parkForInteractiveAuth(reason: String) {
+        guard connectionState != .ended, !awaitingInteractiveAuth else { return }
+        // A transport that does not authenticate through cmux's ssh master gets no login offer:
+        // see `authenticationIsSSHShaped`. It keeps retrying instead of parking behind an edge
+        // that says nothing about it.
+        guard transportProfile.authenticationIsSSHShaped else {
+            record("\(reason)-auth-required-not-ssh-shaped")
+            // A first attach still has a live stream to tear down; a failed reconnect attempt has
+            // already been torn down by its caller and only needs the next attempt scheduled.
+            if connectionState == .connecting || connectionState == .connected {
+                beginReconnecting(preservingBackoff: true)
+            } else {
+                scheduleReconnectAttempt()
+            }
+            return
+        }
+        record("\(reason)-auth-required")
+        teardownProcessHandles()
+        connectionState = .reconnecting
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        awaitingInteractiveAuth = true
+        let handled = observers.notifyAuthRequired(sshArgv: host.interactiveAuthInvocation())
+        if !handled {
+            // Nobody is listening, so no login can arrive. Falling back to the
+            // backoff loop is strictly better than freezing forever: the host
+            // may become reachable without auth (a warm ControlMaster opened
+            // elsewhere), and the retry keeps that recovery possible.
+            record("\(reason)-auth-required-unhandled")
+            awaitingInteractiveAuth = false
+            scheduleReconnectAttempt()
+        }
+    }
+
     /// Freezes the mirror and reconnects after an unusable control stream.
-    func beginReconnecting() {
+    /// - Parameter preservingBackoff: keeps the current attempt count, so successive failures space
+    ///   themselves out instead of each starting from the base delay. Set when the reason for
+    ///   reconnecting is one that can repeat immediately — a `%exit` caused by the transport dying
+    ///   arrives within a second of every attach, and resetting the backoff there turned recovery
+    ///   into a tight loop against a tunnel that can demand interactive auth on each new connection.
+    func beginReconnecting(preservingBackoff: Bool = false) {
         guard connectionState == .connected || connectionState == .connecting else { return }
-        record("reconnecting")
+        record("reconnecting\(preservingBackoff ? " preserving-backoff attempt=\(reconnectAttemptCount)" : "")")
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()
@@ -749,10 +1379,37 @@ final class RemoteTmuxControlConnection {
         // rest of the connection's life.
         borderStatusSubscribedWindows.removeAll()
         borderStatusByWindow.removeAll()
+        // A `refresh-client -B` subscription belongs to the client too, so the
+        // session digest dies with it. The reconnect's attach drain calls
+        // `subscribeSessionDigest()` again, and it returns early unless this flag is
+        // cleared here — leaving the shared view blind to session create/kill/rename.
+        sessionDigestSubscribed = false
         pendingPostAttachAction = nil
         teardownProcessHandles()
-        reconnectAttemptCount = 0
+        // An attach that held is a working connection, whatever took it down, so the next retry
+        // chain starts fresh. One that died young keeps the count even when the caller did not ask
+        // to: a flapping tunnel reaches control mode on every attempt, and clearing there let it
+        // reattach at the base delay indefinitely. (The transport-death budget follows the same
+        // rule, cleared by the `%exit` handler that reads it.)
+        if !preservingBackoff || connectionHeldLongEnough { reconnectAttemptCount = 0 }
+        awaitingInteractiveAuth = false
         connectionState = .reconnecting
+        scheduleReconnectAttempt()
+    }
+
+    /// Resumes reconnecting after the user completed an interactive login.
+    ///
+    /// Call this once the argv handed to `onAuthRequired` has exited successfully, so
+    /// the shared ControlMaster is open and a pipe-backed re-attach can now
+    /// authenticate over it. Retries start immediately (no backoff wait): the reason
+    /// the previous attempt failed is gone, so making the user wait out a stale
+    /// backoff would only look broken. Idempotent, and a no-op unless the connection
+    /// is actually parked, so a duplicate callback cannot spawn a second retry chain.
+    func resumeAfterInteractiveAuth() {
+        guard awaitingInteractiveAuth, connectionState == .reconnecting else { return }
+        record("resume-after-interactive-auth")
+        awaitingInteractiveAuth = false
+        reconnectAttemptCount = 0
         scheduleReconnectAttempt()
     }
 
@@ -781,15 +1438,19 @@ final class RemoteTmuxControlConnection {
         }
     }
 
-    /// Re-spawns the ssh control client for a reconnect attempt. Always attach-only
-    /// (`createIfMissing: false`) so a session killed during the outage fails the
-    /// re-attach (→ classified `.ended`) instead of being silently recreated empty.
+    /// Re-spawns the ssh control client for a reconnect attempt. `.attach` once this
+    /// connection has been in control mode, so a session killed during the outage fails
+    /// the re-attach (→ classified `.ended`) instead of being silently recreated empty —
+    /// including for the hidden view session, whose initial attach may have created it.
+    /// A connection that never got in has no session to have lost, so it retries in the
+    /// mode it was asked for: the multiplexed view's session is created by its own
+    /// attach, and `.attach` would fail forever against a host it never reached.
     /// A spawn failure (e.g. control-socket dir) backs off and retries; the spawn's
     /// success/failure is observed via `.enter` (connected) or `handleStreamEnd`.
     private func attemptReconnectSpawn() {
         record("reconnect-attempt")
         do {
-            try spawnProcess(createIfMissing: false)
+            try spawnProcess(mode: everReachedControlMode ? .attach : attachMode)
         } catch {
             scheduleReconnectAttempt()
         }
@@ -805,6 +1466,8 @@ final class RemoteTmuxControlConnection {
         switch message {
         case .enter:
             enterReceived = true
+            everReachedControlMode = true
+            controlModeEnteredAt = .now
             record("enter")
             // First connect, or a reconnect attempt that reached control mode.
             if connectionState != .connected {
@@ -816,7 +1479,11 @@ final class RemoteTmuxControlConnection {
                 // would shrink the local primary grid, move its first visible row
                 // into scrollback, then paint that row again on restore.
                 pendingAttachRedrawKick = !wasReconnecting
-                reconnectAttemptCount = 0
+                // The attempt count is NOT cleared here. Reaching control mode is not yet
+                // evidence the connection works — a flapping tunnel reaches it every time and
+                // drops a second later, and zeroing the backoff on each one made those retries
+                // run at the base delay indefinitely. `beginReconnecting` clears it once the
+                // attach has actually held (see `workingConnectionSeconds`).
                 reconnectTask?.cancel()
                 reconnectTask = nil
                 // Do not send here: `.enter` precedes the attach result block, so a
@@ -826,8 +1493,39 @@ final class RemoteTmuxControlConnection {
             }
         case let .exit(reason):
             record("exit\(reason.map { " " + $0 } ?? "")")
-            // A genuine remote end (session/server intentionally exited). No reconnect.
+            // tmux confirming the `detach-client` cmux asked for. The client is gone, so the
+            // transport can go now — and this is not a remote end, so no exit observers.
+            if awaitingDeliberateDetach {
+                record("detach-client-confirmed")
+                stop()
+                return
+            }
             guard connectionState != .ended else { return }
+            // A transport whose remote half outlives its client can take the tmux client down with
+            // it, and the session survives. Measured over an et transport through a tunnel: control
+            // mode came up, 845 ms later the tunnel's socket closed, the et client's reconnect was
+            // answered INVALID_KEY so it shut down, and the closing remote pty made tmux emit this
+            // `%exit` — for a session that `tmux ls` still listed. Trusting `%exit` alone there
+            // closed a live session's mirror and told the user the host was unreachable.
+            //
+            // So ask instead of assuming, the same way stream EOF already does: reattach, and let
+            // the attach report whether the session is really gone. A reconnect never creates one
+            // (see `spawnProcess`), so a genuinely dead session cannot come back as an empty one.
+            //
+            // Bounded, because a tunnel that always dies would otherwise reattach forever. The
+            // budget counts consecutive failures, so an attach that held clears it first —
+            // `beginReconnecting` would clear it too, but the cap is read here, before that call.
+            if connectionHeldLongEnough { clearTransportDeathReattachBudget() }
+            if Self.reattachOnPossibleTransportDeath,
+               transportProfile.remoteHalfSurvivesLocalExit,
+               enterReceived,
+               transportDeathReattachCount < Self.maxTransportDeathReattempts {
+                transportDeathReattachCount += 1
+                record("exit-may-be-transport-death reattach=\(transportDeathReattachCount)")
+                beginReconnecting(preservingBackoff: true)
+                return
+            }
+            // A genuine remote end (session/server intentionally exited). No reconnect.
             connectionState = .ended
             cancelScheduledWork()
             observers.notifyExit()
@@ -980,6 +1678,12 @@ final class RemoteTmuxControlConnection {
                     #endif
                     requestWindows()
                 }
+            } else if name == Self.sessionDigestSubscriptionName, isSharedViewStream {
+                // Host-wide session create/kill/rename digest. GA per-session clients
+                // also see other sessions here, so only the shared view stream uses it
+                // to re-list and rebuild multiplexed mirrors (coalesced by the view
+                // coordinator's in-flight reconcile guard).
+                observers.notifyTopologyChanged()
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —
@@ -987,6 +1691,7 @@ final class RemoteTmuxControlConnection {
             // the positional FIFO (see ``attachBlockDrained``).
             if !attachBlockDrained {
                 attachBlockDrained = true
+                if isSharedViewStream { subscribeSessionDigest() }
                 requestWindows()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
@@ -997,8 +1702,14 @@ final class RemoteTmuxControlConnection {
         case .ignoredNotification:
             break
         case let .unparsed(line):
-            if connectionState == .reconnecting, !enterReceived {
+            // Both phases, not just reconnecting. A first attach needs this as much as a reconnect:
+            // a transport that authenticates itself never reports a failure, it prints a prompt and
+            // waits, and that prompt is the only evidence it produces. Gated to `.reconnecting` the
+            // buffer was always empty on a first attach, so a credential check against it could not
+            // be true wherever it was placed — measured, after three fixes that never fired.
+            if connectionState == .reconnecting || connectionState == .connecting, !enterReceived {
                 preControlOutputBuffer += line + "\n"
+                noteCredentialPromptIfSeen()
                 if preControlOutputBuffer.utf8.count > Self.maxStderrBytes {
                     preControlOutputBuffer = String(
                         decoding: preControlOutputBuffer.utf8.suffix(Self.maxStderrBytes),
