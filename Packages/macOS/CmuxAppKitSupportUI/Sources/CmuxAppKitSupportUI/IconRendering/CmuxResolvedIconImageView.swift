@@ -9,6 +9,15 @@ public final class CmuxResolvedIconImageView: NSView {
     private var renderKey: RenderKey?
     private var lastVisibleRenderKey: RenderKey?
     private var blankRenderKey: RenderKey?
+    /// Layout passes a blank draw may use to recover before the view gives
+    /// up until its window or effective appearance changes. A transparent
+    /// first raster is a transient AppKit state (the symbol provider resolved
+    /// before the effective appearance did); by the time AppKit lays the view
+    /// out inside its window the appearance is resolved, so the next layout
+    /// pass is the readiness signal. A source that stays blank stops after
+    /// this many passes.
+    static let blankRecoveryLayoutPasses = 3
+    private(set) var blankRecoveryPassesUsed = 0
 
     /// Creates the resolved icon view.
     public override init(frame frameRect: NSRect) {
@@ -49,6 +58,20 @@ public final class CmuxResolvedIconImageView: NSView {
         renderIfNeeded(force: false)
     }
 
+    public override func layout() {
+        super.layout()
+        recoverBlankRenderIfNeeded()
+    }
+
+    /// Re-renders a blank draw during a layout pass, when the view is inside
+    /// its window and AppKit has resolved the effective appearance.
+    private func recoverBlankRenderIfNeeded() {
+        guard blankRenderKey != nil,
+              blankRecoveryPassesUsed < Self.blankRecoveryLayoutPasses else { return }
+        blankRecoveryPassesUsed += 1
+        renderIfNeeded(force: true)
+    }
+
     private func renderIfNeeded(force: Bool) {
         guard let request else {
             renderKey = nil
@@ -60,24 +83,34 @@ public final class CmuxResolvedIconImageView: NSView {
         let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
         guard force || renderKey != nextKey else { return }
         guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
+        if blankRenderKey?.matchesRequestAndAppearance(nextKey) != true {
+            // A different request or appearance gets a fresh recovery budget.
+            blankRecoveryPassesUsed = 0
+        }
         switch renderer.render(for: request, appearance: effectiveAppearance) {
         case .success(let image):
             renderKey = nextKey
             lastVisibleRenderKey = nextKey
             blankRenderKey = nil
+            blankRecoveryPassesUsed = 0
             imageView.image = image
         case .failure(.sourceUnavailable):
             renderKey = nextKey
             lastVisibleRenderKey = nil
             blankRenderKey = nil
+            blankRecoveryPassesUsed = 0
             imageView.image = nil
         case .failure(.blankOutput):
             renderKey = nil
             blankRenderKey = nextKey
-            guard lastVisibleRenderKey?.matchesRequestAndAppearance(nextKey) == true else {
+            if lastVisibleRenderKey?.matchesRequestAndAppearance(nextKey) != true {
                 lastVisibleRenderKey = nil
                 imageView.image = nil
-                break
+            }
+            if blankRecoveryPassesUsed < Self.blankRecoveryLayoutPasses {
+                // Ask AppKit for a layout pass; `layout()` retries the draw
+                // once the view is laid out inside its window.
+                needsLayout = true
             }
         }
         imageView.contentTintColor = nil
