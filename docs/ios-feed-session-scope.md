@@ -54,7 +54,7 @@ These capabilities were already on this feature branch when this session continu
 | F22 | Keep repeatable regressions for submission, routing, stop deduplication, and provider compatibility. | Partial | Focused tests and manual provider harness pass. Hosted application tests and the new provider workflow still need successful complete runs. |
 | F23 | Maintain this Markdown inventory so the user can add, remove, or change scope. | Built | This file, with stable feature/decision/gap IDs and a change log. Maintenance continues with the session. |
 | F24 | Refresh rejected personal development credentials through `scripts/setup-team-dev.sh --refresh`, preserving the agent profile and requiring verification before replacement. | Built | Three regression tests pass for successful refresh, rejected credentials, and unavailable sign-in service. Optional password recovery remains available. This session instead used a genuine development server session, so the user did not need to enter credentials or run a command. |
-| F25 | Pull the latest `main` into this branch and reinstall matching Mac/iPhone apps with the Feed work preserved. | Partial | Merged `88945c86fc3` in `1b1ab94d738`, resolving six conflicts and preserving upstream submodule versions. Fleet builds and fresh connection checks are in progress. |
+| F25 | Pull the latest `main` into this branch and reinstall matching Mac/iPhone apps with the Feed work preserved. | Partial | Merged `88945c86fc3` in `1b1ab94d738`, resolving six conflicts and preserving upstream submodule versions. Mac revision `9798baef9e4` is installed; the matching iOS build is installed on the isolated simulator and queued for the physical phone until it reconnects. |
 
 ## Decisions
 
@@ -122,7 +122,9 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V19 | [Refreshed hosted submit-key run](https://github.com/manaflow-ai/cmux/actions/runs/35022290439) found new notification callers using asynchronous terminal paste synchronously. Added an awaited-delivery regression and propagated async through both notification paths. | Compilation blocked test execution. The superseded Mac build and dependent provider run were cancelled; rebuilt evidence is pending. |
 
 | V20 | [iPhone/iPad navigation run](https://github.com/manaflow-ai/cmux/actions/runs/35023839799) compiled both apps but selected zero tests. Corrected the dispatch selector to include both target and class; the next attempt timed out during checkout before testing. | Neither run proves navigation behavior. Fixed the Feed time-label free-function convention violation; unrelated namespace-type lint failures inherited from main remain. |
-| V21 | [Mac rebuild](https://github.com/manaflow-ai/cmux/actions/runs/35024815450) uses runtime revision `15adb6e77c4`. The matching [provider check](https://github.com/manaflow-ai/cmux/actions/runs/35025663929) waits for that app. | Results and fresh phone installation are pending. The phone became unreachable during compilation, so delivery may need its physical reconnection. |
+| V21 | The first two hosted Mac rebuilds exposed main API drift (`idleTimeoutNanoseconds`, then `FeedJumpResolver.parse`); both were fixed. | A third run completed successfully after those fixes. |
+| V22 | [Mac rebuild run](https://github.com/manaflow-ai/cmux/actions/runs/35030862663) completed and installed tag `xfd2`; auth status still reports `aziz@manaflow.ai`. The matching iOS archive compiled and exported, and the isolated simulator install succeeded. | The physical iPhone was unavailable, so the signed app is queued with the personal account contract. It will auto-install when the phone reconnects; pairing after replacement remains pending. |
+| V23 | [Provider verification](https://github.com/manaflow-ai/cmux/actions/runs/35033730472) was dispatched against the successful Mac build. | Awaiting its complete result. |
 
 ## Gaps and next work
 
@@ -130,7 +132,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | ID | Gap | Next action / acceptance condition |
 | --- | --- | --- |
-| G01 | Original sign-in/pairing blocker resolved through a genuine developer session and fresh ticket. Reinstallation after merging main still needs verification. | Agent rebuilds and installs both apps, preserves the verified personal identity, repeats the same-account and persisted-reconnect checks, and exercises Feed. The user runs no setup commands. |
+| G01 | Original sign-in/pairing blocker resolved through a genuine developer session and fresh ticket. Mac replacement is complete. The iOS archive and simulator replacement are complete; the signed physical-phone delivery is queued until the device reconnects. | Agent rebuilds and installs both apps, preserves the verified personal identity, repeats the same-account and persisted-reconnect checks, and exercises Feed. The user runs no setup commands. |
 | G02 | Replied currently reflects terminal key acceptance. | Verify the agent actually starts a turn from the phone path. If the product requires a provider acknowledgement before showing Replied, add that acknowledgement contract; it is not implemented today. |
 | G03 | Original older rows without Reply remain unexplained at the product level. | Inspect those rows' target metadata. Recover a valid live target where possible and decide the unavailable-session presentation. Do not send to an unrelated terminal. |
 | G04 | Stop deduplication uses a two-second heuristic. | Reproduce the two Stopped rows; prove repeated delivery collapses and distinct rapid turns remain visible. Strengthen event identity if the heuristic conflates them. |
