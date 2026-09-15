@@ -2,28 +2,10 @@ import CmuxFoundation
 import SwiftUI
 
 /// Hit rects for one rendered tab, in the tab bar's local coordinates.
-/// Reported by the SwiftUI strip so `CanvasPaneView` can route AppKit mouse
-/// events (select / close / drag) without SwiftUI gesture recognizers —
-/// drags stay on the fast NSEvent path and never fight button recognizers.
+/// Read from the rendered AppKit witnesses when routing each mouse event.
 struct CanvasTabHitRegions: Equatable {
     var tabFrames: [UUID: CGRect] = [:]
     var closeFrames: [UUID: CGRect] = [:]
-}
-
-private struct CanvasTabFramesKey: PreferenceKey {
-    static let defaultValue = CanvasTabHitRegions()
-    static func reduce(value: inout CanvasTabHitRegions, nextValue: () -> CanvasTabHitRegions) {
-        let next = nextValue()
-        value.tabFrames.merge(next.tabFrames) { _, new in new }
-        value.closeFrames.merge(next.closeFrames) { _, new in new }
-    }
-}
-
-private struct CanvasTabContentWidthKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
 }
 
 /// The tab bar at the top of a canvas pane, mirroring the workspace split
@@ -43,17 +25,13 @@ struct CanvasPaneTitleBarView: View {
     /// Horizontal scroll offset in points (>= 0 scrolls tabs left), clamped
     /// by the pane view against the reported content width.
     let scrollOffset: CGFloat
-    let onHitRegionsChanged: (CanvasTabHitRegions) -> Void
+    let geometryRegistry: CanvasTabGeometryRegistry
     let onContentWidthChanged: (CGFloat) -> Void
 
     /// Matches the split pane tab bar height.
     static let height: CGFloat = 30
 
     var body: some View {
-        // Tabs are laid out left-aligned and shifted by -scrollOffset; the
-        // named coordinate space is anchored to the (non-scrolling) bar, so
-        // reported hit frames are already in post-scroll viewport coords and
-        // a scrolled-out tab reports a frame outside the bar (no false hit).
         HStack(spacing: 0) {
             ForEach(chrome.tabs) { tab in
                 CanvasPaneTabItem(
@@ -61,31 +39,19 @@ struct CanvasPaneTitleBarView: View {
                     isSelected: chrome.tabs.count == 1 || tab.id == chrome.selectedTabId,
                     isHovered: tab.id == hoveredTabId,
                     paneIsFocused: chrome.isFocused,
-                    barBackground: barBackground
+                    barBackground: barBackground,
+                    geometryRegistry: geometryRegistry
                 )
             }
         }
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(key: CanvasTabContentWidthKey.self, value: proxy.size.width)
-            }
-        )
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+            onContentWidthChanged(width)
+        }
         .fixedSize(horizontal: true, vertical: false)
         .offset(x: -scrollOffset)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Self.height)
         .clipped()
-        .coordinateSpace(name: "canvasTabBar")
-        .onPreferenceChange(CanvasTabFramesKey.self) { regions in
-            MainActor.assumeIsolated {
-                onHitRegionsChanged(regions)
-            }
-        }
-        .onPreferenceChange(CanvasTabContentWidthKey.self) { width in
-            MainActor.assumeIsolated {
-                onContentWidthChanged(width)
-            }
-        }
     }
 }
 
@@ -100,6 +66,7 @@ private struct CanvasPaneTabItem: View {
     /// The tab bar background, used to derive bonsplit-style active/hover
     /// fills (lighten on dark themes, darken on light).
     let barBackground: NSColor
+    let geometryRegistry: CanvasTabGeometryRegistry
 
     private var textColor: Color {
         Color(nsColor: isSelected && paneIsFocused ? .labelColor : .secondaryLabelColor)
@@ -117,16 +84,20 @@ private struct CanvasPaneTabItem: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: 220, minHeight: CanvasPaneTitleBarView.height, maxHeight: CanvasPaneTitleBarView.height)
         .background(tabBackground)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CanvasTabFramesKey.self,
-                    value: CanvasTabHitRegions(
-                        tabFrames: [tab.id: proxy.frame(in: .named("canvasTabBar"))]
-                    )
-                )
+        .background(CanvasTabHitRegionView(tabId: tab.id, kind: .tab, registry: geometryRegistry))
+        .overlay(alignment: .trailing) {
+            if let hint = tab.shortcutHint {
+                Text(verbatim: hint)
+                    .cmuxFont(size: 9, weight: .semibold)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color(nsColor: .separatorColor)))
+                    .padding(.trailing, 5)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("canvas.tab.shortcutHint.\(tab.id.uuidString)")
             }
-        )
+        }
         .help(tab.title)
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -147,16 +118,7 @@ private struct CanvasPaneTabItem: View {
             }
         }
         .frame(width: 14, height: 14)
-        .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: CanvasTabFramesKey.self,
-                    value: CanvasTabHitRegions(
-                        closeFrames: [tab.id: proxy.frame(in: .named("canvasTabBar")).insetBy(dx: -4, dy: -7)]
-                    )
-                )
-            }
-        )
+        .background(CanvasTabHitRegionView(tabId: tab.id, kind: .close, registry: geometryRegistry))
     }
 
     private var tabBackground: some View {

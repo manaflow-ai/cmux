@@ -5,6 +5,7 @@ public import AppKit
 public struct CanvasHostCallbacks {
     public let onFocusPanel: (UUID) -> Void
     public let onClosePanel: (UUID) -> Void
+    public let tabContextMenu: (UUID) -> NSMenu?
     public let onLayoutChanged: () -> Void
     /// Fired (coalesced by the host) whenever on-screen pane geometry may
     /// have changed: scrolls, zooms, pane drags, document re-sizing. Hosts
@@ -20,12 +21,14 @@ public struct CanvasHostCallbacks {
         onFocusPanel: @escaping (UUID) -> Void,
         onClosePanel: @escaping (UUID) -> Void,
         onLayoutChanged: @escaping () -> Void,
+        tabContextMenu: @escaping (UUID) -> NSMenu? = { _ in nil },
         onViewportGeometryChanged: @escaping (NSWindow?) -> Void = { _ in },
         onViewportSettled: @escaping (NSWindow?) -> Void = { _ in }
     ) {
         self.onFocusPanel = onFocusPanel
         self.onClosePanel = onClosePanel
         self.onLayoutChanged = onLayoutChanged
+        self.tabContextMenu = tabContextMenu
         self.onViewportGeometryChanged = onViewportGeometryChanged
         self.onViewportSettled = onViewportSettled
     }

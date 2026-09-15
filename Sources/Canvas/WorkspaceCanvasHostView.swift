@@ -23,6 +23,8 @@ struct WorkspaceCanvasHostView: View {
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
     @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @State private var shortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl)
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -35,6 +37,28 @@ struct WorkspaceCanvasHostView: View {
             focusedPanelId: workspace.focusedPanelId,
             isWorkspaceVisible: isWorkspaceVisible
         )
+        .background(
+            WindowAccessor(refreshID: showModifierHoldHints) { window in
+                shortcutHintMonitor.setHostWindow(showModifierHoldHints ? window : nil)
+            }
+            .frame(width: 0, height: 0)
+        )
+        .onAppear { shortcutHintMonitor.start() }
+        .onDisappear { shortcutHintMonitor.stop() }
+        .onChange(of: showModifierHoldHints) { _, enabled in
+            if enabled { shortcutHintMonitor.start() } else { shortcutHintMonitor.stop() }
+        }
+    }
+
+    private var showsShortcutHints: Bool {
+        guard isWorkspaceVisible, isWorkspaceInputActive,
+              showModifierHoldHints, shortcutHintMonitor.isModifierPressed else { return false }
+        return AppDelegate.shared?.keyboardFocusCoordinator(for: NSApp.keyWindow)?
+            .allowsBonsplitTabShortcutHints(workspaceId: workspace.id) == true
+    }
+
+    private var canvasShortcutHints: [UUID: String] {
+        showsShortcutHints ? workspace.canvasTabShortcutHints() : [:]
     }
 
     private var descriptors: [CanvasPaneDescriptor] {
@@ -54,7 +78,8 @@ struct WorkspaceCanvasHostView: View {
                 tab: CanvasTabChrome(
                     id: panelId,
                     title: panel.displayTitle,
-                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
+                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType),
+                    shortcutHint: canvasShortcutHints[panelId]
                 ),
                 isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
@@ -215,6 +240,11 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                     guard let workspace else { return }
                     workspace.noteCanvasLayoutChanged()
                     workspace.syncCanvasBrowserPortalZOrder()
+                },
+                tabContextMenu: { [weak workspace] panelId in
+                    guard let workspace else { return nil }
+                    workspace.focusPanel(panelId)
+                    return workspace.canvasTabContextMenu(for: panelId)
                 },
                 onViewportGeometryChanged: { [weak workspace] window in
                     // Window-portal-hosted content (browser webviews) tracks

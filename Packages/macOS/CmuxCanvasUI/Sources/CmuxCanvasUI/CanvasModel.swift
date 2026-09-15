@@ -177,6 +177,19 @@ public final class CanvasModel {
         return true
     }
 
+    /// Inserts a panel into an existing pane at a specific tab position.
+    @discardableResult
+    public func joinPanel(_ panelId: UUID, into paneID: CanvasPaneID, at index: Int) -> Bool {
+        let panel = CanvasPanelID(rawValue: panelId)
+        guard layout.pane(containing: panel) != nil,
+              layout.contains(paneID),
+              layout.pane(containing: panel) != paneID else { return false }
+        layout.removePanel(panel)
+        layout.addPanel(panel, toPane: paneID, at: index, select: true)
+        revision &+= 1
+        return true
+    }
+
     /// Breaks the panel out of its multi-tab pane into a new pane placed
     /// near the source at the canonical gap.
     /// - Returns: Whether the break happened.

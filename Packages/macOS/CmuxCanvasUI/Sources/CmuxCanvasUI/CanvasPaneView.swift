@@ -14,6 +14,7 @@ protocol CanvasPaneViewDelegate: AnyObject {
     func paneView(_ view: CanvasPaneView, requestTearOutTab panelId: UUID, atDocumentPoint point: CGPoint)
     func paneView(_ view: CanvasPaneView, didSelectTab panelId: UUID)
     func paneView(_ view: CanvasPaneView, didCloseTab panelId: UUID)
+    func paneView(_ view: CanvasPaneView, menuForTab panelId: UUID) -> NSMenu?
     func paneViewDidRequestFocus(_ view: CanvasPaneView)
 }
 
@@ -29,6 +30,7 @@ final class CanvasPaneView: NSView {
     let contentContainer = NSView()
 
     private let titleBarHost: NSHostingView<CanvasPaneTitleBarView>
+    private let tabGeometry: CanvasTabGeometryRegistry
     private var chrome = CanvasPaneChrome(
         tabs: [],
         selectedTabId: nil,
@@ -38,8 +40,6 @@ final class CanvasPaneView: NSView {
     private var activeDragRegion: CanvasPaneHitRegion?
     private var dragStartedMoving = false
     private var dragStartDocumentPoint: CGPoint = .zero
-    /// Tab/close hit rects in tab-bar coordinates, reported by SwiftUI.
-    private var tabHitRegions = CanvasTabHitRegions()
     private var tabOrder: [UUID] = []
     private var hoveredTabId: UUID?
     private var titleBarTrackingArea: NSTrackingArea?
@@ -69,12 +69,14 @@ final class CanvasPaneView: NSView {
 
     init(paneID: CanvasPaneID) {
         self.paneID = paneID
+        let tabGeometry = CanvasTabGeometryRegistry()
+        self.tabGeometry = tabGeometry
         self.titleBarHost = NSHostingView(rootView: CanvasPaneTitleBarView(
             chrome: CanvasPaneChrome(tabs: [], selectedTabId: nil, isFocused: false, closeActionLabel: ""),
             barBackground: .windowBackgroundColor,
             hoveredTabId: nil,
             scrollOffset: 0,
-            onHitRegionsChanged: { _ in },
+            geometryRegistry: tabGeometry,
             onContentWidthChanged: { _ in }
         ))
         super.init(frame: .zero)
@@ -129,9 +131,7 @@ final class CanvasPaneView: NSView {
             barBackground: paneBackground,
             hoveredTabId: hoveredTabId,
             scrollOffset: tabScrollOffset,
-            onHitRegionsChanged: { [weak self] regions in
-                self?.tabHitRegions = regions
-            },
+            geometryRegistry: tabGeometry,
             onContentWidthChanged: { [weak self] width in
                 guard let self, self.tabContentWidth != width else { return }
                 self.tabContentWidth = width
@@ -144,7 +144,7 @@ final class CanvasPaneView: NSView {
     private var tabHitTester: CanvasTabHitTester {
         CanvasTabHitTester(
             tabOrder: tabOrder,
-            hitRegions: tabHitRegions
+            hitRegions: tabGeometry.hitRegions(in: titleBarHost)
         )
     }
 
@@ -293,6 +293,10 @@ final class CanvasPaneView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
         let local = convert(event.locationInWindow, from: nil)
         guard let region = hitRegion(at: local) else {
             // Body clicks are focused by CanvasRootView's local monitor before
@@ -322,6 +326,15 @@ final class CanvasPaneView: NSView {
         dragStartedMoving = false
         dragStartDocumentPoint = documentPoint
         delegate?.paneViewDidRequestFocus(self)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let local = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(local), local.y <= CanvasPaneTitleBarView.height,
+              let panelId = tabHitTester.tab(at: titleBarHost.convert(event.locationInWindow, from: nil)) else {
+            return nil
+        }
+        return delegate?.paneView(self, menuForTab: panelId)
     }
 
     override func mouseDragged(with event: NSEvent) {

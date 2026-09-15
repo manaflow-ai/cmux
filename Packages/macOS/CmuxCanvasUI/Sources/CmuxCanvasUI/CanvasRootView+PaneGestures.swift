@@ -203,6 +203,10 @@ extension CanvasRootView: CanvasPaneViewDelegate {
         callbacks.onClosePanel(panelId)
     }
 
+    func paneView(_ view: CanvasPaneView, menuForTab panelId: UUID) -> NSMenu? {
+        callbacks.tabContextMenu(panelId)
+    }
+
     func paneViewDidRequestFocus(_ view: CanvasPaneView) {
         guard let panelId = selectedPanelId(of: view) else { return }
         if model.layout.paneIDs.last != view.paneID {

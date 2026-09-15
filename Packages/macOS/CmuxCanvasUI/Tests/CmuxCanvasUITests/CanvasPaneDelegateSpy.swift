@@ -6,6 +6,12 @@ import CmuxCanvas
 @MainActor
 final class CanvasPaneDelegateSpy: CanvasPaneViewDelegate {
     var focusRequests: [CanvasPaneID] = []
+    var menuRequests: [UUID] = []
+
+    func paneView(_ view: CanvasPaneView, menuForTab panelId: UUID) -> NSMenu? {
+        menuRequests.append(panelId)
+        return NSMenu(title: "Tab actions")
+    }
 
     func paneView(_ view: CanvasPaneView, mouseDownAt documentPoint: CGPoint, region: CanvasPaneHitRegion) {}
     func paneView(_ view: CanvasPaneView, draggedTo documentPoint: CGPoint, modifiers: NSEvent.ModifierFlags) {}
