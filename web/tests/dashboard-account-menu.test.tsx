@@ -113,6 +113,7 @@ describe("dashboard account menu", () => {
     expect(html).toContain("lawrence@example.com");
     expect(html).toContain('data-size="24"');
     expect(html).toContain('href="/dashboard/team"');
+    expect(html).toContain('aria-label="settings"');
     expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain("signOut");
     // Without a team catalog the menu has no team entry at all.
@@ -126,7 +127,6 @@ describe("dashboard account menu", () => {
     resolvedTheme = "light";
     const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
     expect(html).toContain(">themeDark<");
-    expect(html.indexOf(">themeDark<")).toBeGreaterThan(html.indexOf("/dashboard/team"));
     expect(html.indexOf(">themeDark<")).toBeLessThan(html.indexOf("/dashboard/billing"));
   });
 
@@ -151,8 +151,8 @@ describe("dashboard account menu", () => {
     expect(submenu.match(/aria-checked="false"/g)).toHaveLength(2);
     // The trigger row names the current team under the user's name.
     expect(html.indexOf("Manaflow")).toBeLessThan(html.indexOf("/dashboard/team"));
-    // Order: settings, theme, billing, team, then sign out.
-    const order = ["/dashboard/team", ">themeLight<", "/dashboard/billing", 'data-testid="team-submenu"', "signOut"]
+    // Order inside the popover remains theme, billing, team, then sign out.
+    const order = [">themeLight<", "/dashboard/billing", 'data-testid="team-submenu"', "signOut"]
       .map((marker) => html.indexOf(marker));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
