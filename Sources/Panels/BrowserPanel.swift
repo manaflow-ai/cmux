@@ -4567,24 +4567,13 @@ final class BrowserPanel: Panel, ObservableObject {
             ?? CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: currentURL)
     }
 
-    func preferredURLStringForSessionSnapshot() -> String? {
-        if let displayURL = restorableDisplayURLForCurrentErrorPage(liveURL: webView.url),
-           let value = Self.serializableSessionHistoryURLString(displayURL) {
-            return value
-        }
-        if let currentURL,
-           let value = Self.serializableSessionHistoryURLString(currentURL) {
-            return value
-        }
-        return nil
-    }
-
     /// Tears down every live web-view observer and clears the derived
     /// media-activity flags. Invoked at each point a web view is released or
     /// replaced, so a discarded/closed pane never shows a stale
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
     /// from the fresh web view.
     func detachWebViewObservers() {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: CloudDesktopConnectionObserver.name, contentWorld: CloudDesktopConnectionObserver.contentWorld)
         webViewObservationGeneration &+= 1
         webViewObservers.removeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(
@@ -4608,6 +4597,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
+        installCloudDesktopConnectionObserver(on: webView)
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
             let observedURL = change.newValue ?? webView.url
@@ -6333,6 +6323,10 @@ extension BrowserPanel {
     }
 
     private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
+        if cloudAccess.model != nil {
+            cloudAccess.retry()
+            return true
+        }
         if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }
@@ -7901,7 +7895,7 @@ extension BrowserPanel {
         browserIsTemporaryHistoryURL($0)
     }
 
-    private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
+    static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
         sessionHistoryURLSanitizer.serializableSessionHistoryURLString(url)
     }
 

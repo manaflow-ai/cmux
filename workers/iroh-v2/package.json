@@ -1,0 +1,32 @@
+{
+  "name": "@cmux/iroh-v2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test ./test",
+    "contracts:generate": "bun scripts/generate-contracts.ts",
+    "contracts:check": "bun scripts/generate-contracts.ts --check",
+    "types:generate": "wrangler types",
+    "dev": "wrangler dev --env development",
+    "deploy:staging": "bun run check && bun run test:runtime && wrangler deploy --env staging",
+    "deploy:production": "bun run check && bun run test:runtime && wrangler deploy --env production",
+    "boundary:check": "bun scripts/check-boundary.ts",
+    "types:check": "wrangler types --check",
+    "test:runtime": "bun test ./e2e",
+    "check": "bun run boundary:check && bun run contracts:check && bun run types:check && bun run typecheck && bun run test"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9",
+    "zod": "4.6.2"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "drizzle-kit": "0.31.10",
+    "miniflare": "5.20260910.0-alpha",
+    "quicktype-core": "26.0.0",
+    "typescript": "7.0.2",
+    "wrangler": "4.131.0"
+  }
+}

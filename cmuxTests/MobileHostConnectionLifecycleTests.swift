@@ -248,6 +248,61 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    @Test func testIrohAdmissionCanWaitForFirstRPCAfterTransportHandshake() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let registry = MobileHostConnectionRegistry.shared
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test setup")
+        }
+        defer {
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+
+        let transport = ScriptedMobileHostByteTransport()
+        let authorization = try irohAdmissionContext()
+        let sessionTask = Task {
+            await MobileHostService.acceptTransport(
+                transport,
+                authorization: authorization,
+                firstFrameTimeoutNanoseconds: 0,
+                idleTimeoutNanoseconds: 0,
+                isCurrent: { true }
+            )
+        }
+        await waitForMobileHostConnectionCount(1)
+
+        // An unadmitted legacy connection still expires while the admitted
+        // Iroh peer waits for the client to create its first RPC owner.
+        let expiringTransport = ScriptedMobileHostByteTransport()
+        let expiringTask = Task {
+            await MobileHostService.acceptTransport(
+                expiringTransport,
+                authorization: .stackBearer,
+                firstFrameTimeoutNanoseconds: 1_000_000,
+                isCurrent: { true }
+            )
+        }
+        await expiringTransport.waitForCloseCount(1)
+        #expect(
+            await expiringTask.value == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+        #expect(await transport.observedCloseCount() == 0)
+
+        try await transport.enqueue(Self.mobileHostStatusFrame(id: "delayed-first-rpc"))
+        _ = await transport.waitForSentBufferCount(1)
+        #expect(await transport.observedCloseCount() == 0)
+
+        await transport.finishReceiving()
+        _ = await sessionTask.value
+        for connection in registry.removeAll() {
+            await connection.close(reason: "test cleanup")
+        }
+    }
+
     @Test func testMobileHostPublishesUsableSessionOnlyAfterWorkspaceAndEventReadiness() async throws {
         CmuxEventBus.shared.resetForTesting()
         defer { CmuxEventBus.shared.resetForTesting() }
@@ -442,24 +497,6 @@ extension MobileHostAuthorizationTests {
         )
     }
 
-    @Test func testIrohEventWriterTimesOutBackpressureWithInjectedClock() async {
-        let stream = BlockingMobileHostIrohSendStream()
-        let writer = MobileHostIrohServerEventWriter(
-            openStream: { stream },
-            clock: ImmediateMobileHostIrohClock(),
-            sendTimeout: 3
-        )
-
-        do {
-            try await writer.send(Data("framed-event".utf8))
-            Issue.record("Expected independent event backpressure to time out")
-        } catch {}
-
-        let resetCodes = await stream.observedResetCodes()
-        #expect(!resetCodes.isEmpty)
-        #expect(resetCodes.allSatisfy { $0 == 1 })
-        await writer.close()
-    }
     @Test func testTerminalRenderObserverRetainsGhosttyDemandOnlyWithTerminalSubscriber() async throws {
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()

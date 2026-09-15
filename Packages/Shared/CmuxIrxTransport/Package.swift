@@ -49,6 +49,9 @@ let package = Package(
                 "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
+            resources: [
+                .copy("V2/Fixtures"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

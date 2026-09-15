@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
@@ -50,11 +51,7 @@ final class PresenceHeartbeatClient {
             // Re-evaluate when the flag or URL flips, so enabling presence in a
             // running app starts the loop without a relaunch (and disabling
             // stops it and says goodbye).
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { _ in
+            defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) {
                 MainActor.assumeIsolated {
                     PresenceHeartbeatClient.shared.evaluate()
                 }

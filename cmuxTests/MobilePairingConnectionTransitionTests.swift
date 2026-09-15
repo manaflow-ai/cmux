@@ -20,6 +20,23 @@ struct MobilePairingConnectionTransitionTests {
         )
     }
 
+    @Test func v2PairingWaitsForAuthenticatedRegistrationAfterRelayBinding() {
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 58465, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: nil
+        )
+        #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
+        status.isPairingReady = true
+        let ready = MobilePairingModel.Ready(
+            attachURL: "", tailscaleLines: [], manualEntry: nil,
+            reachableViaIroh: true, v2Only: true
+        )
+        #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .ready(ready))
+        status.isPairingReady = false
+        #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
+    }
+
     /// Routes matching ``makeReady()``, so a transition that recomputes the
     /// diagnostics from them reproduces the same `Ready` value.
     private func matchingRoutes() throws -> [CmxAttachRoute] {

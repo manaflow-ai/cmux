@@ -144,15 +144,15 @@ struct OnboardingConnectionView: View {
         if let requiredMacVersion {
             return String(
                 format: L10n.string(
-                    "mobile.onboarding.connect.bodyWithMinVersionFormat",
-                    defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+                    "mobile.onboarding.v2.connect.bodyWithMinVersionFormat",
+                    defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices. Requires cmux %1$@ or newer."
                 ),
                 requiredMacVersion
             )
         }
         return L10n.string(
-            "mobile.onboarding.connect.body",
-            defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
+            "mobile.onboarding.v2.connect.body",
+            defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices, then keep cmux running."
         )
     }
 

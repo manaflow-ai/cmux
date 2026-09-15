@@ -1694,10 +1694,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // The tap delivers on the ring's drain task, off the main thread.
             let transportReporter = TransportSentryReporter(
                 role: .macHost,
-                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+                exportRing: { await MobileHostDiagnostics.log.export() }
             )
             transportSentryReporter = transportReporter
-            MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in
+            MobileHostDiagnostics.log.setEventTap { event in
                 transportReporter.ingest(event)
             }
             StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
@@ -10739,11 +10739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMenuBarVisibilityObserver() {
         guard menuBarVisibilityObserver == nil else { return }
-        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        menuBarVisibilityObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.syncApplicationPresentationPreferences()
             }
@@ -10766,11 +10762,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installMobileHostSettingsObserver() {
         guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        mobileHostSettingsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.syncMobileHostService()
             }

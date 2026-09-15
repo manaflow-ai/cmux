@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
@@ -22,6 +23,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
+    let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy
     /// Invalidates suspended work when this provider is stopped or replaced.
     var isFeatureSuspended = false
     private(set) var lifecycleGeneration: UInt64 = 0
@@ -115,7 +117,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
-        portAccessStore: CloudPortAccessStore? = nil
+        portAccessStore: CloudPortAccessStore? = nil,
+        browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
         machineID = summary.id
         self.attachmentClock = attachmentClock
@@ -124,10 +127,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.catalog = catalog
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
+        self.browserPolicy = browserPolicy
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
     var isAwake: Bool { summary.status == "running" }
+    var providerID: String { summary.provider }
     /// Port rows are openable only when the machine advertises a preview
     /// capability or has the private route used by Freestyle.
     var capabilities: VMCapabilities { summary.capabilities }
@@ -777,8 +782,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             created = (manual.workspaceID, manual.panelID)
             createdPlacement = manual.remotePlacement
         case .display, .browser:
-            // Browser access is private by default. The browser owns the native
-            // VPN/forwarding controls before any connection is attempted.
             created = try await materializeBrowserPane(resource, at: destination, focus: focus)
         }
         materializedPanels.insert(created.panelID)
@@ -1249,9 +1252,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return CloudTuiCommandLine.attachShellCommand(clientPath: clientURL.path, socketPath: connected.socketPath, terminalID: terminalID)
     }
 
-    /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
-    /// noVNC query the `cmux vm desktop` recipe uses.
-    /// What the connecting/failure screen calls the pane: "<machine> · Desktop" or "<machine>:<port>".
     static func paneLabel(machineID: String, port: Int, desktop: Bool) -> String {
         desktop
             ? "\(machineID) · \(String(localized: "cloudTree.node.desktop", defaultValue: "Desktop"))"

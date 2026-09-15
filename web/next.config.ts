@@ -215,6 +215,8 @@ const nextConfig: NextConfig = {
     "**/docs/changelog": ["./CHANGELOG.md"],
     "**/docs/changelog/**": ["./CHANGELOG.md"],
     "**/sitemap.xml": ["./CHANGELOG.md"],
+    // IndexNow also reads the sitemap when its deployed function starts.
+    "/api/cron/indexnow": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

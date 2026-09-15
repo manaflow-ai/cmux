@@ -93,7 +93,7 @@ extension MobileShellComposite {
             switch trigger {
             case .manual, .connectionMethodChanged:
                 break
-            case .networkChange, .presencePush, .foreground, .liveness,
+            case .networkChange, .presencePush, .directoryChanged, .foreground, .liveness,
                  .eventStreamEnded, .subscriptionStartFailed,
                  .transportWriteTimedOut, .automaticBackoffExpired:
                 MobileDebugLog.anchormux(
@@ -107,7 +107,7 @@ extension MobileShellComposite {
             switch trigger {
             case .manual, .networkChange, .foreground, .connectionMethodChanged:
                 clearTransientAutomaticReconnectBackoff(accountID: accountID)
-            case .presencePush:
+            case .presencePush, .directoryChanged:
                 guard !automaticIrohReconnectIsBlocked(accountID: accountID) else {
                     return
                 }
@@ -235,7 +235,7 @@ extension MobileShellComposite {
             case .liveness, .networkChange:
                 markMacConnectionReconnecting()
                 resyncTerminalOutput(reason: trigger.description, restartEventStream: true)
-            case .manual, .presencePush, .foreground, .eventStreamEnded,
+            case .manual, .presencePush, .directoryChanged, .foreground, .eventStreamEnded,
                  .subscriptionStartFailed, .transportWriteTimedOut, .automaticBackoffExpired,
                  .connectionMethodChanged:
                 markMacConnectionUnavailableIfNoStore()
