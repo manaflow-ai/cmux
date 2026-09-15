@@ -26,7 +26,8 @@ export function parseVmResourceUsage(value: unknown): VmResourceUsage | null {
   return Object.keys(result).length ? result : null;
 }
 
-/** The provider owns state and dimensions. Only a fresh sample from this guest supplies usage. */
+/** The provider owns state and dimensions. A fresh guest sample supplies usage;
+ * an expired one keeps only its timestamp so clients can explain staleness. */
 export function applyVmResourceUsage(
   stats: VMStats,
   metadata: Readonly<Record<string, unknown>>,
@@ -38,7 +39,15 @@ export function applyVmResourceUsage(
   if (!sample || sample.providerVmId !== providerVmId) return stats;
   const receivedAt = sample.receivedAt;
   if (typeof receivedAt !== "number" || !Number.isFinite(receivedAt)
-    || receivedAt > now || now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS) return stats;
+    || receivedAt > now) return stats;
   const usage = parseVmResourceUsage(sample);
-  return usage ? { ...stats, ...usage, sampledAt: receivedAt } : stats;
+  if (!usage) return stats;
+  const result = { ...stats, resourceSampledAt: receivedAt };
+  if (now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS) {
+    delete result.cpuPercent;
+    delete result.memoryUsedMb;
+    delete result.diskUsedMb;
+    return result;
+  }
+  return { ...result, ...usage, sampledAt: receivedAt };
 }
