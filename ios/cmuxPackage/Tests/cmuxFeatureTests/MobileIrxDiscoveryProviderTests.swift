@@ -78,6 +78,58 @@ struct MobileIrxDiscoveryProviderTests {
         #expect(candidates.isEmpty)
     }
 
+    private static func legacyBinding(endpointFill: Character = "b", capabilities: [String] = ["cmux.irx.v1"]) throws -> CmxIrohBrokerBinding {
+        let value: [String: Any] = [
+            "binding_id": "123e4567-e89b-42d3-a456-426614174061",
+            "device_id": "123e4567-e89b-42d3-a456-426614174062",
+            "app_instance_id": "123e4567-e89b-42d3-a456-426614174063",
+            "client_namespace": "com.cmuxterm.app", "tag": "default", "platform": "mac",
+            "display_name": "Existing Mac", "endpoint_id": String(repeating: endpointFill, count: 64),
+            "identity_generation": 1, "pairing_enabled": true, "capabilities": capabilities,
+            "path_hints": [], "last_seen_at": "2026-09-15T18:00:00Z",
+        ]
+        return try JSONDecoder().decode(CmxIrohBrokerBinding.self, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    @Test("new iOS discovers an older Mac alongside the v2 directory")
+    func mixedGenerationDiscovery() async throws {
+        let oldMac = try Self.legacyBinding()
+        let modern = try Self.discovery(bindings: [Self.binding(bindingID: "modern", deviceID: "modern-mac", platform: "mac")])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil, discover: { modern },
+            invalidateSnapshot: {}, revokeBinding: { _ in }, authenticatedAccountID: { "account-a" },
+            discoverLegacy: { [oldMac] }
+        )
+        let candidates = await provider.discoverLiveMacs()
+        #expect(Set(candidates.map(\.deviceID)) == Set(["modern-mac", oldMac.deviceID]))
+        #expect(candidates.first(where: { $0.deviceID == oldMac.deviceID })?.routes.first?.id == "iroh-legacy-" + oldMac.bindingID)
+    }
+
+    @Test("modern peers cannot bypass v2 discovery through their compatibility registration")
+    func modernCompatibilityBindingIsExcluded() async throws {
+        let oldProjection = try Self.legacyBinding(capabilities: ["cmux.irx.v1", "cmux.iroh-control.v2"])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil, discover: { nil },
+            invalidateSnapshot: {}, revokeBinding: { _ in }, authenticatedAccountID: { "account-a" },
+            discoverLegacy: { [oldProjection] }
+        )
+        #expect(await provider.discoverLiveMacs().isEmpty)
+    }
+
+    @Test("compatibility discovery updates even when the v2 revision does not change")
+    func compatibilityChangesIndependently() async throws {
+        let oldMac = try Self.legacyBinding()
+        let sequence = LegacyBindingSequenceBox([[oldMac], []])
+        let modern = try Self.discovery(bindings: [])
+        let provider = MobileIrxDiscoveryProvider(
+            preferredTag: "default", compatibilityPolicy: nil, discover: { modern },
+            invalidateSnapshot: {}, revokeBinding: { _ in }, authenticatedAccountID: { "account-a" },
+            discoverLegacy: { sequence.next() }
+        )
+        #expect(await provider.discoverLiveMacs().count == 1)
+        #expect(await provider.discoverLiveMacs().isEmpty)
+    }
+
     @Test("an older discovery revision cannot overwrite the current projection")
     func staleRevisionIsIgnored() async throws {
         let newerMac = Self.binding(
@@ -169,4 +221,11 @@ private final class DirectorySequenceBox: @unchecked Sendable {
         guard !values.isEmpty else { return nil }
         return values.removeFirst()
     }
+}
+
+@MainActor
+private final class LegacyBindingSequenceBox {
+    private var values: [[CmxIrohBrokerBinding]]
+    init(_ values: [[CmxIrohBrokerBinding]]) { self.values = values }
+    func next() -> [CmxIrohBrokerBinding] { values.isEmpty ? [] : values.removeFirst() }
 }
