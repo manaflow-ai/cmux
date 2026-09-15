@@ -8699,6 +8699,150 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testRejectedCurrentCaptureRepairsMappedCodexPermissionsFromTranscript() throws {
+        let context = try makeClaudeHookContext(name: "codex-rejected-mapped-permissions")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-rejected-mapped-permissions-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-rollout.jsonl")
+        let capturedAt = Date().timeIntervalSince1970 - 10
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let priorTimestamp = timestampFormatter.string(
+            from: Date(timeIntervalSince1970: capturedAt - 1)
+        )
+        try [
+            #"{"type":"session_meta","payload":{"id":"codex-rejected-mapped-permissions-session","source":"cli","originator":"codex-tui"}}"#,
+            #"{"timestamp":"__TIMESTAMP__","type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"}}}"#
+                .replacingOccurrences(of: "__TIMESTAMP__", with: priorTimestamp),
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let storeURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": capturedAt,
+                    "updatedAt": capturedAt,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "arguments": ["codex", "resume", sessionId],
+                        "environment": ["CODEX_HOME": context.root.appendingPathComponent("codex-home").path],
+                        "capturedAt": capturedAt,
+                        "source": "process",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: storeURL, options: .atomic)
+        startAgentHookMockServerAccepting(context: context)
+
+        let result = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"codex-rejected-mapped-permissions-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_LAUNCH_KIND": "claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+                "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/usr/local/bin/claude",
+                    "--resume",
+                    "wrong-agent-capture",
+                ]),
+            ]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let request = try XCTUnwrap(context.state.snapshot().compactMap { line -> [String: Any]? in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        let command = try XCTUnwrap(request["command"] as? String)
+        XCTAssertTrue(command.contains("--yolo"), command)
+    }
+
+    func testRejectedCurrentCaptureDoesNotCreateFlagOnlyMappedCodexLaunch() throws {
+        let context = try makeClaudeHookContext(name: "codex-rejected-empty-mapped")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-rejected-empty-mapped-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-rollout.jsonl")
+        let capturedAt = Date().timeIntervalSince1970 - 10
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let priorTimestamp = timestampFormatter.string(
+            from: Date(timeIntervalSince1970: capturedAt - 1)
+        )
+        try [
+            #"{"type":"session_meta","payload":{"id":"codex-rejected-empty-mapped-session","source":"cli","originator":"codex-tui"}}"#,
+            #"{"timestamp":"__TIMESTAMP__","type":"turn_context","payload":{"approval_policy":"never","sandbox_policy":{"type":"danger-full-access"}}}"#
+                .replacingOccurrences(of: "__TIMESTAMP__", with: priorTimestamp),
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let storeURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "transcriptPath": transcriptURL.path,
+                    "startedAt": capturedAt,
+                    "updatedAt": capturedAt,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "arguments": [],
+                        "environment": ["CODEX_HOME": context.root.appendingPathComponent("codex-home").path],
+                        "capturedAt": capturedAt,
+                        "source": "environment",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: storeURL, options: .atomic)
+        startAgentHookMockServerAccepting(context: context)
+
+        let result = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"codex-rejected-empty-mapped-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_LAUNCH_KIND": "claude",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+                "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+                "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                    "/usr/local/bin/claude",
+                    "--resume",
+                    "wrong-agent-capture",
+                ]),
+            ]
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let request = try XCTUnwrap(context.state.snapshot().compactMap { line -> [String: Any]? in
+            guard let payload = jsonObject(line),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }.first)
+        let command = try XCTUnwrap(request["command"] as? String)
+        XCTAssertFalse(command.contains("--yolo"), command)
+    }
+
     func testCodexTeamsForkPromptPublishesResumeBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-team-resume")

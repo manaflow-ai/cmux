@@ -214,4 +214,40 @@ struct WorkspaceIsStaleAgentHookBindingTests {
 
         #expect(restoredSnapshot?.sessionId == Self.piSessionPath)
     }
+
+    @Test
+    func nonClaudeRejectedSnapshotIsQuarantinedAtSessionRestoreBoundary() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "stale-rejected-gemini",
+            launchCommand: AgentLaunchCommandSnapshot(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "gemini",
+                source: "rejected"
+            )
+        )
+
+        #expect(
+            Workspace.restorableAgentForSessionRestore(snapshot, resumeBinding: nil) == nil,
+            "a persisted non-Claude rejected capture must not bypass hook-index quarantine"
+        )
+    }
+
+    @Test
+    func claudeRejectedSnapshotRemainsEligibleForTranscriptRestore() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "transcript-backed-claude",
+            launchCommand: AgentLaunchCommandSnapshot(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "claude",
+                source: "rejected"
+            )
+        )
+
+        let restored = try #require(
+            Workspace.restorableAgentForSessionRestore(snapshot, resumeBinding: nil)
+        )
+        #expect(restored.sessionId == snapshot.sessionId)
+    }
 }
