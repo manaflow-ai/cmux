@@ -125,6 +125,7 @@ struct CloudTreeRowContentView: View {
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
+
     /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1
