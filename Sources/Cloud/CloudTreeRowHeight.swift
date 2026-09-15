@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxFoundation
 
 @MainActor
@@ -11,10 +12,15 @@ struct CloudTreeRowHeight {
         case .devicesEmpty(let section):
             return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section))
         case .machine:
-            return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: true))
+            return GlobalFontMagnification.scaledSize(style.machineRowHeight(
+                hasStats: true,
+                hasUsage: style.machineRowLayout == .twoLine
+            ))
         // Devices sit on This Mac's single line: presence and counts are a dim
         // inline fact and a tooltip, never extra lines.
-        case .localMachine, .pendingMachine, .device:
+        case .localMachine, .pendingMachine:
+            return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
+        case .device:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:
             return GlobalFontMagnification.scaledSize(style.rowHeight)
