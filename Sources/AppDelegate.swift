@@ -623,7 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var cmuxConfigStore: CmuxConfigStore?
         /// The last Machines tree selection in this window. This is intentionally
         /// window-scoped so Cmd+N cannot borrow another window's machine.
-        var newWorkspaceMachineSelection: NewWorkspaceMachineSelection = .none
+        var newWorkspaceMachineSelection: NewWorkspaceMachineContext.Selection = .none
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.

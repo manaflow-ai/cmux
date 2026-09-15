@@ -28,7 +28,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
     /// Reports the selected machine context to the owning window.
-    var onMachineSelectionChange: @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in }
+    var onMachineSelectionChange: @MainActor (NewWorkspaceMachineContext.Selection) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -104,13 +104,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-        var onMachineSelectionChange: @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in }
+        var onMachineSelectionChange: @MainActor (NewWorkspaceMachineContext.Selection) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
-            onMachineSelectionChange: @escaping @MainActor (NewWorkspaceMachineSelection) -> Void = { _ in },
+            onMachineSelectionChange: @escaping @MainActor (NewWorkspaceMachineContext.Selection) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
@@ -328,7 +328,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             }
         }
-        private func machineSelection(for node: CloudTreeNode?) -> NewWorkspaceMachineSelection {
+        private func machineSelection(for node: CloudTreeNode?) -> NewWorkspaceMachineContext.Selection {
             guard let node else { return .none }
             if case .pendingMachine = node.kind { return .pending }
             let machine = node.machine
