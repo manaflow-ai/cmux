@@ -492,6 +492,11 @@ final class RemoteTmuxViewConnection {
         onEnded?()
     }
 
+    /// Installs a connection without starting a stream, so a test can drive the coordinator.
+    func adoptConnectionForTesting(_ connection: RemoteTmuxControlConnection) {
+        self.connection = connection
+    }
+
     private func quoted(_ v: String) -> String { RemoteTmuxHost.shellSingleQuoted(v) }
 }
 
