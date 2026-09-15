@@ -572,6 +572,14 @@ struct VMSnapshotSummary: Sendable, Equatable {
     let createdAt: String
 }
 
+struct VMSCPEndpoint: Sendable {
+    let host: String
+    let port: Int
+    let username: String
+    let hostPublicKey: String
+    let expiresAtUnix: Int
+}
+
 struct VMSSHEndpoint {
     let transport: String
     let host: String
@@ -1546,6 +1554,23 @@ actor VMClient {
         }
     }
 
+    func prepareSCP(id: String, publicKey: String) async throws -> VMSCPEndpoint {
+        try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/scp-endpoint", jsonBody: ["publicKey": publicKey])
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let host = obj["host"] as? String, IPNetworkPrefix.isPrivateAddress(host),
+                  let port = obj["port"] as? Int, port == 22,
+                  let username = obj["username"] as? String, username == "cmux",
+                  let hostPublicKey = obj["hostPublicKey"] as? String,
+                  let expiresAtUnix = obj["expiresAtUnix"] as? Int else {
+                throw VMClientError.malformedResponse("Cloud SCP response was missing its private route or host key.")
+            }
+            return VMSCPEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expiresAtUnix)
+        }
+    }
+
     func openAttach(
         id: String,
         requireDaemon: Bool = false,
@@ -1976,7 +2001,7 @@ actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/open-port",
                 jsonBody: ["port": port],
-                timeoutSeconds: 60
+                timeoutSeconds: 120
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
