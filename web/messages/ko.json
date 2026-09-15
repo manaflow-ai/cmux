@@ -3865,5 +3865,11 @@
         "action": "요금제 관리"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "이메일",
+    "emailUnavailable": "이메일을 확인할 수 없음",
+    "organization": "조직",
+    "personalAccount": "개인 계정"
   }
 }

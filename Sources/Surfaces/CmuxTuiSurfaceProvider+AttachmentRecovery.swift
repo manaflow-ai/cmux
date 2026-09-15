@@ -16,14 +16,15 @@ extension CmuxTuiSurfaceProvider {
         lifecycle: UInt64,
         refresh generation: UInt64
     ) async -> Bool {
-        let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
+        let activeSessions = manualMirrorSessions.values.filter(\.allowsAutomaticReconnect)
+        let needsSurfaceIDRefresh = !activeSessions.isEmpty
             && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
-                || manualMirrorSessions.values.contains { $0.phase == .disconnected })
+                || activeSessions.contains { $0.phase == .disconnected })
         var reconnectableSessionIDs = Set<ObjectIdentifier>(
             manualMirrorSessions.values.map { ObjectIdentifier($0) }
         )
         if needsSurfaceIDRefresh {
-            let sessions = Array(manualMirrorSessions.values)
+            let sessions = Array(activeSessions)
             let resolutions = await resolveManualMirrorSessions(
                 sessions,
                 socketPath: connected.socketPath,
@@ -40,8 +41,8 @@ extension CmuxTuiSurfaceProvider {
                     attempt: attachmentRetry.failures + 1,
                     outcome: resolution
                 )
-                switch resolution {
-                case let .resolved(surfaceID):
+                switch CloudAttachmentReconcileDecision.decide(phase: session.phase, resolution: resolution) {
+                case let .rebind(surfaceID):
                     session.updateRemoteSurfaceID(surfaceID)
                     reconnectableSessionIDs.insert(ObjectIdentifier(session))
                 case .exited:
@@ -50,17 +51,17 @@ extension CmuxTuiSurfaceProvider {
                     exitedTerminalIDs.insert(session.terminalID)
                     session.markSurfaceResolutionUnavailable(reason: .unresolved("the terminal exited"))
                     reconnectableSessionIDs.remove(ObjectIdentifier(session))
-                case .noPlacement:
-                    // Projection was attempted in resolveManualMirrorSessions
-                    // and the daemon still shows no view; the retry below
-                    // projects again from a fresh graph.
-                    session.markSurfaceResolutionUnavailable(reason: .unresolved("the machine shows no view of this terminal"))
+                case let .fence(reason):
+                    // Not attached and still unresolved (no daemon view yet, or
+                    // the lookup itself failed): drop the stream and let the
+                    // bounded retry below re-resolve from a fresh graph.
+                    session.markSurfaceResolutionUnavailable(reason: reason)
                     reconnectableSessionIDs.remove(ObjectIdentifier(session))
                     allSurfaceIDsResolved = false
-                case let .retryable(reason, _):
-                    session.markSurfaceResolutionUnavailable(reason: .unresolved(reason))
-                    reconnectableSessionIDs.remove(ObjectIdentifier(session))
-                    allSurfaceIDsResolved = false
+                case .keep:
+                    // An attached stream is its own proof of life; a lookup that
+                    // could not answer says nothing about it.
+                    reconnectableSessionIDs.insert(ObjectIdentifier(session))
                 }
             }
             if allSurfaceIDsResolved {
@@ -72,7 +73,7 @@ extension CmuxTuiSurfaceProvider {
             closePanes(forExitedTerminals: exitedTerminalIDs)
         }
         for session in manualMirrorSessions.values
-        where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
+        where reconnectableSessionIDs.contains(ObjectIdentifier(session)) && session.allowsAutomaticReconnect {
             session.reconnect(socketPath: connected.socketPath)
         }
         return true

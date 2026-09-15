@@ -3149,6 +3149,7 @@ class TerminalController {
             "vm.attach_info",
             "vm.cmux_remote_info",
             "vm.ssh_info",
+            "vm.scp_info",
             "vm.sessions",
             "vm.session_attach_info",
             "vm.tree",
@@ -4163,7 +4164,6 @@ class TerminalController {
 #endif
         return result
     }
-
     nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
               let payload = JSONValue(foundationObject: result) else {
@@ -4171,7 +4171,6 @@ class TerminalController {
         }
         return Self.v2Encoder.ok(id: idValue, result: payload)
     }
-
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
     /// encode as JSON `null`; an unencodable id reports overall encode
     /// failure (the legacy `isValidJSONObject` behavior).
@@ -4179,7 +4178,6 @@ class TerminalController {
         guard let id else { return .null }
         return JSONValue(foundationObject: id)
     }
-
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
     /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
@@ -4212,6 +4210,9 @@ class TerminalController {
             return v2Ok(id: id, result: payload)
         case .failure(let error):
             if case VMClientError.disabledByManagedPolicy = error {
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if case VMClientError.cloudMachinesDisabled = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
             if let deliveryError = error as? CloudFileDelivery.DeliveryError {
@@ -4340,7 +4341,7 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled:
             return false
         }
     }
@@ -4569,6 +4570,12 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            guard routing.workspaceID == nil || routing.workspaceID == owner else { return nil }
+            guard let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else { return nil }
+            return AppDelegate.shared?.tabManagerFor(tabId: owner)
+        }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)
@@ -5256,7 +5263,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect", "cloud_vpn_setup"
+            "set_color", "clear_color", "mobile_connect"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5265,23 +5272,6 @@ class TerminalController {
         ])
 
         v2MainSync {
-            if action == "cloud_vpn_setup" {
-                // Pane creation belongs to the main actor. The socket focus
-                // policy controls selection, just as for the mobile setup pane.
-                guard let workspace = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-                    preferredTabManager: tabManager,
-                    focus: v2FocusAllowed()
-                ) else {
-                    result = .err(code: "unavailable", message: String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable"), data: nil)
-                    return
-                }
-                result = .ok([
-                    "action": action,
-                    "workspace_id": workspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id)
-                ])
-                return
-            }
             if action == "mobile_connect" {
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
@@ -5886,7 +5876,6 @@ class TerminalController {
                 let requestedWorkingDirectory = workspace?.allowsLocalDirectoryFallback(panelId: panelId) == false ? nil : nonEmpty(terminalSurface.requestedWorkingDirectory)
                 let teardownRequest = terminalSurface.debugTeardownRequest()
                 let lastKnownWorkspaceId = terminalSurface.debugLastKnownWorkspaceId()
-
                 var item: [String: Any] = [
                     "index": index,
                     "mapped": mapped != nil,
@@ -5901,6 +5890,7 @@ class TerminalController {
                     "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
                     "renderer_realized": terminalSurface.isRendererRealized,
                     "renderer_presented": terminalSurface.isRendererPresented,
+                    "render_health": terminalSurface.renderHealth.rawValue,
                     "renderer_portal_visible": terminalSurface.isRendererPortalVisible,
                     "renderer_window_visible": terminalSurface.rendererWindowVisible,
                     "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
@@ -6120,7 +6110,12 @@ class TerminalController {
                 surfaceID: self.v2UUID(params, "surface_id")
                     ?? self.v2UUID(params, "terminal_id")
                     ?? self.v2UUID(params, "tab_id"),
-                paneID: self.v2UUID(params, "pane_id")
+                paneID: self.v2UUID(params, "pane_id"),
+                remoteRelayOwnerWorkspaceID: self.v2UUID(
+                    params,
+                    WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+                ),
+                remoteRelayConnectionID: self.v2UUID(params, WorkspaceRemoteRelayCommandRewriter.connectionIDKey)
             )
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
@@ -6128,10 +6123,9 @@ class TerminalController {
             if let lineLimit, lineLimit <= 0 {
                 return .finished(.err(code: "invalid_params", message: "lines must be greater than 0", data: nil))
             }
-            // The former witness resolved the explicit `surface_id` param only
-            // (no terminal_id/tab_id aliases) for target selection.
-            let explicitSurfaceID = self.v2UUID(params, "surface_id")
-            let hasSurfaceIDParam = params["surface_id"] != nil
+            // Consume the same terminal alias that the relay policy validates.
+            let explicitSurfaceID = self.v2UUID(params, "surface_id") ?? self.v2UUID(params, "terminal_id")
+            let hasSurfaceIDParam = params["surface_id"] != nil || params["terminal_id"] != nil
             let workspaceID: UUID
             let surfaceId: UUID
             let terminalSurface: TerminalSurface
@@ -6186,6 +6180,17 @@ class TerminalController {
                             data: ["surface_id": id.uuidString]
                         ))
                     }
+                    guard self.remoteRelayTargetIsCurrent(
+                        routing: routing,
+                        workspace: ws,
+                        surfaceID: id
+                    ) else {
+                        return .finished(.err(
+                            code: "not_found",
+                            message: "Surface not found for the given surface_id",
+                            data: nil
+                        ))
+                    }
                     guard let target = ws.controlSocketTerminalTarget(for: id) else {
                         return .finished(.err(
                             code: "surface_unavailable",
@@ -6208,6 +6213,17 @@ class TerminalController {
                     }
                     surfaceId = focused.surfaceID
                     terminalSurface = target.surface
+                    guard self.remoteRelayTargetIsCurrent(
+                        routing: routing,
+                        workspace: ws,
+                        surfaceID: surfaceId
+                    ) else {
+                        return .finished(.err(
+                            code: "not_found",
+                            message: "No focused surface",
+                            data: nil
+                        ))
+                    }
                 }
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)

@@ -839,8 +839,6 @@ extension Workspace {
             return nil
         case .accountSignIn:
             return nil
-        case .cloudVPNSetup:
-            return nil
         }
         return SessionPanelSnapshot(
             id: panelId,
@@ -2344,8 +2342,6 @@ extension Workspace {
             return nil
         case .accountSignIn:
             return nil
-        case .cloudVPNSetup:
-            return nil
         }
     }
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
@@ -3201,6 +3197,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// A restored Cloud terminal can fail before its mirror session exists.
     /// Keep that failure on the placeholder panel so it cannot remain blank.
     var cloudMaterializationFailures: [UUID: (detail: String, reference: String?)] = [:]
+    /// Optimistic Cloud panes whose terminal the machine is still creating, by panel id.
+    var cloudPendingCreations: [UUID: CloudTerminalPaneReservation] = [:]
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
@@ -6513,6 +6511,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionIDsByPanelId = remotePTYSessionIDsByPanelId.filter { validSurfaceIds.contains($0.key) }
         endedPersistentRemotePTYAttachSurfaceIds = endedPersistentRemotePTYAttachSurfaceIds.filter { validSurfaceIds.contains($0) }
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
+        if isRemoteWorkspace {
+            // Keep the relay's owned-surface set tracking live panel adds and
+            // removals, not just alias pruning (GHSA-9vmv-3hjw-j28c).
+            syncRemoteRelayIDAliasesToController()
+        }
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
@@ -6699,7 +6702,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if isRemoteTmuxMirror { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
-            case .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
+            case .cloudVMLoading, .mobilePairing, .accountSignIn:
                 true
             default:
                 false
@@ -6830,7 +6833,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         try controller.closePTYSession(sessionID: sessionID)
     }
-
     func resizeRemotePTY(sessionID: String, attachmentID: String, attachmentToken: String, cols: Int, rows: Int) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 13, userInfo: [
@@ -6845,7 +6847,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             rows: rows
         )
     }
-
     func detachRemotePTYAttachment(sessionID: String, attachmentID: String, attachmentToken: String) throws {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 14, userInfo: [
@@ -6858,7 +6859,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             attachmentToken: attachmentToken
         )
     }
-
     func remoteStatusPayload() -> [String: Any] {
         let heartbeatAgeSeconds: Any = {
             guard let last = remoteLastHeartbeatAt else { return NSNull() }
@@ -6951,7 +6951,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         return payload
     }
-
     @discardableResult
     func configureRemoteConnection(
         _ configuration: WorkspaceRemoteConfiguration,
@@ -6962,6 +6961,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // command palette, menus, forks, session restore, and automation at
         // once. Nothing is retained or dialed before the refusal.
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
+        if let managedCloudVMID = configuration.managedCloudVMID,
+           !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !CloudMachinesFeature.offMainIsEnabled() {
+            return suspendCloudRemoteConfiguration(configuration)
+        }
         var configuration = configuration.scopedToOwnerWorkspace(id)
         let foregroundAuthToken =
             Self.normalizedForegroundAuthToken(
@@ -7025,6 +7029,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        // Publish this workspace's owned-ID set (identity entries) before the
+        // remote shell's first relay RPC can arrive (GHSA-9vmv-3hjw-j28c).
+        syncRemoteRelayIDAliasesToController()
         defer { applyPendingRemoteTerminalConnections() }
         let clearedRemoteDirectoryTrust = !remoteDirectoryTrustRequiredPanelIds.isEmpty ||
             !remoteDirectoryReportPanelIds.isEmpty
@@ -7057,7 +7064,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remoteLastPortConflictFingerprint = nil
         recomputeListeningPorts()
         postRemoteConnectionPresentationDidChange()
-
         let previousController = remoteSessionController
         let previousControllerID = activeRemoteSessionControllerID
         activeRemoteSessionControllerID = nil
@@ -7350,9 +7356,23 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func syncRemoteRelayIDAliasesToController() {
+        var workspaceAliases = remoteRelayWorkspaceIDAliases
+        var surfaceAliases = remoteRelaySurfaceIDAliases
+        if isRemoteWorkspace {
+            // The remote shell's environment carries this workspace's live
+            // local UUIDs, so a fresh session (no snapshot restore, no
+            // distinct remote IDs) legitimately targets its own objects by
+            // local UUID. Publish identity entries so the relay's
+            // authorization gate treats exactly these local objects as
+            // remote-owned (GHSA-9vmv-3hjw-j28c).
+            workspaceAliases[id] = id
+            for panelId in activeRemoteTerminalSurfaceIds {
+                surfaceAliases[panelId] = panelId
+            }
+        }
         remoteSessionController?.updateRemoteRelayIDAliases(
-            workspaceAliases: remoteRelayWorkspaceIDAliases,
-            surfaceAliases: remoteRelaySurfaceIDAliases
+            workspaceAliases: workspaceAliases,
+            surfaceAliases: surfaceAliases
         )
     }
 
@@ -7412,7 +7432,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func rewriteRemoteRelayCommandLine(_ commandLine: Data) -> Data {
         WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: id,
-            remoteRelayTokenHex: remoteConfiguration?.relayToken ?? ""
+            remoteRelayTokenHex: remoteConfiguration?.relayToken ?? "",
+            remoteSessionControllerID: activeRemoteSessionControllerID
         ).rewriteRemoteRelayCommandLine(
             commandLine,
             workspaceAliases: remoteRelayWorkspaceIDAliases,
@@ -7526,11 +7547,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 reference: failure.reference
             )
         }
-        if let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
-            return session.connectionPresentation
-        }
+        // A reserved pane still waiting for its terminal shows nothing but its
+        // tab spinner; only a recorded failure (above) puts a card on it.
+        if cloudPendingCreations[surfaceId] != nil { return nil }
+        if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
@@ -7547,7 +7567,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             title: String(localized: "cloud.overlay.materializationFailed.title", defaultValue: "Cloud terminal could not start"),
             detail: detail,
             showsProgress: false,
-            showsReconnectButton: false
+            showsReconnectButton: true
         )
         presentation.diagnosticReference = reference
         return presentation
@@ -10498,8 +10518,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             teardownPanelResources(retireDock: retireDock)
         }
     }
-
     private func teardownPanelResources(retireDock: Bool) {
+        cancelAllReservedCloudTerminalPanes()
+        cloudPaneCreationFailureStore.cancelAll()
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()

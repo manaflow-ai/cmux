@@ -83,11 +83,14 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     private static let cloudOptInKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
     private static var cloudRemoteFlag: CmuxFeatureFlagDefinition? {
-        CmuxFeatureFlags.allFlags.first { $0.key == "cloud-vm-ui-enabled-release" }
+        CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" }
     }
 
     private func setCloudMachinesEnabled(_ enabled: Bool) {
         UserDefaults.standard.set(enabled, forKey: Self.cloudOptInKey)
+        if let definition = Self.cloudRemoteFlag {
+            CmuxFeatureFlags.shared.setOverride(enabled, for: definition)
+        }
         XCTAssertEqual(CloudMachinesFeature.isEnabled, enabled)
     }
 
