@@ -384,7 +384,10 @@ final class MobileTerminalRenderObserver {
                     includeTheme: includeTheme,
                     anchor: anchor
                   ) else {
-                clearRenderGridCache(surfaceID: surfaceID)
+                // A synchronized redraw can temporarily make capture
+                // unavailable. The last emitted baseline remains valid; the
+                // next committed capture can still produce a small delta.
+                // Surface removal/replacement invalidates it above.
                 return nil
             }
             var themedFrame = snapshot.frame
