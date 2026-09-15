@@ -1,14 +1,14 @@
 import Foundation
 
-enum NewWorkspaceMachineSelection: Equatable {
-    case none
-    case local
-    case cloud(String)
-    case pending
-}
-
 /// Resolves the machine context captured for one New Workspace invocation.
 struct NewWorkspaceMachineContext: Equatable {
+    enum Selection: Equatable {
+        case none
+        case local
+        case cloud(String)
+        case pending
+    }
+
     enum Target: Equatable {
         case local
         case cloud(String)
@@ -18,7 +18,7 @@ struct NewWorkspaceMachineContext: Equatable {
     let target: Target
 
     init(
-        selection: NewWorkspaceMachineSelection,
+        selection: Selection,
         selectedWorkspaceCloudMachineID: String?,
         machinesPanelOwnsFocus: Bool
     ) {

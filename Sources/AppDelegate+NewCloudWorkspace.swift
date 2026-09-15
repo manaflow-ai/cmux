@@ -70,7 +70,7 @@ extension AppDelegate {
 
     /// Records the Machines tree selection for the owning window. The active
     /// focus coordinator decides later whether this selection is authoritative.
-    func setNewWorkspaceMachineSelection(_ selection: NewWorkspaceMachineSelection, in tabManager: TabManager?) {
+    func setNewWorkspaceMachineSelection(_ selection: NewWorkspaceMachineContext.Selection, in tabManager: TabManager?) {
         guard let tabManager,
               let context = mainWindowContext(for: tabManager) else { return }
         context.newWorkspaceMachineSelection = selection
@@ -122,6 +122,7 @@ extension AppDelegate {
                         machineID: capturedMachineID,
                         focus: focus,
                         windowID: windowID,
+                        destination: destination,
                         debugSource: "\(debugSource).retry"
                     )
                 }
