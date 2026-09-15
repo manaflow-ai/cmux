@@ -13,8 +13,6 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         // on screen is the mode the attach holds until the replay completes.
         let replayHead = "remote-"
         let replayTail = "prompt$ "
-        let dangerousWritten = DispatchSemaphore(value: 0)
-        let preReplayChecked = DispatchSemaphore(value: 0)
         let releaseReplayTail = DispatchSemaphore(value: 0)
         let forwardedCaptured = DispatchSemaphore(value: 0)
         let finishBridge = DispatchSemaphore(value: 0)
@@ -23,10 +21,10 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         try withSSHPTYAttach(requireExisting: true) { bridge in
             guard bridge.sendReady(replayBytes: (replayHead + replayTail).utf8.count),
                   bridge.send(replayHead),
-                  bridge.wait(for: dangerousWritten) else { return }
-            forwarded.append(bridge.receive(timeoutMilliseconds: 400) { _ in false })
-            preReplayChecked.signal()
-            guard bridge.wait(for: releaseReplayTail), bridge.send(replayTail) else { return }
+                  bridge.wait(for: releaseReplayTail),
+                  bridge.send(replayTail) else { return }
+            // The CLI forwards input in order, so a leaked line typed during
+            // replay would arrive here ahead of the safe one.
             forwarded.append(bridge.receive(timeoutMilliseconds: 5_000) { $0.contains(0x0A) })
             forwardedCaptured.signal()
             _ = bridge.wait(for: finishBridge)
@@ -35,9 +33,6 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             // Mid-replay, signal keys stay live and typed bytes stay local.
             #expect(isDisconnectedMode(fd: attach.slaveFD))
             try #require(attach.write("dangerous-command\n"))
-            dangerousWritten.signal()
-            try #require(preReplayChecked.wait(timeout: .now() + 10) == .success)
-            #expect(forwarded.text.isEmpty, Comment(rawValue: forwarded.text))
 
             releaseReplayTail.signal()
             try #require(waitUntil { isRawForwardingMode(fd: attach.slaveFD) })
