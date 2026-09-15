@@ -24,6 +24,7 @@ struct MobileTailscaleSuggestionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             MobileTailscaleRouteSummaryView(route: route, showsAddresses: layout == .inline)
+                .accessibilityIdentifier("MobileTailscaleSuggestion-\(route.id)")
             if layout == .details {
                 DisclosureGroup(String(localized: "mobile.pathDiscoveryLab.addresses", defaultValue: "Show addresses", bundle: .module)) {
                     ForEach(route.addresses, id: \.self) { address in
@@ -42,7 +43,6 @@ struct MobileTailscaleSuggestionView: View {
             .buttonStyle(.bordered)
             .accessibilityIdentifier("MobileTailscaleAddRoute-\(route.id)")
         }
-        .accessibilityIdentifier("MobileTailscaleSuggestion-\(route.id)")
     }
 }
 #endif

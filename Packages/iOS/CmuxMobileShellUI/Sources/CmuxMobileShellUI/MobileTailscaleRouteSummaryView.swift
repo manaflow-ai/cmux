@@ -23,6 +23,7 @@ struct MobileTailscaleRouteSummaryView: View {
                 }
             }
         }
+        .accessibilityElement(children: .combine)
     }
 }
 #endif
