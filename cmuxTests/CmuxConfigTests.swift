@@ -1376,6 +1376,59 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(ws?.color, "#FF5733")
     }
 
+    func testDecodeWorkspaceTerminalColors() throws {
+        let json = """
+        {
+          "commands": [{
+            "name": "Dev env",
+            "workspace": {
+              "name": "Development",
+              "terminalBackground": "#1a1a3e",
+              "terminalForeground": "#F4F3F2"
+            }
+          }]
+        }
+        """
+        let config = try decode(json)
+        let ws = config.commands[0].workspace
+        XCTAssertEqual(ws?.terminalBackground, "#1A1A3E")
+        XCTAssertEqual(ws?.terminalForeground, "#F4F3F2")
+        XCTAssertEqual(
+            ws?.terminalColorCommand,
+            "printf '\\033]11;%s\\007' '#1A1A3E'; printf '\\033]10;%s\\007' '#F4F3F2'"
+        )
+    }
+
+    func testDecodeWorkspaceRejectsInvalidTerminalBackground() {
+        let json = """
+        {
+          "commands": [{
+            "name": "Dev env",
+            "workspace": {
+              "name": "Development",
+              "terminalBackground": "not-a-color"
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeWorkspaceRejectsNamedTerminalForeground() {
+        let json = """
+        {
+          "commands": [{
+            "name": "Dev env",
+            "workspace": {
+              "name": "Development",
+              "terminalForeground": "Indigo"
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
     func testDecodeRestartBehaviors() throws {
         for behavior in ["new", "recreate", "ignore", "confirm"] {
             let json = """
