@@ -8821,8 +8821,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
            remotePTYSessionID == nil, workingDirectory == nil,
            !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
-            return .routedToRemote
+           cloudProjectedResource(forPanel: panelId) != nil {
+            return routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSplitLocal(
             from: panelId,
@@ -9144,8 +9144,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
            workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
            restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) {
-            return .routedToRemote
+           cloudProjectedResource(inPane: paneId) != nil {
+            return routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(
             inPane: paneId,

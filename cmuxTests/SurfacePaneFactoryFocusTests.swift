@@ -220,9 +220,6 @@ import Testing
             diskUsedMb: nil
         )
         let catalog = SurfaceCatalog.shared
-        // Keep the Cloud identity and projection visible while its provider is
-        // unavailable, matching a failed reconnect/restore rather than a deleted
-        // machine. The route must fail closed at this boundary.
         catalog.replaceUnavailableCloudState(on: machine, resources: [resource], info: info)
         catalog.record(SurfaceProjection(
             resource: resource.id,
@@ -235,7 +232,6 @@ import Testing
             catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
             catalog.replaceUnavailableCloudState(on: machine, resources: [], info: info)
         }
-
         let panelCount = workspace.panels.count
         let outcome = workspace.newTerminalSplitOutcome(
             from: sourcePanelID,
