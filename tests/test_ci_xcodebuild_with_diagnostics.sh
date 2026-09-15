@@ -37,6 +37,14 @@ grep -Fq 'xcodebuild termination: signal=9' "$TMP_DIR/failure.log"
 grep -Fq 'resource diagnostics follow' "$TMP_DIR/failure.log"
 grep -Fq -- '--- top processes by resident memory ---' "$TMP_DIR/failure.log"
 
+for invalid_interval in 0 0.0 00; do
+  if CMUX_XCODEBUILD_HEARTBEAT_SECONDS="$invalid_interval" \
+    "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/invalid.log" 2>&1; then
+    echo "FAIL: heartbeat interval $invalid_interval must be rejected" >&2
+    exit 1
+  fi
+done
+
 : >"$TMP_DIR/heartbeat.log"
 FAKE_XCODEBUILD_DELAY=0.3 \
   CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.05 \
