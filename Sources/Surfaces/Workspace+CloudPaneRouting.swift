@@ -111,7 +111,6 @@ final class CloudWorkspaceRenameService {
             machine: target.machine,
             remoteWorkspaceID: target.remoteWorkspaceID
         )
-        updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: catalog)
     }
     /// The one remote cmux-tui workspace a local workspace stands for. The persisted
     /// binding wins; otherwise the projected cloud resources decide, but only when
