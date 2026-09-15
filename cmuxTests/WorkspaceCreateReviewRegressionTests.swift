@@ -225,7 +225,9 @@ import Testing
             defaults: defaults,
             persistenceKey: "completed"
         )
-        let rejectingManager = RejectingWorkspaceCreationTabManager()
+        // This manager refuses every workspace creation, including the initial
+        // workspace TabManager.init would otherwise create and require.
+        let rejectingManager = RejectingWorkspaceCreationTabManager(createInitialWorkspace: false)
         let retryManager = TabManager()
         let operationID = UUID()
         defer {
