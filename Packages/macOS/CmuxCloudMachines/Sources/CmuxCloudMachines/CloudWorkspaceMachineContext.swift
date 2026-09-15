@@ -24,8 +24,10 @@ public struct CloudWorkspaceMachineContext: Equatable, Sendable {
             case .pending:
                 target = .unavailable
             case .none, .cloud:
-                let value = selectedWorkspaceCloudMachineID?.trimmingCharacters(in: .whitespacesAndNewlines)
-                target = value?.isEmpty == false ? .cloud(value!) : .local
+                // Once the Machines panel owns focus, an empty selection is
+                // authoritative. Do not resurrect a Cloud binding from the
+                // workspace that happens to remain selected behind it.
+                target = .local
             }
         } else {
             let value = selectedWorkspaceCloudMachineID?.trimmingCharacters(in: .whitespacesAndNewlines)
