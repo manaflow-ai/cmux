@@ -5076,7 +5076,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // expanding a pinned primary screen can pull history into it, and
             // shrinking it back does not restore the previous cells.
             let capacity = ghostty_surface_size_for_bounds(surface, containerPxW, containerPxH)
-            let cell = CGSize(width: Int(capacity.cell_width_px), height: Int(capacity.cell_height_px))
+            // Capacity reporting uses the container pitch, including padding
+            // and partial-cell space. Exact fitting below uses Ghostty's own
+            // metrics, so this reporting value never drives a resize.
+            let cell = CGSize(
+                width: CGFloat(capacity.width_px) / CGFloat(max(1, capacity.columns)),
+                height: CGFloat(capacity.height_px) / CGFloat(max(1, capacity.rows))
+            )
             var pinnedSize: CGSize?
             if let eff,
                eff.cols > 0, eff.rows > 0,
