@@ -9,8 +9,9 @@ extension TabManager {
         tabId: UUID,
         panelId: UUID,
         title: String,
-        catalog: SurfaceCatalog = .shared
+        catalog: SurfaceCatalog? = nil
     ) -> Bool {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard let workspace = workspacesById[tabId] else { return false }
         if workspace.cloudProjectedResource(forPanel: panelId, catalog: catalog)?.kind == .terminal {
             return workspace.setPanelCustomTitle(panelId: panelId, title: title, source: .auto, catalog: catalog)
