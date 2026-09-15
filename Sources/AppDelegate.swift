@@ -8424,7 +8424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     machineID: machineID,
                     focus: context.tabManager.selectedTabId != nil,
                     debugSource: debugSource,
-                    destination: destination
+                    destination: destination,
+                    windowID: context.windowId
                 )
             }
         }

@@ -54,7 +54,8 @@ extension AppDelegate {
         machineID: String,
         focus: Bool,
         debugSource: String = "newWorkspace.cloud",
-        destination: CloudWorkspaceGroupDestination? = nil
+        destination: CloudWorkspaceGroupDestination? = nil,
+        windowID: UUID? = nil
     ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
@@ -62,7 +63,11 @@ extension AppDelegate {
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else { return false }
         return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)") {
-            guard let workspaceID = try await coordinator.createOnMachine(machineID: capturedMachineID, focus: focus),
+            guard let workspaceID = try await coordinator.createOnMachine(
+                machineID: capturedMachineID,
+                focus: focus,
+                windowID: windowID
+            ),
                   !Task.isCancelled,
                   coordinator.isAvailable else { return }
             destination?.apply(workspaceID: workspaceID)

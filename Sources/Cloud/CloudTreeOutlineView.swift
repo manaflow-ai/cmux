@@ -380,7 +380,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let node, case .pendingMachine = node.kind {
                 onMachineSelectionChange(nil)
             } else {
-                onMachineSelectionChange(node?.machine.cloudMachineID)
+                onMachineSelectionChange(node?.machine)
             }
         }
 
