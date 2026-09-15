@@ -265,3 +265,27 @@ final class TmuxLaneNameTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Bounded subprocess runs
+
+/// The lane-snapshot timer used to run `tmux list-sessions` on the main thread and
+/// block in `waitUntilExit`, whose nested run loop re-entered SwiftUI layout and froze
+/// the app. A run must return within its timeout whatever the child does.
+final class TmuxSessionReaperRunTests: XCTestCase {
+
+    func testRunReturnsOutputOfAQuickCommand() {
+        let out = TmuxSessionReaper.run("/bin/echo", ["lane"], timeout: 5)
+        XCTAssertEqual(out?.trimmingCharacters(in: .whitespacesAndNewlines), "lane")
+    }
+
+    func testRunGivesUpOnAHungCommandWithinItsTimeout() {
+        let started = Date()
+        let out = TmuxSessionReaper.run("/bin/sleep", ["30"], timeout: 0.5)
+        XCTAssertNil(out)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testRunReturnsNilForAFailingCommand() {
+        XCTAssertNil(TmuxSessionReaper.run("/usr/bin/false", [], timeout: 5))
+    }
+}
