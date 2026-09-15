@@ -17,6 +17,20 @@ struct MachineCreateRequest: Equatable {
     /// this window and never activates a different one.
     let selectionWindowID: UUID? = nil
 
+    init(
+        mode: NewMachineModel.Mode,
+        kind: VMMachineKind,
+        name: String?,
+        arguments: [String],
+        selectionWindowID: UUID? = nil
+    ) {
+        self.mode = mode
+        self.kind = kind
+        self.name = name
+        self.arguments = arguments
+        self.selectionWindowID = selectionWindowID
+    }
+
     var isBaseSetup: Bool {
         if case .base = mode { return true }
         return false
