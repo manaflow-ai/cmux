@@ -3870,6 +3870,7 @@
     "email": "E-post",
     "emailUnavailable": "e-post ikke tilgjengelig",
     "organization": "Organisasjon",
-    "personalAccount": "personlig konto"
+    "personalAccount": "personlig konto",
+    "switchAccountButton": "Bruk en annen konto"
   }
 }

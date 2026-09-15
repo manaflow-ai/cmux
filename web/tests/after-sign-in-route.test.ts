@@ -558,6 +558,23 @@ describe("sign out and sign back in", () => {
     expect(response.headers.get("set-cookie")).toContain("stack-access=;");
   });
 
+  test("rejects CLI sign-in targets that are not one exact authorization code", async () => {
+    const malformedConfirmations = [
+      "/handler/cli-auth-confirm",
+      "/handler/cli-auth-confirm?login_code=test-login-code&next=%2Fdocs",
+      "/handler/cli-auth-confirm?login_code=not.valid",
+      "https://evil.test/handler/cli-auth-confirm?login_code=test-login-code",
+    ];
+
+    for (const confirmation of malformedConfirmations) {
+      const signIn = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(confirmation)}`;
+      const response = await GET(switchRequest(signIn));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+  });
+
   test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {
     const malformed = [
       `/cloud/access?transaction=short&state=${publicationState}`,

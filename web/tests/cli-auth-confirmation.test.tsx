@@ -14,11 +14,12 @@ let user: {
 mock.module("@stackframe/stack", () => ({
   useCliAuthConfirmation: () => auth,
   useUser: () => user,
-  MessageCard: ({ title, children, primaryButtonText }: {
+  MessageCard: ({ title, children, primaryButtonText, secondaryButtonText }: {
     title: string;
     children: React.ReactNode;
     primaryButtonText?: string;
-  }) => <main><h1>{title}</h1>{children}{primaryButtonText && <button type="button">{primaryButtonText}</button>}</main>,
+    secondaryButtonText?: string;
+  }) => <main><h1>{title}</h1>{children}{secondaryButtonText && <button type="button">{secondaryButtonText}</button>}{primaryButtonText && <button type="button">{primaryButtonText}</button>}</main>,
 }));
 
 const { CliAuthConfirmation } = await import("../app/handler/cli-auth-confirmation");
@@ -56,10 +57,12 @@ describe("CLI authorization account identity", () => {
 
   test("offers a different-account sign-in that preserves the CLI login code", () => {
     const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
-    const match = html.match(/<a[^>]+href="([^"]+)"[^>]*>Use a different account<\/a>/);
-    expect(match).toBeTruthy();
+    expect(html).toContain("<button type=\"button\">Use a different account</button>");
+  });
 
-    const switchURL = new URL(match![1], "https://cmux.test");
+  test("builds a different-account sign-in that preserves the CLI login code", async () => {
+    const { cliAuthSwitchAccountHref } = await import("../app/handler/cli-auth-confirmation");
+    const switchURL = new URL(cliAuthSwitchAccountHref("test-login-code"), "https://cmux.test");
     expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
 
     const signInURL = new URL(

@@ -3871,6 +3871,7 @@
     "email": "អ៊ីមែល",
     "emailUnavailable": "មិនមានអ៊ីមែល",
     "organization": "ស្ថាប័ន",
-    "personalAccount": "គណនីផ្ទាល់ខ្លួន"
+    "personalAccount": "គណនីផ្ទាល់ខ្លួន",
+    "switchAccountButton": "ប្រើគណនីផ្សេងទៀត"
   }
 }

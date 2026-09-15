@@ -3873,6 +3873,7 @@
     "email": "E-Mail",
     "emailUnavailable": "E-Mail nicht verfügbar",
     "organization": "Organisation",
-    "personalAccount": "persönliches Konto"
+    "personalAccount": "persönliches Konto",
+    "switchAccountButton": "Anderes Konto verwenden"
   }
 }

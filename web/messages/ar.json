@@ -3870,6 +3870,7 @@
     "email": "البريد الإلكتروني",
     "emailUnavailable": "البريد الإلكتروني غير متاح",
     "organization": "المؤسسة",
-    "personalAccount": "حساب شخصي"
+    "personalAccount": "حساب شخصي",
+    "switchAccountButton": "استخدام حساب مختلف"
   }
 }
