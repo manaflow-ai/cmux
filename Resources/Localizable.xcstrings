@@ -209843,55 +209843,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local overrides apply only when no remote value is available."
+            "value": "Remote values take priority, except for local Cloud overrides in Nightly and debug builds."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカル上書きは、リモート値がない場合にのみ適用されます。"
+            "value": "リモート値が優先されます。ただし、NIGHTLYとデバッグビルドのCloudのローカル上書きは例外です。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地覆盖项仅在没有远程值可用时生效。"
+            "value": "远程值优先，但 Nightly 和调试版本中的 Cloud 本地覆盖除外。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lokale Überschreibungen gelten nur, wenn kein Remote-Wert verfügbar ist."
+            "value": "Remote-Werte haben Vorrang, außer bei lokalen Cloud-Überschreibungen in Nightly- und Debug-Builds."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les surcharges locales s’appliquent uniquement lorsqu’aucune valeur distante n’est disponible."
+            "value": "Les valeurs distantes ont la priorité, sauf les surcharges locales de Cloud dans les versions Nightly et de débogage."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تنطبق التجاوزات المحلية فقط في حال عدم توفر قيمة عن بعد."
+            "value": "تكون الأولوية للقيم البعيدة، باستثناء تجاوزات Cloud المحلية في إصدارات Nightly وتصحيح الأخطاء."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las anulaciones locales se aplican solo cuando no hay ningún valor remoto disponible."
+            "value": "Los valores remotos tienen prioridad, salvo las anulaciones locales de Cloud en las versiones Nightly y de depuración."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "僅在無可用遠端值時套用本機覆蓋。"
+            "value": "遠端值優先，但 Nightly 和除錯版本中的 Cloud 本機覆寫除外。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로컬 재정의는 원격 값을 사용할 수 없는 경우에만 적용됩니다."
+            "value": "원격 값이 우선하지만 Nightly 및 디버그 빌드의 로컬 Cloud 재정의는 예외입니다."
           }
         }
       }
@@ -210364,6 +210364,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "모바일 변경 사항 뷰어"
+          }
+        }
+      }
+    },
+    "featureFlags.override.cloudDogfoodNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud overrides take priority in this Nightly or debug build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このNIGHTLYまたはデバッグビルドでは、Cloudの上書きが優先されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Überschreibungen haben in diesem Nightly- oder Debug-Build Vorrang."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les surcharges de Cloud ont la priorité dans cette version Nightly ou de débogage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكون الأولوية لتجاوزات Cloud في إصدار Nightly أو تصحيح الأخطاء هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las anulaciones de Cloud tienen prioridad en esta versión Nightly o de depuración."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Nightly 或除錯版本中的 Cloud 覆寫優先。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Nightly 或调试版本中的 Cloud 覆盖优先。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Nightly 또는 디버그 빌드에서는 Cloud 재정의가 우선합니다."
           }
         }
       }

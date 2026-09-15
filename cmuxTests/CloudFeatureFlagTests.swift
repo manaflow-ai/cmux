@@ -39,7 +39,7 @@ struct CloudFeatureFlagTests {
         withExtendedLifetime(observer) {}
     }
     #endif
-    @Test("Cloud defaults off and follows remote values before local overrides")
+    @Test("Stable Cloud defaults off and only follows remote values")
     func remoteResolution() throws {
         let suite = "cmux.cloud.flag.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -48,11 +48,15 @@ struct CloudFeatureFlagTests {
         #expect(definition.defaultWhenUnavailable == false)
         for remote in [nil, false, true] as [Bool?] {
             defaults.removePersistentDomain(forName: suite)
-            let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in remote })
+            let flags = CmuxFeatureFlags(
+                defaults: defaults,
+                overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+                remoteFlagValueProvider: { _ in remote }
+            )
             flags.applyLoadedFlags()
             #expect(flags.effectiveValue(for: definition) == (remote ?? false))
             flags.setOverride(true, for: definition)
-            #expect(flags.effectiveValue(for: definition) == (remote ?? true))
+            #expect(flags.effectiveValue(for: definition) == (remote ?? false))
             flags.setOverride(false, for: definition)
             #expect(flags.effectiveValue(for: definition) == (remote ?? false))
         }
