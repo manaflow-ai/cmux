@@ -59,6 +59,18 @@ import Testing
         #expect(json.keys.sorted() == ["clientPublicKey", "deviceFingerprint"])
     }
 
+    @Test func enrollmentCarriesTheCurrentServerRequiredIdentifiers() throws {
+        let request = try builder.enrollTunnel(
+            clientPublicKey: "pub", deviceFingerprint: "ios-terminal", deviceName: "Phone",
+            accessToken: "acc", refreshToken: "ref"
+        )
+        let json = try body(request)
+        // The deployed route rejects either missing field before it can enroll
+        // a peer, so neither terminal access nor the OS consent flow can start.
+        #expect((json["deviceId"] as? String)?.isEmpty == false)
+        #expect(json["tunnelPurpose"] as? String == "terminal")
+    }
+
     @Test func attachUsesCmuxRemoteTransportAndLongTimeout() throws {
         let request = try builder.openAttach(
             machineID: "vm a/b", deviceFingerprint: "ios-1", clientCapabilities: ["Bad Token", "direct-ws-user-agent", "direct-ws-user-agent"],
