@@ -2,18 +2,15 @@ import Foundation
 import Combine
 import Bonsplit
 import OSLog
-
 private let closedItemHistoryLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "ClosedItemHistory"
 )
-
 struct ClosedPanelSplitPlacement: Codable, Sendable {
     let orientation: SplitOrientation
     let insertFirst: Bool
     let anchorPanelId: UUID?
 }
-
 struct ClosedPanelHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let paneId: UUID
@@ -29,7 +26,8 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
     /// Workspace identity encoded into the panel snapshot. This can differ
     /// from `sourceWorkspaceId` after a session restore.
     let sourceSnapshotWorkspaceId: UUID?
-
+    let layout: SessionWorkspaceLayoutSnapshot?
+    let projection: SurfaceProjectionRecord?
     init(
         workspaceId: UUID,
         paneId: UUID,
@@ -39,7 +37,9 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
         snapshot: SessionPanelSnapshot,
         fallbackSplitPlacement: ClosedPanelSplitPlacement? = nil,
         sourceWorkspaceId: UUID? = nil,
-        sourceSnapshotWorkspaceId: UUID? = nil
+        sourceSnapshotWorkspaceId: UUID? = nil,
+        layout: SessionWorkspaceLayoutSnapshot? = nil,
+        projection: SurfaceProjectionRecord? = nil
     ) {
         self.workspaceId = workspaceId
         self.paneId = paneId
@@ -50,35 +50,31 @@ struct ClosedPanelHistoryEntry: Codable, Sendable {
         self.fallbackSplitPlacement = fallbackSplitPlacement
         self.sourceWorkspaceId = sourceWorkspaceId
         self.sourceSnapshotWorkspaceId = sourceSnapshotWorkspaceId
+        self.layout = layout
+        self.projection = projection
     }
 }
-
 struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceId: UUID
     let windowId: UUID?
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
-
 struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
-
     let workspaceIds: [UUID]
-
     init(windowId: UUID? = nil, snapshot: SessionWindowSnapshot, workspaceIds: [UUID] = []) {
         self.windowId = windowId
         self.snapshot = snapshot
         self.workspaceIds = workspaceIds
     }
 }
-
 enum ClosedItemHistoryEntry: Codable, Sendable {
     case panel(ClosedPanelHistoryEntry)
     case workspace(ClosedWorkspaceHistoryEntry)
     case window(ClosedWindowHistoryEntry)
 }
-
 struct ClosedItemHistoryRecord: Identifiable, Codable, Sendable {
     let id: UUID
     let closedAt: Date
@@ -584,7 +580,9 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement,
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
-                    panelEntry.sourceSnapshotWorkspaceId
+                    panelEntry.sourceSnapshotWorkspaceId,
+                layout: panelEntry.layout,
+                projection: panelEntry.projection
             )))
         }
         return (remappedRecords, didUpdate)
@@ -625,7 +623,9 @@ final class ClosedItemHistoryStore: ObservableObject {
                 fallbackSplitPlacement: fallbackSplitPlacement,
                 sourceWorkspaceId: panelEntry.sourceWorkspaceId,
                 sourceSnapshotWorkspaceId:
-                    panelEntry.sourceSnapshotWorkspaceId
+                    panelEntry.sourceSnapshotWorkspaceId,
+                layout: panelEntry.layout,
+                projection: panelEntry.projection
             )))
         }
         return (remappedRecords, didUpdate)
