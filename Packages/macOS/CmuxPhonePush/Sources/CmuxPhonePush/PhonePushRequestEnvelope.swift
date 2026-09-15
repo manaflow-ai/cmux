@@ -162,6 +162,9 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             throw EncodingError.tooManyEncryptedPayloads
         }
         let canonicalCorrelation = correlationID.uuidString.lowercased()
+        let normalizedNotificationID = payload.kind == .notify
+            ? try Self.boundedIdentifier(payload.notificationId)
+            : nil
         var object: [String: Any] = [
             "kind": payload.kind.rawValue,
             "badgeCount": payload.badgeCount,
@@ -172,13 +175,16 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         ]
         if let macDeviceId = payload.macDeviceId { object["macDeviceId"] = macDeviceId }
         if let macInstanceTag = payload.macInstanceTag { object["macInstanceTag"] = macInstanceTag }
+        if let normalizedNotificationID {
+            object["notificationId"] = normalizedNotificationID
+        }
         let encoded = try JSONSerialization.data(withJSONObject: object)
         guard encoded.count <= Self.maximumRequestBytes else { throw EncodingError.requestTooLarge }
         self.init(
             correlationID: canonicalCorrelation,
             expirationEpochSeconds: expirationEpochSeconds,
             body: encoded,
-            coalescingID: payload.notificationId,
+            coalescingID: normalizedNotificationID,
             expectedAccountID: expectedAccountID,
             expectedSessionGeneration: expectedSessionGeneration,
             targetBundleIdentifier: targetBundleIdentifier
