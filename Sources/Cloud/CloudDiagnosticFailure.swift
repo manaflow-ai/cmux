@@ -46,7 +46,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .sessionRefreshFailed: return .sessionRefresh
             case .backendUnreachable: return .network
             case .malformedResponse: return .response
-            case .disabledByManagedPolicy: return .permission
+            case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
             case .httpStatus(let status, _): return classify(status: status)
             }
