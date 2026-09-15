@@ -1682,6 +1682,7 @@
 		FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */; };
 		A2CFBE5869E987D3E306CB7A /* FileExplorerOpenedTabDragSourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */; };
 		FE7090000000000000000006 /* FileExplorerOutlineReconciliationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7090000000000000000005 /* FileExplorerOutlineReconciliationTests.swift */; };
+		FE7090000000000000000002 /* FileExplorerOutlineSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7090000000000000000001 /* FileExplorerOutlineSnapshot.swift */; };
 		828800020000000000000002 /* FileExplorerPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 828800020000000000000001 /* FileExplorerPalette.swift */; };
 		FE7090000000000000000004 /* FileExplorerReconciliationUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE7090000000000000000003 /* FileExplorerReconciliationUITests.swift */; };
 		FE002101 /* FileExplorerRootResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002001 /* FileExplorerRootResolverTests.swift */; };
@@ -5443,6 +5444,7 @@
 		FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNSOutlineView.swift; sourceTree = "<group>"; };
 		06880917B87678F2857EC8FB /* FileExplorerOpenedTabDragSourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOpenedTabDragSourceTests.swift; sourceTree = "<group>"; };
 		FE7090000000000000000005 /* FileExplorerOutlineReconciliationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOutlineReconciliationTests.swift; sourceTree = "<group>"; };
+		FE7090000000000000000001 /* FileExplorerOutlineSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerOutlineSnapshot.swift; sourceTree = "<group>"; };
 		828800020000000000000001 /* FileExplorerPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerPalette.swift; sourceTree = "<group>"; };
 		FE7090000000000000000003 /* FileExplorerReconciliationUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerReconciliationUITests.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
@@ -10029,6 +10031,7 @@
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
 				FE001002 /* FileExplorerView.swift */,
+				FE7090000000000000000001 /* FileExplorerOutlineSnapshot.swift */,
 				C986A0100000000000000001 /* FilePreviewNativeDragOwnership.swift */,
 				C986A0120000000000000001 /* FilePreviewNativeDragPendingOwnership.swift */,
 				C986A0060000000000000001 /* ProvisionalDragWriterOwnership.swift */,
@@ -12991,6 +12994,7 @@
 				FE5996020000000000000002 /* FileExplorerHeaderView.swift in Sources */,
 				FE001105 /* FileExplorerKeyboardShortcuts.swift in Sources */,
 				FE5996030000000000000002 /* FileExplorerNSOutlineView.swift in Sources */,
+				FE7090000000000000000002 /* FileExplorerOutlineSnapshot.swift in Sources */,
 				828800020000000000000002 /* FileExplorerPalette.swift in Sources */,
 				FE5996040000000000000002 /* FileExplorerRowView.swift in Sources */,
 				FE001103 /* FileExplorerSearchController.swift in Sources */,
