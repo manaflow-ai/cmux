@@ -38,7 +38,10 @@ struct CodexWriterRecoveryTests {
             parentPID: 1,
             command: "codex app-server --listen ws://127.0.0.1:59152",
             executablePath: "/opt/codex/bin/codex",
-            pidVersion: 1
+            pidVersion: 1,
+            isPrivateCmuxServer: true,
+            hasConnectedClients: false,
+            hasControllingTerminal: false
         )
         let live = CodexWriterProcessEvidence(
             pid: 59111,

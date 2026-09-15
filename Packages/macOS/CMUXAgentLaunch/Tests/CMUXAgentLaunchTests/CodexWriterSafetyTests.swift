@@ -104,7 +104,10 @@ struct CodexWriterSafetyTests {
             let holder = CodexWriterProcessEvidence(
                 pid: 12345, parentPID: 1, command: "codex app-server --listen ws://127.0.0.1:59152",
                 startTime: "123:456", executablePath: "/opt/bin/codex",
-                pidVersion: changing && change == "generation" ? 2 : 1
+                pidVersion: changing && change == "generation" ? 2 : 1,
+                isPrivateCmuxServer: true,
+                hasConnectedClients: false,
+                hasControllingTerminal: false
             )
             var snapshot = CodexWriterProcessSnapshot()
             for target in locks.compactMap(CodexWriterFileIdentity.init) {
