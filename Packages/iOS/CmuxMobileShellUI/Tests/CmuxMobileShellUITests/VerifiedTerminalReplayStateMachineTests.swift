@@ -40,6 +40,16 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(!machine.isFrozen)
     }
 
+    @Test("sanitized control cells commit instead of starting a replay loop")
+    func replayControlNormalizationCommits() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let source = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "A\u{98}\u{86}B")
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: source)))
+        let observed = try frame(renderRevision: 1, stateSeq: 1, columns: 80, text: "A  B")
+        #expect(machine.complete(transactionID: transaction.id, observedFrame: observed) == .reveal)
+        #expect(!machine.isFrozen)
+    }
+
     @Test("recovery rejects deltas until a full frame verifies")
     func recoveryRequiresFullFrame() throws {
         let machine = VerifiedTerminalReplayStateMachine()

@@ -293,6 +293,26 @@ struct VerifiedReplayGeometryFitTests {
         #expect(!committed.plainRows().contains { $0.contains("PARTIAL_UNCOMMITTED") })
     }
 
+    @Test("replay verification accepts the control cells normalized by the encoder")
+    func replayVerificationMatchesControlCellNormalization() async throws {
+        let mounted = try await mountSurface()
+        defer { dismantle(mounted) }
+        let view = mounted.view
+        let size = pinnedSize(inside: mounted.natural)
+        #expect(await view.applyViewSizeAndWait(cols: size.columns, rows: size.rows))
+        // UTF-8 C1 scalars can become cells in real output (for example,
+        // double-encoded tool output). VT replay safely paints them as spaces.
+        #expect(await view.processOutputAndWait(Data(
+            "\u{1B}[2J\u{1B}[HC1_BEGIN \u{E2}\u{98}\u{86} C1_END".utf8
+        )))
+        let source = try actualFrame(view, revision: 1)
+        #expect(source.rowSpans.contains { $0.text.unicodeScalars.contains("\u{86}") })
+        let expected = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: source))
+        #expect(await apply(source, to: view))
+        let replayed = try await observe(view, matching: source)
+        expectRows(replayed.frame, equalTo: expected)
+    }
+
     private struct MountedSurface {
         let delegate: Delegate
         let view: GhosttySurfaceView
