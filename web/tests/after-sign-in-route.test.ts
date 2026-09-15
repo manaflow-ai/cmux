@@ -543,7 +543,10 @@ describe("sign out and sign back in", () => {
     expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
-    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain("stack-access=;");
+    expect(setCookie).toContain("stack-refresh-test-project=;");
+    expect(setCookie).toContain("Max-Age=0");
   });
 
   test("signs out and redirects into sign-in for CLI authorization", async () => {
