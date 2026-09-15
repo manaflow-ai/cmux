@@ -19,7 +19,7 @@ struct MobileWorkspaceListEmptyRow: View {
                 )
                 .font(.title3.weight(.semibold))
                 .multilineTextAlignment(.center)
-                Text(MobilePairingCopy.emptyWorkspaceMessage)
+                Text(MobilePairingCopy().emptyWorkspaceMessage)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
