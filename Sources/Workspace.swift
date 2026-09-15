@@ -11641,6 +11641,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
+        if let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first,
+           routeCloudPaneTerminalTab(inPane: pane, focus: true) {
+            return focusedPanelId.flatMap { terminalPanel(for: $0) }
+        }
         var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
@@ -14318,14 +14322,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
-        //
-        // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"
-        // tab in the source pane to avoid leaving it tabless. In cmux, this is undesirable:
-        // it creates a pane with no real surfaces and leaves an "Empty" tab in the tab bar.
-        //
-        // Replace placeholder-only source panes with a real terminal surface, then drop the
-        // placeholder tabs so the UI stays consistent and pane lists don't contain empties.
+        // Drag-to-split leaves a placeholder when moving the source's only tab.
+        // Its replacement inherits the workspace's execution machine.
         if !controller.tabs(inPane: newPane).isEmpty {
             let originalTabs = controller.tabs(inPane: originalPane)
             let hasRealSurface = originalTabs.contains { panelIdFromSurfaceId($0.id) != nil }
@@ -14345,7 +14343,9 @@ extension Workspace: BonsplitDelegate {
                     "action=reusePlaceholder placeholderCount=\(placeholderTabs.count)"
                 )
 #endif
-                if let replacementTab = placeholderTabs.first {
+                if routeCloudPaneTerminalTab(inPane: originalPane, focus: false) {
+                    for placeholder in placeholderTabs { bonsplitController.closeTab(placeholder.id) }
+                } else if let replacementTab = placeholderTabs.first {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
