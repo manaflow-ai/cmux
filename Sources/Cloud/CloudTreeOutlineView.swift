@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 /// The Cloud catalog outline: local workspaces, then machine workspaces and resources. Rows are pure

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudMachines
 
 /// Window-owned selection snapshot for the Machines tree and New Workspace routing.
 struct CloudTreeSelection: Equatable {
