@@ -146,7 +146,7 @@ public final class WorkstreamStore {
         insert(item)
         updateContextIndex(with: item)
         if let persistence {
-            Task { [persistence, item] in
+            Task.detached { [persistence, item] in
                 try? await persistence.append(item)
             }
         }
