@@ -227,6 +227,29 @@ import Testing
         await service.stop()
     }
 
+    @Test func directoryChangeDuringPersistenceIsDrainedBeforeSyncFinishes() async throws {
+        let backend = V2TestBackend(now: now)
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
+        _ = try await service.refreshDirectory()
+        let socket = await backend.currentSocket()
+        await store.holdDirectorySave(revision: 2)
+        await socket.setDirectoryRevision(2)
+        try await socket.push(V2ChangedResponse(revision: 2, schemaID: .directoryChangedV1, teamID: "team"))
+        await store.waitForHeldSave()
+        await socket.setDirectoryRevision(3)
+        let events = await service.events()
+        try await socket.push(V2ChangedResponse(deliveryReceipt: V2DeliveryReceipt(sequence: 1, token: "receipt"), revision: 3, schemaID: .directoryChangedV1, teamID: "team"))
+        await socket.waitForAcknowledgement()
+        await store.releaseSave()
+        for await state in events where state.cache.directory?.revision == 3 { break }
+        #expect(await store.state?.directory?.revision == 3)
+        #expect(await backend.sockets.count == 1)
+        await service.stop()
+    }
+
     @Test func retiredSchemaWaitsAnHourButAllowsAnExplicitRetry() async throws {
         let backend = V2TestBackend(now: now)
         let service = try service(backend: backend)

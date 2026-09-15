@@ -21,6 +21,7 @@ actor V2TestSocket: V2ControlSocket {
     var lastMetadataRequestID: String?
     var directoryConflictStep: Int?
     var directoryRevisions: [Int?] = []
+    var directoryRevision = 1
     let record: V2DeviceRecord
 
     init(device: V2DeviceDescriptor, now: Int) {
@@ -79,7 +80,7 @@ actor V2TestSocket: V2ControlSocket {
                     teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
                 return
             }
-            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: 1, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
         case "device.metadata.v1":
             lastMetadataRequestID = header.requestId
             if failNextMetadataReply {
@@ -119,6 +120,7 @@ actor V2TestSocket: V2ControlSocket {
     }
 
     func changeDirectoryDuringPagination() { directoryConflictStep = 0; directoryRevisions = [] }
+    func setDirectoryRevision(_ revision: Int) { directoryRevision = revision }
 
     func rejectRelay(_ code: V2ErrorCode?) { rejectedRelay = code }
     func dropNextMetadataReply() { failNextMetadataReply = true }
