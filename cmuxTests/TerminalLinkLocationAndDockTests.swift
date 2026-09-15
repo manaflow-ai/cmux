@@ -44,6 +44,20 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
 
 @Suite("Terminal link locations and Dock controls", .serialized)
 struct TerminalLinkLocationAndDockTests {
+    @Test("Bare localhost links retain port, query and fragment", arguments: [
+        "localhost:8000",
+        "localhost:8000/probe?duplicate=1&duplicate=2#fragment",
+        "api.localhost:8000/probe?encoded=a%2Fb#fragment"
+    ])
+    func bareLocalhostLinksOpenEmbedded(_ raw: String) throws {
+        let target = try #require(resolveTerminalOpenURLTarget(raw))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected a localhost web link, not an external URL scheme")
+            return
+        }
+        #expect(url.absoluteString == "http://\(raw)")
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-location-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
