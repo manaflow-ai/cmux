@@ -341,8 +341,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 identity: LegacyCompatibilityService.compatibilityIdentity(from: identity),
                 accessTokenPair: { [weak auth] in
                     guard let auth else { return nil }
-                    let token = try await Self.accessToken(auth: auth, scope: scope, force: false)
-                    return (access: token, refresh: token)
+                    guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
+                    let snapshot = try await auth.authenticatedSessionSnapshot()
+                    guard auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
+                    return (access: snapshot.accessToken, refresh: snapshot.refreshToken)
                 }, journal: Self.journal)
             self.legacyService = compatibility
         }
