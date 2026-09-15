@@ -51,6 +51,11 @@ final class NotificationService: UNNotificationServiceExtension {
             finish(request.content)
             return
         }
+        guard let expiration = object["expirationEpochSeconds"] as? NSNumber,
+              expiration.doubleValue > Date().timeIntervalSince1970 else {
+            finish(request.content)
+            return
+        }
         if let title = object["title"] as? String { content.title = title }
         if let subtitle = object["subtitle"] as? String { content.subtitle = subtitle }
         if let body = object["body"] as? String { content.body = body }

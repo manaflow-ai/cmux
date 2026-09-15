@@ -142,15 +142,12 @@ final class PhoneReplyInboxCoordinator {
             ) else {
                 let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
                 decryptFailureCounts[reply.replyId] = failures
-                if failures >= Self.maxDecryptFailures {
-                    ackIds.append(reply.replyId)
-                    decryptFailureCounts.removeValue(forKey: reply.replyId)
+                if failures == Self.maxDecryptFailures {
                     phoneReplySweepLog.error(
-                        "relayed phone reply dropped after decrypt failures reply=\(reply.replyId.prefix(8), privacy: .public)"
+                        "relayed phone reply still unavailable after decrypt failures reply=\(reply.replyId.prefix(8), privacy: .public)"
                     )
-                } else {
-                    retryableCount += 1
                 }
+                retryableCount += 1
                 continue
             }
             decryptFailureCounts.removeValue(forKey: reply.replyId)
