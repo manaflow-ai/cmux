@@ -179,8 +179,14 @@ import Testing
         })
         let target = try #require(AppWindowChromeComposition().contentOverlayTargetResolver.installationTarget(for: window))
         let store = harness.workspace.cloudPaneCreationFailureStore
+        let sourcePanelID = try #require(harness.workspace.focusedPanelId)
+        let source = try #require(harness.workspace.terminalPanel(for: sourcePanelID))
         let request = store.beginRequest()
-        store.present(machine: .cloud("overlay-test"), error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("overlay-test"), requestID: request)
+        harness.workspace.presentCloudPaneCreationFailure(
+            machine: .cloud("overlay-test"),
+            error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("overlay-test"),
+            requestID: request
+        )
 
         func card() -> NSView? {
             target.container.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
@@ -192,6 +198,10 @@ import Testing
         }
         let overlay = try #require(card())
         #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
+        #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
+        #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)
+        #expect(terminalFrame.contains(overlay.frame), "The card must not cover Bonsplit tabs or adjacent panes")
 
         // A browser portal installed after the card must remain underneath it.
         let browserPortal = WindowBrowserPortal(window: window)
