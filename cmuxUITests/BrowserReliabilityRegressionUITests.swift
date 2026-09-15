@@ -49,6 +49,15 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             app.wait(for: .runningForeground, timeout: 8),
             "Expected the app to be foregrounded for native pointer routing. state=\(app.state.rawValue)"
         )
+        var mainHopReady = false
+        for _ in 0..<12 where !mainHopReady {
+            mainHopReady = socketEnvelope(
+                method: "debug.app.activate",
+                params: [:],
+                responseTimeout: 10
+            )?["ok"] as? Bool == true
+        }
+        XCTAssertTrue(mainHopReady, "The app did not service a main-thread activation hop")
         let sid = try openFixture("hover-popover")
 
         let browserPane = app.otherElements["BrowserPanelContent.\(sid)"].firstMatch
