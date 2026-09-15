@@ -16,6 +16,68 @@ private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey: UInt8 = 0
 private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
+/// Identifies a real Web Inspector companion without treating every WebKit
+/// view as an inspector. macOS 27 can add visible WebKit-like siblings to a
+/// page view, and preserving the page frame for those siblings clips browser
+/// content at the pane edge.
+@MainActor
+enum BrowserWebInspectorCompanionDetector {
+    static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        let primaryFrame = host.convert(primaryWebView.bounds, from: primaryWebView)
+        var stack = host.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            guard !current.isDescendant(of: primaryWebView), !current.isHidden, current.alphaValue > 0 else {
+                continue
+            }
+            let currentFrame = host.convert(current.bounds, from: current)
+            guard currentFrame.width > 1, currentFrame.height > 1 else { continue }
+            if cmuxIsWebInspectorObject(current) ||
+                isDockedInspectorWebView(current, currentFrame: currentFrame, primaryFrame: primaryFrame) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    private static func isDockedInspectorWebView(
+        _ view: NSView,
+        currentFrame: NSRect,
+        primaryFrame: NSRect
+    ) -> Bool {
+        guard view is WKWebView else { return false }
+        return isSideDockedFrame(currentFrame, primaryFrame: primaryFrame) ||
+            isVerticallyDockedFrame(currentFrame, primaryFrame: primaryFrame)
+    }
+
+    private static func isSideDockedFrame(_ currentFrame: NSRect, primaryFrame: NSRect) -> Bool {
+        guard verticalOverlap(between: primaryFrame, and: currentFrame) > 8 else { return false }
+        return HostedInspectorDockSide.resolve(pageFrame: primaryFrame, inspectorFrame: currentFrame) != nil
+    }
+
+    private static func isVerticallyDockedFrame(
+        _ currentFrame: NSRect,
+        primaryFrame: NSRect,
+        epsilon: CGFloat = 1
+    ) -> Bool {
+        let smallerWidth = min(primaryFrame.width, currentFrame.width)
+        guard smallerWidth > 1 else { return false }
+        guard horizontalOverlap(between: primaryFrame, and: currentFrame) > smallerWidth * 0.7 else {
+            return false
+        }
+        return currentFrame.maxY <= primaryFrame.minY + epsilon ||
+            primaryFrame.maxY <= currentFrame.minY + epsilon
+    }
+
+    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
+    }
+
+    private static func horizontalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
+        max(0, min(lhs.maxX, rhs.maxX) - max(lhs.minX, rhs.minX))
+    }
+}
+
 #if DEBUG
 private func browserPortalRenderingStateDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
@@ -363,24 +425,9 @@ extension WKWebView {
 
 extension NSView {
     func browserPortalHasVisibleWebKitCompanionSubview(for primaryWebView: WKWebView) -> Bool {
-        var stack = subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current === primaryWebView || current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
+        BrowserWebInspectorCompanionDetector.containsVisibleInspectorCompanion(
+            in: self,
+            primaryWebView: primaryWebView
+        )
     }
 }

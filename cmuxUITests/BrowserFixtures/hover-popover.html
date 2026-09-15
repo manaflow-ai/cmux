@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>hover-popover</title>
+<style>
+  html, body { margin: 0; min-height: 100%; background: #20242b; color: white; font: 16px system-ui; }
+  #stage { position: relative; min-height: 320px; padding: 24px; }
+  #trigger { position: absolute; right: 24px; top: 120px; width: 112px; height: 42px; }
+  #trigger:hover { background: #00ff00; }
+  #popover {
+    display: none;
+    position: fixed;
+    right: 8px;
+    top: 72px;
+    width: 144px;
+    height: 64px;
+    padding: 8px;
+    box-sizing: border-box;
+    background: #ff00ff;
+    color: #111;
+    border-radius: 6px;
+  }
+  #popover[data-visible="true"] { display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <output id="native-state" role="status">Native hover idle</output>
+  <button id="trigger">Hover me</button>
+  <div id="popover" role="status">Popover</div>
+</div>
+<script>
+  const state = {
+    pointerEnterCount: 0,
+    mouseEnterCount: 0,
+    trustedPointerEnterCount: 0,
+    trustedMouseEnterCount: 0,
+  };
+  const trigger = document.getElementById('trigger');
+  const popover = document.getElementById('popover');
+  const nativeState = document.getElementById('native-state');
+  const publishNativeState = () => {
+    nativeState.textContent = trigger.matches(':hover') &&
+      state.trustedPointerEnterCount > 0 && state.trustedMouseEnterCount > 0
+      ? 'Native hover active' : 'Native hover idle';
+  };
+  trigger.addEventListener('pointerenter', event => {
+    state.pointerEnterCount += 1;
+    if (event.isTrusted) state.trustedPointerEnterCount += 1;
+    popover.dataset.visible = 'true';
+    publishNativeState();
+  });
+  trigger.addEventListener('mouseenter', event => {
+    state.mouseEnterCount += 1;
+    if (event.isTrusted) state.trustedMouseEnterCount += 1;
+    publishNativeState();
+  });
+  trigger.addEventListener('mouseleave', () => {
+    popover.dataset.visible = 'false';
+    nativeState.textContent = 'Native hover idle';
+  });
+  window.__cmuxHoverState = () => {
+    const rect = popover.getBoundingClientRect();
+    return {
+      pointerEnterCount: state.pointerEnterCount,
+      mouseEnterCount: state.mouseEnterCount,
+      trustedPointerEnterCount: state.trustedPointerEnterCount,
+      trustedMouseEnterCount: state.trustedMouseEnterCount,
+      popoverVisible: popover.dataset.visible === 'true',
+      popoverRight: rect.right,
+      viewportWidth: innerWidth,
+      popoverInsideViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight,
+    };
+  };
+</script>
+</body>
+</html>

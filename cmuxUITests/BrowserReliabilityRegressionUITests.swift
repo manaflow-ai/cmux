@@ -7,6 +7,33 @@ import Foundation
 /// (defined in BrowserFixtureInteractionUITests.swift).
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
+    /// End-to-end browser hover regression: the automation command must run
+    /// the page's complete pointer/mouse enter sequence and reveal a popover
+    /// whose bounds stay inside the visible browser viewport.
+    func testBrowserHoverRevealsPopoverInsideViewport() throws {
+        try launchApp()
+        let sid = try openFixture("hover-popover")
+
+        try socketResult(method: "browser.hover", params: [
+            "surface_id": sid,
+            "selector": "#trigger",
+        ])
+        try socketResult(
+            method: "browser.wait",
+            params: ["surface_id": sid, "selector": "#popover[data-visible='true']", "timeout_ms": 5_000],
+            responseTimeout: 10
+        )
+
+        let state = try XCTUnwrap(
+            try evalValue("window.__cmuxHoverState()", surfaceID: sid) as? [String: Any],
+            "Expected the hover fixture to expose its state"
+        )
+        XCTAssertEqual(state["pointerEnterCount"] as? Int, 1)
+        XCTAssertEqual(state["mouseEnterCount"] as? Int, 1)
+        XCTAssertEqual(state["popoverVisible"] as? Bool, true)
+        XCTAssertEqual(state["popoverInsideViewport"] as? Bool, true)
+    }
+
     /// Regression: browser.navigate used to acknowledge only that WKWebView.load
     /// was called. After a connection-refused error page, a slow recovered origin
     /// therefore returned `ok` while the old error-page DOM was still active.
