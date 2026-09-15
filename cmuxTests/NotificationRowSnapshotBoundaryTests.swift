@@ -81,7 +81,7 @@ struct NotificationRowSnapshotBoundaryTests {
         )
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
         let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
-        let staleAnchorTitle = anchor.title
+        let originalAnchorTitle = anchor.title
 
         let appDelegate = AppDelegate()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -89,7 +89,8 @@ struct NotificationRowSnapshotBoundaryTests {
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
-        #expect(anchor.title == staleAnchorTitle)
+        #expect(originalAnchorTitle == "Original Group")
+        #expect(anchor.title == "Renamed Group")
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 

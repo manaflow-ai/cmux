@@ -332,7 +332,7 @@ extension AgentNotificationRegressionTests {
                 ),
                 "attempt_id": .string(destinationAttemptID.uuidString),
             ]
-        )), expectedCode: "remote_relay_workspace_denied")
+        )), expectedCode: "remote_relay_surface_denied")
         #expect(
             !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
                 .contains(destinationPanelID)
