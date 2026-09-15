@@ -584,10 +584,17 @@ extension PortScanner {
             directory: "/",
             executable: "/usr/sbin/lsof",
             // A PID-scoped TCP query does not depend on filesystem mount
-            // metadata. Suppress warning-class diagnostics such as lsof's
-            // Time Machine `can't stat()` warning so unrelated mounts cannot
-            // make every port miss permanently incomplete.
-            arguments: ["-nP", "-w", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+            // metadata. `-b` avoids the blocking kernel stat/lstat/readlink
+            // calls on the target processes' fds: they are unnecessary for
+            // identifying listening TCP sockets (the socket address arrives in
+            // the `n` field regardless), but on macOS they fault in fds pointing
+            // at File Provider domains (iCloud/Google Drive/OneDrive), which
+            // pegs `fileproviderd` and `fseventsd` and stalls Finder. `-w`
+            // suppresses warning-class diagnostics such as lsof's Time Machine
+            // `can't stat()` warning, both the ones `-b` produces and the ones
+            // unrelated mounts produce, so neither can make every port miss
+            // permanently incomplete.
+            arguments: ["-b", "-w", "-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"],
             timeout: Self.processScanTimeout
         )
 

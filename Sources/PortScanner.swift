@@ -21,6 +21,14 @@ final class PortScanner: @unchecked Sendable {
 
     let commandRunner: any CommandRunning
 
+    /// Port scanning is only useful when the sidebar surfaces detected ports
+    /// (`sidebar.showPorts` on and details not globally hidden). Otherwise the
+    /// periodic `lsof` sweep over agent process trees runs (and can pin
+    /// `fileproviderd`/`fseventsd`) for data nothing consumes.
+    private var portScanningEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.portScanningEnabled(defaults: .standard)
+    }
+
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
@@ -168,8 +176,32 @@ final class PortScanner: @unchecked Sendable {
         return publicationState.currentPanelTTYName(for: key, sessionIdentity: sessionIdentity)
     }
 
+    /// Reacts to the sidebar ports-visibility settings changing.
+    ///
+    /// Turning it off only needs the queued work dropped, since the sidebar
+    /// hides the ports either way. Turning it back on has to rescan: everything
+    /// published before the setting went off is stale, and the next kick or
+    /// agent tick can be seconds away.
+    func portScanningEnablementDidChange() {
+        queue.async { [self] in
+            guard portScanningEnabled else {
+                pendingKicks.removeAll()
+                scansRemainingForPendingKicks = 0
+                return
+            }
+            guard !ttyNames.isEmpty || !trackedAgentWorkspaces.isEmpty else { return }
+            pendingKicks.formUnion(ttyNames.keys)
+            scansRemainingForPendingKicks = Self.minimumScansPerKick
+            if !burstActive {
+                startCoalesce()
+            }
+            runTrackedAgentScan()
+        }
+    }
+
     func kick(workspaceId: UUID, panelId: UUID) {
         queue.async { [self] in
+            guard portScanningEnabled else { return }
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
@@ -283,6 +315,12 @@ final class PortScanner: @unchecked Sendable {
         let generation = requestedGeneration ?? burstGeneration
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
+        guard portScanningEnabled else {
+            pendingKicks.removeAll()
+            scansRemainingForPendingKicks = 0
+            return
+        }
+
         let panelSnapshot = ttyNames
 
         guard !panelSnapshot.isEmpty else {
@@ -329,6 +367,10 @@ final class PortScanner: @unchecked Sendable {
         agentRevisions: [UUID: UInt64],
         requestID: UInt64
     ) async {
+        // Fail-closed re-check: this is the authoritative gate right before
+        // `runLsof`, catching a setting change during the async hops that ran
+        // after the earlier check.
+        guard portScanningEnabled else { return }
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
 
         // Build TTY set (deduplicated).
@@ -663,6 +705,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runTrackedAgentScan() {
+        guard portScanningEnabled else { return }
         let workspaceIds = trackedAgentWorkspaces
         guard !workspaceIds.isEmpty else {
             updateAgentScanTimerLocked()
@@ -688,6 +731,10 @@ final class PortScanner: @unchecked Sendable {
         agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
         agentRevisions: [UUID: UInt64]
     ) {
+        // Fail-closed re-check: `refreshAgentPorts()` reaches here directly,
+        // bypassing the `runTrackedAgentScan` gate, and the setting can flip
+        // between the two.
+        guard portScanningEnabled else { return }
         guard !workspaceIds.isEmpty else { return }
         let request = AgentPortScanRequest(
             workspaceIds: workspaceIds,
