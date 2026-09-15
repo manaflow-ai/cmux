@@ -3,7 +3,6 @@ import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
-import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
