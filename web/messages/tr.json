@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Cloud VM temizliği bekleniyor",
+      "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
+      "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",

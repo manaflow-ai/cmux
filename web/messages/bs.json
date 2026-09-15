@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Čišćenje Cloud VM-a na čekanju",
+      "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
+      "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",

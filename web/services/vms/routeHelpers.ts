@@ -53,12 +53,15 @@ import {
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
+  vmCreateCleanupPendingCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { ProviderArtifactUnavailableError } from "./drivers/types";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
+import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -658,6 +661,9 @@ export const vmWorkflowErrorResponders = {
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -846,6 +852,9 @@ export async function respondVmWorkflowError(
   context: VmWorkflowErrorResponderContext,
   overrides?: VmWorkflowErrorOverrides,
 ): Promise<Response | null> {
+  if (error._tag === "VmCreateFailedError" && error.code === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+    return vmCreateCleanupPendingResponse(context.locale);
+  }
   const responders: VmWorkflowErrorResponders = overrides
     ? { ...vmWorkflowErrorResponders, ...overrides }
     : vmWorkflowErrorResponders;
@@ -891,6 +900,20 @@ async function vmArtifactUnavailableResponse(error: VmProviderOperationError, lo
     displayTitle: copy.title,
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: false },
+  });
+}
+
+async function vmCreateCleanupPendingResponse(locale: Locale): Promise<Response> {
+  const copy = await vmCreateCleanupPendingCopy(locale);
+  return vmErrorResponse({
+    error: "vm_cloud_create_cleanup_pending",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: "create",
+    retryable: false,
+    displayTitle: copy.title,
+    details: { operation: "create", cleanupPending: true, retryable: false },
   });
 }
 

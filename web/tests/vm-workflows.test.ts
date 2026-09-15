@@ -40,6 +40,7 @@ import {
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
+import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 import {
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
@@ -195,6 +196,105 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest("guest bootstrap retry allocates once after confirmed rollback and reuses the ready result", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    let fail = true;
+    const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: fail ? 124 : 0 }) });
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+    });
+    const program = createVm({
+      ...guestCreateOptions, userId: "user-guest-retry", billingTeamId: "team-guest-retry",
+      billingCustomerType: "team", billingPlanId: "pro", provider: "freestyle",
+      idempotencyKey: "guest-retry", maxActiveVms: 1,
+    }).pipe(Effect.provide(layer));
+    const first = await Effect.runPromise(Effect.either(program));
+    expect(first._tag).toBe("Left");
+    expect(fixture.allocations()).toBe(1);
+    expect(fixture.liveVms.size).toBe(0);
+    fail = false;
+    const attempts = await Promise.all([Effect.runPromise(Effect.either(program)), Effect.runPromise(Effect.either(program))]);
+    expect(attempts.some((attempt) => attempt._tag === "Right")).toBe(true);
+    for (const attempt of attempts) {
+      if (attempt._tag === "Left") expect(attempt.left._tag).toBe("VmCreateInProgressError");
+      else expect(attempt.right.providerVmId).toBe("vm-fixture-2");
+    }
+    const replay = await Effect.runPromise(program);
+    expect(replay.providerVmId).toBe("vm-fixture-2");
+    expect(fixture.allocations()).toBe(2);
+    expect(fixture.liveVms.size).toBe(1);
+    const [events] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_usage_events where event_type = 'vm.created' and user_id = 'user-guest-retry'`;
+    expect(events.count).toBe("1");
+  });
+
+  dbTest("unconfirmed guest rollback stays reserved and cannot become ready or allocate on retry", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+    });
+    const input = {
+      ...guestCreateOptions, userId: "user-guest-cleanup", billingTeamId: "team-guest-cleanup",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      idempotencyKey: "guest-cleanup", maxActiveVms: 1,
+    };
+    const run = (key = input.idempotencyKey) => Effect.runPromise(Effect.either(createVm({ ...input, idempotencyKey: key }).pipe(Effect.provide(layer))));
+    expect((await run())._tag).toBe("Left");
+    await sql`update cloud_vms set updated_at = now() - interval '2 days' where user_id = 'user-guest-cleanup'`;
+    const retry = await run();
+    expect(retry._tag).toBe("Left");
+    if (retry._tag === "Left") expect(retry.left).toMatchObject({ _tag: "VmCreateFailedError", code: "provider_create_cleanup_pending" });
+    expect((await run("different-key"))._tag).toBe("Left");
+    const [row] = await sql<{ status: string; providerVmId: string | null; metadata: Record<string, unknown> }[]>`
+      select status, provider_vm_id as "providerVmId", provider_metadata as metadata from cloud_vms where user_id = 'user-guest-cleanup'
+    `;
+    expect(row.status).toBe("provisioning");
+    expect(row.providerVmId).toBeNull();
+    expect(row.metadata.createCleanupProviderVmId).toBe("vm-fixture-1");
+    expect(await Effect.runPromise(listUserVms(input.userId).pipe(Effect.provide(layer)))).toEqual([]);
+    expect(fixture.allocations()).toBe(1);
+    expect(fixture.liveVms.size).toBe(1);
+  });
+
+  dbTest("unconfirmed guest rollback keeps the Base generation reserved", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create({ ...options, imageSize: guestCreateOptions.imageSize }),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+    });
+    const input = {
+      userId: "user-guest-base-cleanup", billingTeamId: "team-guest-base-cleanup",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      image: "sh-synthetic", baseName: "guest-cleanup", maxActiveVms: 1,
+    };
+    const first = await Effect.runPromise(Effect.either(openBaseVm(input).pipe(Effect.provide(layer))));
+    expect(first._tag).toBe("Left");
+    const retry = await Effect.runPromise(Effect.either(openBaseVm(input).pipe(Effect.provide(layer))));
+    if (retry._tag === "Left") expect(retry.left).toMatchObject({ _tag: "VmCreateFailedError", code: "provider_create_cleanup_pending" });
+    else throw new Error("Base must not report a failed bootstrap ready");
+    const reset = await Effect.runPromise(Effect.either(resetBaseVm(input).pipe(Effect.provide(layer))));
+    expect(reset._tag).toBe("Left");
+    expect(fixture.allocations()).toBe(1);
+    const [row] = await sql<{ status: string; providerVmId: string | null; metadata: Record<string, unknown> }[]>`
+      select status, provider_vm_id as "providerVmId", provider_metadata as metadata from cloud_vms where user_id = 'user-guest-base-cleanup'
+    `;
+    expect(row.status).toBe("provisioning");
+    expect(row.providerVmId).toBeNull();
+    expect(row.metadata.createCleanupProviderVmId).toBe("vm-fixture-1");
+  });
+
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
     if (!sql) throw new Error("test database not initialized");
     const userId = "user-prompt-revisions";
