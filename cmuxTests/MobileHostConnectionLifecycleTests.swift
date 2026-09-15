@@ -272,9 +272,24 @@ extension MobileHostAuthorizationTests {
         }
         await waitForMobileHostConnectionCount(1)
 
-        // Iroh has already authenticated the peer before this application
-        // lane starts. It may be idle while the client finishes setup.
-        try await Task.sleep(nanoseconds: 20_000_000)
+        // An unadmitted legacy connection still expires while the admitted
+        // Iroh peer waits for the client to create its first RPC owner.
+        let expiringTransport = ScriptedMobileHostByteTransport()
+        let expiringTask = Task {
+            await MobileHostService.acceptTransport(
+                expiringTransport,
+                authorization: .stackBearer,
+                firstFrameTimeoutNanoseconds: 1_000_000,
+                isCurrent: { true }
+            )
+        }
+        await expiringTransport.waitForCloseCount(1)
+        #expect(
+            await expiringTask.value == CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
         #expect(await transport.observedCloseCount() == 0)
 
         try await transport.enqueue(Self.mobileHostStatusFrame(id: "delayed-first-rpc"))
