@@ -13,7 +13,7 @@
     "deploy:production": "bash scripts/deploy-production.sh",
     "boundary:check": "bun scripts/check-boundary.ts",
     "types:check": "wrangler types --check",
-    "test:runtime": "bun test ./e2e",
+    "test:runtime": "bash scripts/test-runtime.sh",
     "check": "bun run boundary:check && bun run contracts:check && bun run types:check && bun run typecheck && bun run test"
   },
   "dependencies": {
