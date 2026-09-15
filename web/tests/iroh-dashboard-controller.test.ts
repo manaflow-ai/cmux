@@ -78,17 +78,21 @@ describe("IROH Dashboard v2 controller", () => {
   test("uses the cursor for paged directories and sends expected revision for settings", async () => {
     globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
-    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+    const directories: any[] = [];
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
     const pending = controller.start(); await new Promise(resolve => setTimeout(resolve, 0));
     const socket = FakeSocket.instances[0]!; socket.open();
     await new Promise(resolve => setTimeout(resolve, 0));
     const first = JSON.parse(socket.sent[0]!);
-    socket.message({ schemaId: "dashboard.directory.v1", requestId: first.requestId, directory: { teamId: "t", revision: 4, devices: [], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: "cursor-1", canManageTeam: true, managedDeviceIds: [] } });
+    socket.message({ schemaId: "dashboard.directory.v1", requestId: first.requestId, directory: { teamId: "t", revision: 4, devices: [{ deviceRecordId: "d1" }], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: "cursor-1", canManageTeam: true, managedDeviceIds: ["d1"] } });
     await new Promise(resolve => setTimeout(resolve, 0));
     const second = JSON.parse(socket.sent[1]!);
     expect(second.cursor).toBe("cursor-1");
-    socket.message({ schemaId: "dashboard.directory.v1", requestId: second.requestId, directory: { teamId: "t", revision: 4, devices: [], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
+    socket.message({ schemaId: "dashboard.directory.v1", requestId: second.requestId, directory: { teamId: "t", revision: 4, devices: [{ deviceRecordId: "d2" }], relayURLs: ["https://relay.example"], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: ["d2"] } });
     await pending;
+    expect(directories).toHaveLength(1);
+    expect(directories[0].devices.map((device: any) => device.deviceRecordId)).toEqual(["d1", "d2"]);
+    expect(directories[0].managedDeviceIds).toEqual(["d1", "d2"]);
     const update = controller.updateRelayPreferences(["https://relay.example"]);
     const updateRequest = JSON.parse(socket.sent[2]!);
     expect(updateRequest.expectedRevision).toBe(4);

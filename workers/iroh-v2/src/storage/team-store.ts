@@ -214,6 +214,7 @@ export class TeamStore {
     const issuedAt = issue.issuedAt ?? Math.max(0, issue.expiresAt - 30 * 60);
     if (issue.expiresAt <= issuedAt) throw new OperationError("challenge_invalid", 400);
     this.storage.transactionSync(() => {
+      this.#db.run(sql`DELETE FROM "pending_challenges" WHERE "expires_at" <= ${issuedAt}`);
       const exists = this.#db.get<{ identity_key: string }>(sql`SELECT "identity_key" FROM "pending_challenges" WHERE "identity_key" = ${key}`);
       const count = this.#db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "pending_challenges"` )?.count ?? 0;
       if (!exists && count >= 4096) throw new OperationError("storage_limit", 507, true, 60_000);

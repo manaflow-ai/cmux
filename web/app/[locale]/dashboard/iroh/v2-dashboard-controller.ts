@@ -74,7 +74,9 @@ export class V2DashboardController {
   async stop(): Promise<void> {
     this.stopped = true;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
+    this.refreshTimer = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("Dashboard session stopped")); }
     this.pending.clear();
     this.socket?.close(1000, "dashboard_stop");
@@ -157,7 +159,8 @@ export class V2DashboardController {
     if (previous && previous !== socket) previous.close(1000, "dashboard_replaced");
   }
 
-  private async requestDirectory(cursor: string | null = null, seenCursors = new Set<string>()): Promise<void> {
+  private async requestDirectory(cursor: string | null = null, seenCursors = new Set<string>(), pages?: { devices: DashboardDeviceRecord[]; managedDeviceIds: string[] }): Promise<void> {
+    const snapshot = pages ?? { devices: [], managedDeviceIds: [] };
     if (cursor) {
       if (seenCursors.has(cursor)) throw new Error("Dashboard directory cursor repeated");
       seenCursors.add(cursor);
@@ -169,15 +172,20 @@ export class V2DashboardController {
     } catch (cause) {
       if (errorCode(cause) === "resync_required") {
         this.revision = undefined;
-        return this.requestDirectory(null, seenCursors);
+        return this.requestDirectory(null, new Set<string>());
       }
       throw cause;
     }
     if (frame.schemaId !== "dashboard.directory.v1" || !isDirectory(frame.directory)) throw new Error("Dashboard returned an invalid directory");
     if (frame.directory.revision < (this.revision ?? -1)) return;
     this.revision = frame.directory.revision;
-    this.options.onDirectory(frame.directory);
-    if (frame.directory.nextCursor) await this.requestDirectory(frame.directory.nextCursor, seenCursors);
+    snapshot.devices.push(...frame.directory.devices);
+    snapshot.managedDeviceIds.push(...frame.directory.managedDeviceIds);
+    if (frame.directory.nextCursor) {
+      await this.requestDirectory(frame.directory.nextCursor, seenCursors, snapshot);
+    } else {
+      this.options.onDirectory({ ...frame.directory, devices: snapshot.devices, managedDeviceIds: snapshot.managedDeviceIds, nextCursor: null });
+    }
   }
 
   private request(input: Record<string, unknown>): Promise<Frame> {
@@ -200,8 +208,12 @@ export class V2DashboardController {
   }
 
   private scheduleRefresh() {
+    if (this.refreshTimer) clearTimeout(this.refreshTimer);
     const delay = Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - Date.now());
-    this.refreshTimer = setTimeout(() => { void this.refreshTicketMakeBeforeBreak(); }, delay);
+    this.refreshTimer = setTimeout(() => {
+      this.refreshTimer = null;
+      void this.refreshTicketMakeBeforeBreak();
+    }, delay);
   }
 
   private scheduleReconnect() {

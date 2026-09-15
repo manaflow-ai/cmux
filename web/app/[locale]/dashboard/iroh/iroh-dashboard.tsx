@@ -22,6 +22,12 @@ export function IrohDashboard({ userId, userEmail }: Props) {
   const t = useTranslations("dashboard.iroh");
   const stack = useStackApp();
   const user = useUser({ or: "return-null" });
+  if (!user) return <p className="text-muted">{t("loading")}</p>;
+  return <AuthenticatedIrohDashboard user={user} userId={userId} userEmail={userEmail} stack={stack} />;
+}
+
+function AuthenticatedIrohDashboard({ user, userId, userEmail, stack }: Props & { readonly user: NonNullable<ReturnType<typeof useUser>>; readonly stack: ReturnType<typeof useStackApp> }) {
+  const t = useTranslations("dashboard.iroh");
   const router = useRouter();
   const [teamId, setTeamId] = useState<string | null>(() => user?.selectedTeam?.id ?? null);
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
@@ -30,15 +36,15 @@ export function IrohDashboard({ userId, userEmail }: Props) {
   const [relayURLsDraft, setRelayURLsDraft] = useState("");
   const [savingRelayURLs, setSavingRelayURLs] = useState(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
-  const teams = user?.useTeams() ?? [];
+  const teams = user.useTeams();
 
   useEffect(() => {
     const cookieTeam = coderouterOrganizationFromCookieHeader(
       typeof document === "undefined" ? null : document.cookie,
       userId,
     );
-    setTeamId(cookieTeam ?? user?.selectedTeam?.id ?? teams[0]?.id ?? null);
-  }, [userId, user?.selectedTeam?.id, teams]);
+    setTeamId(cookieTeam ?? user.selectedTeam?.id ?? teams[0]?.id ?? null);
+  }, [userId, user.selectedTeam?.id, teams]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -98,7 +104,7 @@ export function IrohDashboard({ userId, userEmail }: Props) {
         <button className="mt-2 border border-border px-2 py-1" disabled={savingRelayURLs} onClick={() => void saveRelayURLs()}>{t("saveRelaySettings")}</button>
       </section> : null}
       {directory ? devices.map(device => {
-        const manageable = directory.managedDeviceIds.includes(device.deviceRecordId) && directory.canManageTeam;
+        const manageable = directory.managedDeviceIds.includes(device.deviceRecordId);
         return (
           <section key={device.deviceRecordId} className="border border-border p-3" data-device-id={device.deviceRecordId}>
             <div className="flex flex-wrap items-start justify-between gap-3">

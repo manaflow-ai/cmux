@@ -47,23 +47,21 @@ done
 
 echo "Deploying isolated Worker: $name"
 secret_file="$(mktemp "${TMPDIR:-/tmp}/cmux-iroh-v2-dev-secrets.XXXXXX.json")"
+trap 'rm -f "$secret_file"' EXIT
 chmod 600 "$secret_file"
-secret_args=("$secret_file")
+secret_pairs=()
 for key in "${required[@]}"; do
-  secret_args+=("$key" "$(read_value "$key")")
+  secret_pairs+=("$key" "$(read_value "$key")")
 done
-node - "${secret_args[@]}" <<'NODE'
-const fs = require("node:fs");
-const args = process.argv.slice(2);
-const output = args.shift();
-if (!output || args.length % 2 !== 0) throw new Error("invalid secret arguments");
-const values = {};
-for (let i = 0; i < args.length; i += 2) values[args[i]] = args[i + 1];
-for (const [key, value] of Object.entries(values)) if (!value) throw new Error(`missing ${key}`);
-fs.writeFileSync(output, JSON.stringify(values), { mode: 0o600 });
-NODE
+printf '%s\0' "${secret_pairs[@]}" | python3 -c '
+import json, pathlib, sys
+values = sys.stdin.buffer.read().split(b"\\0")
+values = dict(zip(values[0::2], values[1::2]))
+if any(not key or not value for key, value in values.items()):
+    raise SystemExit("missing deployment secret")
+pathlib.Path(sys.argv[1]).write_text(json.dumps({key.decode(): value.decode() for key, value in values.items()}))
+' "$secret_file"
 bunx wrangler deploy --config wrangler.jsonc --env development --name "$name" --secrets-file "$secret_file"
-rm "$secret_file"
 
 echo
 echo "Isolated IROH v2 development Worker: https://${name}.${workers_subdomain}.workers.dev"

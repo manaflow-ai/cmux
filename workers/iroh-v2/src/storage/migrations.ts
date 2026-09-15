@@ -8,7 +8,7 @@ import { SOCKET_MIGRATION_STATEMENTS } from "./socket-schema";
  * the source for generation and review; this manifest is the immutable runtime
  * copy loaded by the Worker bundle.
  */
-export const STORAGE_SCHEMA_VERSION = 5;
+export const STORAGE_SCHEMA_VERSION = 6;
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "schema_history" ("version" INTEGER PRIMARY KEY NOT NULL, "hash" TEXT NOT NULL, "applied_at" INTEGER NOT NULL)`,
@@ -57,6 +57,13 @@ const authorityLeaseStatements = [
   `CREATE TRIGGER IF NOT EXISTS "user_authority_limit_guard" BEFORE INSERT ON "user_authority" WHEN (SELECT count(*) FROM "user_authority") >= 4096 AND NOT EXISTS (SELECT 1 FROM "user_authority" WHERE "user_id" = NEW."user_id") BEGIN SELECT RAISE(ABORT, 'authority_limit'); END`,
   `UPDATE "team_meta" SET "schema_version" = 5 WHERE "id" = 1`,
 ];
+const metadataBytesStatements = [
+  `DROP TRIGGER IF EXISTS "devices_usage_update_guard"`,
+  `DROP TRIGGER IF EXISTS "devices_usage_update_bytes"`,
+  `CREATE TRIGGER "devices_usage_update_guard" BEFORE UPDATE OF "capabilities_json", "relay_urls_json" ON "devices" WHEN (SELECT "metadata_bytes" FROM "storage_usage" WHERE "id" = 1) - length(CAST(OLD."capabilities_json" AS BLOB)) - length(CAST(OLD."relay_urls_json" AS BLOB)) + length(CAST(NEW."capabilities_json" AS BLOB)) + length(CAST(NEW."relay_urls_json" AS BLOB)) > 16777216 BEGIN SELECT RAISE(ABORT, 'storage_limit'); END`,
+  `CREATE TRIGGER "devices_usage_update_bytes" AFTER UPDATE OF "capabilities_json", "relay_urls_json" ON "devices" BEGIN UPDATE "storage_usage" SET "metadata_bytes" = "metadata_bytes" - length(CAST(OLD."capabilities_json" AS BLOB)) - length(CAST(OLD."relay_urls_json" AS BLOB)) + length(CAST(NEW."capabilities_json" AS BLOB)) + length(CAST(NEW."relay_urls_json" AS BLOB)) WHERE "id" = 1; END`,
+  `UPDATE "team_meta" SET "schema_version" = 6 WHERE "id" = 1`,
+];
 
 function contentHash(parts: readonly string[]): string {
   let hash = 1469598103934665603n;
@@ -73,6 +80,7 @@ const BASE_MIGRATION_HASH = contentHash(statements.slice(1));
 const PROOF_MIGRATION_HASH = contentHash(proofRingStatements);
 export const STORAGE_MIGRATION_HASH = contentHash(authorityStatements);
 export const AUTHORITY_LEASE_MIGRATION_HASH = contentHash(authorityLeaseStatements);
+const METADATA_BYTES_MIGRATION_HASH = contentHash(metadataBytesStatements);
 
 export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now()): void {
   const db = drizzle(storage, { schema: storageSchema });
@@ -97,5 +105,6 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     apply(3, STORAGE_MIGRATION_HASH, authorityStatements);
     apply(4, contentHash(SOCKET_MIGRATION_STATEMENTS), SOCKET_MIGRATION_STATEMENTS);
     apply(5, AUTHORITY_LEASE_MIGRATION_HASH, authorityLeaseStatements);
+    apply(6, METADATA_BYTES_MIGRATION_HASH, metadataBytesStatements);
   });
 }
