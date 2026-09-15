@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import Foundation
 import Testing
 
@@ -14,23 +15,26 @@ import Testing
 /// account's, since the viewer presents its bearer token only to those.
 @Suite("Devices: directory merge")
 struct DeviceDirectoryMergeTests {
-    @Test("Account broker discovery includes enabled Macs outside the selected team", arguments: [true, false])
-    func accountWideDiscovery(enabled: Bool) throws {
-        let data = Data("""
-        {"binding_id":"44444444-4444-4444-8444-444444444444",
-         "device_id":"22222222-2222-2222-2222-222222222222",
-         "app_instance_id":"55555555-5555-4555-8555-555555555555",
-         "client_namespace":"mac:com.cmuxterm.app","tag":"default","platform":"mac",
-         "display_name":"Studio","endpoint_id":"\(String(repeating: "ab", count: 32))",
-         "identity_generation":1,"pairing_enabled":\(enabled),"capabilities":["cmux.irx.v1"],
-         "path_hints":[],"last_seen_at":"2026-09-10T12:00:00Z"}
-        """.utf8)
-        let binding = try JSONDecoder().decode(CmxIrohBrokerBinding.self, from: data)
+    @Test("V2 discovery merges enabled hosts and excludes discovery-only Macs", arguments: [true, false])
+    func authenticatedDiscovery(enabled: Bool) throws {
+        func record(deviceID: String, endpoint: String, hosting: Bool) -> V2DeviceRecord {
+            let identity = V2Identity(appNamespace: "com.cmuxterm.app", buildTag: "default",
+                deviceID: deviceID, environment: "development", projectID: "project",
+                teamID: "work-team", userID: "my-account")
+            let metadata = V2DeviceMetadata(appVersion: "1", capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"],
+                displayName: "Studio", pairingEnabled: hosting, platform: .mac, relayURLs: [])
+            return V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: endpoint, identity: identity,
+                identityGeneration: 0, metadata: metadata), deviceRecordID: deviceID, revision: 1, revoked: false)
+        }
+        let own = record(deviceID: selfID, endpoint: String(repeating: "cd", count: 32), hosting: false)
+        let peer = record(deviceID: studioID, endpoint: String(repeating: "ab", count: 32), hosting: enabled)
+        var cache = V2CachedState(identity: own.descriptor.identity)
+        cache.device = own
+        cache.directory = V2Directory(devices: [peer], issuedAt: 1000, permissionExpiresAt: 1060,
+            relayURLs: [], revision: 1, teamID: "work-team")
         let records = DeviceDirectoryMerge.merge(.init(
-            authenticatedMacs: [DeviceDiscoveredMac(bindingID: binding.bindingID, deviceID: binding.deviceID,
-                tag: binding.tag, displayName: binding.displayName, endpointID: binding.endpointID,
-                pathHints: binding.pathHints)], ownersKnown: true,
-            selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
+            authenticatedMacs: DeviceIrxClient.displayBindings(cache: cache, now: Date(timeIntervalSince1970: 1001)),
+            ownersKnown: true, selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
         ))
         if enabled {
             let record = try #require(records.first)
