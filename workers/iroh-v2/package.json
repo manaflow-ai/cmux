@@ -10,7 +10,7 @@
     "types:generate": "wrangler types",
     "dev": "wrangler dev --env development",
     "deploy:staging": "bun run check && bun run test:runtime && wrangler deploy --env staging",
-    "deploy:production": "bun run check && bun run test:runtime && wrangler deploy --env production",
+    "deploy:production": "bash scripts/deploy-production.sh",
     "boundary:check": "bun scripts/check-boundary.ts",
     "types:check": "wrangler types --check",
     "test:runtime": "bun test ./e2e",
