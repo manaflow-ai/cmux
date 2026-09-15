@@ -174,10 +174,16 @@ struct VerifiedReplayGeometryFitTests {
         #expect(await apply(frame, to: view))
         let baseline = try await observe(view, matching: frame)
 
-        #expect(await view.applyViewSizeAndWait(cols: size.columns + 2, rows: size.rows + 2))
+        let intermediate = TerminalGridSize(
+            columns: size.columns - 2,
+            rows: size.rows - 2,
+            pixelWidth: size.pixelWidth,
+            pixelHeight: size.pixelHeight
+        )
+        #expect(await view.applyViewSizeAndWait(cols: intermediate.columns, rows: intermediate.rows))
         let grown = try await observe(view, matching: frame)
-        #expect(grown.frame.columns == size.columns + 2)
-        #expect(grown.frame.rows == size.rows + 2)
+        #expect(grown.frame.columns == intermediate.columns)
+        #expect(grown.frame.rows == intermediate.rows)
         #expect(grown.gridGeneration != baseline.gridGeneration)
         #expect(await view.applyViewSizeAndWait(cols: size.columns, rows: size.rows))
         let returned = try await observe(view, matching: frame)
@@ -203,6 +209,52 @@ struct VerifiedReplayGeometryFitTests {
         #expect(await apply(delta, to: view))
         let afterDelta = try await observe(view, matching: delta)
         expectRows(afterDelta.frame, equalTo: try #require(expected.applying(delta)))
+    }
+
+    @Test("raw VT output survives repeated no-op geometry with history and wrapped prompts")
+    func rawVTOutputSurvivesNoOpGeometry() async throws {
+        let mounted = try await mountSurface()
+        defer { dismantle(mounted) }
+        let view = mounted.view
+        let size = pinnedSize(inside: mounted.natural)
+        #expect(await view.applyViewSizeAndWait(cols: size.columns, rows: size.rows))
+
+        // Keep ANSI control bytes outside the visible payload. Ghostty counts
+        // only the plain text toward wrapping, so styling the complete line
+        // must happen after constructing a payload that is longer than one
+        // viewport row.
+        let lineWidth = max(size.columns * 2 + 7, 32)
+        var output = "\u{1B}[?2026h"
+        for row in 0..<(size.rows * 4) {
+            let visiblePrefix = row % 5 == 0
+                ? "> Ask Codex to do anything "
+                : "Codex output row \(row): "
+            let visibleBody = String(
+                (visiblePrefix + String(repeating: "wrap-\(row)-", count: lineWidth)).prefix(lineWidth)
+            )
+            let styledBody = row % 5 == 0
+                ? "\u{1B}[48;2;56;56;56m\(visibleBody)\u{1B}[0m"
+                : "\u{1B}[38;2;166;226;46m\(visibleBody)\u{1B}[0m"
+            output += styledBody + "\r\n"
+        }
+        output += "\u{1B}[?2026l\u{1B}[?25h"
+        #expect(await view.processOutputAndWait(Data(output.utf8)))
+        let before = try await observe(view, matching: try actualFrame(view, revision: 1))
+        let beforeVisual = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: before.frame))
+        let historyRows = try #require(before.frame.historyRows)
+        #expect(historyRows > UInt64(size.rows * 2))
+        #expect(beforeVisual.rows.flatMap { $0 }.contains { $0.text.contains("wrap-") })
+
+        for _ in 0..<5 {
+            view.safeAreaInsetsDidChange()
+            #expect(await view.applyViewSizeAndWait(cols: size.columns, rows: size.rows))
+            let after = try await observe(view, matching: before.frame)
+            expectRows(after.frame, equalTo: beforeVisual)
+            #expect(after.frame.scrollbackRows == before.frame.scrollbackRows)
+            #expect(after.frame.historyRows == before.frame.historyRows)
+            #expect(after.gridGeneration == before.gridGeneration)
+            #expect(after.appliedGeneration == before.appliedGeneration)
+        }
     }
 
     private struct MountedSurface {
@@ -334,6 +386,28 @@ struct VerifiedReplayGeometryFitTests {
             deltaBaseHistoryRows: frame.historyRows,
             deltaBaseRenderRevision: frame.renderRevision
         )
+    }
+
+    private func actualFrame(
+        _ view: GhosttySurfaceView,
+        revision: UInt64
+    ) throws -> MobileTerminalRenderGridFrame {
+        let read = VerifiedReplaySurfaceRead(
+            surface: try #require(view.surface),
+            generation: view.surfaceGeneration,
+            surfaceID: "geometry-raw-vt",
+            stateSeq: revision,
+            renderEpoch: "geometry-raw-vt-epoch",
+            renderRevision: revision,
+            expectedCursorColor: nil,
+            configuredCursorColor: nil,
+            anchor: .screen
+        )
+        let queue = view.outputQueue
+        let exported: MobileTerminalRenderGridFrame? = queue.queue.sync {
+            read.exportGridSynchronously()
+        }
+        return try #require(exported)
     }
 
     private func apply(_ frame: MobileTerminalRenderGridFrame, to view: GhosttySurfaceView) async -> Bool {
