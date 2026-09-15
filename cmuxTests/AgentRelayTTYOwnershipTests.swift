@@ -318,25 +318,31 @@ extension AgentNotificationRegressionTests {
         )
         let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
 
-        assertTTYReportRejected(coordinator.handle(ControlRequest(
-            id: .string("spoofed-owner"),
-            method: "surface.report_tty",
-            params: [
-                "workspace_id": .string(fixture.destination.id.uuidString),
-                "surface_id": .string(destinationPanelID.uuidString),
-                "tty_name": .string("pts/30"),
-                "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
-                "_cmux_remote_connection_id": .string(connectionID.uuidString),
-                "terminal_lifecycle_id": .string(
-                    destinationTerminal.surface.terminalLifecycleId.uuidString
-                ),
-                "attempt_id": .string(destinationAttemptID.uuidString),
-            ]
-        )), expectedCode: "remote_relay_workspace_denied")
-        #expect(
-            !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
-                .contains(destinationPanelID)
-        )
+        // Invalidate one selector at a time: dictionary traversal does not
+        // promise which denial wins when both workspace and surface are foreign.
+        for spoofWorkspace in [true, false] {
+            let workspaceID = spoofWorkspace ? fixture.destination.id : fixture.source.id
+            let surfaceID = spoofWorkspace ? fixture.panelId : destinationPanelID
+            let terminal = spoofWorkspace ? sourceTerminal : destinationTerminal
+            let attemptID = spoofWorkspace ? sourceAttemptID : destinationAttemptID
+            let expectedCode = spoofWorkspace
+                ? "remote_relay_workspace_denied" : "remote_relay_surface_denied"
+            assertTTYReportRejected(coordinator.handle(ControlRequest(
+                id: .string(spoofWorkspace ? "spoofed-workspace" : "spoofed-surface"),
+                method: "surface.report_tty",
+                params: [
+                    "workspace_id": .string(workspaceID.uuidString),
+                    "surface_id": .string(surfaceID.uuidString),
+                    "tty_name": .string("pts/30"),
+                    "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                    "_cmux_remote_connection_id": .string(connectionID.uuidString),
+                    "terminal_lifecycle_id": .string(terminal.surface.terminalLifecycleId.uuidString),
+                    "attempt_id": .string(attemptID.uuidString),
+                ]
+            )), expectedCode: expectedCode)
+            #expect(!fixture.source.surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(fixture.panelId))
+            #expect(!fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(destinationPanelID))
+        }
 
         assertTTYReportRejected(coordinator.handle(ControlRequest(
             id: .string("stale-attempt"),
