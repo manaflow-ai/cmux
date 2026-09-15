@@ -325,8 +325,8 @@ struct LastSurfaceClosePreferenceTests {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let workspace = manager.addWorkspace(
                 initialSurface: .browser,
-                autoWelcomeIfNeeded: false,
-                inheritWorkingDirectory: false
+                inheritWorkingDirectory: false,
+                autoWelcomeIfNeeded: false
             )
             manager.selectWorkspace(workspace)
             let browserId = try #require(workspace.focusedPanelId)
@@ -351,8 +351,8 @@ struct LastSurfaceClosePreferenceTests {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let workspace = manager.addWorkspace(
                 initialSurface: .browser,
-                autoWelcomeIfNeeded: false,
-                inheritWorkingDirectory: false
+                inheritWorkingDirectory: false,
+                autoWelcomeIfNeeded: false
             )
             manager.selectWorkspace(workspace)
             let browserId = try #require(workspace.focusedPanelId)
@@ -392,9 +392,10 @@ struct LastSurfaceClosePreferenceTests {
     func reopeningAClosedPanelRestoresMixedSplitTopology() throws {
         try withManager(closeWorkspaceOnLastSurface: false) { manager in
             let workspace = try #require(manager.selectedWorkspace)
+            let focusedPanelId = try #require(workspace.focusedPanelId)
             let browserId = try #require(manager.newBrowserSplit(
                 tabId: workspace.id,
-                fromPanelId: try #require(workspace.focusedPanelId),
+                fromPanelId: focusedPanelId,
                 orientation: .horizontal,
                 url: URL(string: "https://example.com/closed-mixed-split")
             ))
