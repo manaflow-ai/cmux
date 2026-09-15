@@ -47,7 +47,6 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
                 executablePath: executable, arguments: arguments
             )
             if let port = preliminary.watcherAppServerPort { result.watchedPorts.insert(port) }
-            let port = preliminary.appServerPort
             let holder = CodexWriterProcessEvidence(
                 pid: pid,
                 parentPID: Int32(current.pbi_ppid),
@@ -55,10 +54,7 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
                 startTime: "\(info.pbi_start_tvsec):\(info.pbi_start_tvusec)",
                 executablePath: executable,
                 arguments: arguments,
-                pidVersion: version,
-                isPrivateCmuxServer: port.map { hasCmuxLog(pid, port: $0) } ?? false,
-                hasConnectedClients: port.map { !hasIdleListener(pid, port: $0, descriptors: descriptors) } ?? true,
-                hasControllingTerminal: current.pbi_flags & UInt32(PROC_FLAG_CONTROLT) != 0
+                pidVersion: version
             )
             guard pidVersion(pid) == version else {
                 result.isComplete = false
@@ -127,14 +123,14 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
 
     func fileDescriptors(_ pid: Int32) -> [proc_fdinfo]? {
         let required = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
-        guard required >= 0, required < 16_000_000 else { return nil }
+        guard required > 0, required < 16_000_000 else { return nil }
         let stride = MemoryLayout<proc_fdinfo>.stride
         var descriptors = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(required) / stride + 128)
         let capacity = Int32(descriptors.count * stride)
         let count = descriptors.withUnsafeMutableBytes {
             proc_pidinfo(pid, PROC_PIDLISTFDS, 0, $0.baseAddress, capacity)
         }
-        guard count >= 0, count < capacity, Int(count) % stride == 0 else { return nil }
+        guard count > 0, count < capacity, Int(count) % stride == 0 else { return nil }
         return Array(descriptors.prefix(Int(count) / stride))
     }
 
@@ -164,39 +160,4 @@ struct CodexWriterSystemProcesses: CodexWriterProcessInspecting {
         return CodexWriterProcessArguments().decode(Array(bytes.prefix(size)))
     }
 
-    private func hasCmuxLog(_ pid: Int32, port: Int) -> Bool {
-        var output = vnode_fdinfo()
-        var error = vnode_fdinfo()
-        let outputSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
-        let errorSize = Int32(MemoryLayout<vnode_fdinfo>.stride)
-        guard proc_pidfdinfo(pid, STDOUT_FILENO, PROC_PIDFDVNODEINFO, &output, outputSize) == outputSize,
-              proc_pidfdinfo(pid, STDERR_FILENO, PROC_PIDFDVNODEINFO, &error, errorSize) == errorSize,
-              output.pvi.vi_stat.vst_ino == error.pvi.vi_stat.vst_ino,
-              output.pvi.vi_stat.vst_dev == error.pvi.vi_stat.vst_dev,
-              error.pvi.vi_stat.vst_uid == geteuid() else { return false }
-        let expected = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-teams-\(port)-app-server.log").path
-        var file = stat()
-        guard lstat(expected, &file) == 0, file.st_mode & S_IFMT == S_IFREG else { return false }
-        return UInt32(bitPattern: file.st_dev) == output.pvi.vi_stat.vst_dev
-            && file.st_ino == output.pvi.vi_stat.vst_ino
-    }
-
-    private func hasIdleListener(_ pid: Int32, port: Int, descriptors: [proc_fdinfo]) -> Bool {
-        var foundListener = false
-        for descriptor in descriptors where descriptor.proc_fdtype == PROX_FDTYPE_SOCKET {
-            var socket = socket_fdinfo()
-            let size = Int32(MemoryLayout<socket_fdinfo>.stride)
-            guard proc_pidfdinfo(pid, descriptor.proc_fd, PROC_PIDFDSOCKETINFO, &socket, size) == size else { return false }
-            if socket.psi.soi_kind == SOCKINFO_UN,
-               Int32(socket.psi.soi_options) & SO_ACCEPTCONN != 0 { return false }
-            guard socket.psi.soi_kind == SOCKINFO_TCP else { continue }
-            let tcp = socket.psi.soi_proto.pri_tcp
-            guard UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)) == port else { continue }
-            guard tcp.tcpsi_state == TSI_S_LISTEN,
-                  socket.psi.soi_qlen == 0, socket.psi.soi_incqlen == 0 else { return false }
-            foundListener = true
-        }
-        return foundListener
-    }
 }

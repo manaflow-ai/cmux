@@ -63,7 +63,7 @@ struct CodexWriterSafetyTests {
         #expect(system.targetCount == 200)
     }
 
-    @Test("fresh ownership or process-generation changes prevent signalling", arguments: ["generation", "watcher", "client", "incomplete", "holder", "clear"])
+    @Test("fresh ownership or process-generation changes prevent signalling", arguments: ["generation", "watcher", "incomplete", "holder", "clear"])
     func changedOwnershipRefusesTermination(change: String) throws {
         let fixture = try LockFixture(count: 1)
         defer { fixture.close() }
@@ -104,9 +104,7 @@ struct CodexWriterSafetyTests {
             let holder = CodexWriterProcessEvidence(
                 pid: 12345, parentPID: 1, command: "codex app-server --listen ws://127.0.0.1:59152",
                 startTime: "123:456", executablePath: "/opt/bin/codex",
-                pidVersion: changing && change == "generation" ? 2 : 1,
-                isPrivateCmuxServer: true, hasConnectedClients: changing && change == "client",
-                hasControllingTerminal: false
+                pidVersion: changing && change == "generation" ? 2 : 1
             )
             var snapshot = CodexWriterProcessSnapshot()
             for target in locks.compactMap(CodexWriterFileIdentity.init) {

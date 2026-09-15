@@ -5,17 +5,6 @@ import Testing
 
 @Suite("Codex writer recovery")
 struct CodexWriterRecoveryTests {
-    @Test("does not treat a detached shared server as a proven cmux orphan")
-    func detachedServerWithoutCmuxOwnershipIsNotRecoverable() {
-        let holder = CodexWriterProcessEvidence(
-            pid: 12345,
-            parentPID: 1,
-            command: "codex app-server --listen ws://127.0.0.1:59152",
-            executablePath: "/opt/codex/bin/codex"
-        )
-        #expect(CodexWriterRecoveryAssessment(holder: holder, watchedAppServerPorts: []).classification != .orphanedAppServer)
-    }
-
     @Test("ignores app-server text in a Codex prompt")
     func promptIsNotAnAppServerSubcommand() {
         let holder = CodexWriterProcessEvidence(
@@ -34,7 +23,8 @@ struct CodexWriterRecoveryTests {
                 pid: 12345,
                 parentPID: 1,
                 command: "codex app-server --listen \(endpoint)",
-                executablePath: "/opt/codex/bin/codex"
+                executablePath: "/opt/codex/bin/codex",
+                pidVersion: 1
             )
             #expect(holder.appServerPort == nil)
             #expect(CodexWriterRecoveryAssessment(holder: holder, watchedAppServerPorts: []).classification != .orphanedAppServer)
@@ -48,10 +38,7 @@ struct CodexWriterRecoveryTests {
             parentPID: 1,
             command: "codex app-server --listen ws://127.0.0.1:59152",
             executablePath: "/opt/codex/bin/codex",
-            pidVersion: 1,
-            isPrivateCmuxServer: true,
-            hasConnectedClients: false,
-            hasControllingTerminal: false
+            pidVersion: 1
         )
         let live = CodexWriterProcessEvidence(
             pid: 59111,

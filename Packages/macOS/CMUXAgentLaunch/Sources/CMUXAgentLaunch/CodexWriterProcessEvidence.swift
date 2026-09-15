@@ -9,9 +9,6 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
     public let executablePath: String?
     let arguments: [String]
     let pidVersion: UInt32?
-    let isPrivateCmuxServer: Bool
-    let hasConnectedClients: Bool
-    let hasControllingTerminal: Bool
 
     public init(
         pid: Int32,
@@ -20,10 +17,7 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
         startTime: String? = nil,
         executablePath: String? = nil,
         arguments: [String]? = nil,
-        pidVersion: UInt32? = nil,
-        isPrivateCmuxServer: Bool = false,
-        hasConnectedClients: Bool = true,
-        hasControllingTerminal: Bool = true
+        pidVersion: UInt32? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -32,9 +26,6 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
         self.executablePath = executablePath
         self.arguments = arguments ?? command.split(whereSeparator: \.isWhitespace).map(String.init)
         self.pidVersion = pidVersion
-        self.isPrivateCmuxServer = isPrivateCmuxServer
-        self.hasConnectedClients = hasConnectedClients
-        self.hasControllingTerminal = hasControllingTerminal
     }
 
     public var appServerPort: Int? {
@@ -46,8 +37,15 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
     }
 
     public var watcherAppServerPort: Int? {
-        guard arguments.dropFirst().first == "__codex-teams-watch" else { return nil }
-        guard let endpoint = optionValue(named: "--app-server-url", in: arguments) else {
+        var index = 1
+        while index < arguments.count {
+            guard arguments[index] == "--socket" || arguments[index] == "--password" else { break }
+            guard index + 1 < arguments.count else { return nil }
+            index += 2
+        }
+        guard index < arguments.count, arguments[index] == "__codex-teams-watch" else { return nil }
+        let watcherArguments = Array(arguments.dropFirst(index + 1))
+        guard let endpoint = optionValue(named: "--app-server-url", in: watcherArguments) else {
             return nil
         }
         return Self.port(from: endpoint)
@@ -108,9 +106,6 @@ public struct CodexWriterRecoveryAssessment: Equatable, Sendable {
         self.holder = holder
         if holder.isCodexAppServer,
            holder.parentPID == 1,
-           holder.isPrivateCmuxServer,
-           !holder.hasConnectedClients,
-           !holder.hasControllingTerminal,
            holder.pidVersion != nil,
            let port = holder.appServerPort,
            !watchedAppServerPorts.contains(port) {
