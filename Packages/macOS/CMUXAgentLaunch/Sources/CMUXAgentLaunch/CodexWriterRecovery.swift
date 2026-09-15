@@ -6,9 +6,9 @@ public struct CodexWriterRecovery: Sendable {
     private let lockInspector: CodexWriterLockInspector
     private let processes: any CodexWriterProcessInspecting
 
-    public init() {
+    public init(temporaryDirectory: URL) {
         lockInspector = CodexWriterLockInspector()
-        processes = CodexWriterSystemProcesses()
+        processes = CodexWriterSystemProcesses(temporaryDirectory: temporaryDirectory)
     }
 
     init(processes: any CodexWriterProcessInspecting) {
