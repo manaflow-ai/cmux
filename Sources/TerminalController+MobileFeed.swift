@@ -91,11 +91,7 @@ extension TerminalController {
         if let cached = resolvedTargets[item.workstreamId] {
             target = cached
         } else {
-            if let parsed = FeedJumpResolver.parse(item.workstreamId) {
-                target = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId)
-            } else {
-                target = nil
-            }
+            target = FeedJumpResolver.resolve(item.workstreamId)
             resolvedTargets[item.workstreamId] = target
         }
         if let target {
