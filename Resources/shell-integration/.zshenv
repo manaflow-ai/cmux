@@ -59,7 +59,21 @@ fi
             if [[ ! -r "${_cmux_ghostty:-}" && -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
                 builtin typeset _cmux_ghostty="$GHOSTTY_RESOURCES_DIR/shell-integration/zsh/ghostty-integration"
             fi
-            [[ -r "$_cmux_ghostty" ]] && builtin source -- "$_cmux_ghostty"
+            if [[ -r "$_cmux_ghostty" ]]; then
+                builtin typeset -g _cmux_restore_aliases=0
+                {
+                    if [[ -o aliases ]]; then
+                        _cmux_restore_aliases=1
+                        builtin unsetopt aliases
+                    fi
+                    builtin source -- "$_cmux_ghostty"
+                } always {
+                    if (( _cmux_restore_aliases )); then
+                        builtin setopt aliases
+                    fi
+                    builtin unset _cmux_restore_aliases
+                }
+            fi
         fi
 
         # Load cmux integration (unless disabled)
