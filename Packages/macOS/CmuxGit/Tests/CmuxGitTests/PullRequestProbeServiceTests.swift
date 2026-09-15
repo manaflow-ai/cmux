@@ -12,6 +12,7 @@ import Testing
         url: String = "https://github.com/manaflow-ai/cmux/pull/1",
         updatedAt: String?,
         mergedAt: String? = nil,
+        closedAt: String? = nil,
         headRefName: String? = nil,
         baseRefName: String? = nil
     ) -> GitHubPullRequestProbeItem {
@@ -21,6 +22,7 @@ import Testing
             url: url,
             updatedAt: updatedAt,
             mergedAt: mergedAt,
+            closedAt: closedAt,
             headRefName: headRefName,
             baseRefName: baseRefName
         )
@@ -98,6 +100,18 @@ import Testing
         let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
         let staleClosed = item(number: 959, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/959", updatedAt: "2026-03-06T12:00:00Z", headRefName: "develop")
         #expect(PullRequestProbeService.preferredPullRequest(from: [staleClosed], now: now) == nil)
+    }
+
+    @Test func closedStalenessAnchorsOnCloseTimeNotPostCloseActivity() throws {
+        // Closed three days ago, commented on an hour ago: the fresh updatedAt
+        // must not keep the closed badge alive past the 24h window.
+        let now = try #require(ISO8601DateFormatter().date(from: "2026-04-20T12:00:00Z"))
+        let closedWithLateComment = item(number: 961, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/961", updatedAt: "2026-04-20T11:00:00Z", closedAt: "2026-04-17T12:00:00Z", headRefName: "develop")
+        let justClosed = item(number: 962, state: "CLOSED", url: "https://github.com/manaflow-ai/cmux/pull/962", updatedAt: "2026-04-20T11:00:00Z", closedAt: "2026-04-20T10:00:00Z", headRefName: "feature/just-closed")
+
+        let byBranch = PullRequestProbeService.pullRequestMapByNormalizedBranch(from: [closedWithLateComment, justClosed], now: now)
+        #expect(byBranch["develop"] == nil)
+        #expect(byBranch["feature/just-closed"]?.number == 962)
     }
 
     // MARK: refresh policy
