@@ -158,11 +158,33 @@ def movement_shortcut_actions() -> set[str]:
     )
 
 
+def action_variable_mappings(source: str) -> dict[str, set[str]]:
+    """Resolve local Action variables built from exhaustive switch cases."""
+    mappings: dict[str, set[str]] = {}
+    assignment_pattern = re.compile(
+        r"\b(?:let|var)\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*"
+        r"KeyboardShortcutSettings\.Action\s*=\s*\{(.*?)\}\s*\(\)",
+        flags=re.DOTALL,
+    )
+    for match in assignment_pattern.finditer(source):
+        actions = set(
+            re.findall(
+                r"case\s+\.[A-Za-z][A-Za-z0-9_]*\s*:\s*"
+                r"\.([A-Za-z][A-Za-z0-9_]*)",
+                match.group(2),
+            )
+        )
+        if actions:
+            mappings[match.group(1)] = actions
+    return mappings
+
+
 def explicitly_gated_actions() -> set[str]:
     actions: set[str] = set()
     has_movement_gate = False
     for path in DISPATCH_SOURCES:
         source = path.read_text(encoding="utf-8")
+        variable_mappings = action_variable_mappings(source)
         for call_name in GATE_CALLS:
             for body in balanced_call_bodies(source, call_name):
                 actions.update(
@@ -171,6 +193,11 @@ def explicitly_gated_actions() -> set[str]:
                         body,
                     )
                 )
+                for variable in re.findall(
+                    r"\baction\s*:\s*([A-Za-z][A-Za-z0-9_]*)\b",
+                    body,
+                ):
+                    actions.update(variable_mappings.get(variable, set()))
                 if re.search(
                     r"\baction\s*:\s*movement\.shortcutAction\b",
                     body,
