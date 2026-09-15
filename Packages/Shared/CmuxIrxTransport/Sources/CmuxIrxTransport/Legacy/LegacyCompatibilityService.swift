@@ -155,8 +155,15 @@ public actor LegacyCompatibilityService {
     }
 
     /// Ends this owner permanently. A later account/team uses a new service.
-    public func stop() async {
+    ///
+    /// When requested, the binding is revoked after local state is cleared. The
+    /// local clear happens first so a delayed broker response can never keep a
+    /// stale compatibility identity authoritative. Revocation is best effort
+    /// and bounded because teardown must not hold the host lifecycle open on a
+    /// network failure.
+    public func stop(revokeOwnBinding: Bool = false) async {
         guard !stopped else { return }
+        let bindingToRevoke = revokeOwnBinding ? binding?.bindingID : nil
         stopped = true
         started = false
         startup?.cancel()
@@ -173,6 +180,13 @@ public actor LegacyCompatibilityService {
         subscribers.values.forEach { $0.finish() }
         subscribers.removeAll()
         await oldControl?.stop()
+        if let bindingToRevoke {
+            let broker = self.broker
+            _ = try? await withIrxDeadline(.seconds(3), onTimeout: {}, operation: {
+                try await broker.revoke(bindingID: bindingToRevoke)
+                return true
+            })
+        }
         await broker.deactivate()
     }
 
