@@ -1180,7 +1180,7 @@ struct MacComputerDetailView: View {
                     } header: {
                         Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
                     } footer: {
-                        Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac over the current authenticated connection. Add a group to enable it for Tailscale Only."))
+                        Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."))
                     }
                 }
 
@@ -1297,8 +1297,13 @@ struct MacComputerDetailView: View {
 
     private func refreshTailscaleSuggestions() async {
         guard selectedMethod == .tailscale else { return }
-        tailscaleSuggestions = await store.tailscaleRouteSuggestions(macDeviceID: macDeviceID, instanceTag: instanceTag)
-            .filter { route in !(pairedMac?.routes.contains { $0.endpoint == route.endpoint } ?? false) }
+        tailscaleSuggestions = await store.tailscaleRouteSuggestions(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        MobileDebugLog.anchormux(
+            "tailscale.detail suggestions key=\(macDeviceID.prefix(8)) selected=\(selectedMethod.rawValue) count=\(tailscaleSuggestions.count)"
+        )
     }
 
     private func removeRoute(_ route: CmxAttachRoute) {

@@ -28,6 +28,33 @@ extension MobileShellComposite {
         tailscaleSuggestionCache.record(status.routes, for: key, scope: scope, now: appDiagnosticNow())
     }
 
+    /// Route announcements are also retained in the scoped paired-Mac and
+    /// device-registry snapshots. They remain suggestions until the user
+    /// accepts them, so filter out only the local grant table, not every route
+    /// already present in the reconnect snapshot.
+    private func storedTailscaleSuggestions(
+        for key: MacPairingKey,
+        cachedRoutes: [CmxAttachRoute]
+    ) -> [CmxAttachRoute] {
+        let pairedMac = storedPairedMacsIncludingHidden.first {
+            MacPairingKey($0) == key
+        }
+        let registryRoutes = registryDevices
+            .first { cmxCanonicalDeviceID($0.deviceId) == key.canonicalMacDeviceID }?
+            .instances
+            .first { MacPairingKey(macDeviceID: key.canonicalMacDeviceID, instanceTag: $0.tag) == key }?
+            .routes ?? []
+        let announcedRoutes = cachedRoutes + (pairedMac?.routes ?? []) + registryRoutes
+        let acceptedRoutes = pairedMac?.legacyTailscaleRoutes ?? []
+        let candidates = announcedRoutes.filter { route in
+            route.kind == .tailscale
+                && !acceptedRoutes.contains(where: {
+                    $0.kind == route.kind && $0.endpoint == route.endpoint
+                })
+        }
+        return MobileComputerRouteGroup.suggestions(candidates).flatMap(\.routes)
+    }
+
     /// Refreshes through an existing connection and returns recent device-local hints when offline.
     /// This never opens another route or grants permission to dial a suggested address.
     public func tailscaleRouteSuggestions(macDeviceID: String, instanceTag: String?) async -> [CmxAttachRoute] {
@@ -44,7 +71,22 @@ extension MobileShellComposite {
             tailscaleSuggestionCache.record(response.routes, for: key, scope: scope, now: appDiagnosticNow())
         }
         guard await isScopeCurrent(scope) else { return [] }
-        return tailscaleSuggestionCache.groups(for: key, scope: scope, now: appDiagnosticNow()).flatMap(\.routes)
+        let cachedRoutes = tailscaleSuggestionCache
+            .groups(for: key, scope: scope, now: appDiagnosticNow())
+            .flatMap(\.routes)
+        let suggestions = storedTailscaleSuggestions(for: key, cachedRoutes: cachedRoutes)
+        let storedCount = storedPairedMacsIncludingHidden.first {
+            MacPairingKey($0) == key
+        }?.routes.count ?? 0
+        let registryCount = registryDevices
+            .first { cmxCanonicalDeviceID($0.deviceId) == key.canonicalMacDeviceID }?
+            .instances
+            .first { MacPairingKey(macDeviceID: key.canonicalMacDeviceID, instanceTag: $0.tag) == key }?
+            .routes.count ?? 0
+        MobileDebugLog.anchormux(
+            "tailscale.suggestions key=\(key.canonicalMacDeviceID.prefix(8)) live=\(suggestionClient(for: key) != nil) cache=\(cachedRoutes.count) stored=\(storedCount) registry=\(registryCount) returned=\(suggestions.count)"
+        )
+        return suggestions
     }
 
     /// Adds one complete group from this account's authenticated hint cache.
@@ -56,14 +98,27 @@ extension MobileShellComposite {
         guard !routes.isEmpty, let pairedMacStore, let scope = await currentScopeSnapshot() else { return false }
         let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
         // UI input alone cannot manufacture a route capability. Use the exact
-        // cached group's values, never metadata supplied by an action caller.
-        guard let group = tailscaleSuggestionCache.groups(for: key, scope: scope, now: appDiagnosticNow())
+        // scoped announcement, whether it came from the live cache or the
+        // persisted registry snapshot, never metadata supplied by an action caller.
+        let cachedRoutes = tailscaleSuggestionCache
+            .groups(for: key, scope: scope, now: appDiagnosticNow())
+            .flatMap(\.routes)
+        let availableGroups = MobileComputerRouteGroup.groups(
+            storedTailscaleSuggestions(for: key, cachedRoutes: cachedRoutes)
+        )
+        guard let group = availableGroups
             .first(where: { $0.routes == routes }) else { return false }
         var wrote = false
         await performSerializedPairedMacWrite(ifStillCurrent: nil) {
             guard await self.isScopeCurrent(scope),
-                  self.tailscaleSuggestionCache.groups(for: key, scope: scope, now: self.appDiagnosticNow())
-                    .contains(group) else { return }
+                  MobileComputerRouteGroup.groups(
+                      self.storedTailscaleSuggestions(
+                          for: key,
+                          cachedRoutes: self.tailscaleSuggestionCache
+                              .groups(for: key, scope: scope, now: self.appDiagnosticNow())
+                              .flatMap(\.routes)
+                      )
+                  ).contains(group) else { return }
             do {
                 let rows = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
                 guard let mac = rows.first(where: { MacPairingKey($0) == key }),
