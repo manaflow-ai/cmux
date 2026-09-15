@@ -480,6 +480,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let originalIDs = manager.tabs.map(\.id)
         XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
         XCTAssertEqual(manager.tabs.map(\.id), originalIDs)
+    }
+
     func testNewWorkspaceMachineContextUsesFocusedMachineThenWorkspaceBinding() {
         XCTAssertEqual(NewWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .cloud("machine-b"))
         XCTAssertEqual(NewWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: false).target, .cloud("machine-a"))
