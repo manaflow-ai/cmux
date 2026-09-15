@@ -131,6 +131,13 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(older.exists)
         newer.tap()
         try verifyPairingPage("Pairing update in Settings")
+        let heading = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        try VNImageRequestHandler(data: heading.screenshot().pngRepresentation).perform([request])
+        let headingText = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+        XCTAssertTrue(headingText.contains("on your Mac"), "The complete title must render: \(headingText)")
     }
 
     func testMockHostInstanceTagFollowsTargetBuildScope() {
