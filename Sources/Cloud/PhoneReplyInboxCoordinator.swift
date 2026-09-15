@@ -120,6 +120,10 @@ final class PhoneReplyInboxCoordinator {
             #endif
             return
         }
+        let pendingReplyIDs = Set(pending.map(\.replyId))
+        decryptFailureCounts = decryptFailureCounts.filter {
+            pendingReplyIDs.contains($0.key)
+        }
         #if DEBUG
         cmuxDebugLog("phoneReply.sweepFetched count=\(pending.count)")
         #endif
