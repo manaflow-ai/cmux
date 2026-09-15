@@ -520,6 +520,10 @@ jobs:
         working-directory: webviews
         run: bun run lint:ci
 
+      - name: React Doctor
+        working-directory: webviews
+        run: bun run react-doctor:ci
+
   web-production-build:
     needs: changes
     if: ${{ needs.changes.outputs.web == 'true' }}
@@ -547,10 +551,6 @@ jobs:
           DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
           DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
         run: bun run vercel-build
-
-      - name: React Doctor
-        working-directory: webviews
-        run: bun run react-doctor:ci
 
   diff-sidecar-check:
     needs: changes
