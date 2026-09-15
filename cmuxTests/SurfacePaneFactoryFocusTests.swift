@@ -250,8 +250,13 @@ import Testing
         let terminal = NSView(frame: content.frame)
         root.addSubview(terminal, positioned: .above, relativeTo: content)
         let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
+        var retriedIDs: [UUID] = []
         var dismissedIDs: [UUID] = []
-        host.update(failure: failure, onDismiss: { dismissedIDs.append($0) })
+        host.update(
+            failure: failure,
+            onRetry: { retriedIDs.append($0) },
+            onDismiss: { dismissedIDs.append($0) }
+        )
         root.layoutSubtreeIfNeeded()
         let card = try #require(root.subviews.compactMap { $0 as? CloudPaneCreationFailureOverlayView }.first)
         #expect(!card.isDescendant(of: content))
@@ -262,7 +267,13 @@ import Testing
         #expect(content.convert(card.bounds, from: card).minX >= 0)
         #expect(content.convert(card.bounds, from: card).maxX <= content.bounds.maxX)
         #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil, "The bridge must not intercept terminal input")
-        let dismiss = try #require(card.subviews.compactMap { $0 as? NSButton }.first)
+        let buttons = card.subviews
+            .compactMap { $0 as? NSStackView }
+            .flatMap { $0.arrangedSubviews.compactMap { $0 as? NSButton } }
+        let retry = try #require(buttons.first { $0.identifier?.rawValue == "CloudPaneCreationFailureRetry" })
+        retry.performClick(nil)
+        #expect(retriedIDs == [failure.id])
+        let dismiss = try #require(buttons.first { $0.identifier?.rawValue == "CloudPaneCreationFailureDismiss" })
         dismiss.performClick(nil)
         #expect(dismissedIDs == [failure.id])
 

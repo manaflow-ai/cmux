@@ -17,6 +17,9 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
             CloudPaneCreationFailureWindowBridge(
                 failure: failureStore.failure,
                 isWorkspaceVisible: isWorkspaceVisible,
+                onRetry: failureStore.canRetry ? { [weak failureStore] id in
+                    failureStore?.retry(id: id)
+                } : nil,
                 onDismiss: { [weak failureStore] id in failureStore?.dismiss(id: id) }
             )
         )
@@ -27,18 +30,19 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
 private struct CloudPaneCreationFailureWindowBridge: NSViewRepresentable {
     let failure: CloudPaneCreationFailure?
     let isWorkspaceVisible: Bool
+    let onRetry: ((UUID) -> Void)?
     let onDismiss: (UUID) -> Void
 
     func makeNSView(context: Context) -> CloudPaneCreationFailureOverlayHostView {
         let view = CloudPaneCreationFailureOverlayHostView(frame: .zero)
         view.isHidden = !isWorkspaceVisible
-        view.update(failure: failure, onDismiss: onDismiss)
+        view.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
         return view
     }
 
     func updateNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, context: Context) {
         nsView.isHidden = !isWorkspaceVisible
-        nsView.update(failure: failure, onDismiss: onDismiss)
+        nsView.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
     }
 
     static func dismantleNSView(_ nsView: CloudPaneCreationFailureOverlayHostView, coordinator: ()) {
@@ -65,13 +69,17 @@ final class CloudPaneCreationFailureOverlayHostView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(failure: CloudPaneCreationFailure?, onDismiss: @escaping (UUID) -> Void) {
+    func update(
+        failure: CloudPaneCreationFailure?,
+        onRetry: ((UUID) -> Void)?,
+        onDismiss: @escaping (UUID) -> Void
+    ) {
         pendingFailure = failure
         guard let failure else {
             removeCard()
             return
         }
-        card.update(failure: failure, onDismiss: onDismiss)
+        card.update(failure: failure, onRetry: onRetry, onDismiss: onDismiss)
         _ = ensureInstalled()
     }
 
@@ -147,8 +155,10 @@ final class CloudPaneCreationFailureOverlayView: NSView {
     private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let recoveryLabel = NSTextField(wrappingLabelWithString: "")
+    private let retryButton = NSButton(frame: .zero)
     private let dismissButton = NSButton(frame: .zero)
     private var currentFailure: CloudPaneCreationFailure?
+    private var onRetry: ((UUID) -> Void)?
     private var onDismiss: ((UUID) -> Void)?
     private lazy var cardWidth = widthAnchor.constraint(equalToConstant: 420)
 
@@ -182,6 +192,14 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         recoveryLabel.font = .systemFont(ofSize: 11)
         recoveryLabel.textColor = .secondaryLabelColor
 
+        retryButton.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.title = String(localized: "common.retry", defaultValue: "Retry")
+        retryButton.bezelStyle = .rounded
+        retryButton.controlSize = .regular
+        retryButton.target = self
+        retryButton.action = #selector(handleRetry)
+        retryButton.setAccessibilityIdentifier("CloudPaneCreationFailureRetry")
+
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         dismissButton.title = String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK")
         dismissButton.bezelStyle = .rounded
@@ -197,9 +215,14 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         labels.orientation = .vertical
         labels.alignment = .leading
         labels.spacing = 6
+        let actions = NSStackView(views: [retryButton, dismissButton])
+        actions.translatesAutoresizingMaskIntoConstraints = false
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 8
         addSubview(iconView)
         addSubview(labels)
-        addSubview(dismissButton)
+        addSubview(actions)
 
         NSLayoutConstraint.activate([
             cardWidth,
@@ -213,9 +236,9 @@ final class CloudPaneCreationFailureOverlayView: NSView {
             titleLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
             detailLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
             recoveryLabel.widthAnchor.constraint(equalTo: labels.widthAnchor),
-            labels.bottomAnchor.constraint(equalTo: dismissButton.topAnchor, constant: -14),
-            dismissButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            dismissButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            labels.bottomAnchor.constraint(equalTo: actions.topAnchor, constant: -14),
+            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            actions.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
         ])
         setAccessibilityIdentifier("CloudPaneCreationFailure")
     }
@@ -237,9 +260,15 @@ final class CloudPaneCreationFailureOverlayView: NSView {
         }
     }
 
-    func update(failure: CloudPaneCreationFailure, onDismiss: @escaping (UUID) -> Void) {
+    func update(
+        failure: CloudPaneCreationFailure,
+        onRetry: ((UUID) -> Void)?,
+        onDismiss: @escaping (UUID) -> Void
+    ) {
         currentFailure = failure
+        self.onRetry = onRetry
         self.onDismiss = onDismiss
+        retryButton.isHidden = onRetry == nil
         titleLabel.stringValue = failure.title
         detailLabel.stringValue = failure.errorText
         recoveryLabel.stringValue = failure.recoveryText
@@ -253,5 +282,10 @@ final class CloudPaneCreationFailureOverlayView: NSView {
     @objc private func handleDismiss() {
         guard let id = currentFailure?.id else { return }
         onDismiss?(id)
+    }
+
+    @objc private func handleRetry() {
+        guard let id = currentFailure?.id else { return }
+        onRetry?(id)
     }
 }

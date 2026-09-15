@@ -4,7 +4,21 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
     /// Uses the exact source view, not daemon focus, so a local split and the
     /// Cloud tree acquire the same pane/tab relationship in one remote mutation.
     func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?) async throws -> SurfaceResource {
-        let key = "cmux-cloud-create-\(UUID().uuidString.lowercased())"
+        try await createTerminal(
+            nearTabID: nearTabID,
+            splitDirection: splitDirection,
+            request: CloudTerminalCreationRequest()
+        )
+    }
+
+    /// Keeps the caller's idempotency identity through revision retries and
+    /// explicit UI retries. A new key here can create a second remote terminal
+    /// after the first mutation committed but its response was lost.
+    func createTerminal(
+        nearTabID: String,
+        splitDirection: SurfaceSplitDirection?,
+        request: CloudTerminalCreationRequest
+    ) async throws -> SurfaceResource {
         var retried = false
         while true {
             guard await refreshCurrentGraph(force: true), let state = cloudState else {
@@ -20,7 +34,10 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             var arguments = ["--socket", connected.socketPath, "--json", "pane", pane.id]
             if let splitDirection { arguments += ["split", "--" + splitDirection.rawValue] }
             else { arguments.append("run") }
-            arguments += ["--idempotency-key", key]
+            arguments += ["--idempotency-key", request.attemptKey]
+            if let correlationKey = request.correlationArgument {
+                arguments += ["--correlation-key", correlationKey]
+            }
             if let cursor = state.cursor { arguments += ["--expected-revision", String(cursor.revision)] }
             if splitDirection == nil { arguments += ["--"] + CloudTuiCommandLine.defaultTerminalCommand }
             do {
