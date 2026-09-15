@@ -70,6 +70,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     /// signing key but has its own filtered authority and broker lifecycle.
     private var legacyService: LegacyCompatibilityService?
     private var legacyAcceptorPeer: CmxIrohGrantPeer?
+    private var legacyStartTask: Task<Void, Never>?
+    private var legacyEventsTask: Task<Void, Never>?
     private var registry: IrxServerSessionRegistry?
     private var identity: IrxIdentity?
     private(set) var controlService: V2ControlService?
@@ -232,6 +234,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admission = nil; registry = nil; identity = nil
         legacyService = nil
         legacyAcceptorPeer = nil
+        legacyStartTask?.cancel(); legacyStartTask = nil
+        legacyEventsTask?.cancel(); legacyEventsTask = nil
         controlService = nil; endpointSupervisor = nil; cachedState = nil
         lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
@@ -358,34 +362,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
         await service.start()
         guard isCurrent(token), !Task.isCancelled else { await service.stop(); throw V2ControlFailure.stopped }
-        if let legacyService {
-            // V2 service start is asynchronous. Do not publish a compatibility
-            // binding until the v2 control plane has accepted this device.
-            for _ in 0..<100 where isCurrent(token) && !Task.isCancelled {
-                let snapshot = await service.snapshot()
-                if snapshot.status == .ready, snapshot.cache.device != nil { break }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            guard isCurrent(token), !Task.isCancelled,
-                  (await service.snapshot()).status == .ready else {
-                Self.journal.record("legacy-dialect", "compatibility-deferred", [:])
-                return
-            }
-            do {
-                try await legacyService.start()
-                if let binding = await legacyService.snapshot().binding,
-                   let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) {
-                    legacyAcceptorPeer = CmxIrohGrantPeer(bindingID: binding.bindingID,
-                        deviceID: identity.deviceID, tag: configuration.tag,
-                        platform: .mac, endpointID: endpointID,
-                        identityGeneration: device.identityGeneration)
-                }
-                Self.journal.record("legacy-dialect", "compatibility-started", [:])
-            } catch {
-                Self.journal.record("legacy-dialect", "compatibility-start-failed",
-                    ["error": String(describing: type(of: error))])
-            }
-        }
         Self.journal.record("v2-host", "control-started", ["cached": String(restored != nil)])
     }
 
@@ -415,8 +391,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         cachedState = snapshot.cache
         _ = admission.apply(snapshot)
         if let legacyService {
-            let modernEndpoints = Set(snapshot.cache.directory?.inboundPeers.map { $0.device.descriptor.endpointID } ?? [])
-                .union(snapshot.cache.directory?.devices.map { $0.descriptor.endpointID } ?? [])
+            let modernEndpoints = Set((snapshot.cache.directory?.inboundPeers ?? []).map {
+                $0.device.descriptor.endpointID
+            }).union((snapshot.cache.directory?.devices ?? []).map { $0.descriptor.endpointID })
             await legacyService.excludeV2Endpoints(modernEndpoints)
         }
         if snapshot.cache.authorityRevoked {
@@ -442,6 +419,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
            record.descriptor.endpointID == identity?.endpointIDHex {
             listenerState.hasAuthenticatedRegistration = true
             if snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
+            startLegacyCompatibility(token: token)
         }
         await registry?.closeAll(code: .revoked, matching: { [weak legacyService] endpoint in
             if let list = legacyService?.listCurrent.current, let entry = list.entries[endpoint] {
@@ -459,6 +437,40 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
         requestEndpointReady(token: token)
         publishIrxSettingsUpdate()
+    }
+
+    private func startLegacyCompatibility(token: UUID) {
+        guard legacyStartTask == nil, let service = legacyService, let identity,
+              let configuration = try? MobileHostV2Configuration.current() else { return }
+        legacyStartTask = Task { @MainActor [weak self] in
+            defer { self?.legacyStartTask = nil }
+            do {
+                try await service.start()
+                guard let self, self.isCurrent(token) else { return }
+                if let binding = await service.snapshot().binding,
+                   let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex) {
+                    self.legacyAcceptorPeer = CmxIrohGrantPeer(bindingID: binding.bindingID,
+                        deviceID: identity.deviceID, tag: configuration.tag,
+                        platform: .mac, endpointID: endpointID,
+                        identityGeneration: self.cachedState?.device?.descriptor.identityGeneration ?? 1)
+                }
+                self.legacyEventsTask?.cancel()
+                self.legacyEventsTask = Task { [weak self] in
+                    for await _ in await service.events() {
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run { [weak self] in
+                            guard let self, self.isCurrent(token) else { return }
+                            self.schedulePermissionExpiry(token: token)
+                        }
+                    }
+                }
+                Self.journal.record("legacy-dialect", "compatibility-started", [:])
+            } catch {
+                Self.journal.record("legacy-dialect", "compatibility-start-failed",
+                    ["error": String(describing: type(of: error))])
+                await service.kick()
+            }
+        }
     }
 
     private static func credentials(_ cache: V2CachedState) -> [IrxRelayCredential] {
@@ -552,9 +564,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let legacyCurrent = legacyService?.listCurrent
         permissionExpiryTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
+                let now = ContinuousClock().now
+                if let list = legacyCurrent?.current, !list.isFresh(now: now) {
+                    await registry.closeAll(code: .revoked, matching: { endpoint in
+                        legacyCurrent?.current?.entries[endpoint] != nil
+                    })
+                    return
+                }
                 let legacyDeadline = legacyCurrent?.current.map {
                     $0.receivedAtMonotonic.advanced(by: .seconds($0.ttlSeconds))
-                }
+                }.flatMap { $0 > now ? $0 : nil }
                 let deadline = [admission.nextExpiration, legacyDeadline].compactMap { $0 }.min()
                 guard let deadline else { return }
                 do { try await ContinuousClock().sleep(until: deadline) }
@@ -617,13 +636,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             }
             return try v2Judgment(grant, endpoint)
         }
-        let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
-            if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
-                return list.isFresh(now: .now) && !entry.revoked
-                    && entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) != true
-            }
-            return admission.authorizedPeer(endpointID: endpoint) != nil
-        }
         acceptLoop = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.isCurrent(token) else { return }
@@ -643,7 +655,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 case .irx(let connection):
                     Task { [weak self] in
                         await self?.superviseConnection(connection, judgment: judgment,
-                            stillAuthorized: stillAuthorized, registry: registry, token: token)
+                            admission: admission, legacyCurrent: legacyCurrent,
+                            registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
                     guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
@@ -678,7 +691,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func superviseConnection(
         _ irx: IrxConnection,
         judgment: @escaping IrxGrantJudgment,
-        stillAuthorized: @escaping @Sendable (String) -> Bool,
+        admission: V2InboundAdmissionAuthority,
+        legacyCurrent: IrxDeviceListCurrent?,
         registry: IrxServerSessionRegistry,
         token: UUID
     ) async {
@@ -690,6 +704,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 journal: journal
             )
         else { return }
+        let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
+            if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
+                return list.isFresh(now: .now) && !entry.revoked
+                    && entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) != true
+                    && (entry.deviceID == nil || entry.deviceID == peer.deviceID)
+                    && (entry.bindingID == nil || entry.bindingID == peer.bindingID)
+                    && (entry.tag == nil || entry.tag == peer.tag)
+                    && (entry.identityGeneration == nil || entry.identityGeneration == peer.identityGeneration)
+            }
+            return admission.recheck(peer)(endpoint)
+        }
         let registered = await registry.admit(
             deviceID: peer.bindingID,
             sessionID: sessionID,
