@@ -68,8 +68,13 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         // optimistic treatment there, so a press that becomes a drag or a
         // cancelled click never shows a speculative highlight at all.
         super.mouseDown(with: event)
-        if event.clickCount == 2, clickedRow < 0 {
-            workspaceController?.doubleClickEmptyArea()
+        if clickedRow < 0 {
+            // AppKit need not send its row action when a blank click leaves
+            // native selection unchanged. This completed gesture owns the clear.
+            workspaceController?.clearWorkspaceSelection()
+            if event.clickCount == 2 {
+                workspaceController?.doubleClickEmptyArea()
+            }
         }
     }
 
