@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxWorkspaces
 import Foundation
@@ -11,6 +12,18 @@ import Foundation
 /// Installs the temporary panel used while a Cloud terminal split is materialized.
 @MainActor
 extension Workspace {
+    /// The pane that initiated the request owns its error, regardless of later
+    /// focus changes. A hidden source tab must not cover the tab replacing it.
+    var cloudPaneCreationFailureSourceView: NSView? {
+        guard let panelID = cloudPaneCreationFailureStore.failure?.sourcePanelID,
+              let paneID = paneId(forPanelId: panelID),
+              let surfaceID = surfaceIdFromPanelId(panelID),
+              bonsplitController.selectedTab(inPane: paneID)?.id == surfaceID else { return nil }
+        if let terminal = panels[panelID] as? TerminalPanel { return terminal.hostedView }
+        if let browser = panels[panelID] as? BrowserPanel { return browser.webView }
+        return nil
+    }
+
     /// The cloud resource behind a panel, when the panel projects one.
     func cloudProjectedResource(forPanel panelID: UUID, catalog: SurfaceCatalog = .shared) -> SurfaceResource? {
         guard let projection = catalog.projection(forPanel: panelID),
