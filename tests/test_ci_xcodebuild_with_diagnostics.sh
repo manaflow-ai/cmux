@@ -10,6 +10,9 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 cat >"$TMP_DIR/fake-xcodebuild.sh" <<'EOF'
 #!/usr/bin/env bash
 printf 'fake xcodebuild args: %s\n' "$*"
+if [[ -n "${FAKE_XCODEBUILD_FIFO:-}" ]]; then
+  read -r _ <"$FAKE_XCODEBUILD_FIFO"
+fi
 exit "${FAKE_XCODEBUILD_STATUS:-0}"
 EOF
 chmod +x "$TMP_DIR/fake-xcodebuild.sh"
@@ -34,4 +37,28 @@ grep -Fq 'xcodebuild termination: signal=9' "$TMP_DIR/failure.log"
 grep -Fq 'resource diagnostics follow' "$TMP_DIR/failure.log"
 grep -Fq -- '--- top processes by resident memory ---' "$TMP_DIR/failure.log"
 
-echo "PASS: xcodebuild failures retain exit, signal, and resource diagnostics"
+mkfifo "$TMP_DIR/release.fifo"
+: >"$TMP_DIR/heartbeat.log"
+FAKE_XCODEBUILD_FIFO="$TMP_DIR/release.fifo" \
+  CMUX_XCODEBUILD_HEARTBEAT_SECONDS=0.05 \
+  "$WRAPPER" -- "$TMP_DIR/fake-xcodebuild.sh" -scheme cmux >"$TMP_DIR/heartbeat.log" 2>&1 &
+wrapper_pid=$!
+for _ in {1..100}; do
+  if grep -Fq 'xcodebuild heartbeat:' "$TMP_DIR/heartbeat.log"; then
+    break
+  fi
+  sleep 0.01
+done
+if ! grep -Fq 'xcodebuild heartbeat:' "$TMP_DIR/heartbeat.log"; then
+  kill "$wrapper_pid" 2>/dev/null || true
+  wait "$wrapper_pid" 2>/dev/null || true
+  echo "FAIL: wrapper must emit a heartbeat while xcodebuild is quiet" >&2
+  exit 1
+fi
+printf 'release\n' >"$TMP_DIR/release.fifo"
+if ! wait "$wrapper_pid"; then
+  echo "FAIL: heartbeat test command should complete successfully" >&2
+  exit 1
+fi
+
+echo "PASS: xcodebuild failures retain diagnostics and quiet builds emit heartbeats"
