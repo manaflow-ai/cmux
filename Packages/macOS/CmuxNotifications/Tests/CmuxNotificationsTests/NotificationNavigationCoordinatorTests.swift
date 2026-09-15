@@ -508,6 +508,7 @@ struct NotificationNavigationCoordinatorTests {
         let openRouting = FakeOpenRouting()
         let fallbackTabId = UUID()
         let fallbackSurfaceId = UUID()
+        let fallbackWindowId = UUID()
         let panelId = UUID()
         let notif = snapshot(tabId: UUID(), surfaceId: UUID(), panelId: panelId, scrollRow: 42, scrollTotalRows: 100)
         store.orderedNotifications = [notif]
@@ -516,11 +517,13 @@ struct NotificationNavigationCoordinatorTests {
         let opened = coordinator.openNotification(
             id: notif.id,
             fallbackTabId: fallbackTabId,
-            fallbackSurfaceId: fallbackSurfaceId
+            fallbackSurfaceId: fallbackSurfaceId,
+            fallbackWindowId: fallbackWindowId
         )
 
         #expect(opened)
         #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
+        #expect(openRouting.routedPreferredWindowIds == [fallbackWindowId])
     }
 
     @Test("openNotification by id falls back when stored notification is missing")
@@ -530,18 +533,21 @@ struct NotificationNavigationCoordinatorTests {
         let fallbackTabId = UUID()
         let fallbackSurfaceId = UUID()
         let notificationId = UUID()
+        let fallbackWindowId = UUID()
         let coordinator = makeCoordinator(store: store, openRouting: openRouting)
 
         let opened = coordinator.openNotification(
             id: notificationId,
             fallbackTabId: fallbackTabId,
             fallbackSurfaceId: fallbackSurfaceId,
+            fallbackWindowId: fallbackWindowId,
             fallbackRetargetsToLiveSurfaceOwner: false
         )
 
         #expect(opened)
         #expect(openRouting.log == ["routed(tab=\(short(fallbackTabId)),surf=\(short(fallbackSurfaceId)),notif=\(short(notificationId)),row=nil,total=nil)"])
         #expect(openRouting.routedRetargetingValues == [false])
+        #expect(openRouting.routedPreferredWindowIds == [fallbackWindowId])
     }
 
     // MARK: - Focus signal (the #if DEBUG recorder hook)

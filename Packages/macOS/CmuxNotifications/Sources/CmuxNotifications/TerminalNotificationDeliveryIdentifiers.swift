@@ -17,6 +17,11 @@ public struct TerminalNotificationDeliveryIdentifiers: Sendable, Equatable {
     /// The `userInfo` key carrying whether a notification may follow its live surface owner.
     public let retargetsToLiveSurfaceOwnerUserInfoKey: String
 
+    /// The `userInfo` key carrying the window that owned the notification when
+    /// it was delivered. OS banner clicks use this provenance to avoid
+    /// retargeting into a different window after a surface moves.
+    public let windowIdUserInfoKey: String
+
     /// Creates terminal notification identifiers for category installation and
     /// response routing.
     ///
@@ -26,17 +31,20 @@ public struct TerminalNotificationDeliveryIdentifiers: Sendable, Equatable {
     ///   - showActionIdentifier: Explicit show-action identifier.
     ///   - replyActionIdentifier: Text-input reply action identifier.
     ///   - retargetsToLiveSurfaceOwnerUserInfoKey: `userInfo` key for routing provenance.
+    ///   - windowIdUserInfoKey: `userInfo` key for the originating window id.
     public init(
         categoryIdentifier: String,
         textReplyCategoryIdentifier: String,
         showActionIdentifier: String,
         replyActionIdentifier: String,
-        retargetsToLiveSurfaceOwnerUserInfoKey: String
+        retargetsToLiveSurfaceOwnerUserInfoKey: String,
+        windowIdUserInfoKey: String = "CMUX_NOTIFICATION_WINDOW_ID"
     ) {
         self.categoryIdentifier = categoryIdentifier
         self.textReplyCategoryIdentifier = textReplyCategoryIdentifier
         self.showActionIdentifier = showActionIdentifier
         self.replyActionIdentifier = replyActionIdentifier
         self.retargetsToLiveSurfaceOwnerUserInfoKey = retargetsToLiveSurfaceOwnerUserInfoKey
+        self.windowIdUserInfoKey = windowIdUserInfoKey
     }
 }

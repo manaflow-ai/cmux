@@ -12,6 +12,7 @@ final class FakeOpenRouting: NotificationOpenRouting {
     private(set) var log: [String] = []
     private(set) var receivedRowSpaceRevisions: [UInt64?] = []
     private(set) var routedRetargetingValues: [Bool] = []
+    private(set) var routedPreferredWindowIds: [UUID?] = []
 
     func openRouted(
         tabId: UUID,
@@ -21,10 +22,12 @@ final class FakeOpenRouting: NotificationOpenRouting {
         notificationId: UUID?,
         scrollRow: Int?,
         scrollTotalRows: Int?,
-        scrollRowSpaceRevision: UInt64?
+        scrollRowSpaceRevision: UInt64?,
+        preferredWindowId: UUID?
     ) -> Bool {
         receivedRowSpaceRevisions.append(scrollRowSpaceRevision)
         routedRetargetingValues.append(retargetsToLiveSurfaceOwner)
+        routedPreferredWindowIds.append(preferredWindowId)
         log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
         return routedSucceeds
     }
