@@ -479,6 +479,14 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # Keep the PR gate identical to Vercel's production compiler. A plain
+      # TypeScript pass does not exercise Next's route generation and build
+      # analysis, which is where CodeRouter route mistakes first escaped.
+      - name: Production build
+        env:
+          VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
+        run: bun run vercel-build
+
       - name: Web tests
         run: bun run test
 
