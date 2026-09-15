@@ -27,14 +27,18 @@ try:
     os.write(1, b"\x1b[?2004h")
     (root / "ready").touch()
     data = bytearray()
+    chunks = []
     last = time.monotonic()
     while True:
         if select.select([0], [], [], 0.05)[0]:
-            data.extend(os.read(0, 65536))
+            chunk = os.read(0, 65536)
+            data.extend(chunk)
             last = time.monotonic()
+            chunks.append({"bytes": list(chunk), "time": last})
         if data and time.monotonic() - last > 0.3:
-            (root / "input.json").write_text(json.dumps(list(data)))
+            (root / "input.json").write_text(json.dumps({"bytes": list(data), "chunks": chunks}))
             data.clear()
+            chunks.clear()
 finally:
     os.write(1, b"\x1b[?2004l")
     termios.tcsetattr(0, termios.TCSANOW, saved)
@@ -97,9 +101,23 @@ def main():
                 })
                 assert result.get("submitted") is True, result
                 wait_for(capture)
-                actual = bytes(json.loads(capture.read_text()))
+                received = json.loads(capture.read_text())
+                actual = bytes(received["bytes"])
                 expected = b"\x1b[200~" + text.encode() + b"\x1b[201~\r"
                 assert actual == expected, (actual, expected)
+                # Agent editors such as Gemini protect Enter for 40 ms after
+                # a paste. Prove the separation at the PTY, not just in RPCs.
+                paste_end = len(expected) - 1
+                consumed = 0
+                paste_time = enter_time = None
+                for chunk in received["chunks"]:
+                    consumed += len(chunk["bytes"])
+                    if consumed >= paste_end and paste_time is None:
+                        paste_time = chunk["time"]
+                    if consumed > paste_end:
+                        enter_time = chunk["time"]
+                        break
+                assert enter_time - paste_time >= 0.04, "Enter arrived inside the editor's paste-protection window"
                 print(f"PASS exact paste and separate Enter: {text!r}")
         finally:
             call(path, "workspace.close", {"workspace_id": workspace})
