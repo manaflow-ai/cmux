@@ -510,6 +510,23 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
+        case "vm.scp_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty,
+                  let publicKey = Self.socketWorkerString(params["public_key"]), publicKey.utf8.count <= 512 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.scp_info requires id and public_key.")
+            }
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 90) {
+                let endpoint = try await VMClient.shared.prepareSCP(id: vmId, publicKey: publicKey)
+                let forwards = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.portForwards }
+                guard let forwards else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
+                let forward = try await forwards.forward(machineID: vmId, to: CloudPortForwardTarget(host: endpoint.host, port: endpoint.port))
+                try await forward.warmUpHub()
+                return [
+                    "host": "127.0.0.1", "port": Int(await forward.localPort),
+                    "username": endpoint.username, "host_public_key": endpoint.hostPublicKey,
+                    "expires_at_unix": endpoint.expiresAtUnix,
+                ]
+            }
         case "vm.attach_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.attach_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm ssh <id>`.")
