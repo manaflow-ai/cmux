@@ -14,6 +14,8 @@ process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
 
 const originalVercel = process.env.VERCEL;
 const originalVercelEnvironment = process.env.VERCEL_ENV;
+const originalNodeEnv = process.env.NODE_ENV;
+const mutableEnv = process.env as Record<string, string | undefined>;
 installVercelFirewallMock();
 
 const {
@@ -38,6 +40,7 @@ afterEach(() => {
     process.env.VERCEL = originalVercel;
   }
   restoreEnv("VERCEL_ENV", originalVercelEnvironment);
+  restoreEnv("NODE_ENV", originalNodeEnv);
 });
 
 afterAll(() => {
@@ -372,6 +375,38 @@ describe("client config", () => {
     );
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("serves a complete evaluation from the runtime cache before rate limiting", async () => {
+    mutableEnv.NODE_ENV = "production";
+    process.env.VERCEL = "1";
+    process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
+    checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    const fetchMock = mock(async () => new Response(
+      JSON.stringify({
+        errorsWhileComputingFlags: false,
+        featureFlags: { "runtime-cache-test": true },
+        featureFlagPayloads: {},
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const distinctId = `runtime-cache-test-${Date.now()}`;
+    const request = () => new Request("https://cmux.test/api/client-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ distinctId }),
+    });
+
+    const first = await POST(request());
+    const second = await POST(request());
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.headers.get("x-cmux-client-config-cache")).toBe("miss");
+    expect(second.headers.get("x-cmux-client-config-cache")).toBe("hit");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledTimes(1);
   });
 });
 
