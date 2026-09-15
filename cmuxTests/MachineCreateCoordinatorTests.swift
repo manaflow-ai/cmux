@@ -118,6 +118,51 @@ struct MachineCreateCoordinatorTests {
         return (coordinator, launches, notices, changes, center)
     }
 
+    @Test func awaitingCreateReturnsItsExactWorkspaceReceipt() async {
+        let (coordinator, _, _, _, _) = makeCoordinator()
+        let receipt = UUID()
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, completion in
+            completion(CloudVMActionLauncher.Completion(
+                terminationStatus: 0, output: "", workspaceId: receipt, machineId: "created"
+            ))
+            return CloudVMActionLauncher.CancellationHandle { }
+        }
+        #expect(result == receipt)
+        #expect(!coordinator.hasRunningOperations)
+    }
+
+    @Test func refusedAwaitedCreateReturnsWithoutPendingRow() async {
+        let (coordinator, _, _, _, _) = makeCoordinator()
+        let result = await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest()) { _, _, _ in nil }
+        #expect(result == nil)
+        #expect(coordinator.operations.isEmpty)
+    }
+
+    @Test func cancellingAwaitedCreateKeepsUnrelatedCreateRunning() async throws {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        #expect(coordinator.start(Self.newMachineRequest(name: "unrelated"), cancellableLaunch: launches.cancellableLaunch))
+        let unrelatedID = try #require(coordinator.operations.first?.id)
+        let (started, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = Task { @MainActor in
+            await coordinator.startAndAwaitWorkspaceID(Self.newMachineRequest(name: "cancelled")) { arguments, progress, completion in
+                let handle = launches.cancellableLaunch(arguments, progress, completion)
+                signal.yield(())
+                signal.finish()
+                return handle
+            }
+        }
+        for await _ in started { break }
+
+        waiting.cancel()
+        let result = await waiting.value
+
+        #expect(result == nil)
+        #expect(launches.cancellations == 1)
+        #expect(coordinator.operations.map(\.id) == [unrelatedID])
+        #expect(coordinator.operation(id: unrelatedID)?.isRunning == true)
+        coordinator.cancelAllForAuthTransition()
+    }
+
     // MARK: Running
 
     @Test func startLaunchesTheCLIAndShowsAPendingRowWithTheSheetsWording() {

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86";
+pub const ir_sha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1224,17 +1224,25 @@ pub const Tab = struct {
     };
 };
 
+pub const TerminalColorOverrides = struct {
+    bg: wire.Nullable(ColorHex),
+    cursor: wire.Nullable(ColorHex),
+    fg: wire.Nullable(ColorHex),
+};
+
 pub const TerminalColors = struct {
     bg: wire.Nullable(ColorHex),
     cursor: wire.Field(ColorHex) = .absent,
     cursor_blink: wire.Field(bool) = .absent,
     cursor_style: wire.Field(CursorStyle) = .absent,
     fg: wire.Nullable(ColorHex),
+    overrides: ?TerminalColorOverrides = null,
     palette: ?wire.Map(ColorHex) = null,
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "overrides",
         "palette",
     };
 };
@@ -3231,6 +3239,35 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
+pub const PasteImageRequest = struct {
+    data: wire.Field([]const u8) = .absent,
+    lease: []const u8,
+    mime: wire.Field([]const u8) = .absent,
+    offset: wire.Field(u64) = .absent,
+    op: []const u8,
+    size: wire.Field(u64) = .absent,
+    surface: Id,
+    terminal_id: []const u8,
+    upload_id: []const u8,
+};
+
+pub const PasteImageResult = struct {
+    accepted: bool,
+};
+
+pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(PasteImageResult) {
+    return client.callTyped(
+        PasteImageResult,
+        .{
+            .name = "paste-image",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-image-paste-v1",
+        },
+        request,
+    );
+}
+
 pub const PingRequest = struct {};
 
 pub fn ping(client: anytype, request: PingRequest) !wire.Decoded(PingResult) {
@@ -4365,12 +4402,14 @@ pub const ColorsChangedEvent = struct {
     cursor_style: wire.Field(CursorStyle) = .absent,
     event: []const u8,
     fg: wire.Nullable(ColorHex),
+    overrides: ?TerminalColorOverrides = null,
     palette: ?wire.Map(ColorHex) = null,
     selection_bg: wire.Nullable(ColorHex),
     selection_fg: wire.Nullable(ColorHex),
     surface: ?Id = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "overrides",
         "palette",
         "surface",
     };
@@ -5134,7 +5173,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 106;
+pub const command_count: usize = 107;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5196,6 +5235,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },

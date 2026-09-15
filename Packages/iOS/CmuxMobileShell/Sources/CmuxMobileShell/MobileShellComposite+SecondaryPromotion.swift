@@ -81,14 +81,8 @@ extension MobileShellComposite {
     /// Change a retained focused client to control-only ownership after its
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
+    /// Pool ownership is independent of the aggregation preference.
     func installControlConnection(from connection: MacConnection) async {
-        guard multiMacAggregationEnabled else {
-            removeControlCapability(ifMatching: connection)
-            removeFocusedConnection(ifMatching: connection)
-            connection.client.retire()
-            Task { await connection.client.disconnect() }
-            return
-        }
         let existing = secondaryMacSubscriptions[connection.ownerKey]
         let subscription: SecondaryMacSubscription
         let needsActivation: Bool
@@ -519,9 +513,7 @@ extension MobileShellComposite {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         let previousForegroundID = foregroundMacDeviceID
-        let previousForegroundConnection = previousForegroundID.flatMap {
-            connections[$0]
-        }
+        let previousForegroundConnection = focusedForegroundConnection
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil
@@ -881,8 +873,13 @@ extension MobileShellComposite {
         }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control
-        // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
-        dropStalePreviousForeground(previousForegroundKey)
+        // connection, so cleanup moves it to the control owner's stored key.
+        dropStalePreviousForeground(
+            previousForegroundKey,
+            retainingConnection: demotedForegroundSubscription == nil
+                ? nil
+                : previousForegroundConnection
+        )
         scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(
