@@ -6,6 +6,15 @@ import CmuxFoundation
 /// the mode shortcuts that jump between sidebar tabs.
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
+    lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        draggingDestinationFeedbackStyle = .none
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private var hoverTrackingArea: NSTrackingArea?
     private weak var hoveredCell: CloudTreeCellView?
@@ -42,6 +51,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
         refreshHover()
+        reorderPresentation.layout()
     }
 
     override func updateTrackingAreas() {
@@ -72,6 +82,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow { reorderPresentation.clear() }
         updateHover(at: nil)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
         NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
@@ -103,11 +114,14 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func layout() {
         super.layout()
+        reorderPresentation.layout()
         refreshHover()
     }
 
     var activeNativeDragCoordinator: AnyObject?
-    var activeNativeDragSession: NSDraggingSession?
+    var activeNativeDragSession: NSDraggingSession? {
+        didSet { if activeNativeDragSession == nil { reorderPresentation.clear() } }
+    }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
 
@@ -137,8 +151,32 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     private var quickSearchQuery: String?
 
     override func mouseDown(with event: NSEvent) {
+        reorderPresentation.clear()
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        guard reorderPresentation.isCurrent(sender) else { return }
+        super.draggingExited(sender)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        guard reorderPresentation.isCurrent(sender) else { return }
+        super.draggingEnded(sender)
+        reorderPresentation.ended(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        guard reorderPresentation.isCurrent(sender) else { return }
+        super.concludeDragOperation(sender)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        reorderPresentation.clear()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -252,6 +290,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     override func reloadData() {
+        reorderPresentation.clear()
         updateHover(at: nil)
         super.reloadData()
         needsLayout = true
@@ -265,8 +304,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     /// How far `frameOfCell` moves content past AppKit's default; the cell adds the
-    /// rest of `CloudTreeRowGrid.disclosureGap` so every row's content starts 6pt
-    /// after the 16pt disclosure slot (`indentationPerLevel`).
+    /// rest of `CloudTreeRowGrid.disclosureGap` for the hosted identity content.
     static let cellShift: CGFloat = leadingMargin - 6
 
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
