@@ -443,12 +443,14 @@ extension CmxAttachRoute {
             ]
         }
 
-        return [
+        var payload: [String: Any] = [
             "id": id,
             "kind": kind.rawValue,
             "endpoint": endpointPayload,
             "priority": priority
         ]
+        if let groupID { payload["groupID"] = groupID }
+        return payload
     }
 }
 

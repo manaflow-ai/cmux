@@ -2,6 +2,7 @@ public import CMUXMobileCore
 public import CmuxIrohTransport
 public import CmuxMobileShell
 import Foundation
+public import CmuxMobileShellModel
 
 /// Failure reasons for an irx-backed forget, surfaced so the shell keeps the
 /// local row instead of claiming a revoke that never reached the server.
@@ -37,6 +38,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     private let invalidateSnapshot: @Sendable () async -> Void
     private let revokeBinding: @Sendable (String) async throws -> Void
     private let authenticatedAccountID: @Sendable () async -> String?
+    private let strategy: @Sendable () -> MobileMacDiscoveryStrategy
     private var scope: UInt64 = 0
 
     /// Closure-injected core, so tests can drive it without the actor stack.
@@ -46,7 +48,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         discover: @escaping @Sendable () async -> CmxIrohDiscoveryResponse?,
         invalidateSnapshot: @escaping @Sendable () async -> Void,
         revokeBinding: @escaping @Sendable (String) async throws -> Void,
-        authenticatedAccountID: @escaping @Sendable () async -> String?
+        authenticatedAccountID: @escaping @Sendable () async -> String?,
+        strategy: @escaping @Sendable () -> MobileMacDiscoveryStrategy = { MobileMacDiscoveryStrategyStore.current() }
     ) {
         self.preferredTag = preferredTag
         self.compatibilityPolicy = compatibilityPolicy
@@ -54,6 +57,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         self.invalidateSnapshot = invalidateSnapshot
         self.revokeBinding = revokeBinding
         self.authenticatedAccountID = authenticatedAccountID
+        self.strategy = strategy
     }
 
     public convenience init(
@@ -79,7 +83,11 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         await routeCatalog.activate(scope: currentScope)
         guard let discovery = await discover() else { return [] }
         guard scope == currentScope else { return [] }
-        await routeCatalog.replace(with: discovery, scope: currentScope)
+        await routeCatalog.replace(
+            with: discovery,
+            scope: currentScope,
+            strategy: strategy()
+        )
         return await routeCatalog.liveMacCandidates(
             preferredTag: preferredTag,
             compatibleWith: compatibilityPolicy,

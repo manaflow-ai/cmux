@@ -420,3 +420,17 @@ describe("signed relay policy", () => {
     })).toThrow();
   });
 });
+
+describe("account-scoped Tailscale publication", () => {
+  test("keeps Tailscale paths out of Mac/public catalogs and permits authenticated iOS discovery", async () => {
+    const { accountPrivateIrohPathHints } = await import("../services/iroh/publicationPolicy");
+    const tailscale = {
+      kind: "direct_address",
+      value: "100.101.10.20:58470",
+      source: "tailscale",
+      privacy_scope: "private_network",
+    } as const;
+    expect(accountPrivateIrohPathHints([tailscale], new Set())).toEqual([]);
+    expect(accountPrivateIrohPathHints([tailscale], new Set(), true)).toEqual([tailscale]);
+  });
+});

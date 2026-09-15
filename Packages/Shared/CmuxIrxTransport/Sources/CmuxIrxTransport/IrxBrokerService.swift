@@ -276,7 +276,7 @@ public actor IrxBrokerService {
     }
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
-    /// pathHints advertise the relay URL so peers can dial relay-first.
+    /// relay hints are public and Tailscale hints are account-private.
     public func register(
         pairingEnabled: Bool,
         relayURLHint: String?,
@@ -324,19 +324,31 @@ public actor IrxBrokerService {
                 hints.append(hint)
             }
         }
-        let publicDirectAddresses = Self.publicDirectAddressValues(directAddresses)
         let expiresAt = now.addingTimeInterval(30 * 60)
-        for address in publicDirectAddresses {
-            guard hints.count < 16,
-                  let hint = try? CmxIrohPathHint(
-                      kind: .directAddress,
-                      value: address,
-                      source: .native,
-                      privacyScope: .publicInternet,
-                      observedAt: now,
-                      expiresAt: expiresAt
-                  ) else { continue }
-            hints.append(hint)
+        for address in directAddresses {
+            guard hints.count < 16 else { break }
+            let hint: CmxIrohPathHint?
+            if Self.tailscalePeerAddress(in: address) != nil {
+                hint = try? CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: address,
+                    source: .tailscale,
+                    privacyScope: .privateNetwork,
+                    observedAt: now,
+                    expiresAt: expiresAt,
+                    networkProfile: .activeTailscaleTunnel
+                )
+            } else {
+                hint = try? CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: address,
+                    source: .native,
+                    privacyScope: .publicInternet,
+                    observedAt: now,
+                    expiresAt: expiresAt
+                )
+            }
+            if let hint, !hints.contains(hint) { hints.append(hint) }
         }
         let secretKey = try CmxIrohSecretKey(bytes: identity.privateKeyData)
         let material = try CmxIrohIdentityMaterial(
@@ -362,6 +374,7 @@ public actor IrxBrokerService {
         let prepared = try signer.prepare(payload: payload)
         let response = try await client.register(prepared: prepared, signer: signer)
         try requireCurrent(epoch)
+        let publicDirectAddresses = Self.publicDirectAddressValues(directAddresses)
         let snapshot = IrxBindingSnapshot(
             bindingID: response.binding.bindingID,
             deviceID: response.binding.deviceID,
@@ -752,20 +765,33 @@ public actor IrxBrokerService {
         }
     }
 
+    private static func tailscalePeerAddress(in socketAddress: String) -> CmxTailscalePeerAddress? {
+        let host: String
+        if socketAddress.first == "[", let close = socketAddress.firstIndex(of: "]") {
+            host = String(socketAddress[socketAddress.index(after: socketAddress.startIndex)..<close])
+        } else {
+            guard let separator = socketAddress.lastIndex(of: ":") else { return nil }
+            host = String(socketAddress[..<separator])
+        }
+        return CmxTailscalePeerAddress(host)
+    }
+
     private static func publicDirectAddressValues(_ addresses: [String]) -> [String] {
         let now = Date()
         let expiresAt = now.addingTimeInterval(30 * 60)
         var seen = Set<String>()
         return addresses.compactMap { address in
-            guard let hint = try? CmxIrohPathHint(
-                kind: .directAddress,
-                value: address,
-                source: .native,
-                privacyScope: .publicInternet,
-                observedAt: now,
-                expiresAt: expiresAt
-            ), seen.insert(hint.value).inserted else { return nil }
-            return hint.value
+            let accepted = Self.tailscalePeerAddress(in: address) != nil ||
+                (try? CmxIrohPathHint(
+                    kind: .directAddress,
+                    value: address,
+                    source: .native,
+                    privacyScope: .publicInternet,
+                    observedAt: now,
+                    expiresAt: expiresAt
+                )) != nil
+            guard accepted, seen.insert(address).inserted else { return nil }
+            return address
         }
     }
 }

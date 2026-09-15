@@ -1512,6 +1512,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
+    let tailscaleSuggestionCache = MobileTailscaleSuggestionCache()
     var secondaryAggregationScopeGeneration = 0
     var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
     var effectiveViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]; var reportedTerminalViewportSizesBySurfaceID: [String: MobileTerminalViewportSize]
@@ -2252,6 +2253,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // rendered as real disconnected workspaces on first launch and lingered
         // after sign-in until the Mac connected.
         workspacesByMac = [:]
+        tailscaleSuggestionCache.clear()
         resetStableMacColorSlotsForSignOut()
         selectedWorkspaceID = nil
         selectedTerminalID = nil
@@ -2273,6 +2275,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelComputerVisibilityMutations()
         macVersionUpdateRequiredPairingIDs.removeAll()
         secondaryAggregationScopeGeneration &+= 1
+        tailscaleSuggestionCache.clear()
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
         presenceTask?.cancel()
@@ -6804,6 +6807,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             displayName: displayName
         )
         seedSecondaryCaffeineStatus(subscription)
+        Task { @MainActor [weak self] in
+            _ = await self?.tailscaleRouteSuggestions(
+                macDeviceID: subscription.ownerKey.canonicalMacDeviceID,
+                instanceTag: subscription.ownerKey.normalizedInstanceTag
+            )
+        }
         if subscription.supportedHostCapabilities.contains("events.v1") {
             startSecondaryEventConsumer(
                 subscription,
@@ -13382,6 +13391,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         initialHostStatus: MobileHostStatusResponse? = nil
     ) async -> TerminalOutputTransport {
         let generation = connectionGeneration
+        let hintScopeGeneration = secondaryAggregationScopeGeneration
         do {
             let payload: MobileHostStatusResponse
             if let initialHostStatus {
@@ -13455,6 +13465,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ) else {
                 return .rawBytes
             }
+            await cacheTailscaleSuggestions(payload, client: client, scopeGeneration: hintScopeGeneration)
+            guard isCurrentRemoteConnection(client: client, generation: generation) else { return .rawBytes }
             // A decoded status can still be identity-free: the probe's token
             // attach is best-effort, and the host withholds identity from an
             // unverified caller. If the v2 QR ticket is still anonymous after

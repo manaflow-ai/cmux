@@ -602,7 +602,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {
         // Mirror setCustomizationUnlocked: write to the scope that actually
         // holds the row, falling back to the team-less scope when the selected
@@ -618,7 +619,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
                 instanceTag: instanceTag,
                 stackUserID: stackUserID,
                 teamID: scopedTeamID(targetTeamID),
-                routes: routes
+                routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
             )
             return
         }
@@ -627,7 +629,8 @@ public struct IOSBuildScopedPairedMacStore: MobilePairedMacStoring {
             instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: scopedTeamID(teamID),
-            routes: routes
+            routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
         )
     }
 

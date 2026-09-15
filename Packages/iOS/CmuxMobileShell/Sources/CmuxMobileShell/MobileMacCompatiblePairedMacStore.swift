@@ -354,7 +354,8 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {
         guard isCompatible(instanceTag: instanceTag) else { return }
         try await inner.authorizeUserTailscaleRoutes(
@@ -362,7 +363,8 @@ struct MobileMacCompatiblePairedMacStore: MobilePairedMacStoring {
             instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID,
-            routes: routes
+            routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
         )
     }
 

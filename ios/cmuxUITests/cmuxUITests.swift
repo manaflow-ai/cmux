@@ -11,6 +11,82 @@ final class cmuxUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Exercise the same acceptance actions exposed by every lab presentation.
+    @MainActor
+    func testTailscaleLabAcceptsGroupedRoutesAcrossLayouts() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func element(_ id: String) -> XCUIElement {
+            app.descendants(matching: .any).matching(identifier: id).firstMatch
+        }
+        func reveal(_ id: String, towardTop: Bool = false) -> XCUIElement {
+            let target = element(id)
+            for _ in 0..<6 {
+                if target.exists && target.isHittable { return target }
+                if towardTop { app.swipeDown() } else { app.swipeUp() }
+            }
+            XCTAssertTrue(target.exists && target.isHittable, "Missing visible control: \(id)")
+            return target
+        }
+        func choose(_ picker: String, _ title: String) {
+            reveal(picker, towardTop: true).tap()
+            let option = app.buttons[title].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 3))
+            option.tap()
+        }
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+        reveal("MobileSettingsPathDiscoveryLab").tap()
+        XCTAssertTrue(element("MobileMacDiscoveryStrategyLab").waitForExistence(timeout: 8))
+        XCTAssertTrue(element("MobileTailscaleSavedRoute-iroh").exists)
+        XCTAssertTrue(element("MobileTailscaleSavedRoute-saved").exists)
+        XCTAssertEqual(app.switches.count, 0, "Suggestions are accepted with an action, not toggled")
+        reveal("MobileTailscaleAddRoute-personal").tap()
+        XCTAssertFalse(element("MobileTailscaleSuggestion-personal").exists)
+        XCTAssertTrue(reveal("MobileTailscaleSavedRoute-personal", towardTop: true).exists)
+        capture("Inline acceptance adds one grouped route")
+
+        choose("MobileTailscaleLabMode", "Automatic")
+        XCTAssertFalse(element("MobileTailscaleAddRoute-work").exists)
+        XCTAssertTrue(element("MobileTailscaleSavedRoute-iroh").exists)
+        XCTAssertTrue(element("MobileTailscaleSavedRoute-personal").exists)
+        choose("MobileTailscaleLabMode", "Tailscale Only")
+        choose("MobileTailscaleLabLayout", "Review before adding")
+        reveal("MobileTailscaleAddRoute-work").tap()
+        XCTAssertTrue(element("MobileTailscaleConfirmAdd-work").waitForExistence(timeout: 3))
+        capture("Review groups IPv4 and IPv6 before acceptance")
+        element("MobileTailscaleCancelAdd").tap()
+        XCTAssertFalse(element("MobileTailscaleSavedRoute-work").exists)
+        reveal("MobileTailscaleAddRoute-work").tap()
+        element("MobileTailscaleConfirmAdd-work").tap()
+        XCTAssertTrue(reveal("MobileTailscaleSavedRoute-work", towardTop: true).exists)
+        XCTAssertFalse(element("MobileTailscaleAddRoute-work").exists)
+        capture("Both accepted routes coexist with Iroh")
+
+        reveal("MobileTailscaleLabReset").tap()
+        choose("MobileTailscaleLabLayout", "Expandable addresses")
+        reveal("MobileTailscaleShowAddresses-personal").tap()
+        XCTAssertFalse(element("MobileTailscaleSavedRoute-personal").exists)
+        XCTAssertTrue(app.staticTexts["100.101.22.14:49152"].exists)
+        XCTAssertTrue(app.staticTexts["[fd7a:115c:a1e0::42]:49152"].exists)
+        capture("Expanding addresses leaves suggestion unaccepted")
+        reveal("MobileTailscaleAddRoute-personal").tap()
+        XCTAssertTrue(reveal("MobileTailscaleSavedRoute-personal", towardTop: true).exists)
+        XCTAssertFalse(element("MobileTailscaleAddRoute-personal").exists)
+        XCTAssertTrue(element("MobileTailscaleSavedRoute-saved").exists)
+    }
+
     func testMockHostInstanceTagFollowsTargetBuildScope() {
         XCTAssertEqual(
             mockHostInstanceTag(

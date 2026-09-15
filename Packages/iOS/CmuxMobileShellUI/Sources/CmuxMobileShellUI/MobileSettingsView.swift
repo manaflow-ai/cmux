@@ -374,6 +374,16 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
 
                     NavigationLink {
+                        MobileMacDiscoveryStrategyLabView()
+                    } label: {
+                        Label(
+                            String(localized: "mobile.pathDiscoveryLab.title", defaultValue: "Path Discovery Lab", bundle: .module),
+                            systemImage: "point.3.connected.trianglepath.dotted"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsPathDiscoveryLab")
+
+                    NavigationLink {
                         UnreadIndicatorLabView()
                     } label: {
                         Label(

@@ -946,14 +946,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {
         try await inner.authorizeUserTailscaleRoutes(
             macDeviceID: cmxCanonicalDeviceID(macDeviceID),
             instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: await resolvedTeam(teamID),
-            routes: routes
+            routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
         )
     }
 

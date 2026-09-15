@@ -879,7 +879,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) throws {
         try ensureReady()
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
@@ -962,7 +963,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     currentRoutes.append(disclosed)
                 }
             }
-            for staleRoute in previousGrantedRoutes where !grantRoutes.contains(where: {
+            for staleRoute in previousGrantedRoutes where replacingExistingRoutes && !grantRoutes.contains(where: {
                 $0.endpoint == staleRoute.endpoint
             }) {
                 if let removedIndex = currentRoutes.firstIndex(where: {

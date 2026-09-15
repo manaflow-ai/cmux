@@ -15,6 +15,37 @@ import Testing
         return (store, directory)
     }
 
+    @Test func acceptingSuggestedRoutesAddsWithoutReplacingExistingRoutes() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let iroh = try CmxAttachRoute(id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []))
+        let old = try CmxAttachRoute(id: "old", kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 8443))
+        let v4 = try CmxAttachRoute(id: "new4", kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.2", port: 8443), groupID: "new-peer")
+        let v6 = try CmxAttachRoute(id: "new6", kind: .tailscale,
+            endpoint: .hostPort(host: "fd7a:115c:a1e0::2", port: 8443), groupID: "new-peer")
+        try await store.upsert(macDeviceID: "mac", displayName: "Mac", routes: [iroh],
+            instanceTag: "test", markActive: false, stackUserID: "user", teamID: "team", now: Date())
+        try await store.authorizeUserTailscaleRoutes(macDeviceID: "mac", instanceTag: "test",
+            stackUserID: "user", teamID: "team", routes: [old])
+        for _ in 0..<2 {
+            try await store.authorizeUserTailscaleRoutes(macDeviceID: "mac", instanceTag: "test",
+                stackUserID: "user", teamID: "team", routes: [v4, v6], replacingExistingRoutes: false)
+        }
+        let rows = try await store.loadAll(stackUserID: "user", teamID: "team")
+        let saved = try #require(rows.first)
+        #expect(saved.routes.count == 4)
+        #expect(saved.routes.contains(iroh))
+        #expect(saved.legacyTailscaleRoutes?.count == 3)
+        #expect(saved.routes.filter { $0.groupID == "new-peer" }.count == 2)
+        // A stale action cannot grant the same addresses to a sibling build.
+        try await store.authorizeUserTailscaleRoutes(macDeviceID: "mac", instanceTag: "other",
+            stackUserID: "user", teamID: "team", routes: [v4], replacingExistingRoutes: false)
+        #expect(try await store.loadAll(stackUserID: "user", teamID: "team").count == 1)
+    }
+
     @Test func persistsActiveMacsScopedByStackUser() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }

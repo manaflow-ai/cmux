@@ -338,7 +338,8 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?,
-        routes: [CmxAttachRoute]
+        routes: [CmxAttachRoute],
+        replacingExistingRoutes: Bool = true
     ) async throws {
         guard !isDemoDeviceID(macDeviceID) else { return }
         try await inner.authorizeUserTailscaleRoutes(
@@ -346,7 +347,8 @@ public struct DemoContentPairedMacStore: MobilePairedMacStoring {
             instanceTag: instanceTag,
             stackUserID: stackUserID,
             teamID: teamID,
-            routes: routes
+            routes: routes,
+                replacingExistingRoutes: replacingExistingRoutes
         )
     }
 }
