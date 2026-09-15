@@ -111,12 +111,7 @@ struct CloudTreeRowContentView: View {
                 detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
-            CloudTreeGroupRowContent(
-                title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
-                count: nil,
-                style: style,
-                helpAction: showsCloudVPNWarning ? cloudVPNSetup : nil
-            )
+            portsGroupRow
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -132,6 +127,22 @@ struct CloudTreeRowContentView: View {
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
+
+    private var portsGroupRow: CloudTreeGroupRowContent {
+        let helpAction: (@MainActor (NSWindow?) -> Void)?
+        if showsCloudVPNWarning {
+            helpAction = cloudVPNSetup
+        } else {
+            helpAction = nil
+        }
+        return CloudTreeGroupRowContent(
+            title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"),
+            count: nil,
+            style: style,
+            helpAction: helpAction
+        )
+    }
+
     /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1

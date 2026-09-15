@@ -769,7 +769,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             let removed = currentRoutes[removedIndex]
             var remaining = currentRoutes
             remaining.remove(at: removedIndex)
-            guard !remaining.isEmpty else { return }
 
             let encoded = try Self.encodeRouteEndpoint(removed)
             try exec("""
@@ -792,6 +791,25 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 ownerKey: ownerKey,
                 endpoint: removed.endpoint
             )
+            guard !remaining.isEmpty else {
+                try upsertMacRow(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    displayName: current.displayName,
+                    instanceTag: current.instanceTag,
+                    stackUserID: current.stackUserID,
+                    teamID: current.teamID,
+                    createdAt: current.createdAt,
+                    lastSeenAt: now,
+                    isActive: current.isActive
+                )
+                try exec(
+                    "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                    binding: [.text(macDeviceID), .text(ownerKey)]
+                )
+                didWrite = true
+                return
+            }
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,
