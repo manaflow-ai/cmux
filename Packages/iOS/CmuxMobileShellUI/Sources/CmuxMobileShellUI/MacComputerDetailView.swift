@@ -59,6 +59,7 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomIcon: String?
     @State private var pendingLastRouteRemoval: CmxAttachRoute?
     @State private var tailscaleSuggestions: [CmxAttachRoute] = []
+    @State private var isLoadingTailscaleSuggestions = false
     @State private var isAcceptingTailscaleSuggestions = false
     /// Drives the Forget confirmation; Forget is the only deletion path for a
     /// Computer whose remaining route is the permanent Iroh identity.
@@ -137,6 +138,9 @@ struct MacComputerDetailView: View {
             macPowerSection
             presenceSection
             routesSection
+            if selectedMethod == .tailscale {
+                tailscaleSuggestionsSection
+            }
             // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
             // Computers, whose methods never dial Iroh paths.
             if selectedMethod == .automatic, let irohSettingsModel {
@@ -1147,7 +1151,11 @@ struct MacComputerDetailView: View {
     @ViewBuilder
     private var routesSection: some View {
         Section {
-            let prioritized = (pairedMac?.routes ?? []).sorted { $0.priority > $1.priority }
+            let prioritized = (pairedMac?.routes ?? []).filter { route in
+                route.kind != .tailscale || pairedMac?.legacyTailscaleRoutes?.contains(where: {
+                    $0.endpoint == route.endpoint
+                }) == true
+            }.sorted { $0.priority > $1.priority }
             // The route kind whose row opened this detail leads the list, so
             // the tapped connection's own leg is the first thing inspected.
             let routes = prioritized.filter { $0.kind == focusedRouteKind }
@@ -1192,23 +1200,31 @@ struct MacComputerDetailView: View {
                 .disabled(isPinging)
                 .accessibilityIdentifier("MobileComputerPingButton")
             }
-            if selectedMethod == .tailscale, !tailscaleSuggestions.isEmpty {
-                Section {
-                    ForEach(MobileComputerRouteGroup.suggestions(tailscaleSuggestions)) { group in
-                        suggestionGroupRow(group)
-                    }
-                } header: {
-                    Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
-                } footer: {
-                    Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."))
-                }
-            }
         } header: {
             Text(L10n.string("mobile.computers.section.routes", defaultValue: "Routes the phone can dial"))
         } footer: {
             Text(L10n.string(
                 "mobile.computers.pingFooter",
                 defaultValue: "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."))
+        }
+    }
+
+    private var tailscaleSuggestionsSection: some View {
+        Section {
+            if isLoadingTailscaleSuggestions && tailscaleSuggestions.isEmpty {
+                ProgressView()
+            } else if tailscaleSuggestions.isEmpty {
+                Text(L10n.string("mobile.computers.suggestedRoutes.empty", defaultValue: "No saved suggestions. Connect using Automatic to discover paths, or add a Tailscale connection with a pairing code from this Mac."))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(MobileComputerRouteGroup.suggestions(tailscaleSuggestions)) { group in
+                    suggestionGroupRow(group)
+                }
+            }
+        } header: {
+            Text(L10n.string("mobile.computers.section.suggestedRoutes", defaultValue: "Suggested Tailscale routes"))
+        } footer: {
+            Text(L10n.string("mobile.computers.suggestedRoutes.footer", defaultValue: "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."))
         }
     }
 
@@ -1261,7 +1277,9 @@ struct MacComputerDetailView: View {
                 isAcceptingTailscaleSuggestions = true
                 Task {
                     if await store.acceptTailscaleRouteSuggestions(group.routes, macDeviceID: macDeviceID, instanceTag: instanceTag) {
-                        tailscaleSuggestions.removeAll { $0.endpoint == group.routes.first?.endpoint }
+                        tailscaleSuggestions.removeAll { route in
+                            group.routes.contains { $0.endpoint == route.endpoint }
+                        }
                     }
                     isAcceptingTailscaleSuggestions = false
                 }
@@ -1298,10 +1316,14 @@ struct MacComputerDetailView: View {
 
     private func refreshTailscaleSuggestions() async {
         guard selectedMethod == .tailscale else { return }
-        tailscaleSuggestions = await store.tailscaleRouteSuggestions(
+        isLoadingTailscaleSuggestions = true
+        defer { isLoadingTailscaleSuggestions = false }
+        let suggestions = await store.tailscaleRouteSuggestions(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
+        guard selectedMethod == .tailscale, !Task.isCancelled else { return }
+        tailscaleSuggestions = suggestions
         MobileDebugLog.anchormux(
             "tailscale.detail suggestions key=\(macDeviceID.prefix(8)) selected=\(selectedMethod.rawValue) count=\(tailscaleSuggestions.count)"
         )

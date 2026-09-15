@@ -60,6 +60,8 @@ extension MobileShellComposite {
     /// This never opens another route or grants permission to dial a suggested address.
     public func tailscaleRouteSuggestions(macDeviceID: String, instanceTag: String?) async -> [CmxAttachRoute] {
         guard let scope = await currentScopeSnapshot() else { return [] }
+        await loadPairedMacs()
+        guard await isScopeCurrent(scope) else { return [] }
         let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
         if let client = suggestionClient(for: key),
            let data = try? await client.sendRequest(

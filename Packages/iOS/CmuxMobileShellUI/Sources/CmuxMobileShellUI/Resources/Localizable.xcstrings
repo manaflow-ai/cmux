@@ -13029,6 +13029,17 @@
         }
       }
     },
+    "mobile.computers.suggestedRoutes.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No saved suggestions. Connect using Automatic to discover paths, or add a Tailscale connection with a pairing code from this Mac."
+          }
+        }
+      }
+    },
     "mobile.computers.suggestedRoutes.footer": {
       "extractionState": "manual",
       "localizations": {
