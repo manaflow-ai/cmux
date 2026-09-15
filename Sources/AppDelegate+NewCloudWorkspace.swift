@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import Foundation
 
 // MARK: - New Cloud Workspace (Cmd+Y)
