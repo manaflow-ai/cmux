@@ -13035,7 +13035,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These addresses came from this Mac over the current authenticated connection. Add a group to enable it for Tailscale Only."
+            "value": "These addresses came from this Mac's authenticated route announcements. Add a group to enable it for Tailscale Only."
           }
         }
       }
