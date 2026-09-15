@@ -17,6 +17,9 @@ mock.module("../app/handler/cli-auth-confirmation", () => ({
 
 mock.module("@stackframe/stack", () => ({
   MagicLinkSignIn: () => React.createElement("div"),
+  MessageCard: () => React.createElement("div"),
+  useCliAuthConfirmation: () => null,
+  useUser: () => null,
   StackHandler: () => {
     throw pendingStackRender;
   },

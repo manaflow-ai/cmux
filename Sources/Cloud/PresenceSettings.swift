@@ -33,6 +33,7 @@ enum PresenceSettings {
     /// expects their phone to see the Mac online. Default (mobile off) => off, for
     /// privacy — the Mac announces nothing until the user opts into mobile.
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults) else { return false }
         if defaults.object(forKey: enabledKey) != nil {
             return defaults.bool(forKey: enabledKey)
         }

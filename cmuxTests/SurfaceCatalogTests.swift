@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminal
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -933,6 +934,43 @@ struct SurfaceCatalogTests {
         let other = UUID()
         catalog.moveProjections(panelID: projection.panelID, to: other)
         #expect(catalog.projection(forPanel: projection.panelID)?.workspaceID == other)
+    }
+
+    @Test("A second save while a Mac is disconnected preserves its remote projection")
+    func pendingMacProjectionSurvivesAnotherSave() {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore-test"))
+        let catalog = SurfaceCatalog()
+        let workspace = UUID()
+        let record = SurfaceProjectionRecord(
+            panelID: UUID(), resource: SurfaceResourceID(machine: machine, kind: .terminal, key: UUID().uuidString),
+            remoteWorkspaceID: "mac-workspace", remoteTabID: "mac-tab"
+        )
+        catalog.restore([record], workspaceID: workspace)
+        #expect(catalog.projectionRecords(forWorkspace: workspace) == [record])
+        let secondLaunch = SurfaceCatalog()
+        secondLaunch.restore(catalog.projectionRecords(forWorkspace: workspace), workspaceID: workspace)
+        #expect(secondLaunch.projectionRecords(forWorkspace: workspace) == [record])
+    }
+
+    @Test("A restored Mac terminal never becomes a local process while discovery reconnects")
+    func restoredMacTerminalHasNoLocalProcess() throws {
+        let original = Workspace()
+        var snapshot = original.sessionSnapshot(includeScrollback: false)
+        let savedPanel = try #require(snapshot.panels.first(where: { $0.type == .terminal }))
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore-test"))
+        defer { SurfaceCatalog.shared.unregister(machine: machine) }
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: UUID().uuidString)
+        snapshot.surfaceProjections = [SurfaceProjectionRecord(
+            panelID: savedPanel.id, resource: resource, remoteWorkspaceID: "mac-workspace", remoteTabID: "mac-tab"
+        )]
+        let restored = Workspace()
+        let remap = restored.restoreSessionSnapshot(snapshot)
+        let panelID = try #require(remap[savedPanel.id])
+        let panel = try #require(restored.terminalPanel(for: panelID))
+        #expect(panel.surface.ioMode == .manualMirror)
+        let savedAgain = restored.sessionSnapshot(includeScrollback: false)
+        #expect(savedAgain.surfaceProjections?.first?.resource == resource)
+        #expect(savedAgain.surfaceProjections?.first?.remoteWorkspaceID == "mac-workspace")
     }
 
     @Test func `Restored projections resolve when the provider reports the resource`() {

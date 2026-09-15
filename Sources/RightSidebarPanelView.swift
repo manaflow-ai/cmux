@@ -116,6 +116,7 @@ extension RightSidebarMode {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    var devicesModel: DevicesPanelViewModel? = nil
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -519,11 +520,13 @@ struct RightSidebarPanelView: View {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                         defaultMachineStore: store,
+                        devicesModel: devicesModel,
                         tabManager: tabManager
                     )
                 } else {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                        devicesModel: devicesModel,
                         tabManager: tabManager
                     )
                 }

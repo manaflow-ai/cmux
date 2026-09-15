@@ -294,7 +294,7 @@ const worker = {
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
       return new Response(await team.stub.snapshot(team.teamId), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "cache-control": "private, no-store" },
       });
     }
 
