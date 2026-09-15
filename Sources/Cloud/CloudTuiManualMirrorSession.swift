@@ -317,7 +317,7 @@ final class CloudTuiManualMirrorSession {
             // from becoming the remote PTY's geometry claim.
             await Task.yield()
             guard !Task.isCancelled else { return }
-            self?.sampleRuntimeSize()
+            self?.surface?.retryRendererPresentationAfterActivity(); self?.sampleRuntimeSize()
         }
     }
     private func sampleRuntimeSize() {

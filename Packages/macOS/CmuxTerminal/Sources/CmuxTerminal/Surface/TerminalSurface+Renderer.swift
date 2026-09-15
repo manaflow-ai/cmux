@@ -368,6 +368,8 @@ extension TerminalSurface {
         guard rendererPortalVisible,
               hasLiveSurface,
               (rendererPresentationPhase != .presented || renderHealth != .rendering) else { return }
+        // Later activity is a new opportunity after a failed probe.
+        if renderHealth == .notRendering { rendererPresentationState.recoveryAttempted = false }
         ensureRendererPresented(presentationReady: presentationReady)
     }
 
