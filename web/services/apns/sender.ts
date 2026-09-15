@@ -352,26 +352,28 @@ export async function sendApnsNotification(
   // not a contract. APNs caps it at 64 bytes.
   // Never set on a dismiss push: a collapse would try to REPLACE the delivered
   // banner with the invisible dismiss payload instead of leaving removal to the
-  // app's background handler.
-  const collapseId =
-    input.kind === "dismiss"
-      ? undefined
-      : collapseIdFor(
-          input.notificationId ?? input.correlationId,
-          input.macDeviceId,
-          input.macInstanceTag,
-        );
+  // app's background handler. The mute-filtered badge-only variant is equally
+  // invisible, so it gets the same treatment.
+  const invisiblePush =
+    input.kind === "dismiss" || input.filteredToBadgeOnly === true;
+  const collapseId = invisiblePush
+    ? undefined
+    : collapseIdFor(
+        input.notificationId ?? input.correlationId,
+        input.macDeviceId,
+        input.macInstanceTag,
+      );
   const expiration =
     typeof input.expirationEpochSeconds === "number"
       ? String(input.expirationEpochSeconds)
       : undefined;
   const apnsId = canonicalApnsId(input.correlationId);
-  // A dismiss push carries badge + content-available but nothing visible:
-  // priority 5 (power-friendly, may coalesce) instead of the default 10, which
-  // Apple reserves for pushes that present UI immediately. Still push-type
-  // `alert` because a badge update is user-facing in Apple's taxonomy and a
-  // `background`-type push may not carry `badge`.
-  const priority = input.kind === "dismiss" ? "5" : "10";
+  // A dismiss or mute-filtered push carries badge + content-available but
+  // nothing visible: priority 5 (power-friendly, may coalesce) instead of the
+  // default 10, which Apple reserves for pushes that present UI immediately.
+  // Still push-type `alert` because a badge update is user-facing in Apple's
+  // taxonomy and a `background`-type push may not carry `badge`.
+  const priority = invisiblePush ? "5" : "10";
 
   const byHost = new Map<string, ApnsTarget[]>();
   const invalidEnvironmentResults: ApnsSendResult[] = [];

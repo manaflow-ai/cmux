@@ -8,6 +8,15 @@ export const MAX_PUSH_BODY_CHARS = 500;
 export const MAX_PUSH_ID_CHARS = 200;
 export const MAX_PUSH_CORRELATION_ID_CHARS = 64;
 export const MAX_PUSH_REQUEST_BYTES = 8 * 1024;
+/** Per-device mute-filter documents are bigger than a push (≤64 rules). */
+/**
+ * Request bound for the filters PUT. Deliberately smaller than the absolute
+ * worst case the rule validator could accept (64 rules of maximally
+ * escape-inflated 200-char strings): for such pathological documents the byte
+ * bound is the effective limit and the route answers 413. Real documents
+ * (hand-typed patterns, UUID ids) stay well under it.
+ */
+export const MAX_FILTERS_REQUEST_BYTES = 64 * 1024;
 /** Max dismissed-notification ids one dismiss push may carry; the Mac chunks. */
 export const MAX_PUSH_DISMISS_IDS = 64;
 /** Badge ceiling; iOS renders large numbers fine but a runaway count is a bug. */
@@ -45,6 +54,14 @@ export type PushPayload = {
   readonly macDeviceId: string | null;
   /** The cmux app-instance tag paired with `macDeviceId`. */
   readonly macInstanceTag: string | null;
+  /**
+   * Sidebar workspace-group identity owning the notifying workspace, used by
+   * per-device mute filters. Group ids are Mac-local (scope with
+   * `macDeviceId`); the display name lets name-based rules survive re-anchors.
+   */
+  readonly workspaceGroupId: string | null;
+  /** Display name paired with `workspaceGroupId`. */
+  readonly workspaceGroupName: string | null;
   /**
    * Stable Mac-side notification id. Sent to APNs as `apns-collapse-id` and as
    * `cmux.notificationId` so cross-device dismiss-sync can target the exact
@@ -121,6 +138,10 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
   const macDeviceId = body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS);
   const macInstanceTag = body.macInstanceTag == null ? "" : boundedString(body.macInstanceTag, MAX_PUSH_ID_CHARS);
+  const workspaceGroupId =
+    body.workspaceGroupId == null ? "" : boundedString(body.workspaceGroupId, MAX_PUSH_ID_CHARS);
+  const workspaceGroupName =
+    body.workspaceGroupName == null ? "" : boundedString(body.workspaceGroupName, MAX_PUSH_ID_CHARS);
   const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
   const replyShape = body.replyShape === "none" || body.replyShape === "text" ? body.replyShape : undefined;
   const correlationId =
@@ -142,6 +163,8 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   if (surfaceId == null) return { ok: false, error: "surface_id_too_long" };
   if (macDeviceId == null) return { ok: false, error: "mac_device_id_too_long" };
   if (macInstanceTag == null) return { ok: false, error: "mac_instance_tag_too_long" };
+  if (workspaceGroupId == null) return { ok: false, error: "workspace_group_id_too_long" };
+  if (workspaceGroupName == null) return { ok: false, error: "workspace_group_name_too_long" };
   if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
   if (correlationId == null) return { ok: false, error: "correlation_id_too_long" };
   if (
@@ -176,6 +199,8 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       surfaceId: surfaceId || null,
       macDeviceId: macDeviceId || null,
       macInstanceTag: macInstanceTag || null,
+      workspaceGroupId: workspaceGroupId || null,
+      workspaceGroupName: workspaceGroupName || null,
       notificationId: notificationId || null,
       correlationId: correlationId ? correlationId.toLowerCase() : null,
       expirationEpochSeconds,

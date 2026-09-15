@@ -76,10 +76,10 @@ export function mergePushDeliveryOutcomes(
 }
 
 /** Selects only tokens whose most recent outcome is absent or transient. */
-export function unresolvedPushTargets(
-  currentTargets: readonly ApnsTarget[],
+export function unresolvedPushTargets<T extends ApnsTarget>(
+  currentTargets: readonly T[],
   outcomes: readonly ApnsSendResult[],
-): ApnsTarget[] {
+): T[] {
   const byToken = new Map(
     outcomes.map((result) => [deliveryIdentity(result), result]),
   );

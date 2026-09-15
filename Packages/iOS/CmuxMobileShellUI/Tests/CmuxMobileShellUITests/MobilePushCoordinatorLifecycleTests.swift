@@ -96,6 +96,7 @@ private actor LifecyclePushRegistration: PushRegistering {
             backendState: .registered
         )
     }
+    func updateFilters(_ documentData: Data?) {}
     func unregisterFromServer() {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) {}
     func unregisterFromServer(
