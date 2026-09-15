@@ -185,7 +185,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
-        Some("browser-proxy") => BROWSER_PROXY_HELP,
+        Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
@@ -1048,7 +1048,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
-use remote_browser_proxy::{BROWSER_PROXY_HELP, parse_browser_proxy_args, serve_browser_proxy};
+use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
 
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {

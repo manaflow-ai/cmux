@@ -432,6 +432,7 @@ pub(crate) struct RemoteClientMessages {
     pub connect_help: &'static str,
     pub ssh_help: &'static str,
     pub forward_help: &'static str,
+    pub browser_proxy_help: &'static str,
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
@@ -1550,6 +1551,7 @@ OPTIONS:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
+        browser_proxy_help: "USAGE: cmux remote browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n\nStarts an authenticated local browser proxy to the selected machine's loopback ports. Prints private proxy credentials on stdout.\n",
         forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
@@ -2233,6 +2235,7 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
+        browser_proxy_help: "使用方法: cmux remote browser-proxy [ルート] --allowed-host ホスト [--allowed-host ホスト ...] --workspace-root パス --wireguard-hub パス [オプション]\n\n選択したマシンのループバックポートへの認証付きローカルブラウザプロキシを起動します。非公開のプロキシ認証情報を標準出力に出力します。\n",
         forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:

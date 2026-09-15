@@ -15,7 +15,6 @@ use cmux_remote_protocol::{
 use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 
-pub(super) const BROWSER_PROXY_HELP: &str = "USAGE: cmux-tui browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n";
 const BROWSER_PROXY_MAX_CONNECTIONS: usize = 64;
 const BROWSER_PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -24,6 +23,7 @@ pub(super) struct BrowserProxyArgs {
     pub(super) connect: Vec<String>,
     pub(super) allowed_hosts: Vec<String>,
     pub(super) workspace_root: String,
+    owner: u32,
 }
 
 pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<BrowserProxyArgs> {
@@ -51,7 +51,9 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
                 );
                 index += 2;
             }
-            "-h" | "--help" => return Err(anyhow!(BROWSER_PROXY_HELP)),
+            "-h" | "--help" => {
+                return Err(anyhow!(crate::localization::catalog().remote_client.browser_proxy_help));
+            }
             value if value.starts_with('-') => {
                 // Keep all connection options for the normal authenticated route parser.
                 if value == "--carrier" || value == "--exit-with-parent" {
@@ -90,7 +92,12 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
         return Err(anyhow!("at least one --allowed-host is required"));
     }
     let workspace_root = workspace_root.ok_or_else(|| anyhow!("--workspace-root is required"))?;
-    Ok(BrowserProxyArgs { connect, allowed_hosts, workspace_root })
+    Ok(BrowserProxyArgs {
+        connect,
+        allowed_hosts,
+        workspace_root,
+        owner: super::current_parent_process_id(),
+    })
 }
 
 fn normalize_proxy_host(value: &str) -> anyhow::Result<String> {
@@ -137,7 +144,7 @@ pub(super) async fn serve_browser_proxy(
     let credentials = format!("{username}:{password}");
     let allowed_hosts = Arc::new(parsed.allowed_hosts);
     let mut finished = runtime.subscribe_finished();
-    let parent = super::current_parent_process_id();
+    let parent = parsed.owner;
     let mut tasks = tokio::task::JoinSet::new();
     let mut parent_check = tokio::time::interval(Duration::from_millis(250));
     parent_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
