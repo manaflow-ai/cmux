@@ -1276,8 +1276,8 @@ struct MacComputerDetailView: View {
 
     @ViewBuilder
     private func routeLogo(for kind: CmxAttachTransportKind) -> some View {
-        if kind == .tailscale { Image("TailscaleLogo", bundle: .module).resizable().scaledToFit().frame(width: 22, height: 22) }
-        else if kind == .iroh { Image("IrohLogo", bundle: .module).resizable().scaledToFit().frame(width: 42, height: 22) }
+        if kind == .tailscale { Image("TailscaleLogo").resizable().scaledToFit().frame(width: 22, height: 22) }
+        else if kind == .iroh { Image("IrohLogo").resizable().scaledToFit().frame(width: 42, height: 22) }
         else { Image(systemName: "network").frame(width: 22, height: 22) }
     }
 
