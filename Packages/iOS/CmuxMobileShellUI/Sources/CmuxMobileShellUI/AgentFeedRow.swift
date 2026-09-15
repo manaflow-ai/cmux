@@ -169,7 +169,7 @@ struct AgentFeedRow: View, Equatable {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            Text(agentFeedCompactTimeLabel(for: model.item.createdAt, now: now))
+            Text(model.compactTimeLabel(now: now))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .layoutPriority(2)

@@ -471,38 +471,42 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     }
 }
 
-/// Compact X-style trailing time label ("now", "5m", "3h", "2d", "Jun 4"),
-/// derived from the deterministic ``MobileRelativeActivity`` buckets.
-func agentFeedCompactTimeLabel(for date: Date, now: Date) -> String {
-    switch MobileRelativeActivity.bucket(for: date, now: now) {
-    case .none:
-        return ""
-    case .now:
-        return String(
-            localized: "mobile.agentFeed.time.now",
-            defaultValue: "now",
-            bundle: .module
-        )
-    case .minutes(let minutes):
-        return String(
-            localized: "mobile.agentFeed.time.minutes",
-            defaultValue: "\(minutes)m",
-            bundle: .module
-        )
-    case .hours(let hours):
-        return String(
-            localized: "mobile.agentFeed.time.hours",
-            defaultValue: "\(hours)h",
-            bundle: .module
-        )
-    case .days(let days):
-        return String(
-            localized: "mobile.agentFeed.time.days",
-            defaultValue: "\(days)d",
-            bundle: .module
-        )
-    case .monthDay:
-        return date.formatted(.dateTime.month(.abbreviated).day())
+extension AgentFeedRowModel {
+    /// Compact X-style trailing time label ("now", "5m", "3h", "2d", "Jun 4"),
+    /// derived from the deterministic ``MobileRelativeActivity`` buckets.
+    func compactTimeLabel(now: Date) -> String {
+        let date = item.createdAt
+        switch MobileRelativeActivity.bucket(for: date, now: now) {
+        case .none:
+            return ""
+        case .now:
+            return String(
+                localized: "mobile.agentFeed.time.now",
+                defaultValue: "now",
+                bundle: .module
+            )
+        case .minutes(let minutes):
+            return String(
+                localized: "mobile.agentFeed.time.minutes",
+                defaultValue: "\(minutes)m",
+                bundle: .module
+            )
+        case .hours(let hours):
+            return String(
+                localized: "mobile.agentFeed.time.hours",
+                defaultValue: "\(hours)h",
+                bundle: .module
+            )
+        case .days(let days):
+            return String(
+                localized: "mobile.agentFeed.time.days",
+                defaultValue: "\(days)d",
+                bundle: .module
+            )
+        case .monthDay:
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
     }
 }
+
 #endif
