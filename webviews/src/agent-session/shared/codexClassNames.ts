@@ -14,6 +14,7 @@ export const CODEX_SUBMIT_BUTTON =
 export const CODEX_COMPOSER_STACK = "agent-composer-stack";
 export const CODEX_COMPOSER_FRAME = "codex-composer-frame relative";
 export const CODEX_COMPOSER_INNER = "codex-composer-inner relative z-10 flex min-h-0 flex-1 flex-col";
+export const CODEX_COMPOSER_INPUT_AREA = "codex-composer-input-area mb-1 min-h-0 overflow-y-auto px-3";
 export const CODEX_COMPOSER_SURFACE =
   "codex-composer-surface relative flex flex-col bg-token-input-background/90 backdrop-blur-lg extension:border extension:border-token-border/50 electron:ring electron:ring-black/10 electron:shadow-[0_4px_16px_0_rgba(0,0,0,0.05)] electron:dark:bg-token-dropdown-background";
 export const CODEX_COMPOSER_FOOTER_SINGLE_LINE =

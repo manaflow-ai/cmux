@@ -11,6 +11,7 @@ import {
   CODEX_BUTTON_UNIFORM,
   CODEX_COMPOSER_FOOTER_MULTILINE,
   CODEX_COMPOSER_FRAME,
+  CODEX_COMPOSER_INPUT_AREA,
   CODEX_COMPOSER_INNER,
   CODEX_COMPOSER_STACK,
   CODEX_COMPOSER_SURFACE,
@@ -169,7 +170,7 @@ function SessionSurface({
   composerSurface.append(composerInner);
 
   const composerBody = document.createElement("div");
-  composerBody.className = "mb-1 flex-grow overflow-y-auto px-3";
+  composerBody.className = CODEX_COMPOSER_INPUT_AREA;
   composerInner.append(composerBody);
 
   const textarea = document.createElement("textarea");
