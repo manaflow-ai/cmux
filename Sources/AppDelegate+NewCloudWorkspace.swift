@@ -88,11 +88,9 @@ extension AppDelegate {
               coordinator.isAvailable else { return false }
         let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !capturedMachineID.isEmpty else { return false }
-        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)") {
+        return operationController.start(key: "new-cloud-workspace.machine:\(capturedMachineID)", {
             guard let workspaceID = try await coordinator.createOnMachine(
-                machineID: capturedMachineID,
-                focus: focus,
-                windowID: windowID
+                machineID: capturedMachineID, focus: focus, windowID: windowID
             ), !Task.isCancelled, coordinator.isAvailable else { return }
 #if DEBUG
             cmuxDebugLog(
@@ -100,6 +98,52 @@ extension AppDelegate {
                     "workspace=\(workspaceID.uuidString.prefix(8))"
             )
 #endif
+        }, onFailure: { [weak self] error in
+            self?.presentCloudWorkspaceCreationFailure(
+                machineID: capturedMachineID,
+                error: error,
+                windowID: windowID,
+                retry: { [weak self] in
+                    _ = self?.performNewCloudWorkspaceOnMachineAction(
+                        machineID: capturedMachineID,
+                        focus: focus,
+                        windowID: windowID,
+                        debugSource: "\(debugSource).retry"
+                    )
+                }
+            )
+        })
+    }
+
+    private func presentCloudWorkspaceCreationFailure(
+        machineID: String,
+        error: Error,
+        windowID: UUID?,
+        retry: @escaping @MainActor () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "cloudWorkspace.creation.failed.title",
+            defaultValue: "Couldn’t create Cloud workspace"
+        )
+        let format = String(
+            localized: "cloudWorkspace.creation.failed.detail",
+            defaultValue: "The workspace could not be created on %@. %@"
+        )
+        alert.informativeText = String(format: format, machineID, error.localizedDescription)
+        alert.addButton(withTitle: String(localized: "common.retry", defaultValue: "Retry"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(alert.informativeText)")
+        let window = windowID.flatMap { id in
+            mainWindowContexts.values.first(where: { $0.windowId == id }).flatMap { resolvedWindow(for: $0) }
+        }
+        if let window {
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertFirstButtonReturn { retry() }
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            retry()
         }
     }
 

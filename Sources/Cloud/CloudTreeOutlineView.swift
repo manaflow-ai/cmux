@@ -209,7 +209,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             activeDragSourceView = nil
             setDragging(false)
         }
-        // MARK: Snapshot application
         func apply(style: CloudTreeStyle) {
             guard style != self.style else { return }
             self.style = style
@@ -271,6 +270,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 restoreExpansion(in: outlineView)
                 restoreSelection(in: outlineView)
             }
+            publishSelectedMachineSelection()
         }
 
         private func setDragging(_ dragging: Bool) {
@@ -316,6 +316,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     return
                 }
             }
+        }
+        private func machineSelection(for node: CloudTreeNode?) -> NewWorkspaceMachineSelection {
+            guard let node else { return .none }
+            if case .pendingMachine = node.kind { return .pending }
+            let machine = node.machine
+            return machine.isLocal ? .local : .cloud(machine.rawValue)
+        }
+        private func publishSelectedMachineSelection() {
+            let node = selectedNodeID.flatMap { id in
+                CloudTreeNodeBuilder.flattened(nodes).first { $0.id == id }
+            }
+            if node == nil { selectedNodeID = nil }
+            onMachineSelectionChange(machineSelection(for: node))
         }
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
@@ -366,14 +379,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
             selectedNodeID = node?.id
-            if let node,
-               case .pendingMachine = node.kind {
-                onMachineSelectionChange(.pending)
-            } else if let machine = node?.machine {
-                onMachineSelectionChange(machine.isLocal ? .local : .cloud(machine.rawValue))
-            } else {
-                onMachineSelectionChange(.none)
-            }
+            onMachineSelectionChange(machineSelection(for: node))
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {

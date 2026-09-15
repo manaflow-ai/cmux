@@ -65,7 +65,7 @@ final class CloudWorkspaceOperationController {
     /// Starts one keyed operation, dropping duplicate activations while the first
     /// operation is still restoring or focusing the remote workspace.
     @discardableResult
-    func start(key: String, _ operation: @escaping Operation) -> Bool {
+    func start(key: String, _ operation: @escaping Operation, onFailure: @escaping @MainActor (Error) -> Void = { _ in }) -> Bool {
         guard isAvailable(), keyedTasks[key] == nil else { return false }
         let operationID = UUID()
         let task = Task { @MainActor [weak self] in
@@ -80,6 +80,7 @@ final class CloudWorkspaceOperationController {
             } catch is CancellationError {
                 // Cancellation is the expected result of sign-out or disabling Cloud Machines.
             } catch {
+                onFailure(error)
                 Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app", category: "CloudWorkspace")
                     .error("Keyed Cloud workspace operation failed: \(String(describing: error), privacy: .private)")
             }
