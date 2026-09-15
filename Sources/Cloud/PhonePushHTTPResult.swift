@@ -12,6 +12,7 @@ enum PhonePushHTTPResult: Equatable, Sendable {
     case authenticationUnavailable
     case staleSession
     case correlationConflict
+    case recipientKeyChanged
     case expired
     case invalidResponse
     case rejected(statusCode: Int)
@@ -62,6 +63,9 @@ enum PhonePushHTTPResult: Equatable, Sendable {
             if error == "push_event_in_progress" { return .retryableFailure }
             if error == "correlation_payload_mismatch" {
                 return .correlationConflict
+            }
+            if error == "push_recipient_key_changed" {
+                return .recipientKeyChanged
             }
             return .rejected(statusCode: statusCode)
         case 410:

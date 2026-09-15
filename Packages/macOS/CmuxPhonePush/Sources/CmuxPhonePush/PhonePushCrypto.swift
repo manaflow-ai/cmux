@@ -237,6 +237,7 @@ public enum PhonePushKeyStore {
             kSecReturnData as String: true,
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        let accessibility: CFString = kSecAttrAccessibleAfterFirstUnlock
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         let data: Data
@@ -250,6 +251,7 @@ public enum PhonePushKeyStore {
             var item = query
             item[kSecValueData as String] = encoded
             item[kSecReturnData as String] = nil
+            item[kSecAttrAccessible as String] = accessibility
             if let accessGroup { item[kSecAttrAccessGroup as String] = accessGroup }
             let addStatus = SecItemAdd(item as CFDictionary, nil)
             if addStatus == errSecDuplicateItem {
@@ -258,12 +260,20 @@ public enum PhonePushKeyStore {
                 guard readStatus == errSecSuccess, let existingData = existing as? Data else {
                     throw PhonePushCryptoError.keychain(readStatus)
                 }
+                _ = SecItemUpdate(
+                    query as CFDictionary,
+                    [kSecAttrAccessible as String: accessibility] as CFDictionary
+                )
                 return try KeyRecord.decode(existingData).material
             }
             guard addStatus == errSecSuccess else { throw PhonePushCryptoError.keychain(addStatus) }
             return material
         } else if status == errSecSuccess, let result = result as? Data {
             data = result
+            _ = SecItemUpdate(
+                query as CFDictionary,
+                [kSecAttrAccessible as String: accessibility] as CFDictionary
+            )
         } else {
             throw PhonePushCryptoError.keychain(status)
         }
