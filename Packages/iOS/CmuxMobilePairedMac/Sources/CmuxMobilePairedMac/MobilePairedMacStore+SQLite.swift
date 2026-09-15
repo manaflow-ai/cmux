@@ -1,4 +1,3 @@
-import Foundation
 import SQLite3
 
 extension MobilePairedMacStore {
@@ -55,23 +54,13 @@ extension MobilePairedMacStore {
         }
     }
 
-    func transaction(_ block: () throws -> Void) throws {
-        // Composed operations retain the outer write lock and roll back as one
-        // unit. Each nested operation owns only its own savepoint.
-        let savepoint = sqlite3_get_autocommit(db) == 0
-            ? "cmux_" + UUID().uuidString.replacingOccurrences(of: "-", with: "_")
-            : nil
-        try exec(savepoint.map { "SAVEPOINT \($0);" } ?? "BEGIN IMMEDIATE;")
+    func transaction(immediate: Bool = true, _ block: () throws -> Void) throws {
+        try exec(immediate ? "BEGIN IMMEDIATE;" : "BEGIN;")
         do {
             try block()
-            try exec(savepoint.map { "RELEASE SAVEPOINT \($0);" } ?? "COMMIT;")
+            try exec("COMMIT;")
         } catch {
-            if let savepoint {
-                try? exec("ROLLBACK TO SAVEPOINT \(savepoint);")
-                try? exec("RELEASE SAVEPOINT \(savepoint);")
-            } else {
-                _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
-            }
+            _ = sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
             throw error
         }
     }
