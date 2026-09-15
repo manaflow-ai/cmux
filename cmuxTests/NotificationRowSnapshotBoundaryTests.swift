@@ -89,6 +89,10 @@ struct NotificationRowSnapshotBoundaryTests {
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
+        // Group renames now synchronize the anchor title. Recreate the stale
+        // terminal-title observation explicitly: the index must still prefer
+        // the authoritative group name over that delayed observation.
+        anchor.title = staleAnchorTitle
         #expect(anchor.title == staleAnchorTitle)
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
