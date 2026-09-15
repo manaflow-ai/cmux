@@ -5,8 +5,14 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../services/vms/errors";
-import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../services/vms/routeWorkflow";
+import { destroyVm, getVm, renameVm } from "../../../../services/vms/workflows";
+import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmImageKindFor } from "../../../../services/vms/images/resolver";
+import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
+import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
+import { publicationErrorResponse } from "../publications/routeShared";
+import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 
 
 export async function GET(
@@ -23,26 +29,30 @@ export async function GET(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const vm = await runVmWorkflow(getVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-        }));
-        return jsonResponse({
-          id: vm.providerVmId,
-          provider: vm.provider,
-          image: vm.image,
-          imageVersion: vm.imageVersion,
-          status: vm.status,
-          createdAt: vm.createdAt,
-          displayName: vm.displayName,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(getVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+      }), { request });
+      if (!run.ok) return run.response;
+      const vm = run.value;
+      // The same machine shape `GET /api/vm` lists: `kind` is what the client
+      // shows a Displays row and opens the desktop for (`cmux vm status`,
+      // `cmux vm open`), and `address` is the private address those open.
+      return jsonResponse({
+        id: vm.providerVmId,
+        provider: vm.provider,
+        image: vm.image,
+        imageVersion: vm.imageVersion,
+        kind: vmImageKindFor(vm.provider, vm.image),
+        capabilities: vmCapabilitiesFor(vm.provider),
+        status: vm.status,
+        createdAt: vm.createdAt,
+        displayName: vm.displayName,
+        slug: vm.slug,
+        address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
+      });
     },
   );
 }
@@ -92,22 +102,20 @@ export async function PATCH(
           400,
         );
       }
-      try {
-        const vm = await runVmWorkflow(renameVm({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          displayName,
-        }));
-        return jsonResponse({
-          id: vm.providerVmId,
-          displayName: vm.displayName,
-        });
-      } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
-      }
+      const run = await runVmRoute(renameVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        displayName,
+      }), { request });
+      if (!run.ok) return run.response;
+      const vm = run.value;
+      return jsonResponse({
+        id: vm.providerVmId,
+        displayName: vm.displayName,
+        slug: vm.slug,
+      });
     },
   );
 }
@@ -127,16 +135,26 @@ export async function DELETE(
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       try {
-        await runVmWorkflow(destroyVm({
-          userId: user.id,
+        await deleteVmPublicationsForVmDeletion({
+          requesterUserId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
           teamIds: user.teamIds,
           providerVmId: id,
-        }));
+        });
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
-        throw err;
+        if (err instanceof PublicationNotFoundError && err.resource === "vm") {
+          return notFoundVm(id);
+        }
+        return publicationErrorResponse(err);
       }
+      const run = await runVmRoute(destroyVm({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        modelPlane: vmModelPlaneRevoker(),
+      }), { request });
+      if (!run.ok) return run.response;
       return jsonResponse({ ok: true });
     },
   );

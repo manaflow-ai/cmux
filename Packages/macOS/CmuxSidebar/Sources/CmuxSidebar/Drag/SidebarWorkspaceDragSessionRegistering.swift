@@ -22,6 +22,12 @@ public protocol SidebarWorkspaceDragSessionRegistering: SidebarWorkspaceDragRegi
     /// Begins a tokenized drag session.
     func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession
 
+    /// Begins a tokenized session at a proven native pointer boundary.
+    ///
+    /// Unlike a logical begin, this boundary proves AppKit has left any older
+    /// native drag loop, so superseded source holds may be reclaimed.
+    func beginNativeSession(workspaceId: UUID) -> SidebarWorkspaceDragSession
+
     /// Resolves a live session for a matching workspace identity.
     func session(matching workspaceId: UUID) -> SidebarWorkspaceDragSession?
 
@@ -44,4 +50,12 @@ public protocol SidebarWorkspaceDragSessionRegistering: SidebarWorkspaceDragRegi
 
     /// Completes a native drag and clears only its matching capability.
     func nativeDraggingSessionDidEnd(sessionId: UUID, capabilityValue: String)
+
+    /// Reclaims native sources other than the source identified by
+    /// `excludingSessionId` after a pointer/native-session boundary.
+    ///
+    /// Callers must pass the session whose native loop is still being
+    /// completed. Requiring the exclusion in the API prevents a pointer
+    /// boundary from accidentally releasing a source that is still live.
+    func reclaimSupersededNativeSources(excludingSessionId: UUID)
 }

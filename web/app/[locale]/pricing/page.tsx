@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
+import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import {
@@ -8,6 +9,12 @@ import {
   TEAM_CHECKOUT_URL,
   withCheckoutInterval,
 } from "../../lib/billing";
+import {
+  CHECKOUT_SOURCE_PARAM,
+  CHECKOUT_SOURCE_PRICING_PAGE,
+  checkoutAttributionParamsFrom,
+  withCheckoutAttribution,
+} from "../../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../../lib/download";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import { resolveProPlanStatus } from "../../../services/billing/pro";
@@ -98,14 +105,24 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
+  const canManageBilling = snapshot.billingManagement === "stripe";
   const interval = proBillingInterval(firstParam(query.interval) ?? "year");
+  // A link into /pricing may name its own origin (the CLI trial notice, a
+  // campaign with utm_* tags); that beats the page default so the checkout
+  // is attributed to the surface that sent the visitor here.
+  const attribution = {
+    [CHECKOUT_SOURCE_PARAM]: CHECKOUT_SOURCE_PRICING_PAGE,
+    ...checkoutAttributionParamsFrom(query),
+  };
+  const proCheckoutURL = withCheckoutAttribution(PRO_CHECKOUT_URL, attribution);
+  const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
   const proCheckoutHrefs = {
-    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(proCheckoutURL, "month"),
+    year: withCheckoutInterval(proCheckoutURL, "year"),
   };
   const teamCheckoutHrefs = {
-    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
   };
   const annualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
@@ -188,7 +205,7 @@ export default async function PricingPage({
               name={t("pro.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("pro.price")}
+                  monthly={`$${PRO_PRICING_USD.month.billedAmount}`}
                   annual={`$${PRO_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -211,8 +228,12 @@ export default async function PricingPage({
                     {t("manageBilling")}
                   </SecondaryLink>
                 </div>
+              ) : canManageBilling ? (
+                <SecondaryLink href="/api/billing/portal">
+                  {t("manageBilling")}
+                </SecondaryLink>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -225,7 +246,7 @@ export default async function PricingPage({
               name={t("team.name")}
               price={
                 <PricingIntervalValue
-                  monthly={t("team.price")}
+                  monthly={`$${TEAM_PRICING_USD.month.billedAmount}`}
                   annual={`$${TEAM_PRICING_USD.year.monthlyEquivalent}`}
                 />
               }
@@ -240,7 +261,6 @@ export default async function PricingPage({
                 hrefs={teamCheckoutHrefs}
                 location="pricing_page"
                 plan="team"
-                size="compact"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>
@@ -263,6 +283,15 @@ export default async function PricingPage({
             </PlanCard>
           </div>
 
+          <p className="mt-6 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
+
           {/* Compare plans. Header row is sticky under the 48px h-12 site header.
               Horizontal scrolling is mobile-only so desktop keeps the page as the
               sticky scroll container. */}
@@ -279,7 +308,7 @@ export default async function PricingPage({
                 free: t("free.price"),
                 pro: (
                   <PricingIntervalValue
-                    monthly={`${t("pro.price")} ${t("perMonth")}`}
+                    monthly={`$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`}
                     annual={annualComparePrice}
                   />
                 ),
@@ -300,6 +329,10 @@ export default async function PricingPage({
                 pro: (
                   snapshot.isPro ? (
                     <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+                  ) : canManageBilling ? (
+                    <SecondaryLink href="/api/billing/portal" size="compact">
+                      {t("manageBilling")}
+                    </SecondaryLink>
                   ) : (
                     <ProCtaLink
                       checkoutHrefs={proCheckoutHrefs}

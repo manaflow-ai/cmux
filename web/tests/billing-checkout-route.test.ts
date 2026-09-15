@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
-import { stripeCustomers } from "../db/schema";
+import { stripeCustomers, stripeSubscriptions } from "../db/schema";
 
 // Capture real implementations BY VALUE: bun's mock.module can mutate an
 // already-loaded namespace in place, so calling through a captured namespace
@@ -46,6 +46,8 @@ const createdStripeSessions: unknown[] = [];
 const createdStripeCustomers: unknown[] = [];
 const insertedStripeCustomers: Record<string, unknown>[] = [];
 let stripeCustomerRows: { id: string }[] = [];
+let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
+let stripeActiveSubscriptionRows: Array<Record<string, unknown>> = [];
 let stripeSessionResponse: { readonly id?: string; readonly url?: string } = {
   id: CHECKOUT_SESSION_ID,
   url: "https://checkout.stripe.com/c/session",
@@ -69,6 +71,7 @@ let useStubDb = false;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
+  promoteStackUserFromAnonymousViaApi: mock(async () => undefined),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
@@ -86,7 +89,16 @@ mock.module("../db/client", () => ({
               where: () => ({
                 limit: table === stripeCustomers
                   ? mock(async () => stripeCustomerRows)
-                  : stripeLimit,
+                  : table === stripeSubscriptions
+                    ? mock(async () => stripeActiveSubscriptionRows)
+                    : stripeLimit,
+                orderBy: () => ({
+                  limit: table === stripeSubscriptions
+                    ? mock(async () => stripeSubscriptionRows)
+                    : table === stripeCustomers
+                      ? mock(async () => stripeCustomerRows)
+                      : stripeLimit,
+                }),
               }),
             }),
           }),
@@ -121,8 +133,21 @@ mock.module("../services/billing/stripe", () => ({
 // Checkout tests must never exercise the real PostHog transport. The analytics
 // module has its own test-mode guard, but this route seam also lets these tests
 // assert the exact event contract without starting a background request.
-const captureBillingCheckoutStarted = mock(async () => undefined);
+const actualStripeBillingModule = await import("../services/analytics/stripeBilling");
+const realCaptureBillingCheckoutStarted =
+  actualStripeBillingModule.captureBillingCheckoutStarted;
+type CaptureBillingCheckoutStartedMock =
+  typeof actualStripeBillingModule.captureBillingCheckoutStarted & {
+    mockClear: () => void;
+    mockResolvedValue: (value: unknown) => void;
+  };
+const captureBillingCheckoutStarted: CaptureBillingCheckoutStartedMock = mock(
+  async (...args: unknown[]): Promise<void> => {
+    await Reflect.apply(realCaptureBillingCheckoutStarted, undefined, args);
+  },
+);
 mock.module("../services/analytics/stripeBilling", () => ({
+  ...actualStripeBillingModule,
   captureBillingCheckoutStarted,
 }));
 
@@ -153,6 +178,8 @@ describe("billing checkout route", () => {
     createdStripeCustomers.length = 0;
     insertedStripeCustomers.length = 0;
     stripeCustomerRows = [];
+    stripeSubscriptionRows = [];
+    stripeActiveSubscriptionRows = [];
     stripeSessionResponse = {
       id: CHECKOUT_SESSION_ID,
       url: "https://checkout.stripe.com/c/session",
@@ -179,6 +206,33 @@ describe("billing checkout route", () => {
     );
     expect(getUser).not.toHaveBeenCalled();
     expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("redirects to the direct dev-backend origin when Next reports the bind address", async () => {
+    userResponses = [null, anonymousUser];
+    const previousTransport = process.env.CMUX_DEV_BACKEND_TRANSPORT;
+    const previousOrigin = process.env.CMUX_WWW_ORIGIN;
+    const previousHost = process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
+    process.env.CMUX_DEV_BACKEND_TRANSPORT = "direct";
+    process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
+    process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:3916/";
+    try {
+      const response = await GET(
+        new NextRequest("https://0.0.0.0:3916/api/billing/checkout?plan=pro&interval=month"),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(
+        "https://cmux-dev-backend-1.tail137216.ts.net:3916/pricing?billing=unavailable",
+      );
+    } finally {
+      if (previousTransport === undefined) delete process.env.CMUX_DEV_BACKEND_TRANSPORT;
+      else process.env.CMUX_DEV_BACKEND_TRANSPORT = previousTransport;
+      if (previousOrigin === undefined) delete process.env.CMUX_WWW_ORIGIN;
+      else process.env.CMUX_WWW_ORIGIN = previousOrigin;
+      if (previousHost === undefined) delete process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST;
+      else process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = previousHost;
+    }
   });
 
   test("redirects team checkout to billing unavailable when Stripe is not configured", async () => {
@@ -433,6 +487,9 @@ describe("billing checkout route", () => {
       subject: { scope: "user", stackUserId: ANONYMOUS_USER_ID },
       plan: "pro",
       billingInterval: "month",
+      attribution: expect.objectContaining({ source: "unknown", client: "web" }),
+      signedIn: false,
+      existingStripeCustomer: false,
     });
   });
 
@@ -502,15 +559,32 @@ describe("billing checkout route", () => {
     userResponses = [signedInUser];
 
     await GET(
-      new NextRequest("https://cmux.test/api/billing/checkout?interval=year"),
+      new NextRequest(
+        "https://cmux.test/api/billing/checkout?interval=year" +
+          "&cmux_source=mac_sidebar_badge&cmux_placement=Hero&cmux_client=mac" +
+          "&cmux_channel=nightly&cmux_app_version=0.65.1&cmux_app_build=2026090101" +
+          "&utm_source=newsletter",
+        { headers: { referer: "https://cmux.test/app-pricing?cmux_app=1" } },
+      ),
     );
 
     expect(resolveProPrice).toHaveBeenCalledWith("year");
+    const attributionMetadata = {
+      cmuxSource: "mac_sidebar_badge",
+      cmuxPlacement: "hero",
+      cmuxClient: "mac",
+      cmuxChannel: "nightly",
+      cmuxAppVersion: "0.65.1",
+      cmuxAppBuild: "2026090101",
+      cmuxReferrerHost: "cmux.test",
+      cmuxReferrerPath: "/app-pricing",
+      utmSource: "newsletter",
+    };
     expect(createdStripeSessions[0]).toMatchObject({
       customer_email: "signed@example.com",
       line_items: [{ price: "price_year", quantity: 1 }],
-      metadata: { billingInterval: "year" },
-      subscription_data: { metadata: { billingInterval: "year" } },
+      metadata: { billingInterval: "year", ...attributionMetadata },
+      subscription_data: { metadata: { billingInterval: "year", ...attributionMetadata } },
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=year",
     });
     expect(captureBillingCheckoutStarted).toHaveBeenCalledTimes(1);
@@ -519,6 +593,69 @@ describe("billing checkout route", () => {
       subject: { scope: "user", stackUserId: SIGNED_IN_USER_ID },
       plan: "pro",
       billingInterval: "year",
+      attribution: {
+        source: "mac_sidebar_badge",
+        placement: "hero",
+        client: "mac",
+        channel: "nightly",
+        appVersion: "0.65.1",
+        appBuild: "2026090101",
+        referrerHost: "cmux.test",
+        referrerPath: "/app-pricing",
+        utmSource: "newsletter",
+        utmMedium: null,
+        utmCampaign: null,
+        utmContent: null,
+        utmTerm: null,
+      },
+      signedIn: true,
+      existingStripeCustomer: false,
+    });
+  });
+
+  test("routes a past_due customer to the billing portal", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_past_due" }];
+    stripeSubscriptionRows = [{
+      id: "sub_past_due",
+      status: "past_due",
+      cancelAtPeriodEnd: false,
+    }];
+    stripeActiveSubscriptionRows = stripeSubscriptionRows;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: { cmuxPlan: "pro" } }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/api/billing/portal",
+    );
+    expect(createStripeSession).not.toHaveBeenCalled();
+  });
+
+  test("reuses the Stripe customer for a terminally canceled Pro checkout", async () => {
+    stripeConfigured = true;
+    stripeCustomerRows = [{ id: "cus_canceled" }];
+    stripeSubscriptionRows = [{
+      id: "sub_canceled",
+      status: "canceled",
+      cancelAtPeriodEnd: false,
+    }];
+    stripeActiveSubscriptionRows = [];
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/checkout"),
+    );
+
+    expect(response.headers.get("location")).toBe(
+      "https://checkout.stripe.com/c/session",
+    );
+    expect(createStripeSession).toHaveBeenCalledTimes(1);
+    expect(createdStripeSessions[0]).toMatchObject({
+      customer: "cus_canceled",
+      customer_email: undefined,
     });
   });
 
@@ -594,6 +731,9 @@ describe("billing checkout route", () => {
       subject: { scope: "team", stackTeamId: TEAM_ID },
       plan: "team",
       billingInterval: "month",
+      attribution: expect.objectContaining({ source: "unknown", client: "web" }),
+      signedIn: true,
+      existingStripeCustomer: false,
     });
   });
 

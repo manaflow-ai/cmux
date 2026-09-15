@@ -378,6 +378,35 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testMobileTerminalResolutionFollowsMovedSurface() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        // The reply relay carries the workspace captured when the notification
+        // was created, but the surface may have moved (or the workspace may
+        // have been recreated) before the Mac sweeps the inbox. The stable
+        // surface identity must select its current workspace.
+        let routed = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: true)
+
+        #expect(
+            routed?["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString
+        )
+        #expect(routed?["surface_id"] as? String == fixture.panelId.uuidString)
+
+        let confined = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: false)
+        #expect(
+            confined?["workspace_id"] as? String == fixture.claimedWorkspace.id.uuidString,
+            "A workspace-confined reply must not follow a moved surface"
+        )
+    }
+
+    @Test
     func testCreateForTargetRejectsSurfaceOutsideClaimedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
@@ -427,13 +456,20 @@ extension AgentNotificationRegressionTests {
             surfaceID: nil,
             paneID: nil
         )
-        #expect(TerminalController.shared.controlNotificationCreate(
+        let primaryResolution = TerminalController.shared.controlNotificationCreate(
             routing: routing,
             explicitSurfaceID: fixture.panelId,
             title: "Primary notify",
             subtitle: "",
             body: "Body"
-        ) == .delivered(workspaceID: fixture.owningWorkspace.id, surfaceID: fixture.panelId))
+        )
+        guard case .delivered(let primaryWorkspaceID, let primarySurfaceID, let primaryNotificationID) = primaryResolution else {
+            Issue.record("Expected a delivered primary notification, got \(primaryResolution)")
+            return
+        }
+        #expect(primaryWorkspaceID == fixture.owningWorkspace.id)
+        #expect(primarySurfaceID == fixture.panelId)
+        #expect(primaryNotificationID != nil)
         let resolution = TerminalController.shared.controlNotificationCreateForSurface(
             routing: routing,
             surfaceID: fixture.panelId,
@@ -441,7 +477,7 @@ extension AgentNotificationRegressionTests {
             subtitle: "",
             body: "Body"
         )
-        guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
+        guard case .delivered(let workspaceID, let surfaceID, _, _) = resolution else {
             Issue.record("A moved surface must be re-homed, not rejected; got \(resolution)")
             return
         }

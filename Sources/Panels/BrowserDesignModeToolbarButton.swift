@@ -16,9 +16,9 @@ struct BrowserDesignModeToolbarButton: View {
             CmuxSystemSymbolImage(
                 systemName: controller.isActive ? "paintbrush.pointed.fill" : "paintbrush.pointed",
                 pointSize: iconPointSize,
-                weight: .medium
+                weight: .medium,
+                tint: controller.isActive ? Color.accentColor : inactiveColor
             )
-            .foregroundStyle(controller.isActive ? Color.accentColor : inactiveColor)
             .frame(width: hitSize, height: hitSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())

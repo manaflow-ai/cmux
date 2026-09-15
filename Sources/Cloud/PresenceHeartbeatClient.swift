@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
@@ -27,6 +28,7 @@ final class PresenceHeartbeatClient {
     static let shared = PresenceHeartbeatClient()
 
     private let session: URLSession = .shared
+    private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var routesObserveTask: Task<Void, Never>?
@@ -49,11 +51,7 @@ final class PresenceHeartbeatClient {
             // Re-evaluate when the flag or URL flips, so enabling presence in a
             // running app starts the loop without a relaunch (and disabling
             // stops it and says goodbye).
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { _ in
+            defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) {
                 MainActor.assumeIsolated {
                     PresenceHeartbeatClient.shared.evaluate()
                 }
@@ -107,10 +105,22 @@ final class PresenceHeartbeatClient {
     /// Resolved service base URL: env override first (dev/tagged builds), then
     /// the defaults key, then the Debug-build dev-instance default. Nil
     /// disables the client entirely.
-    static func resolvedServiceURL(
+    nonisolated static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> URL? {
+        #if DEBUG
+        let debugBuild = true
+        #else
+        let debugBuild = false
+        #endif
+        if !debugBuild
+            || AuthEnvironment.resolvedStackAuthEnvironment(
+                environment: environment,
+                isDebugBuild: debugBuild
+            ) == .production {
+            return URL(string: PresenceSettings.productionServiceURL)
+        }
         var raw = environment[PresenceSettings.serviceURLEnvKey]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? defaults.string(forKey: PresenceSettings.serviceURLKey)?
@@ -165,6 +175,9 @@ final class PresenceHeartbeatClient {
     // MARK: - Heartbeat
 
     private func sendHeartbeat(stopping: Bool) async {
+        // Cadence, route-change, and shutdown triggers share one server-owned
+        // floor so an immediate trigger cannot reopen a rate-limited endpoint.
+        guard (try? await retryAfterGate.wait()) != nil else { return }
         guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
         // in" and on launch auth bootstrap so the team header resolves from a
@@ -203,7 +216,16 @@ final class PresenceHeartbeatClient {
 
         do {
             let (data, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy.seconds(
+                    from: http,
+                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
                 return // best-effort; retry happens on the next cadence tick
             }
             // Mirrors the JSONSerialization encode above; a typed Decodable

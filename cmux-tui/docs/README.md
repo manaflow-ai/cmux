@@ -13,6 +13,7 @@
 - [Machines](machines.md): optional dual rails, static Unix/SSH targets, relay, `npx cmux` remote setup, and outbound `npx cmux machine-agent` registration.
 - [Public resource protocol](../spec/resource-api-v2.md): the supported entry point for new clients, with stable opaque IDs, requests, mutations, streams, and errors.
 - [Raw control protocol](protocol.md): private protocol-v12 JSON-lines commands for cmux frontends and compatibility adapters.
+- [Journal operations / ジャーナル操作](journal-operations.md): reading `cmux server stats` to find registry lock convoys, journal writer batch shape, and connection refusals. `cmux server stats` でレジストリロックの競合、ジャーナル書き込みのバッチ状況、接続拒否を確認します。
 - [Public CLI](../spec/cli.md): noun-first commands and selectors.
 - [SDK contract](../spec/bindings.md): handwritten facades and generated raw layers.
 - [Browser panes](browser-panes.md): CDP-backed browser tabs, rendering, input, profiles, and current limitations.

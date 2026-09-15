@@ -40,13 +40,16 @@ public final class AuthCoordinator {
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    public private(set) var availableTeams: [CMUXAuthTeam] = [] {
+        didSet { publishAuthenticatedTeamScope() }
+    }
     /// The user's selected team id. Writes persist through the injected
     /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
     public var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
             teamSelection.selectedTeamID = selectedTeamID
+            publishAuthenticatedTeamScope()
         }
     }
 
@@ -109,6 +112,12 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
         UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
     ] = [:]
+    @ObservationIgnored var authenticatedTeamScopeContinuations: [
+        UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
+    ] = [:]
+    @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
+    @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
+    @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -248,6 +257,25 @@ public final class AuthCoordinator {
     public func revalidateSession() async {
         guard isAuthenticated || isRestoringSession || sessionCache.hasTokens else { return }
         await checkExistingSession()
+    }
+
+    /// Supersede parked timed-out auth phases before an explicit interactive
+    /// attempt (a pairing attempt, a tapped retry). One Stack call hung on a
+    /// dead pooled connection times its phase out and dampens it for 30s;
+    /// without this, the very next user action fails in milliseconds with
+    /// ``AuthError/timedOut`` even though a fresh request would succeed. The
+    /// timed-out operation was already cancelled at its deadline and its
+    /// writes are dropped by the sign-in chokepoint, so releasing its slot is
+    /// safe; live operations keep their exclusivity.
+    public func supersedeTimedOutAuthPhases() async {
+        // Both dampers: sign-in exchanges park in the phase registry, and
+        // token-touching work (access-token fetches, session probes) parks in
+        // the coordinator's own timed-out states. Token-touching phases allow
+        // concurrent actives by construction (write safety is generational,
+        // via finishTokenTouchingPhase), so dropping the damper alone is
+        // sufficient there.
+        await phaseTimeoutRegistry.supersedeTimedOutPhases()
+        timedOutTokenTouchingPhaseStates.removeAll()
     }
 
     // MARK: - Sign-in flows
@@ -669,6 +697,7 @@ public final class AuthCoordinator {
                 try await client.listTeams()
             }
             guard generation == sessionGeneration else { return }
+            authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         } catch {
@@ -709,6 +738,8 @@ public final class AuthCoordinator {
             onSessionWillTransition()
         }
         sessionGeneration &+= 1
+        authenticatedTeamsSessionGeneration = nil
+        availableTeams = []
     }
 
     /// Whether one coordinator-owned transition can legitimately observe an

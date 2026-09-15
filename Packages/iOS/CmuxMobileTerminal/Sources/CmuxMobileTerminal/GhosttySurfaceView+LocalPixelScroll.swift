@@ -89,7 +89,7 @@ extension GhosttySurfaceView {
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
             #endif
@@ -280,8 +280,8 @@ extension GhosttySurfaceView {
             remainder = 0
         }
         // Two mismatches in one batch: same units the legacy line path derives
-        // from `enqueueScrollMechanicsDelta` (points = px/scale, divisor 3x
-        // cell height), so the fallback scrolls the same distance in rows.
+        // from `enqueueScrollMechanicsDelta` (one line per cell-height of
+        // travel), so the fallback scrolls the same distance in rows.
         let shouldLog = pixelState.withLock { state -> Bool in
             if state.epoch == operation.pixelStateEpoch {
                 state.remainderPx = 0
@@ -301,14 +301,14 @@ extension GhosttySurfaceView {
         ghostty_surface_mouse_scroll(
             operation.surface,
             0,
-            -deltaPixels / (cellHeightPx * 3),
+            -deltaPixels / cellHeightPx,
             0
         )
     }
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
+private struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t

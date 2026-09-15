@@ -141,6 +141,12 @@ class GeneratedClientMixin:
     def list_workspaces(self) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
 
+    def machine_listening_tcp(self) -> MachineListeningTcpResult:
+        return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
+
+    def machine_usage(self) -> MachineUsageResult:
+        return self._invoke_command('machine-usage', MachineUsageRequest())
+
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
 
@@ -185,6 +191,9 @@ class GeneratedClientMixin:
 
     def pane_neighbor(self, pane: Id, dir: PaneDirection) -> PaneNeighborResult:
         return self._invoke_command('pane-neighbor', PaneNeighborRequest(pane=pane, dir=dir))
+
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
 
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
@@ -263,6 +272,9 @@ class GeneratedClientMixin:
 
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
+
+    def server_stats(self) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest())
 
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
@@ -365,6 +377,8 @@ GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
+GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
@@ -380,6 +394,7 @@ GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
+GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
@@ -406,6 +421,7 @@ GeneratedClientMixin.select_tab.__cmux_command__ = COMMANDS['select-tab']
 GeneratedClientMixin.select_workspace.__cmux_command__ = COMMANDS['select-workspace']
 GeneratedClientMixin.send.__cmux_command__ = COMMANDS['send']
 GeneratedClientMixin.send_key.__cmux_command__ = COMMANDS['send-key']
+GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']

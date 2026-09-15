@@ -166,6 +166,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         await session.tearDown(error: .connectionClosed)
     }
 
+    /// Returns the native transport's close snapshot without creating or
+    /// replacing a connection. `nil` means the transport does not expose this
+    /// optional observation seam.
+    public func isTransportClosed() async -> Bool? {
+        await session.isTransportClosed()
+    }
+
     /// Retire this client and await both its installed transport close and any
     /// transport factory admission that raced retirement. A cancellation-
     /// ignoring abandoned dial is handed to the shared route registry after a

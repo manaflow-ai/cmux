@@ -70,7 +70,15 @@ if [ -z "$CREATED_DMG" ]; then
   echo "Failed to locate created DMG for $APP_PATH" >&2
   exit 1
 fi
-mv "$CREATED_DMG" "$DMG_RELEASE"
+# create-dmg emits an LZFSE (ULFO) image. Re-encode to LZMA (ULMO): same bundle,
+# about a quarter smaller download, and every supported macOS (14+) mounts it.
+"$HDIUTIL_TOOL" convert "$CREATED_DMG" -quiet -format ULMO -ov -o "$DMG_RELEASE"
+rm -f "$CREATED_DMG"
+DMG_FORMAT="$("$HDIUTIL_TOOL" imageinfo "$DMG_RELEASE" | awk -F': *' '/^Format:/ {print $2; exit}')"
+if [ "$DMG_FORMAT" != "ULMO" ]; then
+  echo "Expected ULMO (LZMA) DMG after conversion, got: ${DMG_FORMAT:-unknown}" >&2
+  exit 1
+fi
 
 "$CODESIGN_TOOL" --force --timestamp --keychain build.keychain \
   --sign "$APPLE_SIGNING_IDENTITY" \

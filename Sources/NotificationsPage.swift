@@ -10,6 +10,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     @State private var phonePushConfigurationState =
         PhonePushClient.shared.configurationState
 
@@ -33,8 +34,17 @@ struct NotificationsPage: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear(perform: setInitialFocus)
+        .background(ghosttyBackgroundColor)
+        .onAppear {
+            refreshGhosttyBackground()
+            setInitialFocus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshGhosttyBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            refreshGhosttyBackground()
+        }
         .onChange(of: notificationStore.notifications.first?.id) {
             setInitialFocus()
         }
@@ -44,6 +54,10 @@ struct NotificationsPage: View {
         .onChange(of: isVisibleInUI) {
             setInitialFocus()
         }
+    }
+
+    private func refreshGhosttyBackground() {
+        ghosttyBackgroundColor = Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     private var notificationsList: some View {
@@ -204,8 +218,7 @@ struct NotificationsPage: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32, tint: .secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
                 .cmuxFont(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
@@ -217,8 +230,7 @@ struct NotificationsPage: View {
 
     private var workspaceUnreadIndicatorState: some View {
         VStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32, tint: .secondary)
             Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
                 .cmuxFont(.headline)
         }
@@ -367,8 +379,7 @@ struct NotificationRow: View, Equatable {
             .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
-                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14, tint: .secondary)
             }
             .buttonStyle(.plain)
             // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
@@ -381,6 +392,18 @@ struct NotificationRow: View, Equatable {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
+        .contextMenu {
+            Button(String(localized: "notifications.open", defaultValue: "Open")) {
+                onOpen()
+            }
+            Button(String(localized: "notifications.copy", defaultValue: "Copy")) {
+                TerminalNotificationClipboard.copy(notification, workspaceTitle: tabTitle)
+            }
+            Divider()
+            Button(String(localized: "notifications.dismiss", defaultValue: "Dismiss"), role: .destructive) {
+                onClear()
+            }
+        }
     }
 }
 

@@ -22,7 +22,6 @@ struct AgentHibernationRecord {
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
     let processLiveness: RestorableAgentProcessLiveness
-
     init(
         key: AgentHibernationPanelKey,
         workspace: Workspace,
@@ -59,9 +58,7 @@ struct AgentHibernationRecord {
 @MainActor
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
-
     static let unableToProtectRetrySeconds: TimeInterval = 120
-
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     var evaluationPhase: EvaluationPhase = .idle
@@ -78,11 +75,11 @@ final class AgentHibernationController {
     var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
     var committedTerminationCleanupByPanelID: [UUID: CommittedTerminationCleanup] = [:]
+    var sessionEndPreservationIntentsByPanel: [AgentHibernationPanelKey: AgentHibernationSessionEndIntent] = [:]
     let processSnapshotCoordinator = AgentHibernationProcessSnapshotCoordinator()
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
-
     private init() {}
 
     func start() {
@@ -163,7 +160,7 @@ final class AgentHibernationController {
 
     private func recordSettingsChange() {
         teardownValidationGeneration = teardownValidationGeneration &+ 1
-        confirmations = confirmations.filter { $0.value.trigger == .systemMemoryPressure }
+        confirmations = confirmations.filter { $0.value.trigger.isMemoryPressure }
         unableToProtectByPanel.removeAll(keepingCapacity: false)
         updateTimerForCurrentSettings()
     }
@@ -228,7 +225,7 @@ final class AgentHibernationController {
             if record.hasLiveProcess {
                 let scheduledProcessIsUnsafe =
                     !record.processSafetyAllowsHibernation
-                if trigger == .systemMemoryPressure || scheduledProcessIsUnsafe {
+                if trigger.isMemoryPressure || scheduledProcessIsUnsafe {
                     tailFingerprintSamples.removeValue(forKey: record.key)
                 }
                 if trigger == .scheduled && scheduledProcessIsUnsafe {
@@ -272,12 +269,13 @@ final class AgentHibernationController {
                 lastActivityAt: effectiveLastActivityAt
             )
         }
-        let selectedKeys = AgentHibernationPlanner.selectedPanelKeys(
+        let orderedSelectedKeys = AgentHibernationPlanner.orderedPanelKeys(
             inputs: plannerInputs,
             settings: settings,
             now: nowTime,
             trigger: trigger
         )
+        let selectedKeys = Set(orderedSelectedKeys)
         let currentKeys = Set(records.map(\.key))
         pruneTrackingState(
             currentKeys: currentKeys,
@@ -285,11 +283,15 @@ final class AgentHibernationController {
             trigger: trigger
         )
 
-        let confirmedTeardowns = records.compactMap { record -> ConfirmedTeardownRequest? in
-            guard selectedKeys.contains(record.key) else { return nil }
+        let recordsByKey = Dictionary(
+            records.map { ($0.key, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let confirmedTeardowns = orderedSelectedKeys.compactMap { key -> ConfirmedTeardownRequest? in
+            guard let record = recordsByKey[key] else { return nil }
             return evaluateConfirmation(
                 record: record,
-                effectiveLastActivityAt: effectiveActivityByKey[record.key] ?? record.lastActivityAt,
+                effectiveLastActivityAt: effectiveActivityByKey[key] ?? record.lastActivityAt,
                 settings: settings,
                 now: nowTime,
                 trigger: trigger
@@ -353,7 +355,7 @@ final class AgentHibernationController {
                 trigger: trigger
             )
         }
-        if confirmations[record.key]?.trigger == .systemMemoryPressure {
+        if confirmations[record.key]?.trigger.isMemoryPressure == true {
             return nil
         }
 
@@ -500,6 +502,7 @@ final class AgentHibernationController {
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
+        sessionEndPreservationIntentsByPanel = sessionEndPreservationIntentsByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, confirmation in
             currentKeys.contains(key) &&
                 (confirmation.trigger != trigger || selectedKeys.contains(key))
@@ -508,7 +511,15 @@ final class AgentHibernationController {
     }
 
     func clearMemoryPressureConfirmations() {
-        confirmations = confirmations.filter { $0.value.trigger != .systemMemoryPressure }
+        confirmations = confirmations.filter {
+            $0.value.trigger != .systemMemoryPressure
+        }
+    }
+
+    func clearAggregateMemoryPressureConfirmations() {
+        confirmations = confirmations.filter {
+            $0.value.trigger != .aggregateMemoryPressure
+        }
     }
 
     func clearInFlightTeardown(_ key: AgentHibernationPanelKey, requestID: UUID) {

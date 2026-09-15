@@ -1,82 +1,60 @@
 import { describe, expect, mock, test } from "bun:test";
-import { readFile } from "node:fs/promises";
 
+import type { ClickHouseConfig } from "../services/coderouter/clickhouse";
 import {
   __test as metricsTest,
   type CoderouterTeamMetrics,
 } from "../services/coderouter/teamMetrics";
-import { coderouterTeamAnalyticsId } from
-  "../services/coderouter/analyticsIdentity";
 
-const scopeSecret = "test-only-scope-secret-at-least-32-bytes";
-const config = {
-  apiHost: "https://us.posthog.test",
-  environmentId: "244066",
-  endpointSecret: "phs_endpoint_read_only",
-  endpointName: "coderouter-team-usage-30d",
-  scopeSecret,
+const config: ClickHouseConfig = {
+  url: "https://ledger.clickhouse.test:8443",
+  user: "coderouter_app",
+  password: "app-password",
+  database: "coderouter_dev",
+};
+const now = () => new Date("2026-08-08T12:00:00.000Z");
+const usageRow = {
+  input_tokens: 1_200_000,
+  cached_input_tokens: 200_000,
+  output_tokens: 100_000,
+  total_tokens: 1_300_000,
+  api_equivalent_usd: 3.185,
+  priced_tokens: 1_300_000,
+  unpriced_tokens: 0,
 };
 
+function jsonEachRow(rows: readonly unknown[]): Response {
+  return new Response(rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+}
+
 describe("CodeRouter team metrics", () => {
-  test("calls the fixed PostHog Endpoint with a project-scoped key", async () => {
-    const posthogFetch = mock(async (...args: unknown[]) => {
-      const [url, init] = args;
-      expect(String(url)).toBe(
-        "https://us.posthog.test/api/projects/244066/endpoints/coderouter-team-usage-30d/run",
-      );
-      expect(
-        new Headers((init as RequestInit | undefined)?.headers).get(
-          "authorization",
-        ),
-      ).toBe("Bearer phs_endpoint_read_only");
-      const body = JSON.parse(
-        String((init as RequestInit | undefined)?.body),
-      ) as { variables: Record<string, unknown> };
-      expect(body).toEqual({
-        variables: {
-          team_scope: coderouterTeamAnalyticsId(
-            "team-authorized",
-            scopeSecret,
-          ),
-        },
-      });
-      expect(JSON.stringify(body)).not.toContain("team-authorized");
-      return Response.json({
-        columns: [
-          "day",
-          "input_tokens",
-          "cached_input_tokens",
-          "output_tokens",
-          "total_tokens",
-          "api_equivalent_usd",
-          "priced_tokens",
-          "unpriced_tokens",
-        ],
-        results: [{
-          day: "2026-08-08",
-          input_tokens: 1_200_000,
-          cached_input_tokens: 200_000,
-          output_tokens: 100_000,
-          total_tokens: 1_300_000,
-          api_equivalent_usd: 3.185,
-          priced_tokens: 1_300_000,
-          unpriced_tokens: 0,
-        }],
-        hasMore: false,
-      });
+  test("queries the ledger with bound parameters and a 30-day UTC window", async () => {
+    const ledgerFetch = mock(async (...args: unknown[]) => {
+      const [input, init] = args;
+      const url = new URL(String(input));
+      expect(url.origin).toBe("https://ledger.clickhouse.test:8443");
+      expect(url.searchParams.get("param_team_id")).toBe("team-authorized");
+      expect(url.searchParams.get("param_start_day")).toBe("2026-07-10");
+      expect(url.searchParams.get("param_end_day")).toBe("2026-08-08");
+      const body = String((init as RequestInit | undefined)?.body);
+      expect(body).toContain("FROM coderouter_dev.usage_events");
+      expect(body).toContain("WHERE team_id = {team_id:String}");
+      expect(body).toContain("toDate(event_time) >= {start_day:Date}");
+      expect(body).toContain("LIMIT 31");
+      expect(body).not.toContain("team-authorized");
+      return jsonEachRow([{ day: "2026-08-08", ...usageRow }]);
     });
 
     const result = await metricsTest.queryCoderouterTeamMetrics(
       "team-authorized",
-      {
-        config: () => config,
-        fetch: posthogFetch as typeof fetch,
-        now: () => new Date("2026-08-08T12:00:00.000Z"),
-      },
+      { clickhouse: { config: () => config, fetch: ledgerFetch as typeof fetch }, now },
     );
 
+    expect(ledgerFetch).toHaveBeenCalledTimes(1);
     expect(result.kind).toBe("ready");
     const ready = result as Extract<CoderouterTeamMetrics, { kind: "ready" }>;
+    expect(ready.periodDays).toBe(30);
+    expect(ready.rateCardVersion).toBe("2026-08-08");
     expect(ready.totals).toEqual({
       inputTokens: 1_200_000,
       cachedInputTokens: 200_000,
@@ -86,183 +64,80 @@ describe("CodeRouter team metrics", () => {
       pricedTokens: 1_300_000,
       unpricedTokens: 0,
     });
-    expect(ready.daily.at(-1)).toMatchObject({
+    expect(ready.daily).toHaveLength(30);
+    expect(ready.daily[0]).toEqual({ day: "2026-07-10", totalTokens: 0, apiEquivalentUsd: 0 });
+    expect(ready.daily.at(-1)).toEqual({
       day: "2026-08-08",
       totalTokens: 1_300_000,
       apiEquivalentUsd: 3.185,
     });
+    expect(JSON.stringify(ready)).not.toMatch(/model|provider|member|account/i);
   });
 
-  test("accepts partial pricing coverage without exposing dimensions", () => {
+  test("accepts partial pricing coverage and quoted UInt64 sums", () => {
     const result = metricsTest.metricsFromRows(
       [{
         day: "2026-08-08",
-        input_tokens: 84,
-        cached_input_tokens: 20,
-        output_tokens: 26,
-        total_tokens: 110,
+        input_tokens: "84",
+        cached_input_tokens: "20",
+        output_tokens: "26",
+        total_tokens: "110",
         api_equivalent_usd: 0.0003,
-        priced_tokens: 100,
-        unpriced_tokens: 10,
+        priced_tokens: "100",
+        unpriced_tokens: "10",
       }],
-      new Date("2026-08-08T12:00:00.000Z"),
+      now(),
     );
 
     expect(result).not.toBeNull();
     expect(result!.totals.totalTokens).toBe(110);
     expect(result!.totals.pricedTokens).toBe(100);
     expect(result!.totals.unpricedTokens).toBe(10);
-    expect(JSON.stringify(result)).not.toMatch(/model|provider|member|account/i);
   });
 
-  test("accepts PostHog tabular rows aligned with validated columns", () => {
-    const result = metricsTest.metricsFromRows(
-      [[
-        "2026-08-08",
-        80,
-        20,
-        20,
-        100,
-        0.0003,
-        100,
-        0,
-      ]],
-      new Date("2026-08-08T12:00:00.000Z"),
-    );
-    expect(result?.totals).toMatchObject({
-      inputTokens: 80,
-      cachedInputTokens: 20,
-      outputTokens: 20,
-      totalTokens: 100,
-      pricedTokens: 100,
-      unpricedTokens: 0,
-    });
-  });
-
-  test("fails closed when PostHog is unconfigured or malformed", async () => {
+  test("fails closed when the ledger is disabled or rows are malformed", async () => {
+    const failures: string[] = [];
     expect(
       await metricsTest.queryCoderouterTeamMetrics("team-1", {
-        config: () => null,
-        fetch,
-        now: () => new Date("2026-08-08T12:00:00.000Z"),
+        clickhouse: { config: () => null, fetch },
+        now,
+        reportFailure: (reason) => failures.push(reason),
       }),
     ).toEqual({ kind: "unavailable" });
 
-    const malformed = await metricsTest.queryCoderouterTeamMetrics("team-1", {
-      config: () => config,
-      fetch: mock(async () =>
-        Response.json({
-          columns: ["prompt"],
-          results: [{ prompt: "private" }],
-          hasMore: false,
-        })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-    });
-    expect(malformed).toEqual({ kind: "unavailable" });
-  });
+    expect(
+      await metricsTest.queryCoderouterTeamMetrics("team-1", {
+        clickhouse: {
+          config: () => config,
+          fetch: mock(async () => jsonEachRow([{ prompt: "private" }])) as typeof fetch,
+        },
+        now,
+        reportFailure: (reason) => failures.push(reason),
+      }),
+    ).toEqual({ kind: "unavailable" });
 
-  test("rejects truncated endpoint responses", async () => {
-    const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
-      config: () => config,
-      fetch: mock(async () =>
-        Response.json({
-          columns: [
-            "day",
-            "input_tokens",
-            "cached_input_tokens",
-            "output_tokens",
-            "total_tokens",
-            "api_equivalent_usd",
-            "priced_tokens",
-            "unpriced_tokens",
-          ],
-          results: [],
-          hasMore: true,
-        })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-    });
-    expect(result).toEqual({ kind: "unavailable" });
-  });
+    expect(
+      await metricsTest.queryCoderouterTeamMetrics("team-1", {
+        clickhouse: {
+          config: () => config,
+          fetch: mock(async () =>
+            jsonEachRow([{ day: "2026-08-08", ...usageRow, cached_input_tokens: 2_000_000 }])) as typeof fetch,
+        },
+        now,
+        reportFailure: (reason) => failures.push(reason),
+      }),
+    ).toEqual({ kind: "unavailable" });
 
-  test("reports endpoint failures without including the team identity", async () => {
-    const failures: Array<{ reason: string; status?: number }> = [];
-    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
-      config: () => config,
-      fetch: mock(async () =>
-        new Response(null, { status: 503 })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-      reportFailure: (reason, status) => failures.push({ reason, status }),
-    });
-
-    expect(result).toEqual({ kind: "unavailable" });
-    expect(failures).toEqual([{ reason: "endpoint_status", status: 503 }]);
-    expect(JSON.stringify(failures)).not.toContain("team-private");
-  });
-
-  test("classifies invalid endpoint JSON as a malformed response", async () => {
-    const failures: string[] = [];
-    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
-      config: () => config,
-      fetch: mock(async () =>
-        new Response("{", {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-      reportFailure: (reason) => failures.push(reason),
-    });
-
-    expect(result).toEqual({ kind: "unavailable" });
-    expect(failures).toEqual(["malformed_response"]);
-  });
-
-  test("classifies endpoint body stream failures as request failures", async () => {
-    const failures: string[] = [];
-    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
-      config: () => config,
-      fetch: mock(async () =>
-        new Response(new ReadableStream({
-          start(controller) {
-            controller.error(new Error("stream failed"));
-          },
-        }), { status: 200 })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-      reportFailure: (reason) => failures.push(reason),
-    });
-
-    expect(result).toEqual({ kind: "unavailable" });
-    expect(failures).toEqual(["request_failed"]);
-  });
-
-  test("classifies a null endpoint JSON root as a malformed response", async () => {
-    const failures: string[] = [];
-    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
-      config: () => config,
-      fetch: mock(async () => Response.json(null)) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
-      reportFailure: (reason) => failures.push(reason),
-    });
-
-    expect(result).toEqual({ kind: "unavailable" });
-    expect(failures).toEqual(["malformed_response"]);
+    expect(failures).toEqual(["configuration_missing", "invalid_metrics", "invalid_metrics"]);
   });
 
   test("rejects a 31st UTC day instead of silently truncating", async () => {
+    const failures: string[] = [];
     const result = await metricsTest.queryCoderouterTeamMetrics("team-1", {
-      config: () => config,
-      fetch: mock(async () =>
-        Response.json({
-          columns: [
-            "day",
-            "input_tokens",
-            "cached_input_tokens",
-            "output_tokens",
-            "total_tokens",
-            "api_equivalent_usd",
-            "priced_tokens",
-            "unpriced_tokens",
-          ],
-          results: Array.from({ length: 31 }, (_, index) => ({
+      clickhouse: {
+        config: () => config,
+        fetch: mock(async () =>
+          jsonEachRow(Array.from({ length: 31 }, (_, index) => ({
             day: `2026-07-${String(index + 1).padStart(2, "0")}`,
             input_tokens: 1,
             cached_input_tokens: 0,
@@ -271,28 +146,63 @@ describe("CodeRouter team metrics", () => {
             api_equivalent_usd: 0,
             priced_tokens: 0,
             unpriced_tokens: 2,
-          })),
-          hasMore: false,
-        })) as typeof fetch,
-      now: () => new Date("2026-08-08T12:00:00.000Z"),
+          })))) as typeof fetch,
+      },
+      now,
+      reportFailure: (reason) => failures.push(reason),
     });
     expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["malformed_response"]);
   });
 
-  test("endpoint query uses exactly 30 UTC calendar days plus an overflow sentinel", async () => {
-    const query = await readFile(
-      new URL(
-        "../../docs/posthog/coderouter-team-usage-30d.hogql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    expect(query).toContain("toString(toDate(timestamp)) AS day");
-    expect(query).toContain(
-      "toDate(timestamp) >= toDate(now()) - INTERVAL 29 DAY",
-    );
-    expect(query).toContain("toDate(timestamp) <= toDate(now())");
-    expect(query).toContain("LIMIT 31");
-    expect(query).not.toContain("now() - INTERVAL 30 DAY");
+  test("reports query failures without including the team identity", async () => {
+    const failures: Array<{ reason: string; status?: number }> = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      clickhouse: {
+        config: () => config,
+        fetch: mock(async () => new Response("denied", { status: 503 })) as typeof fetch,
+      },
+      now,
+      reportFailure: (reason, status) => failures.push({ reason, status }),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual([{ reason: "endpoint_status", status: 503 }]);
+    expect(JSON.stringify(failures)).not.toContain("team-private");
+  });
+
+  test("classifies invalid JSONEachRow as a malformed response", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      clickhouse: {
+        config: () => config,
+        fetch: mock(async () => new Response("{\n", { status: 200 })) as typeof fetch,
+      },
+      now,
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["malformed_response"]);
+  });
+
+  test("classifies body stream failures as request failures", async () => {
+    const failures: string[] = [];
+    const result = await metricsTest.queryCoderouterTeamMetrics("team-private", {
+      clickhouse: {
+        config: () => config,
+        fetch: mock(async () =>
+          new Response(new ReadableStream({
+            start(controller) {
+              controller.error(new Error("stream failed"));
+            },
+          }), { status: 200 })) as typeof fetch,
+      },
+      now,
+      reportFailure: (reason) => failures.push(reason),
+    });
+
+    expect(result).toEqual({ kind: "unavailable" });
+    expect(failures).toEqual(["request_failed"]);
   });
 });

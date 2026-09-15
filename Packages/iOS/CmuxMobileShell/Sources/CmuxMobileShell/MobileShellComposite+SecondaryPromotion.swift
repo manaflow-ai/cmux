@@ -81,14 +81,8 @@ extension MobileShellComposite {
     /// Change a retained focused client to control-only ownership after its
     /// terminal subscription has been removed. The workspace snapshot stays in
     /// `workspacesByMac`, so the aggregate never blinks while roles change.
+    /// Pool ownership is independent of the aggregation preference.
     func installControlConnection(from connection: MacConnection) async {
-        guard multiMacAggregationEnabled else {
-            removeControlCapability(ifMatching: connection)
-            removeFocusedConnection(ifMatching: connection)
-            connection.client.retire()
-            Task { await connection.client.disconnect() }
-            return
-        }
         let existing = secondaryMacSubscriptions[connection.ownerKey]
         let subscription: SecondaryMacSubscription
         let needsActivation: Bool
@@ -519,9 +513,7 @@ extension MobileShellComposite {
         connectionAttemptGeneration = generation
         connectionGeneration = generation
         let previousForegroundID = foregroundMacDeviceID
-        let previousForegroundConnection = previousForegroundID.flatMap {
-            connections[$0]
-        }
+        let previousForegroundConnection = focusedForegroundConnection
         let unregisteredPreviousClient = previousForegroundConnection == nil
             ? remoteClient
             : nil
@@ -674,6 +666,7 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
+        authenticatedMacAppVersion = sub.ticket.macAppVersion
         // The foreground refetches this feed under the bare device key; the
         // pairing-keyed source would otherwise linger as stale offline rows,
         // and a sibling switch must not reuse the old build's device-keyed
@@ -767,6 +760,16 @@ extension MobileShellComposite {
         activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
+        // A pooled Mac may have authenticated before the background policy
+        // refresh completed. Recheck after promotion, too: the target is now
+        // the foreground owner even when another Mac was foreground when the
+        // stricter policy arrived. If it fails, drain the reused transport
+        // before the caller's fresh-dial fallback can race this session.
+        revalidateActiveMacCompatibilityPolicy()
+        guard connectionState == .connected else {
+            await sub.client.disconnectAndWaitForTransportDrain()
+            return .unavailable
+        }
         // Establish the foreground listener before fetching the snapshot that
         // focus will publish. This closes the control-unsubscribe/terminal-
         // subscribe gap for legacy Macs that have no state-sync cursor repair.
@@ -870,8 +873,13 @@ extension MobileShellComposite {
         }
         selectWorkspaceOnCurrentForegroundMac()
         // The old foreground snapshot remains live through its new control
-        // connection, so `dropStalePreviousForeground` keeps it in the aggregate.
-        dropStalePreviousForeground(previousForegroundKey)
+        // connection, so cleanup moves it to the control owner's stored key.
+        dropStalePreviousForeground(
+            previousForegroundKey,
+            retainingConnection: demotedForegroundSubscription == nil
+                ? nil
+                : previousForegroundConnection
+        )
         scheduleForegroundNotificationFeedRefresh(client: sub.client)
         syncSelectedTerminalForWorkspace()
         enqueueActivePairedMacWrite(

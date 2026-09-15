@@ -197,9 +197,9 @@ struct SidebarFooterCircularIcon: View {
         CmuxSystemSymbolImage(
             systemName: systemName,
             pointSize: style.pointSize,
-            weight: style.weight
+            weight: style.weight,
+            tint: .secondary
         )
-        .foregroundStyle(.secondary)
     }
 }
 
@@ -373,7 +373,7 @@ private struct SidebarAccountPopover: View {
                 }
                 Button {
                     dismiss()
-                    accountFlow?.openProUpgrade()
+                    accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
                 } label: {
                     Label(
                         String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
@@ -471,8 +471,7 @@ struct SidebarMobileConnectButton: View {
                     debugSource: "sidebar.mobileConnect"
                 )
             } label: {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium)
-                    .foregroundStyle(.secondary)
+                CmuxSystemSymbolImage(systemName: "iphone", pointSize: iconSize, weight: .medium, tint: .secondary)
                     .frame(
                         width: SidebarFooterButtonMetrics.buttonSize,
                         height: SidebarFooterButtonMetrics.buttonSize
@@ -629,6 +628,9 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
+            // This full-height background extends behind the rows. Keep it
+            // SwiftUI-only so native hit testing cannot steal row presses;
+            // the AppKit table and clip view own native-sidebar window drags.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())

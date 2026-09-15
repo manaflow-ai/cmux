@@ -282,6 +282,49 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(externallyOpened.isEmpty)
     }
 
+    @Test("Explicit file URLs with locations keep the URL handler route")
+    @MainActor
+    func explicitFileURLWithLocationDoesNotUsePreferredEditor() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        defaults.set(false, forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-url-location-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("main.swift")
+        try "print(\"hello\")\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let marker = directory.appendingPathComponent("preferred-editor-used")
+        let editorScript = directory.appendingPathComponent("editor.sh")
+        try #"""
+        #!/bin/sh
+        touch '#(marker.path)'
+        """#.write(to: editorScript, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: editorScript.path)
+        defaults.set(editorScript.path, forKey: AppCatalogSection().preferredEditor.userDefaultsKey)
+
+        let fileOpener = RecordingFileOpener()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+        let rawValue = URL(fileURLWithPath: fileURL.path).absoluteString + ":42"
+        let expectedURL = try #require(URL(string: rawValue))
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: rawValue,
+            sourceWorkspaceId: nil,
+            sourcePanelId: UUID(),
+            workingDirectory: directory.path
+        )))
+        #expect(fileOpener.opened == [expectedURL])
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     @Test("Web URLs still open through the raw system opener with a preferred editor configured")
     @MainActor
     func webURLExternalOpenIgnoresPreferredEditor() throws {
@@ -318,6 +361,96 @@ struct TerminalLinkOpenCoordinatorTests {
         #expect(handled)
         #expect(externallyOpened == [url])
         #expect(fileOpener.opened.isEmpty)
+    }
+
+    @Test("Configured external URL rules bypass the embedded terminal browser")
+    @MainActor
+    func configuredExternalURLRuleUsesSystemBrowser() throws {
+        let defaults = makeDefaults()
+        defaults.set(
+            [".*example\\.com.*"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let url = try #require(URL(string: "https://example.com/"))
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        )))
+        #expect(externallyOpened == [url])
+        #expect(
+            store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) as? BrowserPanel }.isEmpty
+        )
+    }
+
+    @Test("Configured external URL opener failure does not fall back to embedded browser")
+    @MainActor
+    func configuredExternalURLRulePropagatesOpenerFailure() throws {
+        let defaults = makeDefaults()
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { FileManager.default.temporaryDirectory.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let terminalPanelId = try #require(
+            store.newSurface(kind: .terminal, inPane: rootPane, focus: true)
+        )
+        let url = try #require(URL(string: "https://example.com/"))
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, panelId in
+                panelId == terminalPanelId ? store : nil
+            },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return false
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(!coordinator.open(TerminalLinkOpenRequest(
+            rawValue: url.absoluteString,
+            sourceWorkspaceId: nil,
+            sourcePanelId: terminalPanelId,
+            workingDirectory: nil
+        )))
+        #expect(externallyOpened == [url])
+        #expect(
+            store.bonsplitController.allTabIds.compactMap { store.panel(for: $0) as? BrowserPanel }.isEmpty
+        )
     }
 
     private func makeHTMLFixture(pathExtension: String) throws -> URL {

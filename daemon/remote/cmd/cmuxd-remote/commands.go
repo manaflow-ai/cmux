@@ -4,6 +4,13 @@ package main
 // a v2 JSON-RPC method and declares which flags it accepts. Relay-specific
 // behaviour (paramKeyOverrides, specialDispatch, defaultParams) lives in
 // cli_overrides.go; init() in cli.go applies those overrides on top.
+//
+// SECURITY (GHSA-9vmv-3hjw-j28c): being in this table does NOT make a command
+// reachable through the relay. The app's RemoteRelayCommandPolicy denies every
+// method by default and allowlists only this table's safe subset, scoped to
+// remote-owned targets, with command-bearing params denied on all methods.
+// Before adding an entry (or a new v2 method), read the "Remote CLI relay
+// authorization" section of the repo-root AGENTS.md and add policy tests.
 var commands = []commandSpec{
 	{
 		name:      "break-pane",

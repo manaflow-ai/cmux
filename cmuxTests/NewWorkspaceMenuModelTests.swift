@@ -35,12 +35,10 @@ struct NewWorkspaceMenuModelTests {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: [],
             agentChatAction: nil,
-            cloudSectionEnabled: false,
             templateNames: [],
             loadedActions: [],
             newWorkspaceActionID: nil,
-            deletable: { _ in false },
-            sectionOrder: .customFirst
+            deletable: { _ in false }
         )
         guard model.sections.count == 1, case .management(let management) = model.sections[0] else {
             Issue.record("Expected a lone management section, got \(model.sections)")
@@ -86,7 +84,6 @@ struct NewWorkspaceMenuModelTests {
           },
           "ui": {
             "newWorkspace": {
-              "menuSectionOrder": "customFirst",
               "contextMenu": [
                 "cmux.newWorkspace",
                 { "type": "separator" },
@@ -104,7 +101,6 @@ struct NewWorkspaceMenuModelTests {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
-            cloudSectionEnabled: true,
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,
             newWorkspaceActionID: store.newWorkspaceActionID,
@@ -113,18 +109,13 @@ struct NewWorkspaceMenuModelTests {
             // if that filter regressed to `deletable` alone, the command would
             // leak into `management.deletableActions` and the assertion below
             // (== ["review-layout"]) would fail.
-            deletable: { $0.id == "review-layout" || $0.id == "terminal-command" },
-            sectionOrder: store.newWorkspaceMenuSectionOrder
+            deletable: { $0.id == "review-layout" || $0.id == "terminal-command" }
         )
 
-        // customFirst keeps the whole custom block (create actions + the
-        // Layouts section, both sourced from ui.newWorkspace.contextMenu)
-        // above the built-in Cloud VM section, per docs/configuration.md.
         guard case .create(let createRows) = model.sections[0],
               case .layouts(let layoutRows) = model.sections[1],
-              case .cloud = model.sections[2],
-              case .templates(let templates) = model.sections[3],
-              case .management(let management) = model.sections[4] else {
+              case .templates(let templates) = model.sections[2],
+              case .management(let management) = model.sections[3] else {
             Issue.record("Unexpected model sections: \(model.sections)")
             return
         }
@@ -149,27 +140,6 @@ struct NewWorkspaceMenuModelTests {
             #expect(isDefault)
         } else {
             Issue.record("Expected hand-edited default command in create rows")
-        }
-
-        // The default cloudFirst order keeps the built-in Cloud VM section on
-        // top, followed by the custom block (create actions, then layouts).
-        let cloudFirstModel = NewWorkspaceMenuModel.build(
-            newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
-            agentChatAction: agent,
-            cloudSectionEnabled: true,
-            templateNames: ["Template A"],
-            loadedActions: store.loadedActions,
-            newWorkspaceActionID: store.newWorkspaceActionID,
-            deletable: { $0.id == "review-layout" },
-            sectionOrder: .cloudFirst
-        )
-        guard case .cloud = cloudFirstModel.sections[0],
-              case .create = cloudFirstModel.sections[1],
-              case .layouts = cloudFirstModel.sections[2],
-              case .templates = cloudFirstModel.sections[3],
-              case .management = cloudFirstModel.sections[4] else {
-            Issue.record("Unexpected cloudFirst sections: \(cloudFirstModel.sections)")
-            return
         }
     }
 }

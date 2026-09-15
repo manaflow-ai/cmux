@@ -1,10 +1,18 @@
 public import AppKit
 public import Foundation
 public import GhosttyKit
+public import CmuxTerminalCore
 
 // MARK: - Surface sizing and scale
 
 extension TerminalSurface {
+    /// Assigns the host that authorizes view-driven renderer and PTY sizing.
+    /// - Parameter authority: The current portal, or nil when the surface is detached.
+    @MainActor
+    public func setSurfaceResizeAuthority(_ authority: (any TerminalSurfaceResizeAuthority)?) {
+        surfaceResizeAuthority = authority
+    }
+
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
     /// from backing-space points and truncated (never rounded up).
     func pixelDimension(from value: CGFloat) -> UInt32 {
@@ -15,7 +23,6 @@ extension TerminalSurface {
         }
         return UInt32(floored)
     }
-
     @MainActor
     func scaleFactors(for view: any TerminalSurfaceNativeViewing) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
         let scale = max(
@@ -27,7 +34,6 @@ extension TerminalSurface {
         )
         return (scale, scale, scale)
     }
-
     func scaleApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
         abs(lhs - rhs) <= epsilon
     }
@@ -165,7 +171,8 @@ extension TerminalSurface {
     @MainActor
     public func reapplyAssignedGrid() {
         guard ioMode.usesManualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
-              lastXScale > 0, lastYScale > 0 else { return }
+              lastXScale > 0, lastYScale > 0,
+              surfaceResizeAuthority?.isRendererResizeDeferred != true else { return }
         _ = updateSize(
             width: CGFloat(lastUncappedPixelWidth) / lastXScale,
             height: CGFloat(lastUncappedPixelHeight) / lastYScale,
@@ -205,6 +212,7 @@ extension TerminalSurface {
         suppressAssignedGridPin: Bool = false,
         caller: StaticString = #function
     ) -> Bool {
+        guard surfaceResizeAuthority?.isRendererResizeDeferred != true else { return false }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
 
@@ -370,11 +378,9 @@ extension TerminalSurface {
                 }
             }
         }
-
         if fittedSize.fontChanged && !sizeChanged {
             ghostty_surface_refresh(surface)
         }
-
         // Deferred from above on a DPI increase: now that set_size grew the grid,
         // applying the larger cell only shrinks it back to the final width.
         if deferScaleUntilResized {
@@ -382,7 +388,6 @@ extension TerminalSurface {
             lastXScale = xScale
             lastYScale = yScale
         }
-
         // Remote tmux display surfaces: report every APPLIED resize —
         // including same-grid re-applies, since a resize that lands on new
         // pixels without changing cols×rows still refines the measured
@@ -391,9 +396,12 @@ extension TerminalSurface {
         // must still report, because a hidden mirror's one-time size claim
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
-        // what a hidden report may do.
+        // what a hidden report may do. A hidden bootstrap window is not a
+        // real pane window and must never become sizing truth.
         if ioMode.usesManualIO, let report = onManualSizeApplied {
-            if let attachedView, attachedView.window != nil {
+            if let attachedView,
+               let realWindow = uiWindow,
+               attachedView.window === realWindow {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)
                 let cols = Int(applied.columns)
@@ -417,11 +425,9 @@ extension TerminalSurface {
                 manualSizeReportPendingWindowAttach = true
             }
         }
-
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
         return true
     }
-
     /// The current monospace cell size in points, or nil if the runtime
     /// surface is not ready. Used by remote tmux mirror sizing.
     @MainActor
@@ -435,7 +441,6 @@ extension TerminalSurface {
             height: Double(size.cell_height_px) / scale
         )
     }
-
     /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
     /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
     /// points and its window's backing scale. Callers separate view layout,
@@ -457,7 +462,6 @@ extension TerminalSurface {
             backingScale: attachedView?.window?.backingScaleFactor
         )
     }
-
     /// Delivers the manual-size report that was skipped because the view was
     /// outside any window when the size applied (see
     /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
@@ -466,14 +470,14 @@ extension TerminalSurface {
     public func flushPendingManualSizeReportIfAttached() {
         guard manualSizeReportPendingWindowAttach,
               let report = onManualSizeApplied,
-              attachedView?.window != nil,
+              let realWindow = uiWindow,
+              attachedView?.window === realWindow,
               let sample = rawSizingSample(),
               sample.columns > 1, sample.rows > 1
         else { return }
         manualSizeReportPendingWindowAttach = false
         report(sample)
     }
-
     /// Which of ``renderedGridCells()``'s nil conditions currently hold —
     /// lets sizing diagnostics name the mechanism (view detached from its
     /// window vs surface not live vs no real grid) instead of a bare nil.
@@ -484,7 +488,6 @@ extension TerminalSurface {
             surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
         )
     }
-
     /// The on-screen rendered grid, or nil while the runtime surface is not
     /// live, is not in a window, or has no real grid yet.
     @MainActor
@@ -497,5 +500,4 @@ extension TerminalSurface {
         guard cols > 1, rows > 1 else { return nil }
         return (cols, rows)
     }
-
 }

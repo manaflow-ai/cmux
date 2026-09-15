@@ -6,7 +6,11 @@ import {
   FREE_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
+  isPaidPlanId,
+  isStripePortalRecoverable,
+  manualVmPlanOverride,
   resolveProPlanStatus,
+  stripeBillingStatusForTeam,
   type BillingManagementKind,
 } from "../../../../services/billing/pro";
 import {
@@ -100,5 +104,17 @@ async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPla
   if (stripeActive) {
     return { planId: TEAM_PLAN_ID, billingManagement: "stripe" };
   }
-  return { planId: FREE_PLAN_ID, billingManagement: "none" };
+  // An operator team grant (`cmuxVmPlan` on the team) is the Team plan
+  // without a subscription to manage.
+  if (isPaidPlanId(manualVmPlanOverride(team.clientReadOnlyMetadata))) {
+    return { planId: TEAM_PLAN_ID, billingManagement: "none" };
+  }
+  // Mirror the personal-plan rule: the portal is only useful when it has a
+  // recoverable subscription to manage. Terminally canceled teams and
+  // customer-only rows must keep the checkout path.
+  const teamBilling = await stripeBillingStatusForTeam(team.id);
+  return {
+    planId: FREE_PLAN_ID,
+    billingManagement: isStripePortalRecoverable(teamBilling) ? "stripe" : "none",
+  };
 }

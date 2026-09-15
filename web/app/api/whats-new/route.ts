@@ -4,6 +4,7 @@ import {
   whatsNewList,
   type WhatsNewAnnouncement,
   type WhatsNewAnnouncementFeature,
+  type WhatsNewChannel,
   type WhatsNewList,
 } from "../../../data/whats-new";
 
@@ -13,13 +14,29 @@ const ALLOW_HEADERS = "If-None-Match, Content-Type";
 /** In-app What's New webpages may load cmux-owned hosts only. */
 const ALLOWED_WEB_URL_HOSTS = new Set(["cmux.com", "www.cmux.com"]);
 const VERSION_PATTERN = /^\d+(\.\d+)*$/;
+/**
+ * The client's `MobileBuildType.token` vocabulary. Channel lists are
+ * validated against this set because an unknown token silently matches no
+ * build on device (fail-closed), which would make a typo like "official"
+ * (the token is "prod") an invisible no-op.
+ */
+const KNOWN_CHANNELS: ReadonlySet<string> = new Set([
+  "dev",
+  "beta",
+  "internal",
+  "demo",
+  "prod",
+] satisfies WhatsNewChannel[]);
 const PAYLOAD = JSON.stringify(validateList(whatsNewList));
 const ETAG = `"${createHash("sha256").update(PAYLOAD).digest("base64url")}"`;
 
 /**
  * Validates the reviewed list before it can be served: version bounds are
  * required and well-formed, ids are unique, every announcement resolves to
- * at least one content source, and web URLs stay on cmux-owned https hosts.
+ * at least one content source, web URLs stay on cmux-owned https hosts, and
+ * channel lists (announcement `channels`, per-entry `entryChannels`) are
+ * nonempty, deduplicated, drawn from the known channel tokens, and keyed to
+ * visible entries.
  */
 export function validateList(input: WhatsNewList): WhatsNewList {
   const seenEntryIDs = new Set<string>();
@@ -29,6 +46,19 @@ export function validateList(input: WhatsNewList): WhatsNewList {
       throw new Error(`visibleEntryIds contains duplicate id ${trimmed}`);
     }
     seenEntryIDs.add(trimmed);
+  }
+
+  // An entryChannels key must reference a visible entry: an override for a
+  // hidden or unknown id is dead configuration and almost certainly a typo'd
+  // id, which would silently leave the intended entry on its default
+  // (team-lanes-only) audience.
+  for (const [entryId, channels] of Object.entries(input.entryChannels ?? {})) {
+    if (!seenEntryIDs.has(entryId)) {
+      throw new Error(
+        `entryChannels key ${entryId} is not in visibleEntryIds`,
+      );
+    }
+    channelList(channels, `entryChannels[${entryId}]`);
   }
 
   const seenAnnouncementIDs = new Set<string>();
@@ -63,6 +93,9 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
   }
   if (announcement.releaseLabel !== undefined) {
     nonemptyString(announcement.releaseLabel, `${path}.releaseLabel`);
+  }
+  if (announcement.channels !== undefined) {
+    channelList(announcement.channels, `${path}.channels`);
   }
 
   const hasNative = announcement.nativeEntryId !== undefined;
@@ -101,6 +134,32 @@ function validateFeature(feature: WhatsNewAnnouncementFeature, path: string): vo
   nonemptyString(feature.title, `${path}.title`);
   nonemptyString(feature.detail, `${path}.detail`);
   if (feature.symbol !== undefined) nonemptyString(feature.symbol, `${path}.symbol`);
+}
+
+/**
+ * A declared channel list replaces the client's default audience, so it must
+ * be nonempty (an empty list would hide the page everywhere; retract through
+ * `visibleEntryIds` or announcement removal instead), deduplicated, and drawn
+ * from the client's known tokens: an unknown token matches no build on device
+ * (fail-closed), so a typo would otherwise ship as an invisible no-op.
+ */
+function channelList(channels: WhatsNewChannel[] | undefined, path: string): void {
+  if (channels === undefined || channels.length === 0) {
+    throw new Error(`${path} must list at least one channel`);
+  }
+  const seen = new Set<string>();
+  for (const [index, channel] of channels.entries()) {
+    const value = nonemptyString(channel, `${path}[${index}]`);
+    if (!KNOWN_CHANNELS.has(value)) {
+      throw new Error(
+        `${path}[${index}] must be one of ${[...KNOWN_CHANNELS].join(", ")}, got ${value}`,
+      );
+    }
+    if (seen.has(value)) {
+      throw new Error(`${path} contains duplicate channel ${value}`);
+    }
+    seen.add(value);
+  }
 }
 
 function version(input: string | undefined, path: string): void {

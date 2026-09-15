@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   checkRateLimit,
   installVercelFirewallMock,
@@ -12,6 +13,7 @@ process.env.POSTHOG_PROJECT_KEY = "test-project-key";
 process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
 
 const originalVercel = process.env.VERCEL;
+const originalVercelEnvironment = process.env.VERCEL_ENV;
 installVercelFirewallMock();
 
 const {
@@ -35,6 +37,7 @@ afterEach(() => {
   } else {
     process.env.VERCEL = originalVercel;
   }
+  restoreEnv("VERCEL_ENV", originalVercelEnvironment);
 });
 
 afterAll(() => {
@@ -248,8 +251,9 @@ describe("client config", () => {
     }
   });
 
-  test("applies the Vercel limiter before proxying flags", async () => {
+  test("partitions the Vercel limiter by deployment and install", async () => {
     process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
     process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = " cmux-client-config-test\n";
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
     const fetchMock = mock(async () => {
@@ -260,18 +264,37 @@ describe("client config", () => {
     const response = await POST(new Request("https://cmux.test/api/client-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{",
+      body: JSON.stringify({ distinctId: "browser-id" }),
     }));
 
     expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({ error: "rate_limited" });
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     const calls = (checkRateLimit as unknown as {
-      mock: { calls: Array<[string, { request: Request }]> };
+      mock: { calls: Array<[string, { request: Request; rateLimitKey?: string }]> };
     }).mock.calls;
     expect(calls[0]?.[0]).toBe("cmux-client-config-test");
     expect(calls[0]?.[1]?.request.url).toBe("https://cmux.test/api/client-config");
+    const installPartition = createHash("sha256")
+      .update("cmux/client-config/v1\0browser-id")
+      .digest("hex");
+    expect(calls[0]?.[1]?.rateLimitKey).toBe(`production:${installPartition}`);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed client config before consuming an install budget", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+
+    const response = await POST(new Request("https://cmux.test/api/client-config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(checkRateLimit).not.toHaveBeenCalled();
   });
 
   test("skips rate limiting on Vercel when the client-config limiter id is unset", async () => {
@@ -304,8 +327,6 @@ describe("client config", () => {
     // A deleted rule is an operator action (no limit wanted), not an outage.
     process.env.VERCEL = "1";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: "not-found" });
-    const consoleWarn = mock(() => {});
-    console.warn = consoleWarn as unknown as typeof console.warn;
     const fetchMock = mock(async () => new Response(
       JSON.stringify({
         errorsWhileComputingFlags: false,
@@ -323,10 +344,6 @@ describe("client config", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(consoleWarn).toHaveBeenCalledWith(
-      "client-config.route.rate_limit_not_found; failing open",
-      "cmux-client-config-test",
-    );
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

@@ -16,13 +16,14 @@ struct AgentLifecycleReducerTests {
         pendingWork: Bool = false,
         isSubagent: Bool = false,
         unattributedReason: String? = nil,
-        declaredPhase: AgentLifecyclePhase? = nil
+        declaredPhase: AgentLifecyclePhase? = nil,
+        occurredAtMs: Int64? = nil
     ) -> AgentJournalEvent {
         let attributed = unattributedReason == nil
         let draft = AgentJournalEventDraft(
             eventId: "event-\(sequence)",
             kind: kind,
-            occurredAtMs: 1_000 + sequence,
+            occurredAtMs: occurredAtMs ?? 1_000 + sequence,
             source: "claude",
             agentKey: agentKey,
             sessionId: session,
@@ -87,6 +88,14 @@ struct AgentLifecycleReducerTests {
         let once = fold(events)
         let twice = fold(events + events + [events[0]])
         #expect(once == twice)
+    }
+
+    @Test func newerSequenceCanApplyAfterTimestampSkew() {
+        var state = AgentLifecycleReducerState()
+        #expect(reducer.apply(event(1, .turnStarted), to: &state))
+        let correction = event(2, .stateChanged, declaredPhase: .idle, occurredAtMs: 1)
+        #expect(reducer.apply(correction, to: &state))
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
     }
 
     @Test func outOfOrderDeliveryConvergesToSequenceOrder() {

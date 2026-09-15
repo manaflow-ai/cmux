@@ -420,6 +420,47 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func hiddenGroupHeaderSurvivesAnchorPromotion() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = makeGroupHeaderModel()
+        let row = SidebarWorkspaceTableRowConfiguration(
+            groupHeaderModel: model,
+            actions: makeGroupHeaderActions {},
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [model.anchorWorkspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // The old anchor has been closed and the group coordinator promoted a
+        // member. The row identity is still the group id, so hiding the table
+        // must not prune the header just because its snapshot workspace id is
+        // no longer live.
+        controller.setPresentationActive(
+            false,
+            workspaceIds: [Self.groupHeaderReplacementWorkspaceID],
+            rowIds: [.group(model.groupId)]
+        )
+        await flushStagedTableMutations()
+
+        #expect(
+            container.tableView.numberOfRows == 1,
+            "A promoted group must retain its stable header row while hidden."
+        )
+    }
+
+    @Test
     func reconstructedNativeTableSourceRetainsItsCompletionAction() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -854,9 +895,15 @@ struct SidebarWorkspaceTableSuspensionTests {
         }
     }
 
+    private static let groupHeaderGroupID = UUID(uuidString: "11111111-1111-4111-8111-111111111111")!
+    private static let groupHeaderAnchorWorkspaceID = UUID(uuidString: "22222222-2222-4222-8222-222222222222")!
+    private static let groupHeaderReplacementWorkspaceID = UUID(uuidString: "33333333-3333-4333-8333-333333333333")!
+
     private func makeGroupHeaderModel(isAnchorActive: Bool = false) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
-            groupId: UUID(), anchorWorkspaceId: UUID(), name: "Group", iconSymbol: "folder",
+            groupId: Self.groupHeaderGroupID,
+            anchorWorkspaceId: Self.groupHeaderAnchorWorkspaceID,
+            name: "Group", iconSymbol: "folder",
             tintHex: nil, isCollapsed: false, isPinned: false, isAnchorActive: isAnchorActive,
             isMultiSelected: false,
             multiSelectionBackgroundStyle: .clear,

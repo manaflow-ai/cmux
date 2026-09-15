@@ -1,8 +1,8 @@
 name: Cloud VM env audit
 
 # Guards against deployed-env / code drift: the 2026-08-26 outage shipped code
-# that assumed CMUX_VM_DEFAULT_PROVIDER=blaxel while production still said
-# freestyle, and every Cloud VM create 503ed for two days with nothing paging.
+# that assumed one CMUX_VM_DEFAULT_PROVIDER while production still said
+# another, and every Cloud VM create 503ed for two days with nothing paging.
 # This audit pulls the real production env and fails when the default
 # provider's image value is missing from the image manifest, so drift is a red
 # workflow on merge (and daily) instead of a user-facing outage.

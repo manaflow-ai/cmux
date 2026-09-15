@@ -145,6 +145,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -184,20 +185,21 @@ struct MacAuthComposition {
                 // usable remote surface.
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                await VMClient.revokeCloudAccess(
+                    deviceID: MobileHostIdentity.deviceID(),
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
                 // Endpoint/preview credentials are separate from Stack Auth;
                 // revoke them with the captured pre-clear token pair before
                 // the coordinator's server-session revocation tail completes.
                 await VMClient.revokeEndpointLeases(
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
-                )
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )

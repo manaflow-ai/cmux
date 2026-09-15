@@ -114,6 +114,7 @@ enum CommandPaletteSettingsToggleCommands {
     }
 
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
+        let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }
         let terminal: @Sendable () -> String = { String(localized: "settings.section.terminal", defaultValue: "Terminal") }
         let sidebar: @Sendable () -> String = {
@@ -262,6 +263,50 @@ enum CommandPaletteSettingsToggleCommands {
                 keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
                 defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
                 defaultsKey: FilePreviewWordWrapSettings.key
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",
+                settingsKey: "fileEditor.syntaxHighlighting",
+                title: {
+                    String(localized: "settings.app.fileEditorSyntaxHighlighting", defaultValue: "File Editor Syntax Highlighting")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.syntaxHighlighting", "syntax", "highlight", "colors", "tokens"],
+                defaultValue: fileEditorSettings.catalog.syntaxHighlighting.defaultValue,
+                defaultsKey: fileEditorSettings.catalog.syntaxHighlighting.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorLineNumbers",
+                settingsKey: "fileEditor.lineNumbers",
+                title: {
+                    String(localized: "settings.app.fileEditorLineNumbers", defaultValue: "File Editor Line Numbers")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.lineNumbers", "gutter", "line", "numbers"],
+                defaultValue: fileEditorSettings.catalog.lineNumbers.defaultValue,
+                defaultsKey: fileEditorSettings.catalog.lineNumbers.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorIndentGuides",
+                settingsKey: "fileEditor.indentGuides",
+                title: {
+                    String(localized: "settings.app.fileEditorIndentGuides", defaultValue: "File Editor Indent Guides")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.indentGuides", "indent", "guides"],
+                defaultValue: fileEditorSettings.catalog.indentGuides.defaultValue,
+                defaultsKey: fileEditorSettings.catalog.indentGuides.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "fileEditorCurrentLineHighlight",
+                settingsKey: "fileEditor.currentLineHighlight",
+                title: {
+                    String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line Highlight")
+                },
+                sectionTitle: app,
+                keywords: ["fileEditor.currentLineHighlight", "current", "line", "caret"],
+                defaultValue: fileEditorSettings.catalog.currentLineHighlight.defaultValue,
+                defaultsKey: fileEditorSettings.catalog.currentLineHighlight.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "iMessageMode",
@@ -735,7 +780,10 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: beta,
                 keywords: ["betaFeatures.feed", "feed", "right", "sidebar", "beta", "agent", "decisions", "permissions"],
                 defaultValue: RightSidebarBetaFeatureSettings.defaultFeedEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.feedEnabledKey
+                defaultsKey: RightSidebarBetaFeatureSettings.feedEnabledKey,
+                didSet: { _, _, notificationCenter in
+                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "rightSidebarDock",
@@ -746,7 +794,10 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: beta,
                 keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
                 defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey
+                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
+                didSet: { _, _, notificationCenter in
+                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",

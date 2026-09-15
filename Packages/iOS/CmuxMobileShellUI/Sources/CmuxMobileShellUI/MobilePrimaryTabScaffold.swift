@@ -9,8 +9,7 @@ struct MobilePrimaryTabScaffold<
     Workspaces: View,
     Feed: View,
     Notifications: View,
-    WorkspaceSearch: View,
-    NotificationSearch: View
+    Search: View
 >: View {
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
@@ -20,8 +19,7 @@ struct MobilePrimaryTabScaffold<
     let workspaces: Workspaces
     let feed: Feed
     let notifications: Notifications
-    let workspaceSearch: WorkspaceSearch
-    let notificationSearch: NotificationSearch
+    let search: Search
 
     init(
         selection: Binding<MobilePrimaryTab>,
@@ -32,8 +30,7 @@ struct MobilePrimaryTabScaffold<
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder feed: () -> Feed,
         @ViewBuilder notifications: () -> Notifications,
-        @ViewBuilder workspaceSearch: () -> WorkspaceSearch,
-        @ViewBuilder notificationSearch: () -> NotificationSearch
+        @ViewBuilder search: () -> Search
     ) {
         _selection = selection
         self.searchCoordinator = searchCoordinator
@@ -43,8 +40,7 @@ struct MobilePrimaryTabScaffold<
         self.workspaces = workspaces()
         self.feed = feed()
         self.notifications = notifications()
-        self.workspaceSearch = workspaceSearch()
-        self.notificationSearch = notificationSearch()
+        self.search = search()
     }
 
     var body: some View {
@@ -54,19 +50,8 @@ struct MobilePrimaryTabScaffold<
                     primaryTabs
 
                     Tab(value: MobilePrimaryTab.search, role: .search) {
-                        // Scoped to the search tab's content: a TabView-level
-                        // searchable is inherited by every tab's navigation bar,
-                        // which rendered a second, top search field on the
-                        // workspaces and notifications tabs.
-                        searchDestination
-                            .searchable(
-                                text: activeSearchText,
-                                isPresented: searchPresentation,
-                                prompt: activeSearchPrompt
-                            )
-                            .onSubmit(of: .search) {
-                                selection = searchCoordinator.commitSubmit()
-                            }
+                        search
+                            .environment(\.mobilePrimarySearchDestination, true)
                     }
                     .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
@@ -94,9 +79,24 @@ struct MobilePrimaryTabScaffold<
                 }
             }
             .ignoresSafeArea(.container, edges: .bottom)
-        } else {
+        } else if #available(iOS 18.0, *) {
             TabView(selection: $selection) {
                 primaryTabs
+            }
+            .accessibilityIdentifier("MobilePrimaryTabs")
+        } else {
+            TabView(selection: $selection) {
+                workspaces
+                    .tabItem { workspacesLabel }
+                    .tag(MobilePrimaryTab.workspaces)
+                feed
+                    .tabItem { feedLabel }
+                    .tag(MobilePrimaryTab.feed)
+                    .badge(feedNeedsInputCount)
+                notifications
+                    .tabItem { notificationsLabel }
+                    .tag(MobilePrimaryTab.notifications)
+                    .badge(notificationUnreadCount)
             }
             .accessibilityIdentifier("MobilePrimaryTabs")
         }
@@ -116,119 +116,67 @@ struct MobilePrimaryTabScaffold<
         Binding(
             get: { selection },
             set: { newValue in
-                if (selection == .search || searchCoordinator.isPresented),
-                   newValue.searchScope != nil {
-                    searchCoordinator.deactivateCurrentSearch()
+                if newValue.searchScope != nil {
+                    if searchCoordinator.isPresented {
+                        // The round X returns selection to the previous tab
+                        // while search is still presented; it cancels the
+                        // query rather than committing it as a filter.
+                        searchCoordinator.cancelPresentedSearch()
+                    } else if selection == .search {
+                        searchCoordinator.deactivateCurrentSearch()
+                    }
                 }
                 selection = newValue
             }
         )
     }
 
-    private var searchPresentation: Binding<Bool> {
-        Binding(
-            get: { searchCoordinator.isPresented },
-            set: { presented in
-                searchCoordinator.setPresentation(presented)
-            }
-        )
-    }
-
-    @ViewBuilder
-    private var searchDestination: some View {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            workspaceSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .workspaces,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        case .notifications:
-            notificationSearch
-                .modifier(MobilePrimarySearchLifecycleModifier(
-                    scope: .notifications,
-                    update: updateSearchLifecycle
-                ))
-                .environment(\.mobilePrimarySearchDestination, true)
-        }
-    }
-
-    private var activeSearchText: Binding<String> {
-        let scope = searchCoordinator.scope
-        let activationGeneration = searchCoordinator.activationGeneration
-        return Binding(
-            get: { searchCoordinator.nativeSearchText(for: scope) },
-            set: { value in
-                searchCoordinator.updateNativeSearchText(
-                    value,
-                    for: scope,
-                    activationGeneration: activationGeneration
-                )
-            }
-        )
-    }
-
-    private var activeSearchPrompt: Text {
-        switch searchCoordinator.scope {
-        case .workspaces:
-            Text(
-                L10n.string(
-                    "mobile.workspaces.search.placeholder",
-                    defaultValue: "Search workspaces"
-                )
-            )
-        case .notifications:
-            Text(
-                L10n.string(
-                    "mobile.notificationFeed.search.placeholder",
-                    defaultValue: "Search notifications"
-                )
-            )
-        }
-    }
-
-    private func updateSearchLifecycle(scope: MobilePrimarySearchScope, isSearching: Bool) {
-        searchCoordinator.updateLifecycle(scope: scope, isSearching: isSearching)
-    }
-
+    @available(iOS 18.0, *)
     @TabContentBuilder<MobilePrimaryTab>
     private var primaryTabs: some TabContent<MobilePrimaryTab> {
         Tab(value: MobilePrimaryTab.workspaces) {
             workspaces
         } label: {
-            Label(
-                L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                systemImage: "rectangle.stack"
-            )
-            .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+            workspacesLabel
         }
 
         Tab(value: MobilePrimaryTab.feed) {
             feed
         } label: {
-            Label(
-                String(
-                    localized: "mobile.tabs.feed",
-                    defaultValue: "Feed",
-                    bundle: .module
-                ),
-                systemImage: "waveform"
-            )
-            .accessibilityIdentifier("MobilePrimaryTabFeed")
+            feedLabel
         }
         .badge(feedNeedsInputCount)
 
         Tab(value: MobilePrimaryTab.notifications) {
             notifications
         } label: {
-            Label(
-                L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
-                systemImage: "bell"
-            )
-            .accessibilityIdentifier("MobilePrimaryTabNotifications")
+            notificationsLabel
         }
         .badge(notificationUnreadCount)
+    }
+
+    private var feedLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+            systemImage: "waveform"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabFeed")
+    }
+
+    private var workspacesLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+            systemImage: "rectangle.stack"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabWorkspaces")
+    }
+
+    private var notificationsLabel: some View {
+        Label(
+            L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"),
+            systemImage: "bell"
+        )
+        .accessibilityIdentifier("MobilePrimaryTabNotifications")
     }
 }
 

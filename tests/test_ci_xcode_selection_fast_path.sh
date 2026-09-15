@@ -154,4 +154,48 @@ if ! grep -Fq "Pinned Xcode developer dir does not exist" <<< "$missing_output";
   exit 1
 fi
 
-echo "PASS: CI Xcode selection fast path"
+future_app="$tmp_dir/Xcode_27.0.app"
+future_developer="$future_app/Contents/Developer"
+mkdir -p "$future_developer"
+printf '%s\n' "27.0" > "$future_developer/sdk-version"
+
+: > "$env_file"
+PATH="$bin_dir:/usr/bin:/bin" \
+  GITHUB_ENV="$env_file" \
+  CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+  CMUX_XCODE_APPLICATIONS_DIR="$tmp_dir" \
+  CMUX_CI_MAX_MACOS_SDK_MAJOR=26 \
+  "$SCRIPT" > "$tmp_dir/capped-scan.log"
+
+if [[ "$(cat "$env_file")" != "DEVELOPER_DIR=$pinned_developer" ]]; then
+  echo "FAIL: SDK ceiling must exclude newer toolchains while selecting SDK 26"
+  cat "$tmp_dir/capped-scan.log" >&2
+  exit 1
+fi
+
+mv "$pinned_app" "$tmp_dir/hidden-sdk-26"
+: > "$env_file"
+PATH="$bin_dir:/usr/bin:/bin" \
+  GITHUB_ENV="$env_file" \
+  CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+  CMUX_XCODE_APPLICATIONS_DIR="$tmp_dir" \
+  CMUX_CI_MAX_MACOS_SDK_MAJOR=26 \
+  "$SCRIPT" > "$tmp_dir/legacy-scan.log"
+
+if [[ "$(cat "$env_file")" != "DEVELOPER_DIR=$old_developer" ]]; then
+  echo "FAIL: SDK ceiling must preserve older runners without SDK 26"
+  cat "$tmp_dir/legacy-scan.log" >&2
+  exit 1
+fi
+
+if PATH="$bin_dir:/usr/bin:/bin" \
+  GITHUB_ENV="$env_file" \
+  CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+  CMUX_CI_DEVELOPER_DIR="$future_developer" \
+  CMUX_CI_MAX_MACOS_SDK_MAJOR=26 \
+  "$SCRIPT" > "$tmp_dir/pinned-over-ceiling.log" 2>&1; then
+  echo "FAIL: an explicit Xcode pin must respect the SDK ceiling"
+  exit 1
+fi
+
+echo "PASS: CI Xcode selection fast path and SDK ceiling"

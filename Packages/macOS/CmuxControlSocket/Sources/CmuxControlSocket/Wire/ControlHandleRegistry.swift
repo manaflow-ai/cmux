@@ -11,6 +11,7 @@ public struct ControlHandleRegistry: Sendable {
     private var nextOrdinal: [ControlHandleKind: Int]
     private var refByUUID: [ControlHandleKind: [UUID: String]]
     private var uuidByRef: [ControlHandleKind: [String: UUID]]
+    private var topologyRefreshNeeded: Bool
 
     /// Creates an empty registry with all ordinals starting at 1.
     public init() {
@@ -25,6 +26,7 @@ public struct ControlHandleRegistry: Sendable {
         nextOrdinal = ordinals
         refByUUID = byUUID
         uuidByRef = byRef
+        topologyRefreshNeeded = true
     }
 
     /// Returns the existing ref for an object, minting the next
@@ -55,9 +57,8 @@ public struct ControlHandleRegistry: Sendable {
     ///   - kind: The handle kind.
     ///   - uuid: The object identity to forget.
     public mutating func removeRef(kind: ControlHandleKind, uuid: UUID) {
-        if let ref = refByUUID[kind]?[uuid] {
-            uuidByRef[kind]?.removeValue(forKey: ref)
-        }
+        guard let ref = refByUUID[kind]?[uuid] else { return }
+        uuidByRef[kind]?.removeValue(forKey: ref)
         refByUUID[kind]?.removeValue(forKey: uuid)
     }
 
@@ -82,5 +83,24 @@ public struct ControlHandleRegistry: Sendable {
             return id
         }
         return nil
+    }
+
+    /// Returns whether a fallback topology refresh is currently needed.
+    ///
+    /// Membership notifications from the app invalidate the completed claim,
+    /// so a repeated stale opaque ref does not rescan the entire app on every
+    /// poll. Ref minting itself does not reopen the claim: the command that
+    /// minted a ref already made that ref resolvable.
+    ///
+    public var needsTopologyRefresh: Bool { topologyRefreshNeeded }
+
+    /// Records that the live topology has been swept.
+    public mutating func markTopologyRefreshCompleted() {
+        topologyRefreshNeeded = false
+    }
+
+    /// Reopens the fallback refresh claim after an external topology mutation.
+    public mutating func invalidateTopologyRefresh() {
+        topologyRefreshNeeded = true
     }
 }

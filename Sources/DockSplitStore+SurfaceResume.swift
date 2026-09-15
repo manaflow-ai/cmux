@@ -27,9 +27,8 @@ extension DockSplitStore {
         } else {
             existingBinding = managedAgentResumeBindingsByPanelId[panelId] ?? effectivePreviousBinding
         }
-        guard binding.allowsCodexAgentHookReplacement(
-            of: existingBinding
-        ) else {
+        guard binding.allowsCodexAgentHookReplacement(of: existingBinding),
+              !binding.downgradesTrustedAgentHookBinding(existingBinding) else {
             return false
         }
         if activeRestoreClaim != nil {

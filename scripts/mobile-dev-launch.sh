@@ -88,7 +88,11 @@ EXPECTED_ACCOUNT=""
 CHECK_AUTH_CONTRACT=0
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 ATTACH_MINT_MAX_ATTEMPTS="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-15}"
+# Stack session restore and the first control-plane snapshot can take longer
+# than the attach handshake itself on a physical device. Keep the default
+# bounded, but leave enough room for a cold auth bootstrap before declaring the
+# install unusable; callers can still tighten or extend it explicitly.
+ATTACH_READY_TIMEOUT_SECONDS="${CMUX_ATTACH_READY_TIMEOUT_SECONDS:-60}"
 
 usage() { sed -n '2,58p' "$0"; }
 
@@ -460,6 +464,11 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     RECEIPT_TARGET="simulator_injection"
     RECEIPT_TARGET_ID="$SIM_UDID"
   fi
+  INSTALLED_BUNDLE_METADATA="$(cmux_attach_installed_bundle_metadata \
+    "$RECEIPT_TARGET" "$RECEIPT_TARGET_ID" "$BUNDLE_ID")" || {
+    echo "error: authenticated session passed but installed bundle metadata could not be inspected" >&2
+    exit 1
+  }
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
   cmux_attach_write_readiness_receipt \
@@ -473,7 +482,8 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT" \
+    "$INSTALLED_BUNDLE_METADATA"
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
   if [[ "$TARGET" == "device" ]]; then

@@ -1614,7 +1614,8 @@ fn release_abandoned_pointer_presses(
                 }
             }
         })
-        .map(|(button, _)| button.clone())
+        .map(|(button, _)| button)
+        .cloned()
         .collect::<Vec<_>>();
     for button in expired {
         let Some(press) = failures.active_pointer_presses.remove(&button) else {

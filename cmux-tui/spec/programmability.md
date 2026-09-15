@@ -47,7 +47,7 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v12 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. Renderer attach to a newly launched host is not a supported route until renderer v4 support or explicit mutually supported version negotiation exists. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
 | PTY keyboard | `send-key` emits semantic keyboard input for PTYs | Preserve this route and add negotiated key capability discovery |
 | PTY mouse and focus | Native TUI encodes mouse/focus bytes locally | `send-mouse` and `send-focus`, with current terminal modes in render state |
-| Terminal-host resize | The host produces a length-prefixed replay, while the current consumer includes that length word in replay bytes | Repair the decoder, add producer-consumer and cross-language fixtures, then promote terminal-host v1 from partial |
+| Terminal-host resize | The daemon-side v4 decoder accepts v1-v4 and keeps the v3 payload unchanged. The current renderer defaults to protocol v3 and decodes negotiated v1-v3 payload layouts, including the length-prefixed replay and version-specific Kitty state. Newly launched hosts require v4 in `CapabilityStore::accept`; the minted one-use capability token is versionless, and no grant API exposes mutually supported downgrade negotiation, so renderer attach to those hosts is unsupported | Add renderer v4 support or explicit mutually supported grant negotiation, then keep producer-consumer and cross-language fixtures current and complete typed SDK coverage before promoting this family to complete |
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
 | Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
@@ -101,7 +101,7 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |
-| `terminal-renderer` | Separate terminal-host v1 frame types with a minted capability |
+| `terminal-renderer` | Separate terminal-host frame types with a minted capability. The minted one-use token is versionless; the host handshake selects a version, and the current remote renderer accepts v1-v3 only. Newly launched hosts select v4, outside that supported range, so this profile is partial and does not advertise attach to newly launched hosts until renderer v4 support or explicit mutually supported version negotiation exists |
 
 An SDK must refuse a profile when the selected transport cannot satisfy its trust boundary.
 

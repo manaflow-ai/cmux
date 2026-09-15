@@ -11,13 +11,12 @@ public enum IrxProtocol {
     /// Control frames are small (hello/admit/keepalive/descriptors); anything
     /// larger is a protocol error, never buffered.
     public static let maximumControlFrameByteCount = 256 * 1024
-    /// Keepalive cadence: one tiny ping per interval, pong deadline after
-    /// which the connection is declared dead. Hard closes (the realistic
-    /// relay-expiry case) are detected instantly by the termination watcher;
-    /// the ping loop bounds SILENT path blackholes to interval + deadline,
-    /// keeping worst-case detection-plus-redial inside single-digit seconds.
+    /// Application latency sampling cadence. Connection lifetime is owned by
+    /// Iroh's native keepalives and negotiated connection idle timeout.
     public static let keepaliveInterval: Duration = .seconds(5)
+    /// A missed application pong retires only the diagnostic stream.
     public static let keepaliveDeadline: Duration = .seconds(2)
+
 }
 
 /// Machine-readable close/denial codes. The code travels in the QUIC
@@ -39,6 +38,13 @@ public enum IrxCloseCode: String, CaseIterable, Sendable {
     case hostShutdown = "host-shutdown"
     case keepaliveTimeout = "keepalive-timeout"
     case explicitRedial = "explicit-redial"
+
+    /// Codes that represent an admission result, not a session lifecycle
+    /// close. Lifecycle closes stay transport failures so the owner can redial.
+    public static let admissionOutcomeCodes: Set<IrxCloseCode> = [
+        .invalidGrant, .grantExpired, .revoked, .identityMismatch,
+        .malformedHello, .protocolMismatch, .admissionTimeout,
+    ]
 
     /// Codes that must NOT trigger automatic redial.
     public static let terminalForAutoRedial: Set<IrxCloseCode> = [
@@ -82,6 +88,7 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case keepalive
     case events
     case terminal
+    case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
 }
@@ -114,15 +121,16 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
 }
 
 /// Client -> server admission request, first frame on the control stream.
-/// The grant is the broker-signed pair grant; everything the server needs to
-/// judge admission is in the grant plus the TLS-authenticated key, so
-/// admission is one round trip and needs no backend call.
+/// List-auth hellos carry NO grant: the server judges the TLS-authenticated
+/// key against its device-list snapshot, so admission stays one round trip
+/// with no backend call. The grant field remains OPTIONAL on the wire so an
+/// old peer's grant-bearing hello still parses (the list judge ignores it).
 public struct IrxHello: Codable, Equatable, Sendable {
     public var v: Int
     public var proto: String
-    public var grant: String
+    public var grant: String?
 
-    public init(grant: String) {
+    public init(grant: String? = nil) {
         v = IrxProtocol.version
         proto = IrxProtocol.alpn
         self.grant = grant

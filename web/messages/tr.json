@@ -1,4 +1,32 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM işlemi kullanılamıyor",
+      "reason": "Bu makine türü bu işlemi sağlamıyor.",
+      "message": {
+        "snapshot": "Bu Cloud VM, kaydedilmiş VM durumunu desteklemiyor.",
+        "restore": "Bu Cloud VM türü, kaydedilmiş VM durumunu geri yüklemeyi desteklemiyor.",
+        "fork": "Bu Cloud VM, yeni bir VM'ye kopyalamayı desteklemiyor.",
+        "openPort": "Bu Cloud VM'nin sağlayıcısı makine bağlantı noktalarını önizleme URL'leri olarak sunamıyor.",
+        "default": "Bu Cloud VM, istenen işlemi desteklemiyor."
+      },
+      "action": {
+        "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
+        "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
+        "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
+        "openPort": "Tekrar denemeyin. Hizmete makinenin içinden `cmux vm exec` ile erişin veya bağlantı noktalarını açabilen bir makine türü kullanın.",
+        "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro gerekli",
+      "message": "Cloud VM'ler için cmux Pro planı gerekir.",
+      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+    }
+  },
+  "billingRecovery": {
+    "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Terminalde devam edin",
@@ -27,6 +55,22 @@
     "description": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
     "ogDescription": "AI kodlama ajanları için ücretsiz ve açık kaynaklı macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Devam etmek için e-postanızı doğrulayın",
+    "emailUnverifiedBody": "Önce kullandığınız yöntemle giriş yapın, ardından bu giriş yöntemini kullanmadan önce e-postanızı doğrulayın.",
+    "genericTitle": "Giriş tamamlanamadı",
+    "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
+    "backToSignIn": "Girişe dön"
+  },
+  "cloudPublicationAccess": {
+    "title": "Erişim izniniz yok",
+    "signIn": "cmux'ta oturum aç",
+    "signedInAs": "{identity} olarak oturum açıldı",
+    "switchAccount": "Hesap değiştir",
+    "invalidTitle": "Bu erişim bağlantısı geçerli değil",
+    "invalidBody": "Siteye dönüp tekrar deneyin.",
+    "footer": "Erişim cmux tarafından yönetilir."
+  },
   "common": {
     "downloadForMac": "Mac için İndir",
     "viewOnGitHub": "GitHub'da Görüntüle",
@@ -43,6 +87,7 @@
     "blog": "Blog",
     "changelog": "Değişiklik Günlüğü",
     "community": "Topluluk",
+    "jobs": "Kariyer",
     "github": "GitHub"
   },
   "footer": {
@@ -52,6 +97,7 @@
     "social": "Sosyal Medya",
     "blog": "Blog",
     "community": "Topluluk",
+    "jobs": "Kariyer",
     "docs": "Belgeler",
     "changelog": "Değişiklik Günlüğü",
     "support": "Destek",
@@ -69,6 +115,115 @@
     "openSource": "Açık kaynak",
     "guides": "Kılavuzlar",
     "compare": "Karşılaştır"
+  },
+  "jobs": {
+    "metaTitle": "cmux Founding Engineer pozisyonu",
+    "metaDescription": "cmux’a Founding Engineer olarak katılın; macOS, Windows, Linux, iOS ve Cloud için yapay zekâ ile kodlamanın geleceğini inşa edin.",
+    "section": "Kariyer",
+    "eyebrow": "Ekibimize katılın",
+    "title": "Founding Engineer",
+    "tagline": "Yapay zekâ ile kodlamanın geleceğini inşa edin.",
+    "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+    "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte kuracak yetenekli mühendisler arıyoruz.",
+    "whatYoullDo": "Neler yapacaksınız",
+    "whatYoullDoItems": [
+      "Tüm yığında öncü geliştirici araçları oluşturmak: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux ve daha fazlası.",
+      "Geliştiricilerin yapay zekâ ile çalışması için en kullanışlı ürünü icat etmeye yardım etmek.",
+      "Kullanıcı geri bildirim döngüleri dahil ürün ve özelliklerin uçtan uca sorumluluğunu almak.",
+      "cmux’ı sürekli kullanmak, test etmek ve doğrulamak; cmux ile cmux inşa etmek."
+    ],
+    "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+    "excitedItems": [
+      "Günde 10B’den fazla token kullanıyorsunuz.",
+      "Çok yönlüsünüz ve sorunları yaratıcı biçimde çözüyorsunuz.",
+      "Güçlü bir tasarım zevkiniz var ve işçiliğe önem veriyorsunuz.",
+      "Swift/AppKit, C++, Rust, Go veya Chromium deneyiminiz var.",
+      "Açık kaynak maintainer’ı, eski kurucu ya da tamamlanmış ürünler göndermiş birisiniz.",
+      "İncelememiz için cmux PR’ları gönderiyor veya özel eklenti ve iş akışlarınızı sergiliyorsunuz."
+    ],
+    "details": "Ayrıntılar",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Ücret",
+    "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+    "benefitsLabel": "Yan haklar",
+    "benefits": "Sağlık, diş ve göz sigortası",
+    "locationLabel": "Konum",
+    "location": "San Francisco",
+    "applyAriaLabel": "Founding Engineer roluna e-posta ile başvurun",
+    "applyEmailSubject": "cmux Founding Engineer başvurusu",
+    "applyCta": "E-posta gönder",
+    "foundingChromiumEngineer": {
+      "metaTitle": "cmux Founding Chromium Engineer pozisyonu",
+      "metaDescription": "Kurucu Chromium mühendisi olarak cmux'a katılın: Chromium fork'umuzu üstlenin ve C++ ve Rust ile cmux'u Windows ve Linux'a taşıyın.",
+      "section": "Kariyer",
+      "eyebrow": "Rol hakkında",
+      "title": "Founding Chromium Engineer",
+      "tagline": "cmux'u Windows ve Linux'a taşıyın.",
+      "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+      "hiring": "Kendi Chromium fork'umuz üzerine kurulu cmux'un Windows (ve Linux) sürümünü üstlenecek bir kurucu mühendis arıyoruz.",
+      "whatYoullDo": "Neler yapacaksınız",
+      "whatYoullDoItems": [
+        "Chromium fork'umuzu sahiplenin: upstream'i takip edin, temiz rebase yapın ve cmux yamalarını taşıyın (pencere/girdi/render entegrasyonu, terminal yüzeyi, ajan arayüzü).",
+        "cmux'u Windows ve Linux'ta uçtan uca üstlenin: C++, kurulum programı, otomatik güncelleme, çökme raporlama.",
+        "Ghostty tabanlı terminal çekirdeğini ve ajan orkestrasyon özelliklerini (dikey sekmeler, bildirim halkaları, bölmeler, CLI) Windows'a taşıyın.",
+        "Performansın yerli gibi hissettirmesini sağlayın: başlangıç süresi, GPU render, girdi gecikmesi.",
+        "Sürekli kendi ürününüzü kullanın, test edin ve doğrulayın."
+      ],
+      "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+      "excitedItems": [
+        "Derin C++ bilgisi ve gerçek Chromium deneyimi - ideal olarak fork bakımı yapmış olmanız: yama taşıma, upstream kilometre taşlarına rebase, content/ veya blink'te hata ayıklama.",
+        "Rust büyük bir artı (TUI'miz ve ağ arka plan sürecimiz Rust ile yazıldı).",
+        "Gerçek bir Windows masaüstü uygulaması yayınladınız veya bakımını yaptınız.",
+        "Bonus: upstream Chromium katkıları, Swift/AppKit merakı, açık kaynak bakımcısı, eski kurucu."
+      ],
+      "details": "Ayrıntılar",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Ücret",
+      "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+      "benefitsLabel": "Yan haklar",
+      "benefits": "Sağlık, diş ve göz sigortası",
+      "locationLabel": "Konum",
+      "location": "San Francisco",
+      "applyAriaLabel": "Founding Chromium Engineer rolüne e-posta ile başvurun",
+      "applyEmailSubject": "cmux Founding Chromium Engineer başvurusu",
+      "applyCta": "E-posta gönder"
+    },
+    "foundingDesigner": {
+      "metaTitle": "cmux Founding Designer pozisyonu",
+      "metaDescription": "cmux’a Founding Designer olarak katılın; macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com ve chatmux için yapay zekâ ile kodlamanın geleceğini tasarlayın.",
+      "section": "Kariyer",
+      "eyebrow": "Rol hakkında",
+      "title": "Founding Designer",
+      "tagline": "Yapay zekâ ile kodlamanın geleceğini tasarlayın.",
+      "intro": "cmux, Ghostty üzerine kurulmuş, birden fazla yapay zekâ kodlama ajanını paralel çalıştırmak için tasarlanmış yerel bir macOS terminalidir. Yüz binlerce geliştirici, ajan tabanlı kodlama iş akışlarını yürütmek için cmux kullanıyor.",
+      "hiring": "Yapay zekâ ile kodlamanın geleceğini birlikte tasarlayacak yetenekli bir tasarımcı arıyoruz.",
+      "whatYoullDo": "Neler yapacaksınız",
+      "whatYoullDoItems": [
+        "Tüm yığında öncü geliştirici araçları tasarlamak: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux ve daha fazlası.",
+        "Geliştiricilerin yapay zekâ ile çalışması için en kullanışlı ürünü tasarlamaya yardım etmek.",
+        "Kullanıcı geri bildirim döngüleri dahil görünüm, his ve etkileşim modelinin uçtan uca sorumluluğunu almak.",
+        "cmux’ı sürekli kullanmak, prototip oluşturmak ve yayınlamak."
+      ],
+      "excitedLead": "Şunlar varsa özellikle heyecanlanırız:",
+      "excitedItems": [
+        "Her tür uygulamanın tasarım bileşenleri konusunda yürüyen bir ansiklopedisiniz.",
+        "İnsanlar sizden sürekli tasarım referansları istiyor.",
+        "Yerel macOS uygulamalarına ve geliştirici araçlarına karşı takıntılı bir zevkiniz var.",
+        "Kodla prototip oluşturuyor ve gerçek UI yayınlıyorsunuz.",
+        "Tipografi, hareket ve sistem düşüncesine önem veriyor; her 1px ayrıntıyı ve boşluğu gözetiyorsunuz."
+      ],
+      "details": "Ayrıntılar",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Ücret",
+      "compensation": "$130k–$170k + %0,5–%1,5 hisse",
+      "benefitsLabel": "Yan haklar",
+      "benefits": "Sağlık, diş ve göz sigortası",
+      "locationLabel": "Konum",
+      "location": "San Francisco",
+      "applyAriaLabel": "Founding Designer roluna e-posta ile başvurun",
+      "applyEmailSubject": "cmux Founding Designer başvurusu",
+      "applyCta": "E-posta gönder"
+    }
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -139,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "genel bakış",
-      "team": "ekip"
+      "team": "ekip",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -153,7 +309,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Paylaşılan AI hesaplarını yönetin ve istekleri coderouter ile yönlendirin.",
       "title": "coderouter",
-      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir."
+      "description": "coderouter, LLM isteklerini yük devretme ve kullanıma duyarlı zamanlamayla sağlayıcı hesapları arasında yönlendirir.",
+      "machines": {
+        "title": "Makineler",
+        "description": "Son {days} günde {team} için makine başına coderouter kullanımı.",
+        "machineColumn": "Makine",
+        "tokensColumn": "Toplam token",
+        "apiEquivalentColumn": "API eşdeğer değeri",
+        "unnamed": "Adsız makine",
+        "empty": "Son {days} günde hiçbir makine coderouter kullanmadı.",
+        "unavailable": "Makine başına kullanım geçici olarak kullanılamıyor.",
+        "estimateNote": "API eşdeğer değeri, herkese açık liste fiyatlarına dayalı bir tahmindir, gerçek harcama değildir."
+      }
     },
     "accountMenu": {
       "label": "Hesap menüsü",
@@ -165,64 +332,6 @@
       "organizationSwitchError": "Kuruluş değiştirilemedi. Tekrar deneyin.",
       "signIn": "Giriş yap"
     },
-    "aiAccounts": {
-      "metaTitle": "Yapay zeka hesapları — cmux",
-      "metaDescription": "cmux için ekibin yapay zeka sağlayıcı hesaplarını yönet.",
-      "section": "Panel",
-      "title": "Yapay zeka hesapları",
-      "description": "Bu ekibin cmux AI ile kullanabileceği sağlayıcı hesaplarını yönet.",
-      "personalTeam": "Kişisel",
-      "teamSwitcherLabel": "Ekip",
-      "notConfiguredTitle": "Yapay zeka hesap yönetimi henüz kullanılamıyor",
-      "notConfiguredBody": "Bu dağıtımda ekip yapay zeka hesapları etkin değil. Daha sonra tekrar dene veya destekle iletişime geç.",
-      "loadErrorTitle": "Hesaplar yüklenemedi",
-      "loadErrorBody": "Hesap hizmetine ulaşılamadı. Birazdan tekrar dene.",
-      "accountsTitle": "Bağlı hesaplar",
-      "accountsCount": "{count} hesap",
-      "emptyTitle": "Henüz hesap yok",
-      "emptyBody": "Bu ekibin kullanabilmesi için bir sağlayıcı hesabı ekle.",
-      "providerColumn": "Sağlayıcı",
-      "labelColumn": "Etiket",
-      "createdColumn": "Oluşturulma",
-      "actionsColumn": "İşlemler",
-      "unlabeledAccount": "Etiketsiz",
-      "unknownCreatedAt": "Bilinmiyor",
-      "addAccountsTitle": "Hesap ekle",
-      "providerClaude": "Claude OAuth",
-      "providerAnthropicApiKey": "Anthropic API anahtarı",
-      "providerCodex": "Codex OAuth",
-      "providerOpenAiApiKey": "OpenAI API anahtarı",
-      "providerUnknown": "Bilinmeyen sağlayıcı",
-      "labelField": "Etiket",
-      "labelPlaceholder": "Ekip varsayılanı",
-      "oauthJsonField": "OAuth JSON",
-      "apiKeyField": "API anahtarı",
-      "addClaude": "Claude ekle",
-      "addAnthropic": "Anthropic ekle",
-      "addCodex": "Codex ekle",
-      "addOpenAi": "OpenAI ekle",
-      "addSuccess": "Hesap eklendi.",
-      "addError": "Hesap kaydedilemedi.",
-      "deleteError": "Hesap silinemedi.",
-      "jsonError": "Geçerli bir JSON nesnesi yapıştır.",
-      "validationError": "Hesap bilgilerini kontrol edip tekrar dene.",
-      "teamAccessError": "Bu ekibe erişimin yok.",
-      "deletingAction": "Siliniyor",
-      "deleteAction": "Sil",
-      "deleteConfirmTitle": "Bu hesap silinsin mi?",
-      "deleteConfirmBody": "Sağlayıcı hesabı tüm ekip için kaldırılır. Yeniden eklemek için orijinal kimlik bilgileri gerekir.",
-      "cancelAction": "İptal",
-      "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
-      "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
-      "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-...",
-      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
-      "codexTool": "Codex",
-      "codexCommand": "Copy codex command",
-      "opencodeTool": "OpenCode",
-      "opencodeCommand": "Copy opencode command",
-      "copied": "Copied"
-    },
     "billing": {
       "plan": {
         "heading": "Kişisel planınız",
@@ -230,6 +339,24 @@
         "pro": "Pro",
         "loading": "Yükleniyor…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -1017,7 +1144,10 @@
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur."
+          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur.",
+          "agentIdleReminder": "Bir ajan boşta olup girişinizi beklediğinde (tur sona erdikten yaklaşık 60 saniye sonra) bildirim gönderin. Önceki turdan kalan arka plan işi devam ederken bastırılır; böylece çalışan bir derleme veya izleyici yanlış bir bekleme uyarısı oluşturmaz.",
+          "soundOverrides": "Ajan ve uyarı türüne göre seyrek bildirim sesi geçersiz kılmaları. Eksik hücreler notifications.sound kullanır.",
+          "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer."
         },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
@@ -1050,6 +1180,14 @@
         "shortcuts": {
           "when": "Her eylem için isteğe bağlı bağlam koşulları (VS Code tarzı `when` koşulları), cmux eylem id'sine göre anahtarlanır. Her değer, bağlam anahtarları üzerinde !, &&, || ve parantezlerle birleştirilen bir boolean ifadesidir. Boolean anahtarlar: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Türlü anahtarlar karşılaştırmaları destekler: sidebarMode dizesi (files, find, sessions, feed veya dock) ile paneCount ve workspaceCount tamsayıları. Karşılaştırma işleçleri ==, !=, =~ (düzenli ifade), <, <=, >, >= ve `in [a, b]` şeklindedir; bilinmeyen veya bulunmayan bir anahtar false kabul edilir. true ve false boolean sabitleri de kabul edilir; `key == false`, `!key` ile aynıdır. Eylemin kısayolu yalnızca koşul doğru olduğunda çalışır (ve diğer kısayollarla yalnızca o durumda çakışır). Örnekler: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sağ kenar çubuğu odaktayken hariç her yerde Ctrl+1–9 ile çalışma alanlarını seçer; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } çalışma alanında birden çok bölme varken bir atamayı Bul kenar çubuğuyla sınırlar.",
           "showModifierHoldHints": "Cmd veya Control basılı tutulurken kısayol ipucu rozetlerini göster."
+        },
+        "fileEditor": {
+          "wordWrap": "Uzun satırları yatay kaydırmak yerine düzenleyicinin sağ kenarında kaydırır.",
+          "syntaxHighlighting": "Yerleşik dosya düzenleyicide kaynak kodu jetonlarını renklendirir.",
+          "lineNumbers": "Yerleşik dosya düzenleyicide satır numarası oluğunu gösterir.",
+          "indentGuides": "Yerleşik dosya düzenleyicide dikey girinti kılavuzları çizer.",
+          "currentLineHighlight": "Seçim yokken imlecin bulunduğu satırı vurgular.",
+          "tabWidth": "Girinti ve girinti kılavuzları için sekme durağının sütun cinsinden genişliği."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1112,7 +1250,7 @@
       "plusButtonScreenshotAlt": "cmux artı düğmesinin sağ tık menüsünde Worktree Agents, New Terminal ve New Browser görünüyor",
       "plusButtonScreenshotCaption": "Sağ tık menüsü ui.newWorkspace.contextMenu sırasını izler.",
       "newWorkspaceButton": "Artı düğmesi için özel eylemler",
-      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir.",
+      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir. Ayarlanmadığında menü, geçerli kısayollarıyla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) öğelerini listeler. Bulut öğeleri yalnızca Cloud Machines etkin olduğunda görünür.",
       "newWorkspaceWorktreeNote": "Bu örnek, normal artı tıklamasının <action>worktree-agents</action> eylemini çalıştırmasını sağlar. <commands>commands</commands> içindeki çalışma alanı komutu, önce Git <worktree>worktree</worktree> oluşturmak için görünür bir kurulum terminali kullanır. Codex ve Claude aynı anda başlar, çalışma alanına özgü durum dosyasını bekler ve sonra exec öncesinde oluşturulan dizine geçer.",
       "simpleCommands": "Basit komutlar",
       "simpleCommandsDesc": "Basit bir komut, o an odaklanılan terminalde bir shell komutu çalıştırır:",
@@ -3747,5 +3885,12 @@
         "action": "Planı yönet"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-posta",
+    "emailUnavailable": "e-posta kullanılamıyor",
+    "organization": "Kuruluş",
+    "personalAccount": "kişisel hesap",
+    "switchAccountButton": "Farklı bir hesap kullan"
   }
 }

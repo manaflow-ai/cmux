@@ -41,9 +41,12 @@ on:
   workflow_dispatch: {}
 
 concurrency:
-  group: cmux-tui-artifacts-${{ github.ref }}
-  # Raw immutable objects are write-once. Queue a second dispatch instead of
-  # cancelling the first half-written publication.
+  # Main remains serialized because each main run also updates latest/. Branch
+  # dogfood runs publish commit-addressed objects only, so different commits
+  # can build in parallel instead of waiting behind an obsolete branch run.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.sha }}
+  # Raw immutable objects are write-once. Queue a rerun of the same commit
+  # instead of cancelling a half-written publication.
   cancel-in-progress: false
 
 permissions: {}
@@ -64,6 +67,10 @@ jobs:
       version: 0.0.0-r2.sha-${{ github.sha }}
       package_npm: false
       package_pypi: false
+      # This lane publishes the raw cmux-tui, cmux-relay, and chatmux-relay
+      # binaries. The Cloudflare Worker is a separate deployment artifact and
+      # its npm audit must not block these commit-addressed files.
+      build_cloudflare_relay: false
       # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
       # the Node rollback lane until a tested backend exists; do not publish a
       # misleading Rust machine package or manifest entry.

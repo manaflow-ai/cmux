@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import Foundation
 import UIKit
@@ -263,7 +264,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
     private var themeBarColor: UIColor { terminalTheme.terminalBackgroundUIColor }
     private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
-    private static let accessoryHorizontalInset: CGFloat = 16
+    /// Match the leading margin used by the terminal composer attachment
+    /// controls so the keyboard toggle sits on the same vertical guide.
+    private static let accessoryHorizontalInset = MobileComposerLayout().horizontalInset
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
     /// arrows, settings, keyboard toggle) so all glyphs render at one size.
@@ -331,7 +334,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
@@ -346,7 +348,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = themeBarColor
+        // Clear, not the theme bar fill: the scroll-edge band renders live
+        // scrollback rows behind this strip and the host's dock-anchored
+        // fade provides the legibility wash. Everywhere the band is off,
+        // what shows through is the same theme-colored surface this fill
+        // used to match, so nothing changes visually there.
+        backgroundView.backgroundColor = .clear
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
@@ -360,17 +367,45 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
+
+        // iOS 26: Liquid Glass circle behind the toggle glyph so it stays
+        // legible over band rows. A SIBLING under the button, not a button
+        // subview: UIButton manages its own subview order and sandwiched
+        // the glyph beneath the glass. Non-interactive; the button — sized
+        // to the same circle, matching the row's control height — owns the
+        // whole tap area.
+        var dismissGlass: UIVisualEffectView?
+        if #available(iOS 26.0, *) {
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            glass.layer.cornerRadius = Self.accessoryButtonHeight / 2
+            glass.clipsToBounds = true
+            dismissGlass = glass
+        }
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
         dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
+        // Scrollable action buttons. The fade subclass dissolves keys under
+        // the leading edge (against the pinned composer button) incrementally
+        // as the row scrolls, instead of hard-clipping them.
+        let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // The scroll view's FRAME starts flush at the composer button's
+        // trailing edge; the 4pt visual gap the frame constant used to carry
+        // lives INSIDE the scroll view as a leading content inset. At rest the
+        // bar reads identically (first key sits 4pt after the composer, offset
+        // -4), but a scrolled key now travels through that gap and dissolves
+        // AT the composer's edge, fading into the empty gap instead of
+        // clipping against an invisible line 4pt short of the button.
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset.left = 4
+        scrollView.contentOffset = CGPoint(x: -4, y: 0)
 
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -407,6 +442,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         self.composerButton = composerButton
 
         container.addSubview(backgroundView)
+        if let dismissGlass {
+            container.addSubview(dismissGlass)
+        }
         container.addSubview(dismissButton)
         container.addSubview(nub)
         container.addSubview(composerButton)
@@ -458,7 +496,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // scroll view.)
             dismissLeadingConstraint,
             dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            dismissButton.widthAnchor.constraint(equalToConstant: 32),
+            // Sized to the glass capsule: the row's shared control height,
+            // widened so the glyph gets breathing room, and the whole
+            // visible capsule is tappable (the glass tracks these anchors).
+            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight + 12),
+            dismissButton.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
             nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
@@ -467,13 +509,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
             // Pinned composer toggle: directly after the nub (same 6pt gap the
             // scroll view used to take), centered on the shared strip line. The
-            // scroll view starts after it with the 4pt inter-button spacing the
-            // stack uses, so the bar reads identically to before — only now the
-            // composer can never scroll away.
+            // scroll view starts FLUSH after it; the 4pt inter-button gap is a
+            // leading content inset (see above) so scrolled keys fade out at
+            // the composer's edge rather than at a line 4pt short of it.
             composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
             composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
 
-            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor),
             scrollTrailingConstraint,
             scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
@@ -490,6 +532,15 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
+
+        if let dismissGlass {
+            NSLayoutConstraint.activate([
+                dismissGlass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
+                dismissGlass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
+                dismissGlass.widthAnchor.constraint(equalTo: dismissButton.widthAnchor),
+                dismissGlass.heightAnchor.constraint(equalTo: dismissButton.heightAnchor),
+            ])
+        }
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
@@ -547,6 +598,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let insets = accessoryLayoutInsetsProvider?() ?? .zero
         let leftInset = max(0, insets.left)
         let rightInset = max(0, insets.right)
+        let scrollView = accessoryStackView?.superview as? UIScrollView
+        let previousOffset = scrollView?.contentOffset.x ?? 0
+        let wasAtLeadingEdge = scrollView.map { scroll in
+            previousOffset <= -scroll.adjustedContentInset.left + 1
+        } ?? true
 
         accessoryBackgroundLeadingConstraint?.constant = leftInset
         accessoryBackgroundTrailingConstraint?.constant = -rightInset
@@ -559,6 +615,27 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if accessoryStackView != nil {
             terminalAccessoryToolbar.setNeedsLayout()
             terminalAccessoryToolbar.layoutIfNeeded()
+
+            // An inset relayout (sidebar toggle, split-column animation,
+            // rotation) must not move the strip: a pinned leading edge stays
+            // pinned to the new minimum, and a mid-scroll position is
+            // preserved, clamped to the new valid range.
+            guard let scrollView else { return }
+            let minimumOffset = -scrollView.adjustedContentInset.left
+            let maximumOffset = max(
+                minimumOffset,
+                scrollView.contentSize.width
+                    - scrollView.bounds.width
+                    + scrollView.adjustedContentInset.right
+            )
+            let targetOffset = wasAtLeadingEdge
+                ? minimumOffset
+                : min(max(previousOffset, minimumOffset), maximumOffset)
+            guard abs(scrollView.contentOffset.x - targetOffset) > 0.5 else { return }
+            scrollView.setContentOffset(
+                CGPoint(x: targetOffset, y: scrollView.contentOffset.y),
+                animated: false
+            )
         }
     }
 

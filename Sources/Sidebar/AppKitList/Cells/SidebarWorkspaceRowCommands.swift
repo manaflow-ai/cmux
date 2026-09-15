@@ -311,6 +311,9 @@ struct SidebarWorkspaceRowMenuBuilder {
         guard let tabManager = commands.tabManager else { return menu }
 
         addPinItem(to: menu, tabManager: tabManager)
+        if let notificationStore = commands.notificationStore {
+            addNotificationMuteItem(to: menu, notificationStore: notificationStore)
+        }
         addGroupSection(to: menu, tabManager: tabManager)
         menu.addItem(.separator())
         // Legacy parity: the todo section renders only while the feature is
@@ -778,6 +781,33 @@ struct SidebarWorkspaceRowMenuBuilder {
         ) {}
         parent.submenu = submenu
         menu.addItem(parent)
+    }
+
+    private func addNotificationMuteItem(
+        to menu: NSMenu,
+        notificationStore: TerminalNotificationStore
+    ) {
+        let allMuted = notificationStore.allWorkspaceNotificationsMuted(forTabIds: targetIds)
+        let title = allMuted
+            ? (isMulti ? NotificationMuteMenuOption.unmuteWorkspaces : .unmuteWorkspace).title
+            : (isMulti ? NotificationMuteMenuOption.muteWorkspaces : .muteWorkspace).title
+        let item = item(title, enabled: !targetIds.isEmpty) { [weak notificationStore, commands] in
+            guard let notificationStore else { return }
+            let shouldMute = !notificationStore.allWorkspaceNotificationsMuted(
+                forTabIds: commands.contextMenuWorkspaceIds
+            )
+            _ = notificationStore.setWorkspaceNotificationsMuted(
+                shouldMute,
+                forTabIds: commands.contextMenuWorkspaceIds
+            )
+            commands.refreshSnapshot()
+        }
+        item.image = RenderableSystemSymbol.configuredAppKitImage(
+            systemName: allMuted ? "bell" : "bell.slash",
+            pointSize: 13,
+            weight: nil
+        )
+        menu.addItem(item)
     }
 
     private func addCopyAndFinderItems(to menu: NSMenu, tabManager: TabManager) {

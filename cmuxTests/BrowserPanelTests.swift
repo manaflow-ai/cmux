@@ -1659,14 +1659,14 @@ final class WindowBrowserHostViewTests: XCTestCase {
         contentView.addSubview(wrapper)
 
         var eventNames: [String] = []
-        var changedTranslation: CGFloat?
+        var changedTranslation: Double?
         let liveDivider = SidebarDividerTrackingView(
             frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
         )
         liveDivider.onBegan = { eventNames.append("began") }
         liveDivider.onChanged = { translation in
             eventNames.append("changed")
-            changedTranslation = translation
+            changedTranslation = Double(translation)
             // Post the terminating event only after the tracker has received
             // the drag, so its synchronous loop exercises the real callback
             // path without relying on a timer or a test sleep.

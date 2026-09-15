@@ -7,7 +7,7 @@ import QuartzCore
 /// IOSurface allocation, content seed, and exact pixel extent at one renderer
 /// boundary. The extent ties the completed Metal target to the fenced layer
 /// geometry instead of accepting a stretched or cropped target.
-nonisolated struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
+struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
     let id: UInt32
     let seed: UInt32
     let pixelWidth: Int
@@ -25,7 +25,7 @@ nonisolated struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
 /// Event-driven fence for one explicitly tokened Ghostty Metal submission.
 /// A stale command-buffer completion cannot arm this fence even if its target
 /// reaches both the model and presentation trees.
-nonisolated struct VerifiedReplayPresentationFence: Sendable {
+struct VerifiedReplayPresentationFence: Sendable {
     private(set) var expectedToken: UInt64
     private(set) var expectedGeometryRevision: UInt64
     private(set) var expectedGeometry: VerifiedReplayPresentationGeometry

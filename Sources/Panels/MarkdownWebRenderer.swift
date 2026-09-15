@@ -23,6 +23,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
+    /// Called after the renderer view is attached to a window. A panel can
+    /// request focus before SwiftUI mounts its WebKit view, so the panel uses
+    /// this lifecycle signal to complete that request without polling.
+    var onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
@@ -34,6 +38,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onAttachToWindow = onViewAttachedToWindow
             webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
@@ -53,6 +58,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
+        WebSurfaceSelectionReader.installTracking(in: config.userContentController)
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
@@ -67,6 +73,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onAttachToWindow = onViewAttachedToWindow
         webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
@@ -119,6 +126,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onAttachToWindow = nil
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
@@ -144,6 +152,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        private let surfaceSelectionReader = WebSurfaceSelectionReader()
         /// Fired after each successful markdown render push (initial shell
         /// load included). Re-rendering replaces the content DOM, so an active
         /// find-in-page search must re-run to restore its highlights.
@@ -268,6 +277,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onAttachToWindow = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }
@@ -347,6 +357,18 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func renderedText() async -> String? {
             guard isLoaded else { return nil }
             return await evaluateString("window.__cmuxRenderedText && window.__cmuxRenderedText()")
+        }
+
+        func readSurfaceSelection(filePath: String) async -> SurfaceSelectionReadResult {
+            let normalizedPath = URL(fileURLWithPath: filePath).standardizedFileURL.path
+            guard isLoaded, let webView else {
+                return .snapshot(.none(kind: .markdown, filePath: normalizedPath))
+            }
+            return await surfaceSelectionReader.read(
+                webView: webView,
+                kind: .markdown,
+                filePath: normalizedPath
+            )
         }
 
         private func evaluateString(_ script: String) async -> String? {
