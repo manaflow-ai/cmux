@@ -46,9 +46,6 @@ pub use ssh::{SshProvider, SshProviderConfig};
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
-#[cfg(feature = "wireguard-transport")]
-pub use dial::WireGuardDialer;
-pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
     connect_websocket_via,
