@@ -55,7 +55,7 @@ for key in "${required[@]}"; do
 done
 printf '%s\0' "${secret_pairs[@]}" | python3 -c '
 import json, pathlib, sys
-values = sys.stdin.buffer.read().split(b"\\0")
+values = sys.stdin.buffer.read().split(b"\0")
 values = dict(zip(values[0::2], values[1::2]))
 if any(not key or not value for key, value in values.items()):
     raise SystemExit("missing deployment secret")

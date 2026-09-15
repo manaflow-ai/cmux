@@ -246,10 +246,11 @@ enum MobileHostPublicStatusCache {
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
     private nonisolated(unsafe) static var v2DeviceID: String?
 
-    static func updateV2DeviceID(_ deviceID: String) {
+    static func updateV2DeviceID(_ deviceID: String?) {
         lock.lock()
         v2DeviceID = deviceID
         lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     static func currentV2DeviceID() -> String? {
@@ -306,6 +307,7 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        v2DeviceID = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -331,18 +333,25 @@ enum MobileHostPublicStatusCache {
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
+        let deviceID = v2DeviceID
         lock.unlock()
-        return .ok(
-            includeIdentity
-                ? MobileHostService.identityStatusPayload(
-                    routes: cachedRoutes,
-                    additionalCapabilities: additionalCapabilities,
-                    phonePushAdmission: phonePushAdmission,
-                    phonePushQueuePersistenceStatus:
-                        phonePushQueuePersistenceStatus
-                )
-                : MobileHostService.publicStatusPayload(routes: cachedRoutes)
-        )
+        guard includeIdentity else {
+            return .ok(MobileHostService.publicStatusPayload(routes: cachedRoutes))
+        }
+        guard let deviceID, !deviceID.isEmpty else {
+            return .failure(MobileHostRPCError(
+                code: "unavailable",
+                message: "The Mac identity is still being prepared. Retry shortly.",
+                data: ["retryable": true, "retry_after_ms": 1_000]
+            ))
+        }
+        return .ok(MobileHostService.identityStatusPayload(
+            routes: cachedRoutes,
+            deviceID: deviceID,
+            additionalCapabilities: additionalCapabilities,
+            phonePushAdmission: phonePushAdmission,
+            phonePushQueuePersistenceStatus: phonePushQueuePersistenceStatus
+        ))
     }
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {

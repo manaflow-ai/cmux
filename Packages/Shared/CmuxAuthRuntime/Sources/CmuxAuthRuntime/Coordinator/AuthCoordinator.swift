@@ -115,6 +115,7 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedTeamScopeContinuations: [
         UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
     ] = [:]
+    @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
     @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
     @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
     /// Sign-in attempts that currently own a possible write to the token store.
@@ -696,6 +697,7 @@ public final class AuthCoordinator {
                 try await client.listTeams()
             }
             guard generation == sessionGeneration else { return }
+            authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
         } catch {
@@ -736,6 +738,8 @@ public final class AuthCoordinator {
             onSessionWillTransition()
         }
         sessionGeneration &+= 1
+        authenticatedTeamsSessionGeneration = nil
+        availableTeams = []
     }
 
     /// Whether one coordinator-owned transition can legitimately observe an

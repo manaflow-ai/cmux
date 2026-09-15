@@ -9,6 +9,7 @@ actor IrxRelayCredentialInstaller {
     private let now: @Sendable () -> Date
     private let journal: IrxJournal
     private var desired: [String: IrxRelayCredential] = [:]
+    private var ownership: IrxRelayCredentialInstallOwnership?
     private var installed: [String: IrxRelayCredential]
     private var task: Task<Void, Never>?
     private var taskID = UUID()
@@ -30,11 +31,12 @@ actor IrxRelayCredentialInstaller {
         self.install = install
     }
 
-    func replace(with credentials: [IrxRelayCredential]) {
+    func replace(with credentials: [IrxRelayCredential], ownership: IrxRelayCredentialInstallOwnership? = nil) {
         guard !stopped else { return }
         let next = Self.index(credentials)
-        guard next != desired else { return }
+        guard next != desired || self.ownership != ownership else { return }
         desired = next
+        self.ownership = ownership
         revision &+= 1
         // Retain at most the current fleet. Native connections using a removed
         // relay can drain naturally; this cache does not retain its credential.
@@ -79,7 +81,10 @@ actor IrxRelayCredentialInstaller {
                 guard desired[credential.relayURL] == credential,
                       credential.isUsable(at: now()) else { continue }
                 do {
-                    try await install(credential)
+                    guard try await install(credential, ownership: ownership) else {
+                        if revision != observedRevision { break }
+                        return
+                    }
                     guard !Task.isCancelled, !stopped, taskID == id else { return }
                     installed[credential.relayURL] = credential
                     journal.record("endpoint", "relay-credential-installed", ["relay": credential.relayURL])
@@ -106,6 +111,25 @@ actor IrxRelayCredentialInstaller {
         }
     }
 
+    private func install(_ credential: IrxRelayCredential, ownership: IrxRelayCredentialInstallOwnership?) async throws -> Bool {
+        guard let ownership else { try await install(credential); return true }
+        let install = self.install
+        let outcome = await ownership.gate.withCurrentMutation(ownership.generation) {
+            do { try await install(credential); return IrxRelayCredentialMutationResult.success }
+            catch { return IrxRelayCredentialMutationResult.failure(String(describing: error)) }
+        }
+        guard let outcome else {
+            if await ownership.gate.isCurrent(ownership.generation) { throw InstallationFailure.retry }
+            return false
+        }
+        switch outcome {
+        case .success: return true
+        case .failure: throw InstallationFailure.retry
+        }
+    }
+
+    private enum InstallationFailure: Error { case retry }
+
     private static func index(_ credentials: [IrxRelayCredential]) -> [String: IrxRelayCredential] {
         var result: [String: IrxRelayCredential] = [:]
         for credential in credentials {
@@ -113,5 +137,16 @@ actor IrxRelayCredentialInstaller {
             result[credential.relayURL] = credential
         }
         return result
+    }
+}
+
+
+/// Every retry must still belong to the autopilot that supplied its credential.
+struct IrxRelayCredentialInstallOwnership: Sendable, Equatable {
+    let gate: IrxRelayCredentialRotationGate
+    let generation: UInt64
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.gate === rhs.gate && lhs.generation == rhs.generation
     }
 }

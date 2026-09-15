@@ -8,6 +8,8 @@ struct MobileHostListenerState: Equatable, Sendable {
     var preferredPort: Int?
     var localSocketAddresses: [String] = []
     var failureDescription: String?
+    /// Current runtime completed authenticated v2 setup; local relay binding alone is insufficient.
+    var hasAuthenticatedRegistration = false
 
     var isRunning: Bool { phase == .ready }
     var usesEphemeralFallback: Bool {

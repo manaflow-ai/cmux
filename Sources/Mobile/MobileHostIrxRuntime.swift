@@ -147,6 +147,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admission?.invalidate()
         generationToken = UUID()
         listenerState = MobileHostListenerState()
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
     }
 
     func stopHost() async {
@@ -159,6 +160,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         admission?.invalidate()
         generationToken = UUID()
         wantsHost = false
+        listenerState = MobileHostListenerState()
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         let token = generationToken
         shutdownTask?.cancel()
         shutdownTask = Task { @MainActor [weak self] in
@@ -224,7 +227,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         controlService = nil; endpointSupervisor = nil; cachedState = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         await oldControl?.stop()
         await oldRelayWatch?.stop()
         await oldRegistry?.closeAll(code: .hostShutdown)
@@ -354,7 +357,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             setSettingsPhase(.failed)
             return
         }
-        if snapshot.status == .ready, snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
+        if snapshot.status == .ready, let record = snapshot.cache.device,
+           !record.revoked, record.descriptor.identity == snapshot.cache.identity,
+           record.descriptor.endpointID == identity?.endpointIDHex {
+            listenerState.hasAuthenticatedRegistration = true
+            if snapshot.cache.directory != nil { noteLiveDiscoverySucceeded() }
+        }
         await registry?.closeAll(code: .revoked, matching: { admission.authorizedPeer(endpointID: $0) == nil })
         guard isCurrent(token) else { return }
         schedulePermissionExpiry(token: token)

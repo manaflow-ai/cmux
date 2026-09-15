@@ -62,8 +62,8 @@ public actor IrxEndpointSupervisor {
     private var generation = 0
     private var onlineReached = false
     private var closeWatcher: Task<Void, Never>?
-    private var installedRelayURLs: Set<String> = []
     private var desiredRelayCredentials: [IrxRelayCredential]?
+    private var desiredRelayOwnership: IrxRelayCredentialInstallOwnership?
     private var relayInstaller: IrxRelayCredentialInstaller?
     private var bindInFlight: Task<Endpoint, any Error>?
     private var bindID: UUID?
@@ -180,6 +180,7 @@ public actor IrxEndpointSupervisor {
     public func rotateCredentials(_ credentials: [IrxRelayCredential]) async {
         guard !deactivated, configuration.pathMode != .directOnly else { return }
         desiredRelayCredentials = credentials
+        desiredRelayOwnership = nil
         await relayInstaller?.replace(with: credentials)
     }
 
@@ -192,54 +193,13 @@ public actor IrxEndpointSupervisor {
         rotationGeneration: UInt64,
         gate: IrxRelayCredentialRotationGate
     ) async {
-        guard configuration.pathMode != .directOnly else { return }
-        guard await gate.isCurrent(rotationGeneration) else { return }
-        guard !deactivated else { return }
-        guard let driver, !driver.isClosed() else { return }
-        let endpointGeneration = generation
-        for credential in credentials {
-            let result = await gate.withCurrentMutation(rotationGeneration) {
-                do {
-                    try await driver.insertRelay(
-                        config: RelayConfig(
-                            url: credential.relayURL,
-                            quicPort: nil,
-                            authToken: credential.token
-                        )
-                    )
-                    return IrxRelayCredentialMutationResult.success
-                } catch {
-                    return IrxRelayCredentialMutationResult.failure(
-                        String(describing: error)
-                    )
-                }
-            }
-            guard let result else { return }
-            switch result {
-            case .success:
-                guard await gate.isCurrent(rotationGeneration),
-                      !deactivated,
-                      generation == endpointGeneration,
-                      let currentDriver = self.driver,
-                      !currentDriver.isClosed()
-                else { return }
-                installedRelayURLs.insert(credential.relayURL)
-                journal.record(
-                    "endpoint", "relay-credential-rotated",
-                    [
-                        "relay": credential.relayURL,
-                        "expires_at": ISO8601DateFormatter().string(from: credential.expiresAt),
-                        "generation": String(generation),
-                    ]
-                )
-            case .failure(let error):
-                guard await gate.isCurrent(rotationGeneration) else { return }
-                journal.record(
-                    "endpoint", "relay-credential-rotation-failed",
-                    ["relay": credential.relayURL, "error": error]
-                )
-            }
-        }
+        guard !deactivated, configuration.pathMode != .directOnly else { return }
+        let epoch = lifecycleEpoch
+        guard await gate.isCurrent(rotationGeneration), !deactivated, lifecycleEpoch == epoch else { return }
+        let ownership = IrxRelayCredentialInstallOwnership(gate: gate, generation: rotationGeneration)
+        desiredRelayCredentials = credentials
+        desiredRelayOwnership = ownership
+        await relayInstaller?.replace(with: credentials, ownership: ownership)
     }
 
     /// Health check after suspension/resume: a closed driver is replaced on
@@ -270,6 +230,7 @@ public actor IrxEndpointSupervisor {
     public func deactivate() async {
         deactivated = true
         desiredRelayCredentials = nil
+        desiredRelayOwnership = nil
         await close()
         journal.record("endpoint", "deactivated")
     }
@@ -298,6 +259,12 @@ public actor IrxEndpointSupervisor {
             await discardBinding(old)
             guard !deactivated, epoch == lifecycleEpoch else { throw IrxEndpointError.endpointClosed }
         }
+        if let ownership = desiredRelayOwnership,
+           !(await ownership.gate.isCurrent(ownership.generation)), desiredRelayOwnership == ownership {
+            desiredRelayCredentials = nil
+            desiredRelayOwnership = nil
+        }
+        guard !deactivated, epoch == lifecycleEpoch else { throw IrxEndpointError.endpointClosed }
         let now = Date()
         let directOnly = configuration.pathMode == .directOnly
         let usable = directOnly ? [] : (desiredRelayCredentials ?? credentials).filter { $0.isUsable(at: now) }
@@ -353,14 +320,13 @@ public actor IrxEndpointSupervisor {
                     url: credential.relayURL, quicPort: nil, authToken: credential.token))
             }
             relayInstaller = installer
-            await installer.replace(with: desiredRelayCredentials ?? usable)
+            await installer.replace(with: desiredRelayCredentials ?? usable, ownership: desiredRelayOwnership)
             guard !deactivated, epoch == lifecycleEpoch else {
                 await installer.stop()
                 try? await bound.close()
                 throw IrxEndpointError.endpointClosed
             }
         }
-        installedRelayURLs = Set(usable.map(\.relayURL))
         journal.record(
             "endpoint", "bound",
             [

@@ -4,8 +4,10 @@ public extension AuthCoordinator {
     /// Current account and selected team, without accessing either credential.
     var authenticatedTeamScope: AuthenticatedTeamScope? {
         guard let session = publishedAuthenticatedSessionIdentity,
+              authenticatedTeamsSessionGeneration == session.generation,
               let teamID = resolvedTeamID,
-              !teamID.isEmpty else { return nil }
+              !teamID.isEmpty,
+              availableTeams.contains(where: { $0.id == teamID }) else { return nil }
         return AuthenticatedTeamScope(
             session: session,
             teamID: teamID,

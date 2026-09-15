@@ -203,18 +203,7 @@ final class MobilePairingModel {
             return
         }
         guard generation == refreshGeneration else { return }
-        // v2 registration is performed by the authenticated IROH bootstrap
-        // connection. The Mac never publishes a QR, Tailscale address, or
-        // direct path to the server or pairing UI.
-        state = .ready(
-            Ready(
-                attachURL: "",
-                tailscaleLines: [],
-                manualEntry: nil,
-                reachableViaIroh: true,
-                v2Only: true
-            )
-        )
+        state = Self.v2StatusTransition(status, baselineConnectionCount: status.activeConnectionCount)
         observeHostStatus()
     }
 
@@ -274,17 +263,26 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                let next = Self.statusTransition(
-                    from: self.state,
-                    routes: status.routes,
-                    activeConnectionCount: status.activeConnectionCount,
-                    baselineConnectionCount: baseline
-                )
+                let next = Self.v2StatusTransition(status, baselineConnectionCount: baseline)
                 if next != self.state {
                     self.state = next
                 }
             }
         }
+    }
+
+    /// Relay binding may finish from cache before v2 setup. Keep preparing until
+    /// the runtime confirms registration for the current account and team.
+    static func v2StatusTransition(
+        _ status: MobileHostServiceStatus,
+        baselineConnectionCount: Int
+    ) -> State {
+        guard status.isRunning, status.isPairingReady else { return .preparing }
+        let ready = State.ready(Ready(
+            attachURL: "", tailscaleLines: [], manualEntry: nil,
+            reachableViaIroh: true, v2Only: true
+        ))
+        return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
     }
 
     /// Computes the next render state from a host status event. Pure, so the
