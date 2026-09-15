@@ -339,7 +339,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             body()
             isUpdatingProgrammatically = false
         }
-        // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             guard let node = item as? CloudTreeNode else { return nodes.count }
