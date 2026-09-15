@@ -201,6 +201,10 @@ public struct MobileSyncFrameCodec {
         return frame
     }
 
+    /// Decodes at most one bounded batch, leaving later frames in `buffer`.
+    /// Callers drain another batch before awaiting more network bytes whenever
+    /// the returned count reaches `maximumDecodedFrameCount`. A transport read
+    /// may coalesce any number of valid frames; its boundary is not a message limit.
     public static func decodeFrames(
         from buffer: inout Data,
         maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
@@ -222,7 +226,8 @@ public struct MobileSyncFrameCodec {
             }
         }
 
-        while buffer.count - consumedByteCount >= headerByteCount {
+        while frames.count < maximumDecodedFrameCount,
+              buffer.count - consumedByteCount >= headerByteCount {
             let frameStart = buffer.index(
                 buffer.startIndex,
                 offsetBy: consumedByteCount
@@ -240,11 +245,6 @@ public struct MobileSyncFrameCodec {
             }
             guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
                 break
-            }
-            guard frames.count < maximumDecodedFrameCount else {
-                throw MobileSyncFrameCodecError.tooManyFrames(
-                    maximumDecodedFrameCount
-                )
             }
             let payloadStart = headerEnd
             let payloadEnd = buffer.index(
