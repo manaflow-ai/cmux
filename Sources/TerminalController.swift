@@ -3149,6 +3149,7 @@ class TerminalController {
             "vm.attach_info",
             "vm.cmux_remote_info",
             "vm.ssh_info",
+            "vm.scp_info",
             "vm.sessions",
             "vm.session_attach_info",
             "vm.tree",
