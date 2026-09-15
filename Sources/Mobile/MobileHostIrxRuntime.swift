@@ -403,6 +403,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             let oldLegacy = legacyService
             legacyService = nil
             legacyAcceptorPeer = nil
+            legacyStartTask?.cancel(); legacyStartTask = nil
+            legacyEventsTask?.cancel(); legacyEventsTask = nil
             endpointTask?.cancel(); endpointTask = nil
             endpointRefreshPending = false
             let oldRelayWatch = relayAddressWatch
