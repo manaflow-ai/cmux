@@ -41,9 +41,15 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
     /// then prove the web content still occupies the complete browser panel and
     /// the popover is painted at its right edge.
     func testNativeXCUITHoverRevealsPopoverAtPaneEdge() throws {
-        let app = try launchApp()
+        let app = try launchApp(additionalLaunchArguments: ["-NSAppSleepDisabled", "YES"])
         let sid = try openFixture("hover-popover")
-        app.activate()
+        if app.state != .runningForeground {
+            app.activate()
+        }
+        XCTAssertTrue(
+            app.wait(for: .runningForeground, timeout: 8),
+            "Expected the app to be foregrounded for native pointer routing. state=\(app.state.rawValue)"
+        )
 
         let browserPane = app.otherElements["BrowserPanelContent.\(sid)"].firstMatch
         XCTAssertTrue(
@@ -109,7 +115,7 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
                     "window.__cmuxHoverState()",
                     surfaceID: surfaceID
                 ) as? [String: Any],
-                    candidate?["popoverVisible"] as? Bool == true else {
+                    candidate["popoverVisible"] as? Bool == true else {
                     return false
                 }
                 state = candidate
