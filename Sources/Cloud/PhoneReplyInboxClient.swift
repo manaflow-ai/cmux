@@ -47,11 +47,11 @@ struct PhoneReplyRecord: Decodable, Equatable, Sendable {
         text = try container.decodeIfPresent(String.self, forKey: .text)
         createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
         expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
-        guard encryptedPayload != nil || (workspaceId != nil && surfaceId != nil && text != nil) else {
+        guard encryptedPayload != nil else {
             throw DecodingError.dataCorruptedError(
                 forKey: .replyId,
                 in: container,
-                debugDescription: "reply has neither encrypted nor legacy content"
+                debugDescription: "plaintext reply is not valid on the E2E endpoint"
             )
         }
     }
@@ -93,7 +93,7 @@ final class PhoneReplyInboxClient {
     func fetchPending() async -> [PhoneReplyRecord]? {
         guard (try? await retryAfterGate.wait()) != nil else { return nil }
         guard let request = await authorizedRequest(
-            path: "/v1/replies",
+            path: "/v1/replies/e2e",
             queryItems: [URLQueryItem(
                 name: "macDeviceId",
                 value: MobileHostIdentity.deviceID()
@@ -122,7 +122,7 @@ final class PhoneReplyInboxClient {
     func acknowledge(replyIds: [String]) async -> Bool {
         guard !replyIds.isEmpty else { return true }
         guard (try? await retryAfterGate.wait()) != nil else { return false }
-        guard var request = await authorizedRequest(path: "/v1/replies/ack") else { return false }
+        guard var request = await authorizedRequest(path: "/v1/replies/e2e/ack") else { return false }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONSerialization.data(

@@ -45,6 +45,7 @@ function apnsConfig(): ApnsConfig | null {
 
 export const DEFAULT_PUSH_TTL_SECONDS = 120;
 const MAX_PUSH_TTL_SECONDS = 300;
+export type PushProtocol = "legacy-v1" | "e2e-v1";
 
 function pushPayloadFingerprint(
   payload: PushPayload,
@@ -84,14 +85,23 @@ function summaryResponse(
 }
 
 export async function POST(request: Request): Promise<Response> {
+  return POSTWithProtocol(request, "legacy-v1");
+}
+
+export async function POSTWithProtocol(
+  request: Request,
+  protocol: PushProtocol,
+): Promise<Response> {
   return withApnsApiRoute(
     request,
-    "/api/notifications/push",
+    protocol === "e2e-v1"
+      ? "/api/notifications/push/e2e"
+      : "/api/notifications/push",
     "send",
     async () => sendPush(request, {
       send: sendApnsNotificationReliably,
       config: apnsConfig(),
-    }),
+    }, protocol),
   );
 }
 
@@ -110,6 +120,7 @@ async function sendPush(
     send: typeof sendApnsNotificationReliably;
     config: ApnsConfig | null;
   },
+  protocol?: PushProtocol,
 ): Promise<Response> {
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
@@ -136,6 +147,12 @@ async function sendPush(
   const targetNamespaceResult = resolveTargetNamespace(requestedNamespace, encryptedPayloads.length > 0);
   if (!targetNamespaceResult.ok) return jsonResponse({ error: targetNamespaceResult.error }, 400);
   const targetNamespace = targetNamespaceResult.value;
+  if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
+    return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
+  }
+  if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
+    return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
+  }
   if (encryptedPayloads.length > 0) {
     if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
     const matchesOwner = encryptedPayloads.every((envelope) => {

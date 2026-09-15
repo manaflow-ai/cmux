@@ -1048,7 +1048,7 @@ final class PhonePushClient {
         components.host?.isEmpty == false else { return nil }
         components.path = (components.path.hasSuffix("/")
             ? String(components.path.dropLast())
-            : components.path) + "/api/notifications/push"
+            : components.path) + "/api/notifications/push/e2e"
         return components.url
     }
 

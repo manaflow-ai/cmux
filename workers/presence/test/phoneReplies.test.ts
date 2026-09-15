@@ -224,7 +224,7 @@ describe("enqueue/list/ack", () => {
     const storage = makeStorage();
     const now = 1_000_000;
     await enqueuePhoneReply(storage, parsedReply(), now);
-    await storage.put("phonereply:legacy", {
+    await storage.put("phonereply:e2e:legacy", {
       replyId: "legacy",
       macDeviceId: "mac-1",
       text: "plaintext",
@@ -232,7 +232,7 @@ describe("enqueue/list/ack", () => {
       expiresAtMs: now + PHONE_REPLY_TTL_MS,
     });
     expect(await listPhoneReplies(storage, target(), now + PHONE_REPLY_TTL_MS)).toHaveLength(0);
-    expect(await storage.get("phonereply:legacy")).toBeUndefined();
+    expect(await storage.get("phonereply:e2e:legacy")).toBeUndefined();
   });
 
   it("evicts oldest past the pending cap while retaining the newest reply", async () => {
