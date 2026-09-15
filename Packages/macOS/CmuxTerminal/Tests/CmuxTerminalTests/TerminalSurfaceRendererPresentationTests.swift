@@ -1,21 +1,27 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
-import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
 private func beginRendererRealizedTracking(_ surface: UnsafeMutableRawPointer)
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_reset")
 private func resetRendererRealizedTracking()
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
 private func rendererRebuildCallCount() -> UInt32
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
+
 @_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
 private func setRendererRealizedResult(_ result: Bool)
+
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
@@ -41,7 +47,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
         defer {
             surface.releaseSurfaceForTesting()
@@ -73,7 +79,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
         defer {
             surface.releaseSurfaceForTesting()
@@ -107,7 +113,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -140,7 +146,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -160,7 +166,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         acknowledgePresentation(on: surface)
         defer {
@@ -199,7 +205,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -217,12 +223,8 @@ private func rendererReleaseWasOccluded() -> Bool
 
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.setRendererPortalVisible(true, presentationReady: true)
-        #expect(cmux_test_ghostty_renderer_fail(
-            runtimeSurface, Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
-        #expect(cmux_test_ghostty_renderer_fail(
-            runtimeSurface, Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
-        ))
+        surface.failRendererTestPresentation()
+        surface.failRendererTestPresentation()
         #expect(surface.renderHealth == .notRendering)
     }
 
@@ -234,9 +236,8 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(true, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
-        acknowledgePresentation(on: surface)
         defer {
             surface.releaseSurfaceForTesting()
             runtimeSurface.deallocate()
@@ -269,7 +270,7 @@ private func rendererReleaseWasOccluded() -> Bool
         setRendererRealizedResult(false)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -322,7 +323,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -370,7 +371,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -401,7 +402,7 @@ private func rendererReleaseWasOccluded() -> Bool
         beginRendererRealizedTracking(runtimeSurface)
         surface.setRendererPortalVisible(false, presentationReady: true)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.installRendererTestCallbacks(runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         defer {
             surface.releaseSurfaceForTesting()
@@ -441,18 +442,25 @@ private func rendererReleaseWasOccluded() -> Bool
     }
 
     private func acknowledgePresentation(on surface: TerminalSurface) {
-        #expect(cmux_test_ghostty_renderer_present(surface.runtimeSurfacePointer))
+        surface.acknowledgeRendererTestPresentation()
     }
 
     private func installRendererCallbackContext(
         on surface: TerminalSurface,
         scheduler: FakeRendererRealizationScheduler
     ) -> Unmanaged<GhosttySurfaceCallbackContext> {
-        makeRendererCallbackContextForTesting(on: surface) { surfaceID in
-            MainActor.assumeIsolated {
-                scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(
+            surfaceHost: surface.surfaceView,
+            surfaceController: surface,
+            terminalLifecycleID: surface.terminalLifecycleId,
+            rendererMailboxDidDrain: { surfaceID in
+                MainActor.assumeIsolated {
+                    scheduler.scheduleRendererPresentationRepair(surfaceID: surfaceID)
+                }
             }
-        }
+        ))
+        surface.surfaceCallbackContext = callbackContext
+        return callbackContext
     }
 
     private func makeSurface(
@@ -463,7 +471,7 @@ private func rendererReleaseWasOccluded() -> Bool
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
-        let surface = TerminalSurface(
+        return TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
@@ -493,8 +501,6 @@ private func rendererReleaseWasOccluded() -> Bool
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
-        _ = makeRendererCallbackContextForTesting(on: surface)
-        return surface
     }
 
 }
