@@ -23,6 +23,7 @@ actor DeviceIrxClient {
 
     private let context: ContextProvider
     private let journal: IrxJournal
+    private let permissionNow: @Sendable () -> Date
     private var sessions: [String: Session] = [:]
     private var stopped = false
     private var directoryObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
@@ -30,15 +31,21 @@ actor DeviceIrxClient {
     init(context: @escaping ContextProvider, journal: IrxJournal) {
         self.context = context
         self.journal = journal
+        let wall = Date().timeIntervalSince1970
+        let monotonic = ContinuousClock.now
+        permissionNow = {
+            let elapsed = monotonic.duration(to: .now).components
+            let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+            return Date(timeIntervalSince1970: max(Date().timeIntervalSince1970, wall + max(0, seconds)))
+        }
     }
 
-    /// Account discovery shares iOS's broker pagination and build compatibility.
-    func discoverMacs() async throws -> [CmxIrohBrokerBinding] {
+    /// Discovery reads the same complete v2 directory that authorizes outgoing control.
+    func discoverMacs() async throws -> [DeviceDiscoveredMac] {
         let borrowed = try await context()
         guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
-        let response = try await borrowed.broker.discover(maximumAge: 0)
-        guard !stopped, await borrowed.isCurrent() else { throw DeviceLinkError.notConnected }
-        return response.bindings.filter { $0.platform == .mac && $0.pairingEnabled }
+        let cache = await borrowed.control.snapshot().cache
+        return Self.displayBindings(cache: cache, now: permissionNow())
     }
 
     /// A pushed account-directory revision triggers a discovery refresh without polling.
@@ -68,10 +75,11 @@ actor DeviceIrxClient {
         let owner = UUID()
         let context = context
         let journal = journal
+        let permissionNow = permissionNow
         let engine = IrxPeerEngine(journal: journal, label: "mac-device") { [weak self] in
             try await Self.dial(
                 endpoint: endpoint, instance: instance,
-                context: context, journal: journal,
+                context: context, journal: journal, now: permissionNow,
                 recordBinding: { [weak self] binding in
                     await self?.record(binding: binding, endpoint: endpoint, owner: owner) == true
                 }
@@ -91,10 +99,8 @@ actor DeviceIrxClient {
             },
             onClose: { [weak self] _, _, _ in await self?.release(endpoint: endpoint, owner: owner) },
             permitsIO: { [weak self] in
-                guard await borrowed.isCurrent(),
-                      let lease = borrowed.deviceList.current, lease.isFresh(now: .now),
-                      let peer = lease.entries[endpoint], !peer.revoked else { return false }
-                return await self?.isAuthorized(peer, endpoint: endpoint, owner: owner) == true
+                guard await borrowed.isCurrent(), let self else { return false }
+                return await self.permitsIO(context: borrowed, endpoint: endpoint, owner: owner)
             }
         )
     }
@@ -132,9 +138,7 @@ actor DeviceIrxClient {
                     while let chunk = try await reader.readRaw() {
                         try Task.checkCancellation()
                         guard await borrowed.isCurrent(),
-                              let lease = borrowed.deviceList.current, lease.isFresh(now: .now),
-                              let peer = lease.entries[endpoint], !peer.revoked,
-                              self.isAuthorized(peer, endpoint: endpoint, owner: owner) else {
+                              await self.permitsIO(context: borrowed, endpoint: endpoint, owner: owner) else {
                             await self.release(endpoint: endpoint, owner: owner)
                             throw DeviceLinkError.notConnected
                         }
@@ -158,37 +162,44 @@ actor DeviceIrxClient {
         for session in previous { await session.engine.stop() }
     }
 
-    func enforce(_ snapshot: IrxDeviceListSnapshot) async {
+    func enforce(_ cache: V2CachedState?) async {
         let revoked = sessions.filter { endpoint, entry in
-            guard snapshot.isFresh(now: .now), let peer = snapshot.entries[endpoint] else { return true }
-            if peer.revoked { return true }
+            guard let cache, let peer = try? IrxMacPeerAuthorization(
+                deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
+            ).resolve(cache: cache, localIdentity: cache.identity, now: permissionNow()) else { return true }
             switch entry.authorization {
-            case .waiting:
-                return peer.deviceID != entry.instance.deviceID || peer.tag != entry.instance.tag
-            case .verified:
-                return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
-            case .closing:
-                return false
+            case .waiting: return false
+            case .verified: return !isAuthorized(peer, endpoint: endpoint, owner: entry.owner)
+            case .closing: return false
             }
         }
         for (endpoint, entry) in revoked { await release(endpoint: endpoint, owner: entry.owner) }
         for observer in directoryObservers.values { observer.yield(()) }
     }
 
-    private func record(binding: CmxIrohBrokerBinding, endpoint: String, owner: UUID) -> Bool {
+    private func record(binding: V2DeviceRecord, endpoint: String, owner: UUID) -> Bool {
         guard !stopped, var entry = sessions[endpoint], entry.owner == owner else { return false }
         if case .closing = entry.authorization { return false }
-        entry.authorization = .verified(bindingID: binding.bindingID, generation: binding.identityGeneration)
+        entry.authorization = .verified(bindingID: binding.deviceRecordID, generation: binding.descriptor.identityGeneration)
         sessions[endpoint] = entry
         return true
     }
 
-    private func isAuthorized(_ peer: IrxDeviceListEntry, endpoint: String, owner: UUID) -> Bool {
+    private func permitsIO(context: DeviceIrxClientContext, endpoint: String, owner: UUID) async -> Bool {
+        guard let entry = sessions[endpoint], entry.owner == owner else { return false }
+        let cache = await context.control.snapshot().cache
+        guard let peer = try? IrxMacPeerAuthorization(
+            deviceID: entry.instance.deviceID, tag: entry.instance.tag, endpointID: endpoint
+        ).resolve(cache: cache, localIdentity: context.localDevice.descriptor.identity, now: permissionNow()) else { return false }
+        return isAuthorized(peer, endpoint: endpoint, owner: owner)
+    }
+
+    private func isAuthorized(_ peer: V2DeviceRecord, endpoint: String, owner: UUID) -> Bool {
         guard !stopped, let session = sessions[endpoint], session.owner == owner,
               case let .verified(bindingID, generation) = session.authorization else { return false }
-        return peer.deviceID == session.instance.deviceID && peer.tag == session.instance.tag
-            && peer.bindingID == bindingID
-            && (peer.identityGeneration == nil || peer.identityGeneration == generation)
+        return peer.descriptor.identity.deviceID.lowercased() == session.instance.deviceID
+            && peer.descriptor.identity.buildTag == session.instance.tag
+            && peer.deviceRecordID == bindingID && peer.descriptor.identityGeneration == generation
     }
 
     private func releaseEventsClaim(endpoint: String, owner: UUID) {
@@ -221,60 +232,41 @@ actor DeviceIrxClient {
         return identity.endpointID
     }
 
-    /// Registry/presence routes select a candidate, never its authority or coordinates.
-    /// Only a fresh account lease plus the broker's exact binding can authorize the dial.
+    /// Directory permission selects the exact peer and its relay coordinates.
     private static func dial(
         endpoint: String,
         instance: SurfaceDeviceInstanceID,
         context provider: ContextProvider,
         journal: IrxJournal,
-        recordBinding: @escaping @Sendable (CmxIrohBrokerBinding) async -> Bool
+        now: @escaping @Sendable () -> Date,
+        recordBinding: @escaping @Sendable (V2DeviceRecord) async -> Bool
     ) async throws -> IrxClientSession {
         let context = try await provider()
         guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-        let discovery = try await context.broker.discover(maximumAge: 30)
-        let target: CmxIrohBrokerBinding
-        do {
-            target = try IrxMacPeerAuthorization(
-                deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint
-            ).resolve(bindings: discovery.bindings, lease: context.deviceList.current, localDeviceID: context.localBinding.deviceID)
-        } catch let failure as IrxMacPeerAuthorization.Failure {
-            switch failure {
-            case .unavailable, .staleDirectory: throw DeviceLinkError.notConnected
-            case .revoked: throw DeviceLinkError.identityUnproven
-            case .identityMismatch: throw DeviceLinkError.identityMismatch
-            }
+        let cache = await context.control.snapshot().cache
+        let intent = IrxMacPeerAuthorization(deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint)
+        let target = try intent.resolve(cache: cache, localIdentity: context.localDevice.descriptor.identity, now: now())
+        let relay = target.descriptor.metadata.relayURLs.first { cache.directory?.relayURLs.contains($0) == true }
+        guard let relay else { throw DeviceLinkError.notConnected }
+        var credentials = Self.relayCredentials(cache, at: now())
+        if credentials.isEmpty {
+            _ = try await context.control.refreshRelayCredentials()
+            credentials = Self.relayCredentials(await context.control.snapshot().cache, at: now())
         }
-        let now = Date()
-        let relay = target.pathHints.first {
-            $0.kind == .relayURL && $0.isUsable(at: now)
-                && discovery.relayFleet.contains($0.value)
-        }?.value
-        let direct = context.allowsDirectPaths ? Array(target.pathHints.filter {
-            $0.kind == .directAddress && $0.privacyScope == .publicInternet && $0.isUsable(at: now)
-        }.prefix(16).map(\.value)) : []
-        guard relay != nil || !direct.isEmpty else { throw DeviceLinkError.notConnected }
-        let credentials = try await context.relayCredentials.usableCredentials()
-        guard await context.isCurrent(), context.deviceList.current?.isFresh(now: .now) == true,
-              context.deviceList.current?.entries[endpoint]?.revoked == false else {
-            throw DeviceLinkError.notConnected
-        }
-        let address = try context.supervisor.dialAddress(
-            peerEndpointIDHex: endpoint, relayURL: relay, directAddresses: direct
-        )
+        guard await context.isCurrent(), !credentials.isEmpty else { throw DeviceLinkError.notConnected }
+        let address = try context.supervisor.dialAddress(peerEndpointIDHex: endpoint, relayURL: relay, directAddresses: [])
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
             let (admit, control) = try await IrxAdmission.performClient(connection: connection, journal: journal)
-            // Admission suspends; the account lease may have revoked or replaced
-            // this exact binding while the handshake was in flight.
-            _ = try IrxMacPeerAuthorization(
-                deviceID: instance.deviceID, tag: instance.tag, endpointID: endpoint
-            ).resolve(bindings: [target], lease: context.deviceList.current, localDeviceID: context.localBinding.deviceID)
-            guard await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.notConnected }
+            let latest = try intent.resolve(cache: await context.control.snapshot().cache,
+                localIdentity: context.localDevice.descriptor.identity, now: now())
+            guard latest.deviceRecordID == target.deviceRecordID,
+                  latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
+                  await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
             if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
-            return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: Date())
+            return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: now())
         } catch {
             await connection.close(code: .userRequested, origin: .local)
             throw error

@@ -27,7 +27,9 @@ struct DeviceDirectoryMergeTests {
         """.utf8)
         let binding = try JSONDecoder().decode(CmxIrohBrokerBinding.self, from: data)
         let records = DeviceDirectoryMerge.merge(.init(
-            authenticatedMacs: [binding], ownersKnown: true,
+            authenticatedMacs: [DeviceDiscoveredMac(bindingID: binding.bindingID, deviceID: binding.deviceID,
+                tag: binding.tag, displayName: binding.displayName, endpointID: binding.endpointID,
+                pathHints: binding.pathHints)], ownersKnown: true,
             selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team"
         ))
         if enabled {

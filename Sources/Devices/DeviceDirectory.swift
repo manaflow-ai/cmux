@@ -56,7 +56,7 @@ final class DeviceDirectory {
     private let pairing: any DeviceLinkAuthorizationSource
     private let registryClient: DeviceRegistryDirectoryClient
     private let automaticClient: DeviceIrxClient?
-    private var authenticatedMacs: [CmxIrohBrokerBinding] = []
+    private var authenticatedMacs: [DeviceDiscoveredMac] = []
     private var directoryChangesTask: Task<Void, Never>?
     private let makeSubscriber: @Sendable (URL, @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?) -> DevicePresenceSubscriber
     private let serviceURL: @MainActor @Sendable () -> URL?

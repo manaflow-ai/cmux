@@ -1,66 +1,65 @@
-public import CmuxIrohTransport
+public import Foundation
 
-/// The exact remote Mac selected by a person or an account discovery row.
+/// Exact Mac intent checked against the current v2 account and directory lease.
 public struct IrxMacPeerAuthorization: Sendable {
-    /// A failed binding check, kept distinct from a temporarily unavailable directory.
+    /// The missing or invalid permission that prevented a Mac connection.
     public enum Failure: Error, Equatable, Sendable {
-        /// The host has no active, discoverable binding yet.
+        /// No enabled host matches the selected endpoint.
         case unavailable
-        /// No fresh authenticated device-list lease is available.
+        /// The complete directory is missing or expired.
         case staleDirectory
-        /// The device list revoked the endpoint.
+        /// The local authority or selected device was revoked.
         case revoked
-        /// The proposed endpoint belongs to another device or build.
+        /// The endpoint, device, build, or account differs from the intended peer.
         case identityMismatch
     }
 
-    /// The expected physical Mac UUID.
+    /// The selected Mac installation identifier.
     public let deviceID: String
-    /// The expected release channel or dev tag.
+    /// The selected build tag.
     public let tag: String
-    /// The exact TLS peer identity, never a fallback destination.
+    /// The selected QUIC peer key.
     public let endpointID: String
 
-    /// Creates immutable intent for one device, build, and endpoint.
+    /// Captures a selection without granting it any permission.
     public init(deviceID: String, tag: String, endpointID: String) {
         self.deviceID = deviceID.lowercased()
         self.tag = tag
         self.endpointID = endpointID
     }
 
-    /// Resolves only from an authenticated broker response and fresh account lease.
-    /// Legacy leases may omit the identity generation; the broker's complete tuple
-    /// remains authoritative and the unique binding ID must still match.
-    ///
+    /// Resolves from one complete v2 permission snapshot; never from presence hints.
     /// - Parameters:
-    ///   - bindings: Bindings from this account's authenticated broker request.
-    ///   - lease: The same account's current device-list lease.
-    ///   - localDeviceID: The caller's physical device, excluded from remote control.
-    ///   - now: Monotonic time used to check lease expiration.
-    /// - Returns: The exact, enabled Mac binding.
-    /// - Throws: ``Failure`` when the intended peer cannot be authorized.
-    public func resolve(
-        bindings: [CmxIrohBrokerBinding],
-        lease: IrxDeviceListSnapshot?,
-        localDeviceID: String,
-        now: ContinuousClock.Instant = .now
-    ) throws -> CmxIrohBrokerBinding {
-        let matches = bindings.filter { $0.endpointID.endpointID == endpointID }
+    ///   - cache: Current v2 control-service state.
+    ///   - localIdentity: The complete scope that owns the outgoing endpoint.
+    ///   - now: A wall time bounded by elapsed monotonic time at the caller.
+    /// - Returns: The exact permitted, enabled Mac record.
+    /// - Throws: ``Failure`` for stale, revoked, or mismatched authority.
+    public func resolve(cache: V2CachedState, localIdentity: V2Identity, now: Date) throws -> V2DeviceRecord {
+        guard cache.formatVersion == 2, cache.identity == localIdentity,
+              let own = cache.device, own.descriptor.identity == localIdentity else { throw Failure.identityMismatch }
+        guard !cache.authorityRevoked, !own.revoked else { throw Failure.revoked }
+        guard let directory = cache.directory, directory.nextCursor == nil,
+              directory.teamID == localIdentity.teamID,
+              now.timeIntervalSince1970 >= Double(directory.issuedAt),
+              now.timeIntervalSince1970 < Double(directory.permissionExpiresAt) else { throw Failure.staleDirectory }
+        let matches = directory.devices.filter { $0.descriptor.endpointID == endpointID }
         guard !matches.isEmpty else { throw Failure.unavailable }
-        guard matches.count == 1, let binding = matches.first,
-              binding.deviceID == deviceID, binding.tag == tag,
-              binding.platform == .mac, binding.deviceID != localDeviceID.lowercased() else {
-            throw Failure.identityMismatch
+        guard matches.count == 1, let peer = matches.first else { throw Failure.identityMismatch }
+        guard !peer.revoked else { throw Failure.revoked }
+        let device = peer.descriptor
+        let identity = device.identity
+        guard device.metadata.platform == .mac,
+              identity.deviceID.lowercased() == deviceID, identity.buildTag == tag,
+              identity.userID == localIdentity.userID, identity.teamID == localIdentity.teamID,
+              identity.environment == localIdentity.environment, identity.projectID == localIdentity.projectID,
+              identity.appNamespace == localIdentity.appNamespace,
+              device.endpointID != own.descriptor.endpointID,
+              identity.deviceID.lowercased() != localIdentity.deviceID.lowercased(),
+              peer.revision <= directory.revision else { throw Failure.identityMismatch }
+        guard device.metadata.pairingEnabled, device.metadata.capabilities.contains("cmux.mac-host.v1") else {
+            throw Failure.unavailable
         }
-        guard binding.pairingEnabled else { throw Failure.unavailable }
-        guard let lease, lease.isFresh(now: now) else { throw Failure.staleDirectory }
-        guard let entry = lease.entries[endpointID] else { throw Failure.staleDirectory }
-        guard !entry.revoked else { throw Failure.revoked }
-        guard entry.deviceID == deviceID, entry.tag == tag,
-              entry.bindingID == binding.bindingID else { throw Failure.identityMismatch }
-        if let generation = entry.identityGeneration, generation != binding.identityGeneration {
-            throw Failure.identityMismatch
-        }
-        return binding
+        return peer
     }
 }

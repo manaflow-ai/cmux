@@ -3,11 +3,9 @@ import Foundation
 
 /// Borrowed connectivity resources for one authenticated Mac runtime generation.
 struct DeviceIrxClientContext: Sendable {
-    let broker: IrxBrokerService
+    let control: V2ControlService
     let supervisor: IrxEndpointSupervisor
-    let relayCredentials: IrxRelayCredentialAutopilot
-    let deviceList: IrxDeviceListCurrent
-    let localBinding: IrxBindingSnapshot
+    let localDevice: V2DeviceRecord
     let allowsDirectPaths: Bool
     let isCurrent: @Sendable () async -> Bool
 }

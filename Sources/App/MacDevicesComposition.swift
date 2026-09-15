@@ -20,7 +20,7 @@ struct MacDevicesComposition {
                 MobileHostIrxRuntime.shared.makeDeviceClient(identity: identity, teamID: teamID)
             },
             allowsAutomaticConnections: {
-                MobileHostIrxRuntime.isEnabled && ManagedIrohNetworkingPolicy.isEnabled
+                DevicesFeature.isEnabled && ManagedIrohNetworkingPolicy.isEnabled
             }
         )
         let computers = HiveComputersService(registry: registry, openSidebar: { instance in

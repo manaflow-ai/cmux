@@ -11,7 +11,7 @@ struct DeviceDirectoryMerge {
     struct Input: Sendable {
         var registry: [DeviceRegistryDirectoryClient.Device] = []
         /// Account-wide bindings from the same authenticated broker used by iOS.
-        var authenticatedMacs: [CmxIrohBrokerBinding] = []
+        var authenticatedMacs: [DeviceDiscoveredMac] = []
         var presence: [SurfaceDeviceInstanceID: DevicePresenceInstance] = [:]
         /// Whether the presence stream has delivered its snapshot, so a device
         /// absent from `presence` is known offline rather than unknown.
@@ -44,9 +44,7 @@ struct DeviceDirectoryMerge {
             }
         }
         let presenceMacs = input.presence.filter { $0.value.platform.lowercased() == "mac" }
-        let accountMacs = Dictionary(input.authenticatedMacs.filter {
-            $0.platform == .mac && $0.pairingEnabled
-        }.map { (SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.tag), $0) }, uniquingKeysWith: { first, _ in first })
+        let accountMacs = Dictionary(input.authenticatedMacs.map { (SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.tag), $0) }, uniquingKeysWith: { first, _ in first })
         let pairedByID = Dictionary(input.paired.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
         let retainedPrevious = input.previous.filter {
             $0.wasDiscovered || pairedByID[$0.instance] != nil
