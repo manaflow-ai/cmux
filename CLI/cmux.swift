@@ -4104,11 +4104,6 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
-        // A stream may challenge once on the initial request and once more if
-        // the socket's authenticated session is renewed while the request is
-        // being replayed. Keep the retry bounded so a bad credential or a
-        // permanently challenging peer cannot spin indefinitely.
-        let maxAuthenticationRetries = 2
         var authenticationRetryCount = 0
         while true {
             try writeAll(
@@ -4122,8 +4117,7 @@ final class SocketClient {
                 // Record password-required mode before auth so its response is
                 // not mistaken for a credential-free stream.
                 authenticationModeCoordinator.recordPasswordRequired()
-                guard authenticationRetryCount < maxAuthenticationRetries,
-                      !authenticationInProgress else {
+                guard authenticationRetryCount < 2, !authenticationInProgress else {
                     throw CLIError(message: line)
                 }
                 if authenticationPassword == nil {
