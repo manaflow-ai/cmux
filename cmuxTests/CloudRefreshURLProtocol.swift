@@ -62,9 +62,6 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             tasks[key] = Task {
                 guard !Task.isCancelled else { return }
                 if self.held { await withCheckedContinuation { self.responseWaiters[key] = $0 } }
-                // The fixture models a slow HTTP response, not a wait for test
-                // state to settle. All callers run against that same latency.
-                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
                 guard self.tasks.removeValue(forKey: key) != nil else { return }
                 let unavailable = path.hasSuffix("/stats") ? behavior == .statsUnavailable : behavior == .listUnavailable
                 let response = HTTPURLResponse(url: source.request.url!, statusCode: behavior == .throttled ? 429 : unavailable ? 503 : 200, httpVersion: nil,

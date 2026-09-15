@@ -17,13 +17,19 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<4 {
-                for machine in 0..<10 {
-                    group.addTask { _ = try? await fixture.client.stats(id: "fixture-\(machine)") }
+        await CloudRefreshURLProtocol.holdResponses()
+        let requests = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<4 {
+                    for machine in 0..<10 {
+                        group.addTask { _ = try? await fixture.client.stats(id: "fixture-\(machine)") }
+                    }
                 }
             }
         }
+        try await eventually { await fixture.readRequests.entries.values.reduce(0) { $0 + $1.waiters.count } == 40 }
+        await CloudRefreshURLProtocol.releaseResponses()
+        await requests.value
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.count == 10)
         #expect(counts.values.allSatisfy { $0 == 1 }, "Four owners must share one read per machine: \(counts.values.sorted())")
@@ -34,11 +40,15 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<4 {
-                group.addTask { _ = try? await fixture.client.listPage() }
+        await CloudRefreshURLProtocol.holdResponses()
+        let requests = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<4 { group.addTask { _ = try? await fixture.client.listPage() } }
             }
         }
+        try await eventually { await fixture.readRequests.entries.values.first?.waiters.count == 4 }
+        await CloudRefreshURLProtocol.releaseResponses()
+        await requests.value
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.values.reduce(0, +) == 1)
     }
@@ -47,7 +57,8 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        let model = MachinesPanelViewModel(client: fixture.client)
+        await CloudRefreshURLProtocol.holdResponses()
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         model.startPolling()
         await CloudRefreshURLProtocol.waitUntilStarted()
         model.stopPolling()
@@ -63,7 +74,8 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        var model: MachinesPanelViewModel? = MachinesPanelViewModel(client: fixture.client)
+        await CloudRefreshURLProtocol.holdResponses()
+        var model: MachinesPanelViewModel? = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         weak var weakModel = model
         model?.refresh()
         await CloudRefreshURLProtocol.waitUntilStarted()
@@ -77,7 +89,7 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        let model = MachinesPanelViewModel(client: fixture.client)
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         defer { model.stopPolling() }
         model.refresh()
         try await eventually { model.machines.first?.stats?.state == .awake }
@@ -93,7 +105,7 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        let model = MachinesPanelViewModel(client: fixture.client)
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         defer { model.stopPolling() }
         model.refresh()
         try await eventually { model.machines.first?.stats?.state == .awake }
@@ -105,14 +117,19 @@ struct VMClientReadCoalescingTests {
 
     @Test("The VM operation budget cancels a slow transport")
     func totalRequestBudget() async throws {
-        let fixture = try await CloudRefreshFixture.make(readRequests: CloudReadRequestCoordinator(budget: .milliseconds(100)))
+        let clock = CloudReadManualClock()
+        let reads = CloudReadRequestCoordinator(clock: CloudRequestClock(clock), budget: .milliseconds(100))
+        let fixture = try await CloudRefreshFixture.make(readRequests: reads)
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        do { _ = try await fixture.client.stats(id: "fixture-0"); Issue.record("request exceeded its total budget") }
+        await CloudRefreshURLProtocol.holdResponses()
+        let request = Task { try await fixture.client.stats(id: "fixture-0") }
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        clock.advance(by: .milliseconds(101))
+        do { _ = try await request.value; Issue.record("request exceeded its total budget") }
         catch { #expect((error as? URLError)?.code == .timedOut) }
-        if await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) > 0 {
-            await CloudRefreshURLProtocol.waitUntilStopped()
-        }
+        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.releaseResponses()
     }
 
     @Test("HTTP Retry-After exceeds the budget without an early automatic retry")
@@ -142,7 +159,7 @@ struct VMClientReadCoalescingTests {
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
         await CloudRefreshURLProtocol.holdResponses()
-        let model = MachinesPanelViewModel(client: fixture.client, pollingClock: clock)
+        let model = MachinesPanelViewModel(client: fixture.client, pollingClock: clock, isCloudEnabled: { true })
         model.startPolling()
         await CloudRefreshURLProtocol.waitUntilStarted()
         try await eventually { clock.pendingSleeperCount == 2 }
@@ -161,11 +178,14 @@ struct VMClientReadCoalescingTests {
         let fixture = try await CloudRefreshFixture.make()
         defer { fixture.session.invalidateAndCancel() }
         await CloudRefreshURLProtocol.reset()
-        let models = (0..<4).map { _ in MachinesPanelViewModel(client: fixture.client) }
+        await CloudRefreshURLProtocol.holdResponses()
+        let models = (0..<4).map { _ in MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true }) }
         defer { for model in models { model.stopPolling() } }
         for model in models { model.startPolling() }
         models[2].stopPolling()
         models[3].stopPolling()
+        try await eventually { await fixture.readRequests.entries.values.first?.waiters.count == 2 }
+        await CloudRefreshURLProtocol.releaseResponses()
         try await eventually { models[0].machines.first?.stats != nil && models[1].machines.first?.stats != nil }
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts["/api/vm"] == 1)
@@ -200,10 +220,10 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.releaseResponses()
     }
 
-    private func eventually(_ condition: () -> Bool) async throws {
+    private func eventually(_ condition: () async -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
-        try #require(condition())
+        while !(await condition()), ContinuousClock.now < deadline { await Task.yield() }
+        try #require(await condition())
     }
 
 }
@@ -213,6 +233,7 @@ struct CloudRefreshFixture {
     let client: VMClient
     let auth: AuthCoordinator
     let session: URLSession
+    let readRequests: CloudReadRequestCoordinator
 
     static func make(readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator()) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
@@ -241,7 +262,7 @@ struct CloudRefreshFixture {
         return Self(client: VMClient(
             session: session, auth: auth, checkpointRenames: CloudRenameCoordinator(),
             machineCache: CloudMachineCache(defaults: defaults), readRequests: readRequests
-        ), auth: auth, session: session)
+        ), auth: auth, session: session, readRequests: readRequests)
     }
 }
 
