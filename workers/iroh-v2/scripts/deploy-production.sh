@@ -43,11 +43,11 @@ out.joinpath("development.json").write_text(json.dumps(base))
 PY
 
 check_scope() {
-  local name="$1" expected="$2"
+  local name="$1" expected="$2" expected_error="$3"
   local code
   # Expected auth failures (401/403) are successful scope probes, so do not
   # use curl's --fail mode here. It turns those expected responses into exit 22.
-  code=$(curl -sS -o "$probe_dir/$name.response" -w '%{http_code}' \
+  code=$(curl -sS --connect-timeout 10 --max-time 30 --max-filesize 65536 -o "$probe_dir/$name.response" -w '%{http_code}' \
     -X POST "$worker_url/v2/control/session" \
     -H 'content-type: application/json' \
     -H 'authorization: Bearer invalid-production-config-probe' \
@@ -56,12 +56,26 @@ check_scope() {
       return 1
     }
   if [[ "$code" != "$expected" ]]; then
-    echo "refusing production deploy: $name scope returned HTTP $code, expected $expected" >&2
-    cat "$probe_dir/$name.response" >&2
+    echo "production was deployed, but verification failed: $name returned HTTP $code, expected $expected" >&2
+    return 1
+  fi
+  # Require our structured error, rather than an unrelated proxy's 401/403.
+  # Never print a provider response body into deployment logs.
+  if ! python3 - "$probe_dir/$name.response" "$expected_error" <<'PY_CHECK'
+import json, pathlib, sys
+try:
+    value = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    valid = isinstance(value, dict) and value.get("schemaId") == "error.v1" and value.get("code") == sys.argv[2]
+except (ValueError, OSError):
+    valid = False
+sys.exit(0 if valid else 1)
+PY_CHECK
+  then
+    echo "production was deployed, but verification failed: $name returned an unexpected error response" >&2
     return 1
   fi
 }
 
-check_scope production 401
-check_scope development 403
+check_scope production 401 unauthorized
+check_scope development 403 environment_mismatch
 echo "production Stack Auth scope probe passed"
