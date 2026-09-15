@@ -50,7 +50,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
     writeFileSync(daemon, '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$HOME/daemon-args"\nprintf \'%s\\n\' \'{"session":"cloud","workspaces":[]}\'\n', { mode: 0o755 });
     const tree = spawnSync(target, ["tree", "--json"], {
       encoding: "utf8", timeout: 5_000,
-      env: { PATH: process.env.PATH, HOME: root, CMUX_TUI_BIN: daemon },
+      env: { ...process.env, HOME: root, CMUX_TUI_BIN: daemon },
     });
     expect(tree.status).toBe(0);
     expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
