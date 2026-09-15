@@ -1532,13 +1532,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
     var pendingTerminalInputDroppedRenderGridSurfaceIDs: Set<String>
     var terminalActiveScreenBySurfaceID: [String: MobileTerminalRenderGridFrame.Screen]
-    /// Surfaces that had a confirmed primary screen immediately before a
-    /// transient connection teardown. Keep their local pixel-scroll lease
-    /// alive until the replacement connection publishes its first
-    /// authoritative frame. This avoids a reconnect-sized window where the
-    /// gesture path regresses to row-quantized scrolling.
-    var terminalReconnectLocalScrollSurfaceIDs: Set<String>
-    var terminalReconnectLocalScrollLeaseExpiresAt: Date?
     /// History-row count of the last DELIVERED screen-anchored frame. Deltas
     /// carry the producer's previous history count as their diff base; a
     /// mismatch here means a frame was missed and dirty-row patching can no
@@ -1961,8 +1954,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         self.terminalActiveScreenBySurfaceID = [:]
-        self.terminalReconnectLocalScrollSurfaceIDs = []
-        self.terminalReconnectLocalScrollLeaseExpiresAt = nil
         self.terminalRenderGridHistoryContinuityBySurfaceID = [:]
         self.terminalRenderGridRevisionContinuityBySurfaceID = [:]
         self.terminalMirrorHydrationNeededSurfaceIDs = []
@@ -11414,23 +11405,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func resetTerminalOutputTracking() {
-        let now = runtime?.now() ?? Date()
-        let existingReconnectLocalScrollSurfaceIDs =
-            terminalReconnectLocalScrollLeaseExpiresAt.map { $0 > now } == true
-                ? terminalReconnectLocalScrollSurfaceIDs
-                : []
-        let reconnectLocalScrollSurfaceIDs = usesScreenAnchoredRenderGrid
-            ? Set(terminalActiveScreenBySurfaceID.compactMap { surfaceID, screen in
-                screen == .primary ? surfaceID : nil
-            })
-            : []
-        let preservedReconnectLocalScrollSurfaceIDs =
-            existingReconnectLocalScrollSurfaceIDs.union(reconnectLocalScrollSurfaceIDs)
-        if !preservedReconnectLocalScrollSurfaceIDs.isEmpty {
-            MobileDebugLog.anchormux(
-                "sync.scroll_lease=reconnect_preserved surfaces=\(preservedReconnectLocalScrollSurfaceIDs.sorted().joined(separator: ","))"
-            )
-        }
         cancelAllTerminalReplayTasks()
         effectiveViewportSizesBySurfaceID = [:]; reportedTerminalViewportSizesBySurfaceID = [:]
         // Keep viewport sequences for the account lifetime. A warm peer keeps
@@ -11451,10 +11425,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalInputDroppedRenderGridSurfaceIDs = []
         terminalActiveScreenBySurfaceID = [:]
-        terminalReconnectLocalScrollSurfaceIDs = preservedReconnectLocalScrollSurfaceIDs
-        terminalReconnectLocalScrollLeaseExpiresAt = preservedReconnectLocalScrollSurfaceIDs.isEmpty
-            ? nil
-            : now.addingTimeInterval(10)
         diagnosedTerminalOutputSurfaceIDs = []
         terminalRenderGridHistoryContinuityBySurfaceID = [:]
         terminalRenderGridRevisionContinuityBySurfaceID = [:]
@@ -13429,14 +13399,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     ) else {
-                        terminalReconnectLocalScrollSurfaceIDs.removeAll()
-                        terminalReconnectLocalScrollLeaseExpiresAt = nil
                         return .rawBytes
                     }
                     terminalOutputTransport = fallback
                     if fallback != .renderGrid {
-                        terminalReconnectLocalScrollSurfaceIDs.removeAll()
-                        terminalReconnectLocalScrollLeaseExpiresAt = nil
                     }
                     // Preserve learned capabilities during transient status decode failures.
                     scheduleHostIdentityAdoptionIfNeeded(client: client)
@@ -13459,16 +13425,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             supportedHostCapabilities = Set(payload.capabilities)
-            // A successful capability snapshot is authoritative for the new
-            // connection. If it cannot provide screen-anchored render grids,
-            // revoke any reconnect grace lease captured from the old Mac.
-            if !supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability) {
-                if !terminalReconnectLocalScrollSurfaceIDs.isEmpty {
-                    MobileDebugLog.anchormux("sync.scroll_lease=reconnect_revoked reason=screen_anchor_unsupported")
-                }
-                terminalReconnectLocalScrollSurfaceIDs.removeAll()
-                terminalReconnectLocalScrollLeaseExpiresAt = nil
-            }
             phonePushMacStatus = payload.phonePush
             seedForegroundCaffeineStatusIfSupported()
             restartActiveMobileBrowserStreams()
@@ -13523,14 +13479,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     generation: generation
                 )
             ) else {
-                terminalReconnectLocalScrollSurfaceIDs.removeAll()
-                terminalReconnectLocalScrollLeaseExpiresAt = nil
                 return .rawBytes
             }
             terminalOutputTransport = fallback
             if fallback != .renderGrid {
-                terminalReconnectLocalScrollSurfaceIDs.removeAll()
-                terminalReconnectLocalScrollLeaseExpiresAt = nil
             }
             reconcileTerminalLanesForOutputTransport()
             // Preserve learned capabilities during transient reconnect probe failures.
@@ -14703,10 +14655,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
-        terminalReconnectLocalScrollSurfaceIDs.remove(surfaceID)
-        if terminalReconnectLocalScrollSurfaceIDs.isEmpty {
-            terminalReconnectLocalScrollLeaseExpiresAt = nil
-        }
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalRenderGridRevisionContinuityBySurfaceID.removeValue(forKey: surfaceID)
         terminalMirrorHydrationNeededSurfaceIDs.remove(surfaceID)

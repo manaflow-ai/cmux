@@ -67,7 +67,7 @@ func screenAnchoredHostKeepsPrimaryScrollLocal() async throws {
 }
 
 @MainActor
-@Test("a reconnect forwards scroll until a fresh screen is confirmed")
+@Test("a reconnect clears local scroll ownership until a fresh screen is confirmed")
 func reconnectRequiresFreshPrimaryScreenConfirmation() async throws {
     let router = LivenessHostRouter()
     await router.setCapabilities([
@@ -93,16 +93,6 @@ func reconnectRequiresFreshPrimaryScreenConfirmation() async throws {
     #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == nil)
     #expect(!store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
 
-    store.recordTerminalRenderGridDelivery(
-        try renderGridFrame(
-            surfaceID: "live-terminal",
-            seq: 1,
-            text: "alternate",
-            activeScreen: .alternate,
-            full: true
-        )
-    )
-    #expect(!store.ownsLocalPrimaryScreenScroll(surfaceID: "live-terminal"))
 }
 
 @Test("a transient status failure retains the dedicated terminal lane")
