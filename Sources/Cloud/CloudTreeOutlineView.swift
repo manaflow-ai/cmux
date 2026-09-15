@@ -225,7 +225,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
-            if isDragging {
+            apply(nodes: nodes, allowDuringNativeDrag: false)
+        }
+
+        /// Applies a snapshot immediately after a destination accepted a drop.
+        /// AppKit's source session may send `endedAt` later, but the destination
+        /// is complete and the user should see the new order now.
+        func applyOrganization(nodes: [CloudTreeNode]) {
+            deferredNodes = nil
+            apply(nodes: nodes, allowDuringNativeDrag: true)
+        }
+
+        private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
+            if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
                 return
             }

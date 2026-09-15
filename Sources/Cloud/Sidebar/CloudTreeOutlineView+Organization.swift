@@ -31,7 +31,10 @@ extension CloudTreeOutlineView.Coordinator {
     func organize(_ action: CloudSidebarOrganizationAction, nodeID: String) -> Bool {
         let current = organizationNodes
         guard nodeActions.organize(action, nodeID, current) else { return false }
-        apply(nodes: current)
+        // The catalog mutation is local and already authoritative for this
+        // action. Do not wait for the native source's later `endedAt` callback
+        // before reflecting the accepted reorder in the outline.
+        applyOrganization(nodes: current)
         return true
     }
 
