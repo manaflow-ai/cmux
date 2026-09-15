@@ -425,6 +425,9 @@ extension MobileShellComposite {
     ) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
+              item.supportsTerminalReply,
+              item.userReply == nil,
+              agentFeedLocalRepliesByItemID[item.id] == nil,
               let workspaceID = item.remoteWorkspaceID,
               let surfaceID = item.remoteSurfaceID,
               let target = agentFeedTarget(for: agentFeedOwnerKey(for: item)) else {

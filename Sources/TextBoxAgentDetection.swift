@@ -80,7 +80,16 @@ enum TextBoxAgentDetection: CaseIterable {
     }
 
     static func composedPromptSubmitKey(containsNewline: Bool, context: String) -> String {
-        isClaudeCode(context: context) && containsNewline ? "ctrl+enter" : "return"
+        // A terminal can run another provider after its original launch or
+        // restore. Prefer current process identities, including providers that
+        // do not participate in textbox prefix completion (Gemini, Grok, Cursor).
+        let activeIdentities = context.split(separator: "\n").compactMap { line in
+            metadataValue(String(line).trimmingCharacters(in: .whitespacesAndNewlines), prefix: "agentPIDKey:")
+        }.filter { !$0.isEmpty }
+        let isClaude = activeIdentities.isEmpty
+            ? isClaudeCode(context: context)
+            : activeIdentities.contains { claudeCode.matchesIdentity($0) }
+        return isClaude && containsNewline ? "ctrl+enter" : "return"
     }
 
     static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
