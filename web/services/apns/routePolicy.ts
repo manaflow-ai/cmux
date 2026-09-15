@@ -151,13 +151,16 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
 
 function parsePushFields(body: Record<string, unknown>): { ok: true; value: ParsedPushFields } | { ok: false; error: string } {
   const kind: PushKind = body.kind === "dismiss" ? "dismiss" : "notify";
+  const encrypted = parseEncryptedPayloads(body);
+  if (!encrypted.ok) return encrypted;
+  const hasEncryptedPayloads = encrypted.value.length > 0;
   const fields: ParsedPushFields = {
     kind,
-    title: boundedString(body.title, MAX_PUSH_TITLE_CHARS),
-    subtitle: body.subtitle == null ? "" : boundedString(body.subtitle, MAX_PUSH_SUBTITLE_CHARS),
-    text: boundedString(body.body, MAX_PUSH_BODY_CHARS),
-    workspaceId: body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS),
-    surfaceId: body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS),
+    title: hasEncryptedPayloads ? "" : boundedString(body.title, MAX_PUSH_TITLE_CHARS),
+    subtitle: hasEncryptedPayloads ? "" : body.subtitle == null ? "" : boundedString(body.subtitle, MAX_PUSH_SUBTITLE_CHARS),
+    text: hasEncryptedPayloads ? "" : boundedString(body.body, MAX_PUSH_BODY_CHARS),
+    workspaceId: hasEncryptedPayloads ? "" : body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS),
+    surfaceId: hasEncryptedPayloads ? "" : body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS),
     macDeviceId: body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS),
     macInstanceTag: body.macInstanceTag == null ? "" : boundedString(body.macInstanceTag, MAX_PUSH_ID_CHARS),
     notificationId: body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS),
@@ -165,12 +168,9 @@ function parsePushFields(body: Record<string, unknown>): { ok: true; value: Pars
     correlationId: body.correlationId == null ? "" : boundedString(body.correlationId, MAX_PUSH_CORRELATION_ID_CHARS),
     hasExpiration: Object.hasOwn(body, "expirationEpochSeconds"),
     expirationEpochSeconds: Object.hasOwn(body, "expirationEpochSeconds") ? parseExpiration(body.expirationEpochSeconds) : null,
-    encryptedList: [],
+    encryptedList: encrypted.value,
     macPushPublicKey: body.macPushPublicKey == null ? "" : boundedString(body.macPushPublicKey, 128),
   };
-  const encrypted = parseEncryptedPayloads(body);
-  if (!encrypted.ok) return encrypted;
-  fields.encryptedList = encrypted.value;
   const error = validatePushFields(fields);
   return error ? { ok: false, error } : { ok: true, value: fields };
 }
