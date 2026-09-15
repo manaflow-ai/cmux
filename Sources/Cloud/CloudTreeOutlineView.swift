@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 /// The Finder-like Cloud tree over the surface catalog: This Mac and every
