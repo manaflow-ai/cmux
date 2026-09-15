@@ -279,6 +279,14 @@
       "created_at": "2026-09-14T19:18:33Z",
       "repoId": 1144115288,
       "pullRequestNo": 12646
+    },
+    {
+      "name": "kgwoo",
+      "id": 47517621,
+      "comment_id": 5675725199,
+      "created_at": "2026-09-15T06:23:28Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 12670
     }
   ]
 }
