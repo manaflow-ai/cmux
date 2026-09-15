@@ -124,7 +124,47 @@ struct SessionSplitContainerLayoutCodec {
             return
         }
     }
-
+    /// Rebuilds a saved pane tree around the panels that are already alive.
+    /// This is used by closed-panel history: creating a terminal just to make
+    /// Bonsplit accept a split would execute the wrong Cloud creation path.
+    @discardableResult
+    func restoreExistingLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        panelIDMap: [UUID: UUID],
+        tabIDForPanelID: (UUID) -> TabID?
+    ) -> Bool {
+        guard let root = controller.allPaneIds.first else { return false }
+        let desiredPanelIDs = layout.allPanelIDs
+        let desiredTabs = desiredPanelIDs.compactMap { panelIDMap[$0] ?? $0 }
+            .compactMap(tabIDForPanelID)
+        guard desiredTabs.count == desiredPanelIDs.count else { return false }
+        let liveTabIDs = Set(controller.allPaneIds.flatMap { controller.tabs(inPane: $0).map(\.id) })
+        guard liveTabIDs.isSubset(of: Set(desiredTabs)) else { return false }
+        for pane in controller.allPaneIds where pane != root {
+            for tab in controller.tabs(inPane: pane) {
+                _ = controller.moveTab(tab.id, toPane: root)
+            }
+        }
+        let scaffold = restoreScaffold(layout)
+        for leaf in scaffold.leaves {
+            let panelIDs = leaf.snapshot.panelIds.compactMap { panelIDMap[$0] ?? $0 }
+            for (index, panelID) in panelIDs.enumerated() {
+                guard let tabID = tabIDForPanelID(panelID) else { return false }
+                _ = controller.moveTab(tabID, toPane: leaf.paneId, atIndex: index)
+            }
+            if let selected = leaf.snapshot.selectedPanelId.flatMap({ panelIDMap[$0] ?? $0 }),
+               let tabID = tabIDForPanelID(selected) {
+                controller.focusPane(leaf.paneId)
+                controller.selectTab(tabID)
+            }
+            _ = controller.setFullWidthTabMode(leaf.snapshot.isFullWidthTabMode == true, inPane: leaf.paneId)
+        }
+        for tabID in scaffold.placeholderTabIds {
+            _ = controller.closeTab(tabID)
+        }
+        applyDividerPositions(snapshotNode: layout, liveNode: controller.treeSnapshot())
+        return true
+    }
     private func snapshot(
         node: ExternalTreeNode,
         panelIdForTabId: (TabID) -> UUID?
@@ -214,6 +254,13 @@ struct SessionSplitContainerLayoutCodec {
 }
 
 private extension SessionWorkspaceLayoutSnapshot {
+    var allPanelIDs: [UUID] {
+        switch self {
+        case .pane(let pane): return pane.panelIds
+        case .split(let split): return split.first.allPanelIDs + split.second.allPanelIDs
+        }
+    }
+
     var paneFallback: SessionPaneLayoutSnapshot {
         switch self {
         case .pane(let pane): return pane
