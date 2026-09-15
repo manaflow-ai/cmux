@@ -315,7 +315,7 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.title == "new")
+        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.remoteViews?.first?.name == "new")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -360,7 +360,7 @@ struct SurfaceCatalogTests {
         catalog.register(provider)
         let snapshot: [String: Any] = [
             "cursor": ["generation": "g1", "revision": "1"],
-            "workspaces": [["id": "ws", "name": "canonical"]],
+            "workspaces": [["id": "ws", "name": "canonical", "focused": true]],
             "screens": [],
             "panes": [],
             "tabs": [],
@@ -1020,6 +1020,36 @@ struct SurfaceCatalogTests {
         }
     }
 
+    @Test func openingLayoutKeepsUnplacedGroupResources() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-layout")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let members = ["placed-a", "placed-b", "pool-terminal"].map {
+            SurfaceResourcePlacement(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: $0))
+        }
+        catalog.replaceResources(members.map { terminal(machine, $0.resource.key) }, on: machine)
+        let group = SurfaceResourceGroup(title: "layout", placements: members)
+        let layout = SurfaceProjectionLayout.split(
+            direction: .right,
+            ratio: 0.6,
+            first: .leaf(placements: [members[0]]),
+            second: .leaf(placements: [members[1]])
+        )
+        let workspace = UUID()
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (workspace, nil) },
+            paneLookup: { _, panel in panel.uuidString },
+            closeStarter: { _, _ in }
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group, title: "layout", focus: false, host: host, layout: layout
+        )
+        #expect(opened.projections.count == members.count)
+        #expect(Set(opened.projections.map(\.resource)) == Set(group.resources))
+        #expect(provider.materialized.count == members.count)
+    }
+
     @Test func `Unregistering a machine drops its resources and projections`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
@@ -1174,5 +1204,105 @@ struct SurfaceCatalogTests {
         #expect(closed == 0)
         #expect(provider.closedTerminals.isEmpty)
         #expect(provider.closedRemoteWorkspaces == ["ws_empty"])
+    }
+}
+
+// MARK: - Optimistic layout open (https://github.com/manaflow-ai/cmux/issues/12537)
+
+extension SurfaceCatalogTests {
+    /// Opening a Cloud workspace with an optimistic host reserves every pane of the
+    /// layout before any machine round trip and attaches them all afterwards, instead
+    /// of projecting one placement at a time.
+    @Test @MainActor
+    func `Opening a workspace optimistically reserves the whole layout first and attaches every pane`() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        catalog.register(FakeProvider(machine: machine))
+        let ids = ["a", "b", "c", "d"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
+        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
+
+        let newWorkspace = UUID()
+        let starter = UUID()
+        var reserved: [(SurfaceDestination, Bool)] = []
+        var attached: [SurfaceResourceID] = []
+        var closedStarters = 0
+        var attachedBeforeAllReserved = false
+        var lookups = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (newWorkspace, starter) },
+            paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
+            closeStarter: { _, _ in closedStarters += 1 },
+            optimistic: SurfaceCatalog.OptimisticPaneHost(
+                reserve: { machine, destination, focus in
+                    reserved.append((destination, focus))
+                    return CloudTerminalPaneReservation(workspaceID: newWorkspace, panelID: UUID(), machine: machine)
+                },
+                attach: { _, resource, _ in
+                    if reserved.count < ids.count { attachedBeforeAllReserved = true }
+                    attached.append(resource.id)
+                }
+            )
+        )
+        let layout = SurfaceProjectionLayout.split(
+            direction: .right, ratio: 0.5,
+            first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[0]), SurfaceResourcePlacement(resource: ids[1])]),
+            second: .split(
+                direction: .down, ratio: 0.5,
+                first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[2])]),
+                second: .leaf(placements: [SurfaceResourcePlacement(resource: ids[3])])
+            )
+        )
+
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            SurfaceResourceGroup(title: "main", resources: ids), title: "vm-1: main", focus: true, host: host, layout: layout
+        )
+
+        #expect(opened.workspaceID == newWorkspace)
+        #expect(closedStarters == 1)
+        // The first placement takes the starter's slot; its leaf mate becomes a tab; the
+        // second half opens beside it and its own second half below that.
+        #expect(reserved.map(\.0) == [
+            .workspace(id: newWorkspace, placement: .split),
+            .split(workspaceID: newWorkspace, paneID: "pane-1", direction: .right),
+            .tab(workspaceID: newWorkspace, paneID: "pane-1", index: nil),
+            .split(workspaceID: newWorkspace, paneID: "pane-2", direction: .down),
+        ])
+        #expect(reserved.map(\.1) == [true, false, false, false])
+        #expect(!attachedBeforeAllReserved)
+        #expect(Set(attached) == Set(ids))
+        // Every reserved pane already carries its projection, so a bound-workspace pass
+        // sees no missing placement while the attachments run.
+        #expect(opened.projections.count == 4)
+        for projection in opened.projections {
+            #expect(catalog.projection(forPanel: projection.panelID) == projection)
+        }
+    }
+
+    /// A group with anything but known cloud terminals keeps the awaited path.
+    @Test @MainActor
+    func `Optimistic hosts fall back to awaited projection for groups with unknown resources`() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let known = SurfaceResourceID(machine: machine, kind: .terminal, key: "a")
+        catalog.replaceResources([terminal(machine, "a")], on: machine)
+        var reservations = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (UUID(), nil) },
+            paneLookup: { _, _ in nil },
+            closeStarter: { _, _ in },
+            optimistic: SurfaceCatalog.OptimisticPaneHost(
+                reserve: { machine, _, _ in reservations += 1; return CloudTerminalPaneReservation(workspaceID: UUID(), panelID: UUID(), machine: machine) },
+                attach: { _, _, _ in }
+            )
+        )
+        let unknown = SurfaceResourceID(machine: machine, kind: .terminal, key: "missing")
+
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace([known, unknown], title: "x", focus: false, host: host)
+
+        #expect(reservations == 0)
+        #expect(provider.materialized.map(\.0) == [known])
+        #expect(opened.projections.count == 1)
     }
 }

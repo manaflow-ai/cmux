@@ -62,6 +62,7 @@ describe("iOS mobile network observability route", () => {
         duration_ms: 1_250,
         failure: "timedOut",
         transport: "iroh",
+        client_channel: "nightly",
       }),
     ]));
 
@@ -75,6 +76,7 @@ describe("iOS mobile network observability route", () => {
       durationMs: 1_250,
       failure: "timedOut",
       transport: "iroh",
+      clientChannel: "nightly",
     });
     expect(flushTimeouts).toEqual([1_000]);
   });

@@ -89,6 +89,14 @@ public final class GhosttyMetalLayer: CAMetalLayer {
         )
     }
 
+    /// The monotonic drawable sequence for this terminal view.
+    ///
+    /// Presentation coordinators snapshot this before a reveal so a later
+    /// sequence can prove that a fresh frame was produced for the handoff.
+    public var renderedFrameSequence: UInt64 {
+        drawableCount.loadRelaxed()
+    }
+
     override public func nextDrawable() -> (any CAMetalDrawable)? {
         guard let drawable = super.nextDrawable() else { return nil }
         _ = drawableCount.wrappingIncrementRelaxed()

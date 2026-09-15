@@ -12,6 +12,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         case log
         case altScreenLog = "alt_screen_log"
         case osc8
+        case plainURL = "url"
     }
 
     private struct SetupData {
@@ -103,6 +104,14 @@ final class TerminalCmdClickUITests: XCTestCase {
             0,
             "Expected no command-modified hover dispatch to reach Ghostty while selection is active. diagnostics=\(diagnostics)"
         )
+    }
+
+    func testBackgroundAppIsNotReadyForInteraction() {
+        XCTAssertFalse(
+            Self.isReadyForInteraction(.runningBackground),
+            "A backgrounded app can still have windows; readiness requires runningForeground."
+        )
+        XCTAssertTrue(Self.isReadyForInteraction(.runningForeground))
     }
 
     func testCmdClickEscapedPathWithSpacesOpensResolvedFile() throws {
@@ -216,6 +225,37 @@ final class TerminalCmdClickUITests: XCTestCase {
         XCTAssertTrue(
             openedURLs.contains(expectedURL),
             "Expected stationary OSC 8 cmd-click to open \(expectedURL). opened=\(openedURLs)"
+        )
+    }
+
+    func testStationaryCmdClickPlainURLWithMouseReportingOpensURL() throws {
+        let app = launchApp(
+            displayMode: .raw,
+            lineFormat: .plainURL,
+            captureOpenPaths: false,
+            captureHoverDiagnostics: false,
+            mouseReporting: true
+        )
+        defer { app.terminate() }
+
+        let setup = try waitForReadySetup()
+        XCTAssertEqual(
+            setup.payload["mouseReportingCaptured"] as? String,
+            "1",
+            "Expected the fixture to enable terminal mouse reporting before the click. payload=\(setup.payload)"
+        )
+        let expectedURL = "https://github.com"
+        let result = try runCommand(action: "stationary_cmd_click_token")
+        XCTAssertEqual(
+            result["lastCommandSucceeded"] as? String,
+            "1",
+            "Expected Cmd-click to open a plain URL while mouse reporting is active. result=\(result)"
+        )
+
+        let openedURLs = waitForCapturedOpenPaths(timeout: 5.0, path: openURLCapturePath)
+        XCTAssertTrue(
+            openedURLs.contains(expectedURL),
+            "Expected Cmd-click to emit the plain URL while mouse reporting is active. opened=\(openedURLs)"
         )
     }
 
@@ -845,7 +885,8 @@ final class TerminalCmdClickUITests: XCTestCase {
         openSupportedFilesInCmux: Bool = false,
         openMarkdownInCmuxViewer: Bool? = nil,
         quicklookOverride: String? = nil,
-        viewportOffsetDelta: Int? = nil
+        viewportOffsetDelta: Int? = nil,
+        mouseReporting: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = "ui-test-terminal-cmd-click"
@@ -857,6 +898,9 @@ final class TerminalCmdClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FILE_NAME"] = fileName
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_MODE"] = displayMode.rawValue
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = lineFormat.rawValue
+        if mouseReporting {
+            app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_MOUSE_REPORTING"] = "1"
+        }
         app.launchEnvironment["CMUX_UI_TEST_OPEN_SUPPORTED_FILES_IN_CMUX"] = openSupportedFilesInCmux ? "1" : "0"
         if !displaySuffix.isEmpty {
             app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_DISPLAY_SUFFIX"] = displaySuffix
@@ -878,7 +922,7 @@ final class TerminalCmdClickUITests: XCTestCase {
         if captureOpenPaths {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_PATH"] = openCapturePath
         }
-        if lineFormat == .osc8 {
+        if lineFormat == .osc8 || lineFormat == .plainURL {
             app.launchEnvironment["CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH"] = openURLCapturePath
         }
         if captureHoverDiagnostics {
@@ -1022,12 +1066,13 @@ final class TerminalCmdClickUITests: XCTestCase {
         return object
     }
 
+    /// Launches the app and fails unless it reaches the foreground before UI input begins.
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless GUI runners", options: options) {
-            app.launch()
-        }
+        // Activation is required before this suite drives keyboard and pointer
+        // input. Do not mask launch failures with XCTExpectFailure: with
+        // continueAfterFailure disabled, XCTest can stop the test here and
+        // report the expected failure as a passing test without running its body.
+        app.launch()
 
         guard app.state == .runningForeground || app.state == .runningBackground else {
             XCTFail("App failed to start. state=\(app.state.rawValue)")
@@ -1036,12 +1081,16 @@ final class TerminalCmdClickUITests: XCTestCase {
 
         app.activate()
         let foregrounded = waitForCondition(timeout: timeout) {
-            app.state == .runningForeground || app.windows.firstMatch.exists
+            Self.isReadyForInteraction(app.state)
         }
         XCTAssertTrue(
             foregrounded,
             "Expected app activation before driving cmd-key harness. state=\(app.state.rawValue)"
         )
+    }
+
+    private static func isReadyForInteraction(_ state: XCUIApplication.State) -> Bool {
+        state == .runningForeground
     }
 
     private func waitForCondition(

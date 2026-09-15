@@ -2,9 +2,11 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
+import { CHECKOUT_SOURCE_DASHBOARD_BILLING } from "@/services/analytics/checkoutAttribution";
 import {
   PRO_CHECKOUT_URL,
   TEAM_CHECKOUT_URL,
+  withCheckoutSource,
   withCheckoutInterval,
 } from "@/app/lib/billing";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -300,13 +302,15 @@ function FreePlanUpsell({
     },
   });
   const teamFeatures = pricingT.raw("team.features") as string[];
+  const proCheckoutURL = withCheckoutSource(PRO_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
+  const teamCheckoutURL = withCheckoutSource(TEAM_CHECKOUT_URL, CHECKOUT_SOURCE_DASHBOARD_BILLING);
   const proCheckoutHrefs = {
-    month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(proCheckoutURL, "month"),
+    year: withCheckoutInterval(proCheckoutURL, "year"),
   };
   const teamCheckoutHrefs = {
-    month: withCheckoutInterval(TEAM_CHECKOUT_URL, "month"),
-    year: withCheckoutInterval(TEAM_CHECKOUT_URL, "year"),
+    month: withCheckoutInterval(teamCheckoutURL, "month"),
+    year: withCheckoutInterval(teamCheckoutURL, "year"),
   };
 
   return (

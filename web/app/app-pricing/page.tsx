@@ -15,6 +15,12 @@ import {
   isAppStoreDistributionMode,
   withExternalBrowserIntent,
 } from "../lib/billing";
+import {
+  CHECKOUT_CLIENT_PARAM,
+  CHECKOUT_SOURCE_APP_PRICING,
+  CHECKOUT_SOURCE_PARAM,
+  checkoutAttributionParamsFrom,
+} from "../../services/analytics/checkoutAttribution";
 import { DOWNLOAD_CONFIRMATION_HREF } from "../lib/download";
 import {
   appPricingTheme,
@@ -71,13 +77,21 @@ export default async function AppPricingPage({
   );
   const appStorePaymentGated = isAppStoreDistributionMode(params);
   const interval = proBillingInterval(firstParam(params.interval));
+  // The app that opened this page tags it with the button it came from and
+  // its release channel; forward that to checkout. An app build that predates
+  // the tags still counts as an app-originated checkout.
+  const attribution = {
+    [CHECKOUT_SOURCE_PARAM]: CHECKOUT_SOURCE_APP_PRICING,
+    [CHECKOUT_CLIENT_PARAM]: appStorePaymentGated ? "ios" : "mac",
+    ...checkoutAttributionParamsFrom(params),
+  };
   const proCheckoutHrefs = {
-    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month"),
-    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year"),
+    month: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("pro", requestOrigin, cmuxScheme, "year", attribution),
   };
   const teamCheckoutHrefs = {
-    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month"),
-    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year"),
+    month: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "month", attribution),
+    year: appPricingCheckoutURL("team", requestOrigin, cmuxScheme, "year", attribution),
   };
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = appPricingBanner(params, snapshot, signInHref);

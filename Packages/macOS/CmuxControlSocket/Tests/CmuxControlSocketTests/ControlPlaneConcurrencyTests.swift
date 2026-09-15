@@ -157,6 +157,34 @@ struct ControlPlaneConcurrencyTests {
         #expect(await limiter.admit(method: "system.top") == .allowed)
     }
 
+    @Test func pollingLimiterAdmitsTmuxCompatReadFanoutBeforeRefill() async {
+        let clock = TestMonotonicClock()
+        let limiter = ControlClientRateLimiter(now: { clock.now })
+        let tmuxFormatContextMethods = [
+            "surface.current",
+            "pane.list",
+            "surface.list",
+            "workspace.list",
+            "window.list",
+            "workspace.list",
+            "workspace.list",
+            "workspace.current",
+            "workspace.list",
+        ]
+
+        for method in tmuxFormatContextMethods {
+            #expect(await limiter.admit(method: method) == .allowed)
+        }
+        guard case .limited(let retryAfter) = await limiter.admit(method: "surface.list") else {
+            Issue.record("the complete tmux compatibility read fan-out should fit in one burst")
+            return
+        }
+        #expect(retryAfter > 0)
+
+        clock.advance(by: 100_000_000)
+        #expect(await limiter.admit(method: "surface.list") == .allowed)
+    }
+
     @Test func readSnapshotPublishesAtomicallyAndKeysByMethodAndParams() {
         let store = ControlReadSnapshotStore()
         let initial = ControlCallResult.ok(.object(["generation": .int(1)]))

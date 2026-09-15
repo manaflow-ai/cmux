@@ -247,6 +247,66 @@ struct MainWindowVisibleFrameFitCoreTests {
             != core.topologySignature(of: [differentDisplay]))
     }
 
+    @Test func fullscreenReconnectUsesTheTargetDisplayVisibleFrame() throws {
+        let external = SessionDisplayGeometry(
+            displayID: 77,
+            stableID: "external",
+            frame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_416)
+        )
+        let stale = CGRect(x: 1_512, y: -497, width: 2_560, height: 1_403)
+
+        let fitted = try #require(core.fittedFullscreenFrame(
+            for: stale,
+            displays: [Self.builtInDisplay, external]
+        ))
+
+        #expect(fitted == CGRect(x: 1_512, y: -112, width: 2_560, height: 1_416))
+    }
+
+    @Test func fullscreenReconnectPreservesPhysicalDisplayFrame() {
+        let external = SessionDisplayGeometry(
+            displayID: 77,
+            stableID: "external",
+            frame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_416)
+        )
+
+        #expect(core.fittedFullscreenFrame(
+            for: external.frame,
+            displays: [Self.builtInDisplay, external]
+        ) == nil)
+    }
+
+    @Test func tiledFullscreenFrameIsNotExpandedToTheWholeDisplay() {
+        let external = SessionDisplayGeometry(
+            displayID: 77,
+            stableID: "external",
+            frame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_416)
+        )
+        let tiled = CGRect(x: 1_512, y: -112, width: 1_280, height: 1_440)
+
+        #expect(core.fittedFullscreenFrame(
+            for: tiled,
+            displays: [Self.builtInDisplay, external]
+        ) == nil)
+    }
+
+    @Test func fullscreenVisibleFrameWithBottomDockInsetIsPreserved() {
+        let external = SessionDisplayGeometry(
+            displayID: 77,
+            stableID: "external",
+            frame: CGRect(x: 1_512, y: -112, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -32, width: 2_560, height: 1_336)
+        )
+
+        #expect(core.fittedFullscreenFrame(
+            for: external.visibleFrame,
+            displays: [Self.builtInDisplay, external]
+        ) == nil)
+    }
+
     @Test func restoreClampsReachableTitlebarFrameCutOffPastLeftEdgeWhenDisplayChanged() throws {
         let savedFrame = SessionRectSnapshot(x: -220, y: 20, width: 1_800, height: 900)
         let savedDisplay = SessionDisplaySnapshot(

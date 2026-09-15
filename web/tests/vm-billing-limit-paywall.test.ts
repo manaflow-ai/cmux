@@ -36,19 +36,19 @@ describe("free plan VM allowance", () => {
     // Seats only mean something on the Team plan.
     expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(50);
     expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
-    // Operator brakes are absolute for the whole team, never multiplied.
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(2);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" }, { seats: 4 })).toBe(5);
+    // Retired overrides cannot erase paid seats.
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(150);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" }, { seats: 4 })).toBe(200);
   });
 
-  test("operator brakes: a plan-specific cap wins over the paid-wide cap", () => {
-    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" })).toBe(5);
+  test("retired paid overrides cannot lower the product allowance", () => {
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5" })).toBe(50);
     expect(maxActiveVmsForPlan("pro", {
       CMUX_VM_PAID_MAX_ACTIVE_VMS: "5",
       CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25",
-    })).toBe(25);
+    })).toBe(50);
     expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "25" })).toBe(50);
-    expect(() => maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toThrow();
+    expect(maxActiveVmsForPlan("pro", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "0" })).toBe(50);
   });
 
   test("free allowance is env-overridable only with the explicit escape hatch", () => {
@@ -77,9 +77,9 @@ describe("Cloud VM memory allowance", () => {
   test("plans default to 8 GB and support the 4/8/16/24/32/64 GB ladder", () => {
     expect(PLAN_MACHINE_MEMORY_MB).toBe(8192);
     expect(defaultMemoryMbForPlan("free", {})).toBe(8192);
-    expect(maxMemoryMbForPlan("free", {})).toBe(65536);
+    expect(maxMemoryMbForPlan("free", {})).toBe(24576);
     expect(defaultMemoryMbForPlan("pro", {})).toBe(8192);
-    expect(maxMemoryMbForPlan("pro", {})).toBe(65536);
+    expect(maxMemoryMbForPlan("pro", {})).toBe(24576);
     expect(VM_MEMORY_OPTIONS_MB).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
   });
 
@@ -97,10 +97,10 @@ describe("Cloud VM memory allowance", () => {
   });
 
   test("accepted sizes follow the plan ceiling and always include the configured default", () => {
-    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
+    expect(memoryOptionsMbForPlan("pro", {})).toEqual([4096, 8192, 16384, 24576]);
     // An operator default below the catalog stays creatable, so an omitted
     // size never 400s after an override.
-    expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384, 24576, 32768, 65536]);
+    expect(memoryOptionsMbForPlan("free", { CMUX_VM_FREE_DEFAULT_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384, 24576]);
     // A lower ceiling trims the catalog and keeps the (clamped) default.
     expect(memoryOptionsMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_MEMORY_MB: "16384" })).toEqual([4096, 8192, 16384]);
   });

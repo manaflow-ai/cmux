@@ -1,0 +1,79 @@
+name: Repair nightly appcast Content-Type
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/repair-nightly-appcast-content-types.yml
+      - scripts/ci/repair-nightly-appcast-content-types.py
+      - scripts/ci/upload-r2-object.py
+      - tests/test_repair_nightly_appcast_content_types.py
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Correct only the four existing nightly feeds with conditional writes
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: repair-nightly-appcast-content-types
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: python3 tests/test_repair_nightly_appcast_content_types.py
+
+  repair:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Refuse to race an active nightly workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          active=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/nightly.yml/runs?per_page=100" \
+            --jq '[.workflow_runs[] | select(.status != "completed")] | length')
+          if [ "$active" != 0 ]; then
+            echo "Nightly publication is active; retry this repair after it finishes."
+            exit 1
+          fi
+      - name: Repair current objects without changing their XML
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$EXECUTE" = true ]; then args+=(--execute); fi
+          python3 scripts/ci/repair-nightly-appcast-content-types.py \
+            --endpoint-url "$R2_ENDPOINT" "${args[@]}"
+      - name: Verify all four public HEAD responses
+        if: inputs.execute
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          for feed in ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"):
+              output = subprocess.check_output(
+                  ["curl", "--fail", "--silent", "--show-error", "--head", "--max-time", "30",
+                   f"https://files.cmux.com/nightly/{feed}"], text=True,
+              )
+              headers = dict(line.split(":", 1) for line in output.splitlines() if ":" in line)
+              headers = {key.lower(): value.strip() for key, value in headers.items()}
+              content_type = headers.get("content-type")
+              print(f"{feed}: Content-Type: {content_type}")
+              assert content_type == "application/xml", feed
+          PY

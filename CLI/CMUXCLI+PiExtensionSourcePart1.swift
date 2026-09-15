@@ -472,7 +472,11 @@ function snapshotContext(ctx: ExtensionContext): PiExtensionContextSnapshot {
 function stateFor(sessionStates: Map<string, SessionState>, sessionId: string): SessionState {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { nextTurn: 0, feedDeliveryFailed: false, stopped: false };
+    state = {
+      nextTurn: 0,
+      feedDeliveryFailed: false,
+      stopped: false,
+    };
     sessionStates.set(sessionId, state);
   }
   return state;
@@ -541,20 +545,6 @@ async function warn(
 
 function cmuxExecutable(): string {
   return process.env.CMUX_PI_CMUX_BIN || "cmux";
-}
-
-interface PiFeedCommand {
-  readonly args: string[];
-  readonly cwd: string;
-  readonly payload: Record<string, unknown>;
-  readonly context: PiExtensionContextSnapshot;
-  readonly terminal: boolean;
-  readonly onFailure?: () => void;
-}
-
-interface PiCommandCancellation {
-  cancelled: boolean;
-  cancel?: () => void;
 }
 """#
 }

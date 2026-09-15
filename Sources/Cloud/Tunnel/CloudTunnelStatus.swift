@@ -7,16 +7,24 @@ struct CloudTunnelStatus: Sendable, Equatable {
     /// up until `cmux vpn down` (or quit / sign-out).
     let isPinned: Bool
 
-    /// Why a private-network route cannot work right now on the app-managed
-    /// backend, or nil when the tunnel is up.
+    /// What is standing between an explicit `cmux vpn up` and a working
+    /// system-wide route, or nil when there is nothing to report: the tunnel
+    /// is up, or it is off. Off blocks nothing in the app, because Ports,
+    /// Desktop, and terminals reach machines over the user-space hub; the
+    /// Machines panel shows this text while a start is in flight.
     var privateRouteBlocker: String? {
         switch state {
-        case .up:
+        case .up, .off:
             return nil
-        case .starting, .stopping:
+        case .starting:
             return String(
                 localized: "cloudTree.link.tunnelStarting",
-                defaultValue: "This Mac's tunnel to your Cloud VM network is still starting; the machine reconnects on its own."
+                defaultValue: "The cmux Cloud Tunnel is starting…"
+            )
+        case .stopping:
+            return String(
+                localized: "cloudTree.link.tunnelStopping",
+                defaultValue: "The cmux Cloud Tunnel is stopping…"
             )
         case .awaitingApproval:
             return String(
@@ -26,14 +34,9 @@ struct CloudTunnelStatus: Sendable, Equatable {
         case .failed(let message):
             let format = String(
                 localized: "cloudTree.link.tunnelFailed",
-                defaultValue: "This Mac's tunnel to your Cloud VM network could not start: %@"
+                defaultValue: "The cmux Cloud Tunnel could not start: %@"
             )
             return String(format: format, message)
-        case .off:
-            return String(
-                localized: "cloudTree.link.tunnelOffAppManaged",
-                defaultValue: "This Mac's tunnel to your Cloud VM network is down; reopen the machine to start it."
-            )
         }
     }
 }
