@@ -2,14 +2,38 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    struct CodexTeamsAppServerRequestError: Error, CustomStringConvertible {
+        let code: Int?
+        let message: String
+        let data: Any?
+
+        var description: String { message }
+    }
+
+    static func reportCodexWriterConflicts(_ failures: [(String, Error)], codexHome: String) {
+        let conflicts = failures.compactMap { identifier, error -> String? in
+            guard let request = error as? CodexTeamsAppServerRequestError,
+                  CodexWriterRecovery.isWriterConflict(code: request.code, message: request.message) else { return nil }
+            return identifier
+        }
+        let reports = CodexWriterRecovery().inspect(sessionIDs: conflicts, codexHome: codexHome)
+        for (identifier, error) in failures {
+            if let report = reports[identifier], report.lock.state == .active {
+                cliWriteStderr(codexWriterReportMessage(sessionID: identifier, report: report) + "\n")
+            } else {
+                cliWriteStderr("cmux codex-teams watcher skipped thread \(identifier): \(error)\n")
+            }
+        }
+    }
+
     func runCodexWriterRecovery(commandArgs: [String]) throws {
-        guard commandArgs.first?.lowercased() == "recover",
-              let sessionID = CodexWriterRecovery.resumeSessionID(arguments: commandArgs) else {
+        guard let request = CodexWriterRecoveryRequest(arguments: commandArgs) else {
             throw CLIError(message: Self.codexWriterRecoveryUsage())
         }
-        let confirms = commandArgs.contains { $0 == "--yes" || $0 == "-y" }
+        let sessionID = request.sessionID
+        let confirms = request.confirmsTermination
         let environment = ProcessInfo.processInfo.environment
-        let codexHome = CodexWriterRecovery.codexHomeOverride(arguments: commandArgs)
+        let codexHome = request.codexHome
             ?? CodexHomeResolver().resolve(
                 ambientEnvironment: environment,
                 fallbackHomeDirectory: NSHomeDirectory()
@@ -59,7 +83,7 @@ extension CMUXCLI {
             }
         }
         print(String.localizedStringWithFormat(
-            String(localized: "cli.codex.writer.recovery.terminated", defaultValue: "Terminated orphaned Codex app-server PID %d for thread %@. Retry resume."),
+            String(localized: "cli.codex.writer.recovery.signalled", defaultValue: "Sent SIGTERM to orphaned Codex app-server PID %d for thread %@. Retry resume after it exits."),
             orphan.pid,
             sessionID
         ))
@@ -81,11 +105,8 @@ extension CMUXCLI {
             fallbackHomeDirectory: NSHomeDirectory()
         )
         let report = CodexWriterRecovery().inspect(sessionID: sessionID, codexHome: codexHome)
-        guard report.lock.state != .unavailable else {
-            throw CLIError(message: Self.codexWriterUnavailableMessage(sessionID: sessionID, lockPath: report.lock.lockPath))
-        }
         guard report.lock.state == .active else { return }
-        throw CLIError(message: Self.codexWriterReportMessage(sessionID: sessionID, report: report))
+        cliWriteStderr(Self.codexWriterReportMessage(sessionID: sessionID, report: report) + "\n")
     }
 
     static func codexWriterRecoveryUsage() -> String {
@@ -106,13 +127,14 @@ extension CMUXCLI {
            let assessment = report.assessments.first(where: { $0.holder.pid == holder.pid }),
            assessment.classification == .orphanedAppServer {
             return String.localizedStringWithFormat(
-                String(localized: "cli.codex.writer.recovery.orphaned", defaultValue: "Codex thread %@ is blocked by an orphaned app-server (PID %d, parent PID %d, executable %@). Run `cmux codex-teams recover %@ --yes`, then retry resume. Lock: %@"),
+                String(localized: "cli.codex.writer.recovery.orphanedWithHome", defaultValue: "Codex thread %@ is blocked by an orphaned app-server (PID %d, parent PID %d, executable %@). Run `cmux codex-teams recover %@ --codex-home %@ --yes`, then retry resume. Lock: %@"),
                 sessionID,
                 holder.pid,
                 holder.parentPID,
                 holder.validatedExecutableName
                     ?? String(localized: "cli.codex.writer.recovery.unknownExecutable", defaultValue: "unidentified process"),
                 sessionID,
+                "'" + report.lock.codexHome.replacingOccurrences(of: "'", with: "'\\''") + "'",
                 lock
             )
         }

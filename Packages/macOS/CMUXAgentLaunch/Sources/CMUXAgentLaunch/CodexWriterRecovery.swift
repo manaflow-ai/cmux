@@ -4,9 +4,16 @@ import Foundation
 /// Shared ownership inspection and explicit orphan termination policy.
 public struct CodexWriterRecovery: Sendable {
     private let lockInspector: CodexWriterLockInspector
+    private let processes: any CodexWriterProcessInspecting
 
     public init() {
         lockInspector = CodexWriterLockInspector()
+        processes = CodexWriterSystemProcesses()
+    }
+
+    init(processes: any CodexWriterProcessInspecting) {
+        lockInspector = CodexWriterLockInspector()
+        self.processes = processes
     }
 
     public func inspect(sessionID: String, codexHome: String) -> CodexWriterRecoveryReport {
@@ -19,16 +26,24 @@ public struct CodexWriterRecovery: Sendable {
                 processScanIsComplete: true
             )
         }
-        let scan = processScan(lockPath: lock.lockPath)
-        let watchedPorts = scan.watchedAppServerPorts
-        let assessments = scan.processes.map {
-            CodexWriterRecoveryAssessment(holder: $0, watchedAppServerPorts: watchedPorts)
-        }
+        return report(lock: lock, snapshot: processes.snapshot(locks: [lock]))
+    }
+
+    /// Inspects a diagnostic batch using one short-lived kernel process snapshot.
+    public func inspect(sessionIDs: [String], codexHome: String) -> [String: CodexWriterRecoveryReport] {
+        let locks = Dictionary(uniqueKeysWithValues: Set(sessionIDs).map {
+            ($0, lockInspector.inspect(sessionID: $0, codexHome: codexHome))
+        })
+        let snapshot = processes.snapshot(locks: locks.values.filter { $0.state == .active })
+        return locks.mapValues { report(lock: $0, snapshot: snapshot) }
+    }
+
+    private func report(lock: CodexWriterLockInspection, snapshot: CodexWriterProcessSnapshot) -> CodexWriterRecoveryReport {
+        let holders = CodexWriterFileIdentity(lock: lock).flatMap { snapshot.holders[$0] } ?? []
         return CodexWriterRecoveryReport(
-            lock: lock,
-            holders: scan.processes,
-            assessments: assessments,
-            processScanIsComplete: scan.isComplete
+            lock: lock, holders: holders,
+            assessments: holders.map { CodexWriterRecoveryAssessment(holder: $0, watchedAppServerPorts: snapshot.watchedPorts) },
+            processScanIsComplete: snapshot.isComplete
         )
     }
 
@@ -50,10 +65,10 @@ public struct CodexWriterRecovery: Sendable {
               current.orphanedHolder?.pid == pid,
               let currentAssessment = current.assessments.first(where: { $0.holder.pid == pid }),
               currentAssessment.holder == initialAssessment.holder,
-              kill(pid, 0) == 0 else {
+              lockInspector.inspect(sessionID: sessionID, codexHome: codexHome) == current.lock else {
             return false
         }
-        return kill(pid, SIGTERM) == 0
+        return processes.terminate(currentAssessment.holder)
     }
 
     public static func resumeSessionID(arguments: [String]) -> String? {
@@ -109,74 +124,4 @@ public struct CodexWriterRecovery: Sendable {
         }.first
     }
 
-    private func processScan(lockPath: String) -> (
-        processes: [CodexWriterProcessEvidence],
-        watchedAppServerPorts: Set<Int>,
-        isComplete: Bool
-    ) {
-        guard let lsofOutput = commandOutput(path: "/usr/sbin/lsof", arguments: ["-n", "-w", "-Fpc", lockPath]) else {
-            return ([], [], false)
-        }
-        let lsofPIDs = Set(lsofOutput.split(whereSeparator: \.isNewline).compactMap { line -> Int32? in
-            guard line.first == "p" else { return nil }
-            return Int32(line.dropFirst())
-        })
-        guard !lsofPIDs.isEmpty,
-              let psOutput = commandOutput(path: "/bin/ps", arguments: ["-ww", "-axo", "pid=,ppid=,lstart=,command="]) else {
-            return ([], [], false)
-        }
-        var allProcesses: [CodexWriterProcessEvidence] = []
-        var parsedPIDs = Set<Int32>()
-        for line in psOutput.split(whereSeparator: \.isNewline) {
-            let fields = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard fields.count >= 8,
-                  let pid = Int32(fields[0]),
-                  let parentPID = Int32(fields[1]) else {
-                continue
-            }
-            parsedPIDs.insert(pid)
-            let startTime = fields[2..<7].joined(separator: " ")
-            allProcesses.append(CodexWriterProcessEvidence(
-                pid: pid,
-                parentPID: parentPID,
-                command: fields.dropFirst(7).joined(separator: " "),
-                startTime: startTime,
-                executablePath: lsofPIDs.contains(pid) ? executablePath(for: pid) : nil
-            ))
-        }
-        let processes = allProcesses.filter { lsofPIDs.contains($0.pid) }
-        return (
-            processes,
-            Set(allProcesses.compactMap(\.watcherAppServerPort)),
-            parsedPIDs.isSuperset(of: lsofPIDs) && processes.count == lsofPIDs.count
-        )
-    }
-
-    private func commandOutput(path: String, arguments: [String]) -> String? {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    private func executablePath(for pid: Int32) -> String? {
-        guard pid > 0 else { return nil }
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        let length = buffer.withUnsafeMutableBytes { rawBuffer in
-            proc_pidpath(pid_t(pid), rawBuffer.baseAddress, UInt32(rawBuffer.count))
-        }
-        guard length > 0 else { return nil }
-        return String(decoding: buffer.prefix(Int(length)), as: UTF8.self)
-    }
 }

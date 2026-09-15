@@ -23860,22 +23860,6 @@ struct CMUXCLI {
         "item/outputDelta"
     ]
 
-    private struct CodexTeamsSpawn {
-        let parentThreadId: String
-        let sourceDepth: Int?
-        let agentNickname: String?
-        let agentRole: String?
-    }
-
-    private struct CodexTeamsThread {
-        let id: String
-        let cwd: String?
-        let statusType: String?
-        let agentNickname: String?
-        let agentRole: String?
-        let spawn: CodexTeamsSpawn?
-    }
-
     private final class CodexTeamsAsyncBox<Value>: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: Value?
@@ -23893,14 +23877,6 @@ struct CMUXCLI {
             stored = nil
             return value
         }
-    }
-
-    private struct CodexTeamsAppServerRequestError: Error, CustomStringConvertible {
-        let code: Int?
-        let message: String
-        let data: Any?
-
-        var description: String { message }
     }
 
     private final class CodexTeamsAppServerConnection {
@@ -24125,6 +24101,7 @@ struct CMUXCLI {
         private let socketClient: SocketClient
         private let socketPassword: String?
         private let codexHome: String
+        private var diagnosedWriterConflicts: [String] = []
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -24205,13 +24182,15 @@ struct CMUXCLI {
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
+            var failures: [(String, Error)] = []
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    reportWriterConflictIfNeeded(threadID: threadId, error: error)
+                    failures.append((threadId, error))
                 }
             }
+            CMUXCLI.reportCodexWriterConflicts(failures, codexHome: codexHome)
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
@@ -24250,19 +24229,13 @@ struct CMUXCLI {
         }
 
         private func reportWriterConflictIfNeeded(threadID: String, error: Error) {
-            guard let requestError = error as? CodexTeamsAppServerRequestError,
-                  CodexWriterRecovery.isWriterConflict(
-                      code: requestError.code,
-                      message: requestError.message
-                  ),
-                  let diagnostic = CMUXCLI.codexWriterReportMessage(
-                      sessionID: threadID,
-                      codexHome: codexHome
-                  ) else {
-                cliWriteStderr("cmux codex-teams watcher skipped thread \(threadID): \(error)\n")
-                return
+            if let request = error as? CodexTeamsAppServerRequestError,
+               CodexWriterRecovery.isWriterConflict(code: request.code, message: request.message) {
+                guard !diagnosedWriterConflicts.contains(threadID) else { return }
+                if diagnosedWriterConflicts.count == 200 { diagnosedWriterConflicts.removeFirst() }
+                diagnosedWriterConflicts.append(threadID)
             }
-            cliWriteStderr(diagnostic + "\n")
+            CMUXCLI.reportCodexWriterConflicts([(threadID, error)], codexHome: codexHome)
         }
 
         private func subscribeToThreadIfNeeded(
@@ -24303,6 +24276,7 @@ struct CMUXCLI {
         }
 
         private func resetConnectionSubscriptions() {
+            diagnosedWriterConflicts.removeAll(keepingCapacity: true)
             stateLock.lock()
             subscribedThreadIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
@@ -24804,64 +24778,6 @@ struct CMUXCLI {
         } catch {
             return false
         }
-    }
-
-    private static func codexTeamsThread(from object: [String: Any]) -> CodexTeamsThread? {
-        guard let id = object["id"] as? String, !id.isEmpty else { return nil }
-        return CodexTeamsThread(
-            id: id,
-            cwd: object["cwd"] as? String,
-            statusType: codexTeamsStatusType(from: object),
-            agentNickname: object["agentNickname"] as? String,
-            agentRole: object["agentRole"] as? String,
-            spawn: codexTeamsSpawn(from: object)
-        )
-    }
-
-    private static func codexTeamsStatusType(from threadObject: [String: Any]) -> String? {
-        guard let status = threadObject["status"] as? [String: Any] else {
-            return nil
-        }
-        return status["type"] as? String
-    }
-
-    private static func codexTeamsThreadMayBeAttachable(_ thread: CodexTeamsThread) -> Bool {
-        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !statusType.isEmpty else {
-            return false
-        }
-        let normalized = statusType
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return normalized != "notloaded"
-    }
-
-    private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
-        guard let source = threadObject["source"] as? [String: Any] else { return nil }
-        let subagentSource = source["subAgent"] ?? source["subagent"]
-        guard let subagent = subagentSource as? [String: Any] else { return nil }
-        let spawnSource = subagent["thread_spawn"] ?? subagent["threadSpawn"]
-        guard let spawn = spawnSource as? [String: Any],
-              let parentThreadId = (spawn["parent_thread_id"] as? String) ?? (spawn["parentThreadId"] as? String),
-              !parentThreadId.isEmpty else {
-            return nil
-        }
-
-        let sourceDepth: Int?
-        if let depth = spawn["depth"] as? Int {
-            sourceDepth = depth
-        } else if let depth = spawn["depth"] as? NSNumber {
-            sourceDepth = depth.intValue
-        } else {
-            sourceDepth = nil
-        }
-
-        return CodexTeamsSpawn(
-            parentThreadId: parentThreadId,
-            sourceDepth: sourceDepth,
-            agentNickname: spawn["agent_nickname"] as? String ?? spawn["agentNickname"] as? String,
-            agentRole: spawn["agent_role"] as? String ?? spawn["agentRole"] as? String
-        )
     }
 
     private static func codexTeamsResumeCommandText(

@@ -7,34 +7,47 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
     public let startTime: String?
     let command: String
     public let executablePath: String?
+    let arguments: [String]
+    let pidVersion: UInt32?
+    let isPrivateCmuxServer: Bool
+    let hasConnectedClients: Bool
+    let hasControllingTerminal: Bool
 
     public init(
         pid: Int32,
         parentPID: Int32,
         command: String,
         startTime: String? = nil,
-        executablePath: String? = nil
+        executablePath: String? = nil,
+        arguments: [String]? = nil,
+        pidVersion: UInt32? = nil,
+        isPrivateCmuxServer: Bool = false,
+        hasConnectedClients: Bool = true,
+        hasControllingTerminal: Bool = true
     ) {
         self.pid = pid
         self.parentPID = parentPID
         self.startTime = startTime
         self.command = command
         self.executablePath = executablePath
+        self.arguments = arguments ?? command.split(whereSeparator: \.isWhitespace).map(String.init)
+        self.pidVersion = pidVersion
+        self.isPrivateCmuxServer = isPrivateCmuxServer
+        self.hasConnectedClients = hasConnectedClients
+        self.hasControllingTerminal = hasControllingTerminal
     }
 
     public var appServerPort: Int? {
         guard isCodexAppServer else { return nil }
-        let parts = command.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let endpoint = optionValue(named: "--listen", in: parts) else {
+        guard arguments.count == 4, arguments[2] == "--listen" else {
             return nil
         }
-        return Self.port(from: endpoint)
+        return Self.port(from: arguments[3])
     }
 
     public var watcherAppServerPort: Int? {
-        guard command.contains("__codex-teams-watch") else { return nil }
-        let parts = command.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let endpoint = optionValue(named: "--app-server-url", in: parts) else {
+        guard arguments.dropFirst().first == "__codex-teams-watch" else { return nil }
+        guard let endpoint = optionValue(named: "--app-server-url", in: arguments) else {
             return nil
         }
         return Self.port(from: endpoint)
@@ -42,13 +55,10 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
 
     public var isCodexAppServer: Bool {
         guard executableBasename == "codex" else { return false }
-        let parts = command.split(whereSeparator: \.isWhitespace).map { $0.lowercased() }
-        guard parts.contains("app-server") else { return false }
-        return true
+        return arguments.dropFirst().first == "app-server"
     }
 
     public var validatedExecutableName: String? {
-        guard isCodexAppServer else { return nil }
         return executableBasename
     }
 
@@ -70,6 +80,11 @@ public struct CodexWriterProcessEvidence: Equatable, Sendable {
 
     private static func port(from endpoint: String) -> Int? {
         guard let components = URLComponents(string: endpoint),
+              components.scheme == "ws",
+              components.host == "127.0.0.1",
+              components.user == nil, components.password == nil,
+              components.query == nil, components.fragment == nil,
+              components.path.isEmpty,
               let port = components.port,
               (1...65_535).contains(port) else {
             return nil
@@ -93,6 +108,10 @@ public struct CodexWriterRecoveryAssessment: Equatable, Sendable {
         self.holder = holder
         if holder.isCodexAppServer,
            holder.parentPID == 1,
+           holder.isPrivateCmuxServer,
+           !holder.hasConnectedClients,
+           !holder.hasControllingTerminal,
+           holder.pidVersion != nil,
            let port = holder.appServerPort,
            !watchedAppServerPorts.contains(port) {
             classification = .orphanedAppServer
