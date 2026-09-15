@@ -54,7 +54,6 @@ These capabilities were already on this feature branch when this session continu
 | F22 | Keep repeatable regressions for submission, routing, stop deduplication, and provider compatibility. | Partial | Focused tests and manual provider harness pass. Hosted application tests and the new provider workflow still need successful complete runs. |
 | F23 | Maintain this Markdown inventory so the user can add, remove, or change scope. | Built | This file, with stable feature/decision/gap IDs and a change log. Maintenance continues with the session. |
 | F24 | Refresh rejected personal development credentials through `scripts/setup-team-dev.sh --refresh`, preserving the agent profile and requiring verification before replacement. | Built | Three regression tests pass for successful refresh, rejected credentials, and unavailable sign-in service. Optional password recovery remains available. This session instead used a genuine development server session, so the user did not need to enter credentials or run a command. |
-
 | F25 | Pull the latest `main` into this branch and reinstall matching Mac/iPhone apps with the Feed work preserved. | Partial | Merged `88945c86fc3` in `1b1ab94d738`, resolving six conflicts and preserving upstream submodule versions. Fleet builds and fresh connection checks are in progress. |
 
 ## Decisions
@@ -116,13 +115,14 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V12 | 2026-09-15: the native development sign-in endpoint returned HTTP 400 with `EMAIL_PASSWORD_MISMATCH` for the saved personal profile. Installation helper was refreshed and the machine setup check passed. | Setup checks validate profile presence; they do not prove the credentials are accepted. The password-based launcher still rejects this saved pair; V15 records the alternate developer-session repair. |
 | V13 | 2026-09-15: three personal-account refresh regressions pass; the same tests fail against the preceding setup script. Shell syntax and help checks pass. The repaired Mac bundle was signed, verified, and relaunched. | No app executable changed. The Mac still reports signed out; neither phone pairing nor Feed interaction is claimed verified. |
 | V14 | 2026-09-15: the prescribed `scripts/mobile-dev-launch.sh --tag xfd2 --device --device-id 4A52829D-6427-599F-A166-4058881D2DF4 --ensure-mac --auth-profile personal --credentials-file ~/.secrets/cmuxterm-dev.env` flow ran. It relaunched the exact tagged Mac, then failed its signed-in account gate for `aziz@manaflow.ai`. | This is the dev flow result, not a normal browser sign-in result. This historical failure was resolved for the installed pair using the genuine developer session and persisted phone session in V15–V16. |
-
 | V15 | 2026-09-15: created a genuine developer session for the existing personal account using the configured development Stack server credentials. Mac `auth status` verified `aziz@manaflow.ai` and the expected user/team. | Session is limited to 24 hours. No password was changed, and no tokens were included in logs or this document. |
 | V16 | 2026-09-15: fresh phone pairing established usable workspace RPC in 14,097 ms. A second launch without credentials or a ticket reconnected in 765 ms. | Applies to the pre-main-merge installed apps. Secret-free receipts are stored under `artifacts/task-ios-feed-tab/connection-repair/`; the reinstalled apps must pass again. Feed UI is not visually verified by this gate. |
 | V17 | 2026-09-15: merged latest main (`88945c86fc3`), resolved six conflicts, parsed affected Swift files, validated the project file, and checked wiring for 942 test files. | Syntax/project checks are not compilation. Remote app builds are in progress. |
-
 | V18 | 2026-09-15: 48 of 49 attachment/setup checks passed. The remaining check expected the older receipt shape; its fixture was updated for main’s installed-bundle evidence and the focused rerun passed (five selected tests). The merged localization catalog validates for nine languages. | No application behavior was changed by the fixture update. |
 | V19 | [Refreshed hosted submit-key run](https://github.com/manaflow-ai/cmux/actions/runs/35022290439) found new notification callers using asynchronous terminal paste synchronously. Added an awaited-delivery regression and propagated async through both notification paths. | Compilation blocked test execution. The superseded Mac build and dependent provider run were cancelled; rebuilt evidence is pending. |
+
+| V20 | [iPhone/iPad navigation run](https://github.com/manaflow-ai/cmux/actions/runs/35023839799) compiled both apps but selected zero tests. Corrected the dispatch selector to include both target and class; the next attempt timed out during checkout before testing. | Neither run proves navigation behavior. Fixed the Feed time-label free-function convention violation; unrelated namespace-type lint failures inherited from main remain. |
+| V21 | [Mac rebuild](https://github.com/manaflow-ai/cmux/actions/runs/35024815450) uses runtime revision `15adb6e77c4`. The matching [provider check](https://github.com/manaflow-ai/cmux/actions/runs/35025663929) waits for that app. | Results and fresh phone installation are pending. The phone became unreachable during compilation, so delivery may need its physical reconnection. |
 
 ## Gaps and next work
 
@@ -160,10 +160,8 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 | 2026-09-15 | Created the session inventory from user requests, current source, branch history, and recorded verification. Distinguished implementation from evidence, and recorded remaining installation, pairing, submission, UI, and test gaps. No product scope added or removed. |
 | 2026-09-15 | Investigated the user's inability to connect to the Mac. Confirmed working servers, an installed phone app, and rejected personal credentials; aligned the Mac server configuration and refreshed installation tooling. Added F24 for credential recovery within F20, with D15 and V11–V12 recording the repair and remaining blocker. |
 | 2026-09-15 | Ran the requested tagged dev launcher instead of normal sign-in. The launcher reached the exact Mac but failed the personal account gate; added V14. |
-
 | 2026-09-15 | Completed developer sign-in and phone pairing without user commands; a credential-free relaunch passed. Added D16 and V15–V16 and removed the user-run setup requirement from G01. |
 | 2026-09-15 | User requested pulling main and reinstalling. Merged 1,646 upstream commits, retained Feed in updated compact and split navigation, and started rebuilding the pair. Added F25, D17, and V17. |
-
 | 2026-09-15 | Reconciled main’s notification reply callers with asynchronous Feed submission, added delayed-success/failure coverage, and expanded the provider workflow to run notification delivery tests. Updated the attachment receipt fixture for main’s evidence metadata. |
 
 ## Dictionary
