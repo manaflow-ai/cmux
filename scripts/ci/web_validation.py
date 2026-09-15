@@ -25,9 +25,10 @@ def required_for_event(event: str, base: str, head: str) -> bool:
         return True
     try:
         paths = subprocess.check_output(
-            ["git", "diff", "--name-only", base, head], text=True,
+            ["git", "diff", "--no-renames", "--name-only", "-z", base, head, "--"], text=True,
             stderr=subprocess.PIPE,
-        ).splitlines()
+        ).split("\0")
+        paths = [path for path in paths if path]
     except subprocess.CalledProcessError:
         print("Diff unavailable; running web validation.", file=sys.stderr)
         return True
