@@ -600,6 +600,28 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func mainContentFocusYieldsToRightSidebarWithoutChangingWorkspaceVisibility() {
+        #expect(
+            WorkspacePanelVisibilityPolicy.mainContentIsFocused(
+                isWorkspaceInputActive: true,
+                rightSidebarOwnsInputFocus: false
+            )
+        )
+        #expect(
+            !WorkspacePanelVisibilityPolicy.mainContentIsFocused(
+                isWorkspaceInputActive: true,
+                rightSidebarOwnsInputFocus: true
+            )
+        )
+        #expect(
+            !WorkspacePanelVisibilityPolicy.mainContentIsFocused(
+                isWorkspaceInputActive: false,
+                rightSidebarOwnsInputFocus: false
+            )
+        )
+    }
+
+    @Test
     func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
         let paneId = UUID()
         let selectedPanelId = UUID()
