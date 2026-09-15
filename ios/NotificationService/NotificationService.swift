@@ -85,6 +85,9 @@ final class NotificationService: UNNotificationServiceExtension {
         for key in ["workspaceId", "surfaceId", "retargetsToLiveSurfaceOwner", "macDeviceId", "macInstanceTag", "macBuildID", "notificationId", "dismissedIds", "category"] {
             if let value = payload[key] { cmux[key] = value }
         }
+        if let notificationIds = payload["notificationIds"] {
+            cmux["dismissedIds"] = notificationIds
+        }
         if let macPushPublicKey { cmux["macPushPublicKey"] = macPushPublicKey }
         if let macInstallationID = payload["macInstallationID"] as? String {
             cmux["macInstallationID"] = macInstallationID
