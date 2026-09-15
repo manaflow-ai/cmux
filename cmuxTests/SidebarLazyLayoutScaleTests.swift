@@ -149,6 +149,9 @@ final class SidebarLazyLayoutScaleTests {
             fileExplorerState: FileExplorerState(),
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
+            statusIconImageLoader: SidebarStatusIconImageLoader(
+                fileReader: SidebarStatusIconFileReader()
+            ),
             windowId: UUID(),
             onSendFeedback: {},
             onToggleSidebar: {},

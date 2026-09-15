@@ -1,3 +1,4 @@
+import CmuxSidebar
 import Foundation
 import SwiftUI
 
@@ -5,10 +6,15 @@ import SwiftUI
 struct SidebarWorkspaceRowView: View {
     let snapshot: SidebarWorkspaceRowSnapshot
     let actions: SidebarWorkspaceRowActions
+    let statusIconImageLoader: any SidebarStatusIconImageLoading
     let shouldCollectWorkspaceDropTargets: Bool
 
     var body: some View {
-        TabItemView(snapshot: snapshot, actions: actions)
+        TabItemView(
+            snapshot: snapshot,
+            actions: actions,
+            statusIconImageLoader: statusIconImageLoader
+        )
             .equatable()
             .id(snapshot.workspaceId)
             .accessibilityIdentifier("sidebarWorkspace.\(snapshot.workspaceId.uuidString)")
