@@ -48,6 +48,11 @@ extension CMUXCLI {
         if let appliedWorkingDirectory {
             invocationEnvironment["PWD"] = appliedWorkingDirectory
         }
+        try guardCodexWriterBeforeResume(
+            arguments: invocation.arguments,
+            environment: invocationEnvironment,
+            workingDirectory: appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
+        )
         guard let first = invocation.arguments.first,
               let executable = resolveRestoreExecutable(
                   first,
@@ -93,6 +98,16 @@ extension CMUXCLI {
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory
+        }
+        if let legacyResume = CodexWriterRecovery.codexLegacyResume(
+            inShellCommand: command,
+            environment: legacyEnvironment
+        ) {
+            try guardCodexWriterBeforeResume(
+                arguments: legacyResume.arguments,
+                environment: legacyResume.environment,
+                workingDirectory: appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
+            )
         }
         client.close()
         try execLegacyRestoreCommand(command, environment: legacyEnvironment)

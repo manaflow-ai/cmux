@@ -5051,6 +5051,12 @@ struct CMUXCLI {
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
+        if command == "codex-teams",
+           commandArgs.first?.lowercased() == "recover",
+           preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
+            print(Self.codexWriterRecoveryUsage())
+            return
+        }
         if command != "__tmux-compat",
            shouldDispatchCmuxSubcommandHelp(command: command, commandArgs: commandArgs),
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
@@ -5277,6 +5283,10 @@ struct CMUXCLI {
         }
 
         if command == "codex-teams" {
+            if commandArgs.first?.lowercased() == "recover" {
+                try runCodexWriterRecovery(commandArgs: commandArgs)
+                return
+            }
             try runCodexTeams(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
@@ -8326,7 +8336,8 @@ struct CMUXCLI {
         case "claude-teams":
             return claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs)
         case "codex-teams":
-            return codexTeamsIsInformationalInvocation(commandArgs: commandArgs)
+            return commandArgs.first?.lowercased() == "recover"
+                || codexTeamsIsInformationalInvocation(commandArgs: commandArgs)
         case "omo":
             return omoIsNonLaunchInvocation(commandArgs: commandArgs)
         case "omx":
@@ -23849,22 +23860,6 @@ struct CMUXCLI {
         "item/outputDelta"
     ]
 
-    private struct CodexTeamsSpawn {
-        let parentThreadId: String
-        let sourceDepth: Int?
-        let agentNickname: String?
-        let agentRole: String?
-    }
-
-    private struct CodexTeamsThread {
-        let id: String
-        let cwd: String?
-        let statusType: String?
-        let agentNickname: String?
-        let agentRole: String?
-        let spawn: CodexTeamsSpawn?
-    }
-
     private final class CodexTeamsAsyncBox<Value>: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: Value?
@@ -23983,7 +23978,19 @@ struct CMUXCLI {
                 if CodexTeamsAppServerConnection.message(message, hasId: requestId) {
                     if let error = message["error"] as? [String: Any] {
                         let message = (error["message"] as? String) ?? "Codex app-server request failed"
-                        throw CLIError(message: message)
+                        let code: Int?
+                        if let integerCode = error["code"] as? Int {
+                            code = integerCode
+                        } else if let numberCode = error["code"] as? NSNumber {
+                            code = numberCode.intValue
+                        } else {
+                            code = nil
+                        }
+                        throw CodexTeamsAppServerRequestError(
+                            code: code,
+                            message: message,
+                            data: error["data"]
+                        )
                     }
                     if let result = message["result"] as? [String: Any] {
                         return result
@@ -24093,6 +24100,8 @@ struct CMUXCLI {
         private let maxAutoDepth: Int
         private let socketClient: SocketClient
         private let socketPassword: String?
+        private let codexHome: String
+        private var diagnosedWriterConflicts: [String] = []
 
         private var knownThreadIds = Set<String>()
         private var parentByThreadId: [String: String] = [:]
@@ -24121,7 +24130,8 @@ struct CMUXCLI {
             launchPath: String?,
             maxAutoDepth: Int,
             socketClient: SocketClient,
-            socketPassword: String?
+            socketPassword: String?,
+            codexHome: String
         ) {
             self.appServerURL = appServerURL
             self.workspaceId = workspaceId
@@ -24131,6 +24141,7 @@ struct CMUXCLI {
             self.maxAutoDepth = max(0, maxAutoDepth)
             self.socketClient = socketClient
             self.socketPassword = socketPassword
+            self.codexHome = codexHome
         }
 
         func run() throws {
@@ -24171,13 +24182,15 @@ struct CMUXCLI {
                 }
             )
             let threadIds = loaded["data"] as? [String] ?? []
+            var failures: [(String, Error)] = []
             for threadId in threadIds {
                 do {
                     try subscribeToThreadIfNeeded(threadId, connection: connection)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(threadId): \(error)\n")
+                    failures.append((threadId, error))
                 }
             }
+            CMUXCLI.reportCodexWriterConflicts(failures, codexHome: codexHome)
         }
 
         private func listenForNotifications(connection: CodexTeamsAppServerConnection) throws {
@@ -24210,9 +24223,19 @@ struct CMUXCLI {
                 do {
                     try subscribeToThreadIfNeeded(thread.id, connection: connection)
                 } catch {
-                    cliWriteStderr("cmux codex-teams watcher skipped thread \(thread.id): \(error)\n")
+                    reportWriterConflictIfNeeded(threadID: thread.id, error: error)
                 }
             }
+        }
+
+        private func reportWriterConflictIfNeeded(threadID: String, error: Error) {
+            if let request = error as? CodexTeamsAppServerRequestError,
+               CodexWriterRecovery.isWriterConflict(code: request.code, message: request.message) {
+                guard !diagnosedWriterConflicts.contains(threadID) else { return }
+                if diagnosedWriterConflicts.count == 200 { diagnosedWriterConflicts.removeFirst() }
+                diagnosedWriterConflicts.append(threadID)
+            }
+            CMUXCLI.reportCodexWriterConflicts([(threadID, error)], codexHome: codexHome)
         }
 
         private func subscribeToThreadIfNeeded(
@@ -24253,6 +24276,7 @@ struct CMUXCLI {
         }
 
         private func resetConnectionSubscriptions() {
+            diagnosedWriterConflicts.removeAll(keepingCapacity: true)
             stateLock.lock()
             subscribedThreadIds.removeAll(keepingCapacity: true)
             stateLock.unlock()
@@ -24756,64 +24780,6 @@ struct CMUXCLI {
         }
     }
 
-    private static func codexTeamsThread(from object: [String: Any]) -> CodexTeamsThread? {
-        guard let id = object["id"] as? String, !id.isEmpty else { return nil }
-        return CodexTeamsThread(
-            id: id,
-            cwd: object["cwd"] as? String,
-            statusType: codexTeamsStatusType(from: object),
-            agentNickname: object["agentNickname"] as? String,
-            agentRole: object["agentRole"] as? String,
-            spawn: codexTeamsSpawn(from: object)
-        )
-    }
-
-    private static func codexTeamsStatusType(from threadObject: [String: Any]) -> String? {
-        guard let status = threadObject["status"] as? [String: Any] else {
-            return nil
-        }
-        return status["type"] as? String
-    }
-
-    private static func codexTeamsThreadMayBeAttachable(_ thread: CodexTeamsThread) -> Bool {
-        guard let statusType = thread.statusType?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !statusType.isEmpty else {
-            return false
-        }
-        let normalized = statusType
-            .replacingOccurrences(of: "_", with: "")
-            .lowercased()
-        return normalized != "notloaded"
-    }
-
-    private static func codexTeamsSpawn(from threadObject: [String: Any]) -> CodexTeamsSpawn? {
-        guard let source = threadObject["source"] as? [String: Any] else { return nil }
-        let subagentSource = source["subAgent"] ?? source["subagent"]
-        guard let subagent = subagentSource as? [String: Any] else { return nil }
-        let spawnSource = subagent["thread_spawn"] ?? subagent["threadSpawn"]
-        guard let spawn = spawnSource as? [String: Any],
-              let parentThreadId = (spawn["parent_thread_id"] as? String) ?? (spawn["parentThreadId"] as? String),
-              !parentThreadId.isEmpty else {
-            return nil
-        }
-
-        let sourceDepth: Int?
-        if let depth = spawn["depth"] as? Int {
-            sourceDepth = depth
-        } else if let depth = spawn["depth"] as? NSNumber {
-            sourceDepth = depth.intValue
-        } else {
-            sourceDepth = nil
-        }
-
-        return CodexTeamsSpawn(
-            parentThreadId: parentThreadId,
-            sourceDepth: sourceDepth,
-            agentNickname: spawn["agent_nickname"] as? String ?? spawn["agentNickname"] as? String,
-            agentRole: spawn["agent_role"] as? String ?? spawn["agentRole"] as? String
-        )
-    }
-
     private static func codexTeamsResumeCommandText(
         codexExecutable: String,
         appServerURL: String,
@@ -24958,6 +24924,11 @@ struct CMUXCLI {
         launcherEnvironment["PATH"] = providerExecutableSearchPath(
             searchPath: launcherEnvironment["PATH"],
             includingExecutableAt: codexExecutablePath
+        )
+        try guardCodexWriterBeforeResume(
+            arguments: [codexExecutablePath] + commandArgs,
+            environment: launcherEnvironment,
+            workingDirectory: launcherEnvironment["PWD"] ?? FileManager.default.currentDirectoryPath
         )
         let codexExecutableForShell = codexExecutablePath
         let appServerPort = omoBindableLoopbackPort(0) ?? 0
@@ -25422,7 +25393,13 @@ struct CMUXCLI {
             launchPath: launchPath,
             maxAutoDepth: maxDepth,
             socketClient: client,
-            socketPassword: socketPassword
+            socketPassword: socketPassword,
+            codexHome: CodexHomeResolver().resolve(
+                launchEnvironment: ProcessInfo.processInfo.environment,
+                launchWorkingDirectory: ProcessInfo.processInfo.environment["PWD"],
+                ambientEnvironment: ProcessInfo.processInfo.environment,
+                fallbackHomeDirectory: NSHomeDirectory()
+            )
         )
         withExtendedLifetime(ownerSource) {
             do {
