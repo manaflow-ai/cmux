@@ -186,11 +186,24 @@ public struct SystemReplyRelayClient: ReplyRelaying {
 }
 
 private actor ReplyEnvelopeCache {
-    private var values: [String: Data] = [:]
+    private struct Entry {
+        let data: Data
+        let insertedAt: Date
+    }
+
+    private static let maximumEntries = 128
+    private static let lifetime: TimeInterval = 15 * 60
+    private var values: [String: Entry] = [:]
 
     func valueOrInsert(for replyId: String, candidate: Data) -> Data {
-        if let value = values[replyId] { return value }
-        values[replyId] = candidate
+        let now = Date()
+        values = values.filter { now.timeIntervalSince($0.value.insertedAt) < Self.lifetime }
+        if let value = values[replyId] { return value.data }
+        while values.count >= Self.maximumEntries,
+              let oldest = values.min(by: { $0.value.insertedAt < $1.value.insertedAt })?.key {
+            values.removeValue(forKey: oldest)
+        }
+        values[replyId] = Entry(data: candidate, insertedAt: now)
         return candidate
     }
 }

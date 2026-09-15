@@ -75,33 +75,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
 
-  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
-  const bundleId = typeof body.value.bundleId === "string" ? body.value.bundleId.trim() : "";
-  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
-  const platform = typeof body.value.platform === "string" ? body.value.platform.trim() || "ios" : "ios";
-  const installationId = typeof body.value.installationId === "string" ? body.value.installationId.trim() : "";
-  const pushKeyId = typeof body.value.pushKeyId === "string" ? body.value.pushKeyId.trim() : "";
-  const pushPublicKey = typeof body.value.pushPublicKey === "string" ? body.value.pushPublicKey.trim() : "";
-  const bundle = normalizeApnsBundle(bundleId);
-
-  if (!HEX_TOKEN.test(deviceToken)) {
-    return jsonResponse({ error: "invalid_device_token" }, 400);
-  }
-  if (!bundle) {
-    return jsonResponse({ error: "invalid_bundle_id" }, 400);
-  }
-  if (
-    !/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace) ||
-    (clientNamespace !== "legacy" && clientNamespace !== bundle.bundleId)
-  ) {
-    return jsonResponse({ error: "client_namespace_mismatch" }, 403);
-  }
-  if (platform !== "ios") {
-    return jsonResponse({ error: "invalid_platform" }, 400);
-  }
-  if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
-    return jsonResponse({ error: "invalid_push_key" }, 400);
-  }
+  const input = parseRegistrationInput(request, body.value);
+  if (!input.ok) return input.response;
+  const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey } = input.value;
 
   const db = cloudDb();
 
@@ -111,6 +87,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     conflict?: boolean;
   };
   try {
+    // The transaction deliberately keeps the lock, conflict, capacity, and
+    // upsert decisions together so registration remains atomic.
+    // oxlint-disable-next-line complexity
     registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
@@ -245,33 +224,66 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     throw error;
   }
 
+  return registrationResponse(registration);
+}
+
+type RegistrationInput = {
+  deviceToken: string;
+  bundle: NonNullable<ReturnType<typeof normalizeApnsBundle>>;
+  platform: string;
+  installationId: string;
+  pushKeyId: string;
+  pushPublicKey: string;
+};
+
+function parseRegistrationInput(
+  request: Request,
+  body: Record<string, unknown>,
+): { ok: true; value: RegistrationInput } | { ok: false; response: Response } {
+  const deviceToken = typeof body.deviceToken === "string" ? body.deviceToken.trim().toLowerCase() : "";
+  const bundleId = typeof body.bundleId === "string" ? body.bundleId.trim() : "";
+  const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
+  const platform = typeof body.platform === "string" ? body.platform.trim() || "ios" : "ios";
+  const installationId = typeof body.installationId === "string" ? body.installationId.trim() : "";
+  const pushKeyId = typeof body.pushKeyId === "string" ? body.pushKeyId.trim() : "";
+  const pushPublicKey = typeof body.pushPublicKey === "string" ? body.pushPublicKey.trim() : "";
+  const bundle = normalizeApnsBundle(bundleId);
+  if (!HEX_TOKEN.test(deviceToken)) return { ok: false, response: jsonResponse({ error: "invalid_device_token" }, 400) };
+  if (!bundle) return { ok: false, response: jsonResponse({ error: "invalid_bundle_id" }, 400) };
+  if (!/^[A-Za-z0-9._:-]{1,255}$/.test(clientNamespace) || (clientNamespace !== "legacy" && clientNamespace !== bundle.bundleId)) {
+    return { ok: false, response: jsonResponse({ error: "client_namespace_mismatch" }, 403) };
+  }
+  if (platform !== "ios") return { ok: false, response: jsonResponse({ error: "invalid_platform" }, 400) };
+  if (!SAFE_INSTALLATION_ID.test(installationId) || !SAFE_KEY_ID.test(pushKeyId) || !BASE64_KEY.test(pushPublicKey)) {
+    return { ok: false, response: jsonResponse({ error: "invalid_push_key" }, 400) };
+  }
+  return { ok: true, value: { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey } };
+}
+
+function registrationResponse(registration: {
+  limitReached: boolean;
+  deliveryBusyRetryAfterSeconds?: number;
+  conflict?: boolean;
+}): Response {
   if (registration.limitReached) {
-    return jsonResponse(
-      {
-        error: "too_many_devices",
-        limit: MAX_DEVICE_TOKENS_PER_USER,
-        action: "disable_push_on_another_device",
-      },
-      429,
-    );
+    return jsonResponse({
+      error: "too_many_devices",
+      limit: MAX_DEVICE_TOKENS_PER_USER,
+      action: "disable_push_on_another_device",
+    }, 429);
   }
-  if (registration.conflict) {
-    return jsonResponse({ error: "push_registration_conflict" }, 409);
-  }
+  if (registration.conflict) return jsonResponse({ error: "push_registration_conflict" }, 409);
   if (registration.deliveryBusyRetryAfterSeconds != null) {
-    return new Response(
-      JSON.stringify({
-        error: "push_delivery_in_progress",
-        retryAfterSeconds: registration.deliveryBusyRetryAfterSeconds,
-      }),
-      {
-        status: 409,
-        headers: {
-          "content-type": "application/json",
-          "retry-after": String(registration.deliveryBusyRetryAfterSeconds),
-        },
+    return new Response(JSON.stringify({
+      error: "push_delivery_in_progress",
+      retryAfterSeconds: registration.deliveryBusyRetryAfterSeconds,
+    }), {
+      status: 409,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": String(registration.deliveryBusyRetryAfterSeconds),
       },
-    );
+    });
   }
   return jsonResponse({
     ok: true,

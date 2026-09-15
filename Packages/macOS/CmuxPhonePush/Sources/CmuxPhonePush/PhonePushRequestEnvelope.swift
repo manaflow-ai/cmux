@@ -60,7 +60,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         expectedSessionGeneration: UInt64? = nil,
         targetBundleIdentifier: String? = nil,
         macPushPublicKey: String? = nil,
-        macInstallationID: String? = nil
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil
     ) throws {
         let canonicalCorrelation = correlationID.uuidString.lowercased()
         let normalizedNotificationID = payload.kind == .notify
@@ -75,6 +76,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         ]
         if let macPushPublicKey { object["macPushPublicKey"] = macPushPublicKey }
         if let macInstallationID { object["macInstallationID"] = macInstallationID }
+        if let macBuildID { object["macBuildID"] = macBuildID }
         switch payload.kind {
         case .notify:
             object["title"] = payload.hideContent

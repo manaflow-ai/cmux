@@ -463,7 +463,8 @@ final class PhonePushClient {
                 expectedSessionGeneration: identity.generation,
                 targetBundleIdentifier: targetBundleIdentifier,
                 macPushPublicKey: macKey.publicKeyData.base64EncodedString(),
-                macInstallationID: macKey.installationID
+                macInstallationID: macKey.installationID,
+                macBuildID: macBuildID
             ).body
             let encrypted = try pushRecipients.map { recipient in
                 try PhonePushCrypto.encrypt(

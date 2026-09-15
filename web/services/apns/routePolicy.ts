@@ -120,36 +120,68 @@ export function normalizeApnsBundle(bundleId: string): ApnsBundlePolicy | null {
   return null;
 }
 
+type ParsedPushFields = {
+  kind: PushKind;
+  title: string | null;
+  subtitle: string | null;
+  text: string | null;
+  workspaceId: string | null;
+  surfaceId: string | null;
+  macDeviceId: string | null;
+  macInstanceTag: string | null;
+  notificationId: string | null;
+  replyShape: "none" | "text" | undefined;
+  correlationId: string | null;
+  expirationEpochSeconds: number | null;
+  hasExpiration: boolean;
+  encryptedList: unknown[];
+  macPushPublicKey: string | null;
+};
+
 export function parsePushPayload(body: Record<string, unknown>): PushPayloadResult {
+  const fields = parsePushFields(body);
+  if (!fields.ok) return fields;
+  const dismissedIds = parseDismissedIds(body.notificationIds);
+  if (!dismissedIds.ok) return { ok: false, error: dismissedIds.error };
+  if (fields.value.kind === "dismiss" && dismissedIds.value.length === 0 && fields.value.encryptedList.length === 0) {
+    return { ok: false, error: "missing_dismissed_ids" };
+  }
+  return { ok: true, value: makePushPayload(fields.value, dismissedIds.value, body) };
+}
+
+function parsePushFields(body: Record<string, unknown>): { ok: true; value: ParsedPushFields } | { ok: false; error: string } {
   const kind: PushKind = body.kind === "dismiss" ? "dismiss" : "notify";
-  const title = boundedString(body.title, MAX_PUSH_TITLE_CHARS);
-  const subtitle = body.subtitle == null ? "" : boundedString(body.subtitle, MAX_PUSH_SUBTITLE_CHARS);
-  const text = boundedString(body.body, MAX_PUSH_BODY_CHARS);
-  const workspaceId = body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS);
-  const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
-  const macDeviceId = body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS);
-  const macInstanceTag = body.macInstanceTag == null ? "" : boundedString(body.macInstanceTag, MAX_PUSH_ID_CHARS);
-  const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
-  const replyShape = body.replyShape === "none" || body.replyShape === "text" ? body.replyShape : undefined;
-  const correlationId =
-    body.correlationId == null
-      ? ""
-      : boundedString(body.correlationId, MAX_PUSH_CORRELATION_ID_CHARS);
-  const hasExpiration = Object.hasOwn(
-    body,
-    "expirationEpochSeconds",
-  );
-  const expirationEpochSeconds = hasExpiration
-    ? parseExpiration(body.expirationEpochSeconds)
-    : null;
+  const fields: ParsedPushFields = {
+    kind,
+    title: boundedString(body.title, MAX_PUSH_TITLE_CHARS),
+    subtitle: body.subtitle == null ? "" : boundedString(body.subtitle, MAX_PUSH_SUBTITLE_CHARS),
+    text: boundedString(body.body, MAX_PUSH_BODY_CHARS),
+    workspaceId: body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS),
+    surfaceId: body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS),
+    macDeviceId: body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS),
+    macInstanceTag: body.macInstanceTag == null ? "" : boundedString(body.macInstanceTag, MAX_PUSH_ID_CHARS),
+    notificationId: body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS),
+    replyShape: body.replyShape === "none" || body.replyShape === "text" ? body.replyShape : undefined,
+    correlationId: body.correlationId == null ? "" : boundedString(body.correlationId, MAX_PUSH_CORRELATION_ID_CHARS),
+    hasExpiration: Object.hasOwn(body, "expirationEpochSeconds"),
+    expirationEpochSeconds: Object.hasOwn(body, "expirationEpochSeconds") ? parseExpiration(body.expirationEpochSeconds) : null,
+    encryptedList: [],
+    macPushPublicKey: body.macPushPublicKey == null ? "" : boundedString(body.macPushPublicKey, 128),
+  };
+  const encrypted = parseEncryptedPayloads(body);
+  if (!encrypted.ok) return encrypted;
+  fields.encryptedList = encrypted.value;
+  const error = validatePushFields(fields);
+  return error ? { ok: false, error } : { ok: true, value: fields };
+}
+
+function parseEncryptedPayloads(body: Record<string, unknown>): { ok: true; value: unknown[] } | { ok: false; error: string } {
   const encryptedPayloads = body.encryptedPayloads;
   if (encryptedPayloads != null && (!Array.isArray(encryptedPayloads) || encryptedPayloads.length === 0 || encryptedPayloads.length > MAX_ENCRYPTED_PUSH_PAYLOADS)) {
     return { ok: false, error: "missing_encrypted_payloads" };
   }
   const encryptedList = encryptedPayloads ?? [];
-  if (encryptedList.some((entry) => !isEncryptedPushPayload(entry))) {
-    return { ok: false, error: "invalid_encrypted_payload" };
-  }
+  if (encryptedList.some((entry) => !isEncryptedPushPayload(entry))) return { ok: false, error: "invalid_encrypted_payload" };
   if (encryptedList.length > 0) {
     const identities = new Set(encryptedList.map((entry) => entry.installationID));
     if (identities.size !== encryptedList.length) return { ok: false, error: "duplicate_encrypted_recipient" };
@@ -157,60 +189,44 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       return { ok: false, error: "plaintext_push_content" };
     }
   }
-  const macPushPublicKey = body.macPushPublicKey == null ? "" : boundedString(body.macPushPublicKey, 128);
-  if (macPushPublicKey == null) return { ok: false, error: "invalid_mac_push_key" };
+  return { ok: true, value: encryptedList };
+}
 
-  if (title == null) return { ok: false, error: "title_too_long" };
-  if (subtitle == null) return { ok: false, error: "subtitle_too_long" };
-  if (text == null) return { ok: false, error: "body_too_long" };
-  if (workspaceId == null) return { ok: false, error: "workspace_id_too_long" };
-  if (surfaceId == null) return { ok: false, error: "surface_id_too_long" };
-  if (macDeviceId == null) return { ok: false, error: "mac_device_id_too_long" };
-  if (macInstanceTag == null) return { ok: false, error: "mac_instance_tag_too_long" };
-  if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
-  if (correlationId == null) return { ok: false, error: "correlation_id_too_long" };
-  if (
-    correlationId
-    && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      correlationId,
-    )
-  ) {
-    return { ok: false, error: "invalid_correlation_id" };
-  }
-  if (hasExpiration && expirationEpochSeconds == null) {
-    return { ok: false, error: "invalid_expiration" };
-  }
-  // A dismiss push is banner-less by design; only the visible kind needs text.
-  if (kind === "notify" && !title && !text && encryptedList.length === 0) return { ok: false, error: "empty_notification" };
+function validatePushFields(fields: ParsedPushFields): string | null {
+  const checks: Array<[string | null, string]> = [
+    [fields.title, "title_too_long"], [fields.subtitle, "subtitle_too_long"], [fields.text, "body_too_long"],
+    [fields.workspaceId, "workspace_id_too_long"], [fields.surfaceId, "surface_id_too_long"],
+    [fields.macDeviceId, "mac_device_id_too_long"], [fields.macInstanceTag, "mac_instance_tag_too_long"],
+    [fields.notificationId, "notification_id_too_long"], [fields.correlationId, "correlation_id_too_long"],
+    [fields.macPushPublicKey, "invalid_mac_push_key"],
+  ];
+  for (const [value, error] of checks) if (value == null) return error;
+  if (fields.correlationId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(fields.correlationId)) return "invalid_correlation_id";
+  if (fields.hasExpiration && fields.expirationEpochSeconds == null) return "invalid_expiration";
+  if (fields.kind === "notify" && !fields.title && !fields.text && fields.encryptedList.length === 0) return "empty_notification";
+  return null;
+}
 
-  const dismissedIds = parseDismissedIds(body.notificationIds);
-  if (!dismissedIds.ok) return { ok: false, error: dismissedIds.error };
-  if (kind === "dismiss" && dismissedIds.value.length === 0 && encryptedList.length === 0) {
-    return { ok: false, error: "missing_dismissed_ids" };
-  }
-
+function makePushPayload(fields: ParsedPushFields, dismissedIds: string[], body: Record<string, unknown>): PushPayload {
   return {
-    ok: true,
-    value: {
-      kind,
-      title,
-      subtitle: subtitle || null,
-      body: text,
-      ...(kind === "notify" && replyShape ? { replyShape } : {}),
-      workspaceId: workspaceId || null,
-      surfaceId: surfaceId || null,
-      macDeviceId: macDeviceId || null,
-      macInstanceTag: macInstanceTag || null,
-      notificationId: notificationId || null,
-      correlationId: correlationId ? correlationId.toLowerCase() : null,
-      expirationEpochSeconds,
-      dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
-      badgeCount: parseBadgeCount(body.badgeCount),
-      retargetsToLiveSurfaceOwner: kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
-      hideContent: body.hideContent === true,
-      ...(encryptedList.length > 0 ? { encryptedPayloads: encryptedList as Record<string, unknown>[] } : {}),
-      ...(macPushPublicKey ? { macPushPublicKey } : {}),
-    },
+    kind: fields.kind,
+    title: fields.title!,
+    subtitle: fields.subtitle || null,
+    body: fields.text!,
+    ...(fields.kind === "notify" && fields.replyShape ? { replyShape: fields.replyShape } : {}),
+    workspaceId: fields.workspaceId || null,
+    surfaceId: fields.surfaceId || null,
+    macDeviceId: fields.macDeviceId || null,
+    macInstanceTag: fields.macInstanceTag || null,
+    notificationId: fields.notificationId || null,
+    correlationId: fields.correlationId ? fields.correlationId.toLowerCase() : null,
+    expirationEpochSeconds: fields.expirationEpochSeconds,
+    dismissedIds: fields.kind === "dismiss" ? dismissedIds : [],
+    badgeCount: parseBadgeCount(body.badgeCount),
+    retargetsToLiveSurfaceOwner: fields.kind === "notify" ? body.retargetsToLiveSurfaceOwner !== false : false,
+    hideContent: body.hideContent === true,
+    ...(fields.encryptedList.length > 0 ? { encryptedPayloads: fields.encryptedList as Record<string, unknown>[] } : {}),
+    ...(fields.macPushPublicKey ? { macPushPublicKey: fields.macPushPublicKey } : {}),
   };
 }
 

@@ -80,19 +80,23 @@ export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
-  const encrypted = input.encryptedPayloads ?? [];
-  if (encrypted.length > 0) {
-    const aps: Record<string, unknown> = {
-      alert: { "title-loc-key": "push.generic.title", "loc-key": "push.generic.body" },
-      "mutable-content": 1,
-      "interruption-level": "time-sensitive",
-      sound: "default",
-    };
-    if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-    // The extension restores the reply category from the decrypted payload.
-    aps.category = CMUX_APNS_CATEGORY;
-    return { aps, cmux: encryptedRouting(input) };
-  }
+  if (input.encryptedPayloads?.length) return buildEncryptedNotifyPayload(input);
+  return buildVisibleNotifyPayload(input);
+}
+
+function buildEncryptedNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = {
+    alert: { "title-loc-key": "push.generic.title", "loc-key": "push.generic.body" },
+    "mutable-content": 1,
+    "interruption-level": "time-sensitive",
+    sound: "default",
+    category: CMUX_APNS_CATEGORY,
+  };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  return { aps, cmux: encryptedRouting(input) };
+}
+
+function buildVisibleNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
   const body = input.body;
@@ -141,9 +145,13 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
  * `background` push, and a `background` push may not carry `badge` at all.
  */
 function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
-  const aps: Record<string, unknown> = { "content-available": 1 };
+  const encrypted = Boolean(input.encryptedPayloads?.length);
+  const aps: Record<string, unknown> = {
+    "content-available": 1,
+    ...(encrypted ? { "mutable-content": 1 } : {}),
+  };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-  const cmux: Record<string, unknown> = input.encryptedPayloads?.length
+  const cmux: Record<string, unknown> = encrypted
     ? encryptedRouting(input)
     : { dismissedIds: [...(input.dismissedIds ?? [])] };
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;

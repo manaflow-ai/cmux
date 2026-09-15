@@ -126,30 +126,26 @@ async function sendPush(
 
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
-  if (!Array.isArray(body.value.encryptedPayloads) || body.value.encryptedPayloads.length === 0) {
-    return jsonResponse({ error: "missing_encrypted_payloads" }, 400);
-  }
+  const encryptedPayloads = payload.value.encryptedPayloads ?? [];
   // Macs from before the namespace rollout (0.64.x) never send this header.
   // They are the `legacy` namespace: deliver to every iOS token the account
   // registered, each on its own bundle topic, matching pre-namespace reach.
   // A present-but-unknown value is still a hard error: only old builds are
   // allowed to omit the routing hint, new builds must send a valid one.
   const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
-  let targetNamespace: ReturnType<typeof normalizeApnsBundle> = null;
-  if (requestedNamespace !== null) {
-    targetNamespace = normalizeApnsBundle(requestedNamespace);
-    if (!targetNamespace) {
-      return jsonResponse({ error: "invalid_target_namespace" }, 400);
-    }
+  const targetNamespaceResult = resolveTargetNamespace(requestedNamespace, encryptedPayloads.length > 0);
+  if (!targetNamespaceResult.ok) return jsonResponse({ error: targetNamespaceResult.error }, 400);
+  const targetNamespace = targetNamespaceResult.value;
+  if (encryptedPayloads.length > 0) {
+    if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
+    const matchesOwner = encryptedPayloads.every((envelope) => {
+      const tuple = envelope.tuple as Record<string, unknown>;
+      return tuple.accountID === user.id && tuple.iosBuildID === targetNamespace.bundleId
+        && tuple.macDeviceID === payload.value.macDeviceId
+        && (tuple.macInstanceTag ?? null) === payload.value.macInstanceTag;
+    });
+    if (!matchesOwner) return jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
   }
-  if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
-  const matchesOwner = payload.value.encryptedPayloads?.every((envelope) => {
-    const tuple = envelope.tuple as Record<string, unknown>;
-    return tuple.accountID === user.id && tuple.iosBuildID === targetNamespace.bundleId
-      && tuple.macDeviceID === payload.value.macDeviceId
-      && (tuple.macInstanceTag ?? null) === payload.value.macInstanceTag;
-  });
-  if (!matchesOwner) return jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(
@@ -222,6 +218,19 @@ async function sendPush(
       correlationId,
     );
   }
+}
+
+function resolveTargetNamespace(
+  requestedNamespace: string | null,
+  encrypted: boolean,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> } | { ok: false; error: string } {
+  if (requestedNamespace === null) {
+    return encrypted ? { ok: false, error: "missing_target_namespace" } : { ok: true, value: null };
+  }
+  const targetNamespace = normalizeApnsBundle(requestedNamespace);
+  return targetNamespace
+    ? { ok: true, value: targetNamespace }
+    : { ok: false, error: "invalid_target_namespace" };
 }
 
 function deliveryErrorResponse(
