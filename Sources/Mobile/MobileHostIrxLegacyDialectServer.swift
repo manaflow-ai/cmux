@@ -38,7 +38,7 @@ enum MobileHostIrxLegacyDialectServer {
         isCurrent: @escaping @Sendable () async -> Bool,
         journal: IrxJournal
     ) async {
-        let remoteEndpoint = await connection.remoteIdentity().endpointIDHex
+        let remoteEndpoint = (await connection.remoteIdentity()).endpointID
         guard let snapshot = listCurrent.current,
               snapshot.isFresh(now: .now),
               let entry = snapshot.entries[remoteEndpoint], !entry.revoked,
