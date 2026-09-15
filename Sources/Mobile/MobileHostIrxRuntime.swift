@@ -630,9 +630,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             independentEventWriter: eventWriter,
             // Admission has already authenticated this bounded pooled peer.
             // It may wait for its first RPC while the client finishes setup;
-            // transport keepalives and the pool own its connection lifetime.
+            // native Iroh owns its connection lifetime.
             firstFrameTimeoutNanoseconds: 0,
-            idleTimeoutNanoseconds: 0,
             irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
             remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
             isCurrent: { [weak self] in
