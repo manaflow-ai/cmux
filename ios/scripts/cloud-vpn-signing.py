@@ -69,7 +69,7 @@ def validate_or_repair(app, repair):
             temporary = Path(directory)
             for index, (bundle, profile, signed, desired, info) in enumerate(plans):
                 cert_prefix = temporary / f"certificate-{index}-"
-                run("codesign", "-d", "--extract-certificates", str(cert_prefix), str(bundle))
+                run("codesign", "-d", f"--extract-certificates={cert_prefix}", str(bundle))
                 certificate = Path(str(cert_prefix) + "0").read_bytes()
                 if certificate not in profile["DeveloperCertificates"]:
                     raise ValueError("Signing certificate is absent from the profile")
