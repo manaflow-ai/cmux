@@ -11,7 +11,7 @@ import Testing
         try await withStore { store, routes in
             let shell = makeShell(store)
             let suggestions = await shell.tailscaleRouteSuggestions(macDeviceID: "mac-a", instanceTag: "tsl3")
-            #expect(Set(suggestions.map(\.endpoint)) == Set(routes.map(\.endpoint)))
+            #expect(suggestions.map(\.endpoint) == routes.map(\.endpoint))
             #expect(MobileComputerRouteGroup.groups(suggestions).count == 1)
             let saved = try #require(try await store.loadAll(stackUserID: "user-1").first)
             #expect(saved.legacyTailscaleRoutes == nil)
