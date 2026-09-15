@@ -2593,7 +2593,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return .retryable
             }
-            switch controller.v2MobileTerminalPaste(params: routedParams) {
+            switch await controller.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
                 // `terminal.paste` applies the text before it attempts the
                 // named key. A false `submitted` flag is therefore a partial
@@ -18161,7 +18161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         Task { @MainActor [weak self] in
-            self?.notificationDelivery.handleNotificationResponse(response)
+            await self?.notificationDelivery.handleNotificationResponse(response)
             completionHandler()
         }
     }
