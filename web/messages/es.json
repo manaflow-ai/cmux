@@ -3886,5 +3886,11 @@
         "action": "Gestionar plan"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Correo electrónico",
+    "emailUnavailable": "correo electrónico no disponible",
+    "organization": "Organización",
+    "personalAccount": "cuenta personal"
   }
 }

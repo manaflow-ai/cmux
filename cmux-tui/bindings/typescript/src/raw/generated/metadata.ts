@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
+/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543" as const;
+export const SDK_IR_SHA256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -710,6 +710,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "paste-image": {
+    "authority": "control",
+    "since": 12,
+    "capability": "terminal-image-paste-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+    ]
   },
   "ping": {
     "authority": "control",
@@ -9349,6 +9359,104 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "PaneNeighborResult"
+    }
+  },
+  "paste-image": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "lease": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mime": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "size": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "upload_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "accepted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "ping": {

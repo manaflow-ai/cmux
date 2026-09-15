@@ -3889,5 +3889,11 @@
         "action": "Gérer l’abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Adresse e-mail",
+    "emailUnavailable": "adresse e-mail indisponible",
+    "organization": "Organisation",
+    "personalAccount": "compte personnel"
   }
 }

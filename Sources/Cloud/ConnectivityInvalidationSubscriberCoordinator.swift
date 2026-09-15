@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import Foundation
@@ -25,11 +26,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         if defaultsObserver == nil {
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { [weak self] _ in
+            defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.evaluate()
                 }

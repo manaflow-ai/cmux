@@ -3887,5 +3887,11 @@
         "action": "Zarządzaj planem"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-mail",
+    "emailUnavailable": "adres e-mail niedostępny",
+    "organization": "Organizacja",
+    "personalAccount": "konto osobiste"
   }
 }
