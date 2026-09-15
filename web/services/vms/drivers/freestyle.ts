@@ -963,6 +963,13 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            if (networkId && Object.keys(freestyleNetworkAddressMetadata(data)).length === 0) {
+              // A private machine without a provider-assigned address cannot
+              // be reached through the owner's tunnel. Keep this hard failure
+              // before publishing the database row; transient guest-side
+              // announcement failures are handled by the attach path.
+              throw new ProviderError("freestyle", "Private network has no usable assigned address");
+            }
             if (options.imageSize) {
               // One snapshot per size: the machine already boots at the shape
               // that was sold, so nothing is read back and nothing is grown.
@@ -985,7 +992,12 @@ export class FreestyleProvider implements VMProvider {
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
             await this.installGuestCli(vm, vmId, options.promptIdentity);
-            await this.announcePrivateAddresses(vm, data);
+            // The baked supervisor announces the VPC interface on clone boot
+            // and every 30 seconds. Waiting for a second guest-side `ip` probe
+            // here made create pay a redundant network round trip and turned
+            // a transient netlink timeout into a destructive rollback. The
+            // attach path performs the strict announcement/readiness check
+            // before handing out the private daemon route.
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
