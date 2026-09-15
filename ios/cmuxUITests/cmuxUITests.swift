@@ -12,6 +12,77 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+
+        for appearance in ["light", "dark"] {
+            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment = [
+                "CMUX_UITEST_WHATS_NEW_PREVIEW": "1",
+                "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance
+            ]
+            app.launch()
+            let image = app.images.matching(NSPredicate(
+                format: "label == %@",
+                "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            )).firstMatch
+            XCTAssertTrue(image.waitForExistence(timeout: 15))
+            let title = app.staticTexts["Action Required: Enable iOS pairing on your Mac"].firstMatch
+            let sheet = app.otherElements["MobileWhatsNewSheet"].firstMatch
+            XCTAssertGreaterThanOrEqual(title.frame.minY - sheet.frame.minY, 28)
+
+            func assertFitted(_ lastText: XCUIElement) {
+                XCTAssertTrue(lastText.exists)
+                let gap = app.buttons["Continue"].frame.minY - lastText.frame.maxY
+                XCTAssertGreaterThan(gap, 0)
+                XCTAssertLessThan(gap, 100, "The footer must follow this page's content")
+            }
+
+            let compatibilityDetail = app.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Use cmux 0.64.0 or later."
+            )).firstMatch
+            assertFitted(compatibilityDetail)
+            let pairingTop = title.frame.minY
+            let pixels = try XCTUnwrap(image.screenshot().image.cgImage)
+            var rgba = [UInt8](repeating: 0, count: 4)
+            let context = try XCTUnwrap(CGContext(
+                data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ))
+            context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
+            if appearance == "light" {
+                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
+            } else {
+                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
+            }
+            let before = XCTAttachment(screenshot: app.screenshot())
+            before.name = "Fitted pairing page - \(appearance)"
+            before.lifetime = .keepAlways
+            add(before)
+
+            image.swipeLeft()
+            let olderTitle = app.staticTexts["What's New in cmux"].firstMatch
+            XCTAssertTrue(olderTitle.waitForExistence(timeout: 5))
+            let olderDetail = app.staticTexts.matching(NSPredicate(
+                format: "label BEGINSWITH %@", "Choosing Tailscale Only shows exactly"
+            )).firstMatch
+            assertFitted(olderDetail)
+            XCTAssertGreaterThan(abs(olderTitle.frame.minY - pairingTop), 20, "Swiping must resize the sheet")
+            let after = XCTAttachment(screenshot: app.screenshot())
+            after.name = "Fitted connections page - \(appearance)"
+            after.lifetime = .keepAlways
+            add(after)
+            olderTitle.swipeRight()
+            XCTAssertTrue(image.waitForExistence(timeout: 5))
+            assertFitted(compatibilityDetail)
+            XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
