@@ -223,9 +223,15 @@ public struct MobileAuthComposition {
         taskOwner.recordRestoreStarted()
         let pushRegistration = self.pushRegistration
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
-            taskOwner.revalidateSession(using: coordinator)
-            Task {
-                await pushRegistration.syncTokenIfPossible()
+            taskOwner.revalidateSession(using: coordinator) {
+                if let accountID = coordinator.currentUser?.id {
+                    PhonePushActiveAccountStore.set(accountID)
+                } else {
+                    PhonePushActiveAccountStore.clear()
+                }
+                Task {
+                    await pushRegistration.syncTokenIfPossible()
+                }
             }
         }
         coordinator.start()
@@ -493,11 +499,15 @@ private final class MobileAuthTaskOwner {
         }
     }
 
-    func revalidateSession(using coordinator: AuthCoordinator) {
+    func revalidateSession(
+        using coordinator: AuthCoordinator,
+        onComplete: @escaping @MainActor () -> Void = {}
+    ) {
         revalidationTask?.cancel()
         revalidationTask = Task { @MainActor [weak self, coordinator] in
             await coordinator.revalidateSession()
             guard !Task.isCancelled else { return }
+            onComplete()
             self?.revalidationTask = nil
         }
     }
