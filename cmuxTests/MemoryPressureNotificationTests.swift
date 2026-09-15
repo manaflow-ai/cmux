@@ -52,7 +52,7 @@ extension AgentNotificationRegressionTests {
             suppressedTitles.append(notification.title)
         }
 
-        // Install the real production responders and notification callbacks, then
+        // Install the real production pressure wiring, then
         // cancel sampling before yielding. Only synthetic pressure is delivered.
         fixture.appDelegate.startMemoryPressureMonitorIfNeeded()
         monitor.stop()
