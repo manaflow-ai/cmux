@@ -57,7 +57,8 @@ public struct AgentRestorePlanner: Sendable {
             sanitizedArguments = workingDirectories.reduce(plannedArguments.values) {
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: $0,
-                    workingDirectory: $1
+                    workingDirectory: $1,
+                    agentKind: kind
                 )
             }
         } else {

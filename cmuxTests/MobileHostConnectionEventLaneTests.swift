@@ -57,7 +57,6 @@ extension MobileHostAuthorizationTests {
             Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
         )
         await session.debugHandleReceiveDataForTesting(frame)
-        try await Task.sleep(nanoseconds: 25_000_000)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
@@ -86,7 +85,6 @@ extension MobileHostAuthorizationTests {
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
         _ = await session.unsubscribe(streamID: "events")
-        try await Task.sleep(nanoseconds: 25_000_000)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
@@ -453,9 +451,8 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        // Exercise an unresolved send across suspension before verifying
-        // that the connection has not been closed on the application's behalf.
-        try await Task.sleep(for: .milliseconds(30))
+        // The send-stall gate is the causal synchronization point; no idle
+        // timeout exists that needs to elapse before checking the connection.
         #expect(await recorder.recordedIDs().isEmpty)
         #expect(await transport.observedCloseCount() == 0)
         await session.close(reason: "test complete")

@@ -244,6 +244,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
 
     @Test func detachedCurrentHostPersistsHiddenVisibilityBeforeRebind() async {
+        let testWorkspace = TerminalPortalTestWorkspace()
         let size = NSSize(width: 480, height: 320)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -257,7 +258,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         window.contentView = container
         container.addSubview(host)
 
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = TerminalPanel(workspaceId: testWorkspace.id)
         let coordinator = GhosttyTerminalView.Coordinator()
         var ownsPane = true
         coordinator.attachGeneration = 1
@@ -286,6 +287,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
             panel.surface.teardownSurface()
+            testWorkspace.tearDown()
         }
 
         window.orderFront(nil)
@@ -324,9 +326,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             "A reconciliation that no longer owns the portal must still project the latest ring state"
         )
 
-        // Reattach before the queued geometry pass can prune the detached,
-        // hidden entry. Synchronizing now distinguishes persisted visibility
-        // intent from the geometry pass merely hiding or removing the view.
+        // Reattach before queued pruning; synchronization distinguishes persisted visibility from geometry hiding.
         container.addSubview(host)
         #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
@@ -338,6 +338,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
 
     @Test func portalRegistryBindsDeferWindowLayoutUntilCoalescedPass() async {
+        let testWorkspace = TerminalPortalTestWorkspace()
         let size = NSSize(width: 640, height: 360)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -353,14 +354,15 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         container.addSubview(firstAnchor)
         container.addSubview(secondAnchor)
 
-        let firstPanel = TerminalPanel(workspaceId: UUID())
-        let secondPanel = TerminalPanel(workspaceId: UUID())
+        let firstPanel = TerminalPanel(workspaceId: testWorkspace.id)
+        let secondPanel = TerminalPanel(workspaceId: testWorkspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
             window.close()
             firstPanel.surface.teardownSurface()
             secondPanel.surface.teardownSurface()
+            testWorkspace.tearDown()
         }
 
         window.orderFront(nil)
@@ -408,6 +410,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
     }
 
     @Test func workspaceRevealKeepsTerminalSizeUntilAnUnchangedGeometryPass() async throws {
+        let testWorkspace = TerminalPortalTestWorkspace()
         let size = NSSize(width: 480, height: 320)
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
@@ -420,11 +423,12 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         let anchor = NSView(frame: container.bounds)
         window.contentView = container
         container.addSubview(anchor)
-        let panel = TerminalPanel(workspaceId: UUID())
+        let panel = TerminalPanel(workspaceId: testWorkspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
             panel.surface.teardownSurface()
+            testWorkspace.tearDown()
         }
 
         window.orderFront(nil)
@@ -464,9 +468,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         container.needsLayout = true
         container.resetLayoutCount()
 
-        // Deliver the same external geometry pass used by workspace reveal
-        // synchronously, before its queued follow-up. The override only selects
-        // notification delivery; the native surface is not in a live resize.
+        // Deliver the workspace-reveal geometry pass synchronously before its queued follow-up; native surface is not resizing.
         portal.isWindowLiveResizeActiveOverrideForTesting = true
         NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
         portal.isWindowLiveResizeActiveOverrideForTesting = false
@@ -477,8 +479,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             "The pass that changes layout must not publish an intermediate terminal size"
         )
 
-        // The next layout restores the workspace's original pane geometry.
-        // There is no reason to resize its native surface or notify its PTY.
+        // The next layout restores the original pane geometry without resizing the native surface or notifying its PTY.
         anchor.frame.size = size
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         await flushPortalReconciliationPasses()
@@ -489,8 +490,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         anchor.frame.size.width = 360
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         await flushPortalReconciliationPasses()
-        // Native size publication also waits for AppKit's display/layout
-        // turn. Main-queue barriers alone do not drive that turn in an async test.
+        // Native size publication waits for AppKit's display/layout turn; main-queue barriers alone do not drive it.
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
         while (try terminalSize()).width >= initialTerminalSize.width,

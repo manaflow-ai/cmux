@@ -148,7 +148,10 @@ enum ControlSurfaceResumeTarget {
                   let context = workspace.persistentSSHResumeContext(panelID: surfaceID) else {
                 return nil
             }
-            return binding.registeredForPersistentSSH(context)
+            return binding.registeredForPersistentSSH(
+                context,
+                restorableAgent: self.restorableAgent
+            )
         case .dock(_, let dock, let surfaceID):
             guard let registration = dock.persistentSSHResumeRegistration(panelId: surfaceID),
                   remoteWorkspaceID == registration.context.workspaceID,
@@ -158,7 +161,10 @@ enum ControlSurfaceResumeTarget {
                   ) else {
                 return nil
             }
-            return binding.registeredForPersistentSSH(registration.context)
+            return binding.registeredForPersistentSSH(
+                registration.context,
+                restorableAgent: self.restorableAgent
+            )
         }
     }
 }

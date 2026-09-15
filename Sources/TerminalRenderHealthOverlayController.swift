@@ -13,9 +13,12 @@ final class TerminalRenderHealthOverlayController {
         self.host = host
         self.surface?.setRenderHealthChangeHandler(nil)
         self.surface = surface
-        surface.setRenderHealthChangeHandler { [weak self, weak surface] health in
-            Task { @MainActor [weak self, weak surface] in
-                guard let self, let surface, self.surface === surface else { return }
+        let surfaceIdentity = ObjectIdentifier(surface)
+        surface.setRenderHealthChangeHandler { [weak self] health in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let currentSurface = self.surface,
+                      ObjectIdentifier(currentSurface) == surfaceIdentity else { return }
                 self.apply(health)
             }
         }

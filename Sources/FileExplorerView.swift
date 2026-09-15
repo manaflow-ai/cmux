@@ -1945,8 +1945,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func tableView(
         _ tableView: NSTableView,
         draggingSession session: NSDraggingSession,
-        endedAt screenPoint: NSPoint,
-        operation: NSDragOperation
+        endedAt _: NSPoint,
+        operation _: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
         if searchResultsView.activeNativeDragSession === session {

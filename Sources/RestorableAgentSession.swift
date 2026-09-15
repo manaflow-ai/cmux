@@ -117,7 +117,8 @@ enum TerminalStartupWorkingDirectoryPrefix {
 
     static func replacingRequiredChangeDirectoryPrefix(
         in command: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String? = nil
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
@@ -127,7 +128,8 @@ enum TerminalStartupWorkingDirectoryPrefix {
         )
         let command = strippedSavedWorkingDirectoryOptions(
             from: stripped,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
         return prefix(command, workingDirectory: workingDirectory)
     }
@@ -135,18 +137,21 @@ enum TerminalStartupWorkingDirectoryPrefix {
     static func replacingRequiredChangeDirectoryPrefix(
         in command: String,
         previousWorkingDirectory: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String? = nil
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         let stripped = normalized(previousWorkingDirectory).map {
             strippedSavedWorkingDirectoryOptions(
                 from: strippedRequiredChangeDirectoryPrefix(from: trimmed, workingDirectory: $0),
-                workingDirectory: $0
+                workingDirectory: $0,
+                agentKind: agentKind
             )
         } ?? trimmed
         return replacingRequiredChangeDirectoryPrefix(
             in: stripped,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
     }
 
@@ -188,12 +193,14 @@ enum TerminalStartupWorkingDirectoryPrefix {
 
     private static func strippedSavedWorkingDirectoryOptions(
         from command: String,
-        workingDirectory: String
+        workingDirectory: String,
+        agentKind: String?
     ) -> String {
         let words = shellWordRanges(command)
         let ranges = savedWorkingDirectoryOptionRanges(
             in: words,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agentKind
         )
         guard !ranges.isEmpty else { return command }
         return removingRanges(removing: ranges, from: command)
@@ -287,39 +294,6 @@ enum TerminalStartupWorkingDirectoryPrefix {
         return words
     }
 
-    private static func savedWorkingDirectoryOptionRanges(
-        in words: [ShellWordRange],
-        workingDirectory: String
-    ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
-        let optionPrefixes = valueOptions.map { "\($0)=" }
-        var ranges: [Range<String.Index>] = []
-        var index = 0
-        while index < words.count {
-            let arg = words[index].value
-            if arg == "--" {
-                break
-            }
-            if valueOptions.contains(arg),
-               index + 1 < words.count,
-               workingDirectoryValue(words[index + 1].value, matches: workingDirectory) {
-                ranges.append(words[index].range.lowerBound..<words[index + 1].range.upperBound)
-                index += 2
-                continue
-            }
-            if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
-                let value = String(arg.dropFirst(prefix.count))
-                if workingDirectoryValue(value, matches: workingDirectory) {
-                    ranges.append(words[index].range)
-                    index += 1
-                    continue
-                }
-            }
-            index += 1
-        }
-        return ranges
-    }
-
     private static func removingRanges(
         removing ranges: [Range<String.Index>],
         from command: String
@@ -365,12 +339,6 @@ enum TerminalStartupWorkingDirectoryPrefix {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func workingDirectoryValue(_ value: String, matches workingDirectory: String) -> Bool {
-        guard value == workingDirectory else {
-            return (value as NSString).expandingTildeInPath == (workingDirectory as NSString).expandingTildeInPath
-        }
-        return true
-    }
 }
 
 enum AgentResumeCommandBuilder {
@@ -481,7 +449,7 @@ enum AgentResumeCommandBuilder {
             ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
-                    workingDirectory: directory
+                    workingDirectory: directory, agentKind: kind.rawValue
                 )
             }
             : commandParts
@@ -596,7 +564,7 @@ enum AgentResumeCommandBuilder {
         return kind.rawValue
     }
 
-    fileprivate static func resumeArguments(
+    static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -767,25 +735,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
-
-    func preparedResumeArguments(
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?,
-        observedPermissionMode: String?
-    ) -> [String]? {
-        AgentResumeCommandBuilder.resumeArguments(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            customRegistration: registration,
-            observedPermissionMode: observedPermissionMode
-        )
-    }
+    /// Persisted cwd trust boundary applied to every later restore entrypoint.
+    var restoreWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = nil
 
     func resumeStartupInput(
         useLocalRestoreVerb: Bool = true,
-        restoringWorkingDirectory: String? = nil
+        restoringWorkingDirectory: String? = nil,
+        restoringWorkingDirectorySelection: AgentRestoreWorkingDirectorySelection? = nil
     ) -> String? {
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
@@ -795,17 +751,25 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        let effectiveWorkingDirectory = resumeWorkingDirectory(
-            preferred: restoringWorkingDirectory
-        )
+        let selection = restoringWorkingDirectorySelection
+            ?? .recordedFallback(preferred: restoringWorkingDirectory)
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            restoringWorkingDirectory: effectiveWorkingDirectory
+            workingDirectorySelection: selection
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
+    }
+
+    /// Renders a remote resume without allowing captured local cwd values to
+    /// stand in for an authenticated remote selection.
+    func remoteResumeStartupInput() -> String? {
+        resumeStartupInput(
+            useLocalRestoreVerb: false,
+            restoringWorkingDirectorySelection: restoreWorkingDirectorySelection ?? .unavailable
+        )
     }
 
     /// Input that forks this agent conversation when typed into a shell.

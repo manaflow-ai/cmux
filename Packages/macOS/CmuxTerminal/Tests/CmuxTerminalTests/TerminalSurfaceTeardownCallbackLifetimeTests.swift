@@ -162,6 +162,45 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func agentHibernationWithoutSurfaceReleasesRetainedRuntimeResources() async {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        weak var weakCallbackContext: GhosttySurfaceCallbackContext?
+        weak var weakManualIOContext: TerminalManualIOWriteBox?
+        do {
+            let callbackContext = GhosttySurfaceCallbackContext(
+                surfaceHost: surface.surfaceView,
+                surfaceController: surface,
+                terminalLifecycleID: surface.terminalLifecycleId
+            )
+            weakCallbackContext = callbackContext
+            surface.surfaceCallbackContext = Unmanaged.passRetained(callbackContext)
+            let manualIOContext = TerminalManualIOWriteBox(onWrite: { _ in })
+            weakManualIOContext = manualIOContext
+            surface.manualIOContext = Unmanaged.passRetained(manualIOContext)
+        }
+        surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
+        surface.mobileViewportFontFitState = MobileViewportFontFitState(
+            baseRuntimePointSize: 12,
+            fittedRuntimePointSize: 8
+        )
+
+        #expect(surface.surface == nil)
+        #expect(surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.nilSurface"))
+        #expect(surface.surfaceCallbackContext == nil)
+        #expect(surface.manualIOContext == nil)
+        #expect(surface.mobileByteTeeLease == nil)
+        #expect(surface.mobileViewportFontFitState == nil)
+
+        #expect(
+            await recorder.waitForEventCount(1),
+            "nil-surface hibernation did not drain and release retained runtime resources"
+        )
+        #expect(recorder.events == [.teeLeaseRelease])
+        #expect(weakCallbackContext == nil)
+        #expect(weakManualIOContext == nil)
+    }
+
     @Test func agentHibernationEndsCurrentTerminalProcessGeneration() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)

@@ -23,6 +23,27 @@ enum SurfaceResumeLaunchFlavor: Equatable, Hashable, Sendable {
         guard case .persistentSSH(let context) = self else { return nil }
         return context
     }
+
+    /// Whether two bindings execute in the same local or persistent-SSH
+    /// session, ignoring a persistent SSH owner's workspace/surface retarget.
+    ///
+    /// A moved remote surface receives a new owner context while its PTY
+    /// session remains the same. Restore-state inheritance must follow that
+    /// stable PTY identity, while local/remote transitions remain isolated.
+    func representsSameExecutionLocation(as other: Self) -> Bool {
+        switch (self, other) {
+        case (.local, .local):
+            return true
+        case let (.persistentSSH(lhs), .persistentSSH(rhs)):
+            guard let lhsSessionID = lhs.normalizedPersistentPTYSessionID,
+                  let rhsSessionID = rhs.normalizedPersistentPTYSessionID else {
+                return false
+            }
+            return lhsSessionID == rhsSessionID
+        default:
+            return false
+        }
+    }
 }
 
 extension SurfaceResumeLaunchFlavor: Codable {

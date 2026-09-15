@@ -35,7 +35,8 @@ extension Workspace {
         guard let binding = surfaceResumeBindingsByPanelId[panelId],
               binding.isAgentHookBinding,
               let agent = binding.managedRestorableAgentSnapshot(
-                  replacing: restoredAgentSnapshotsByPanelId[panelId]
+                  replacing: restoredAgentSnapshotsByPanelId[panelId],
+                  previousBinding: nil
               ) else {
             return false
         }

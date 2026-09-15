@@ -75,14 +75,16 @@ extension SurfaceResumeBindingSnapshot {
 
     /// Whether an incoming hook refresh belongs to a claimed restore session.
     ///
-    /// A same-session refresh consumes the claim; a different checkpoint or
-    /// kind remains blocked until the claim expires or is explicitly cleared.
+    /// A same-session refresh from the same execution location consumes the
+    /// claim; a different checkpoint, kind, or location remains blocked until
+    /// the claim expires or is explicitly cleared.
     func acceptsRestoreBindingClaim(
         from incoming: SurfaceResumeBindingSnapshot
     ) -> Bool {
         isAgentHookBinding
             && incoming.isAgentHookBinding
             && isSameManagedSession(as: incoming)
+            && launchFlavor == incoming.launchFlavor
     }
 
     /// Whether storing this agent-hook write would demote an already-trusted
@@ -114,8 +116,11 @@ extension SurfaceResumeBindingSnapshot {
     /// checkpoint may reuse only kind-level registration metadata from the
     /// previous snapshot; cwd, launch capture, permission mode, and identity
     /// must come from the new binding so a fork cannot retain its parent.
+    /// - Parameter previousBinding: The prior binding, when available, used to
+    ///   ensure inherited session state stays within the same execution location.
     func managedRestorableAgentSnapshot(
-        replacing previous: SessionRestorableAgentSnapshot?
+        replacing previous: SessionRestorableAgentSnapshot?,
+        previousBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionRestorableAgentSnapshot? {
         guard let identity = managedSessionIdentity else { return nil }
         let previousForKind = previous.flatMap {
@@ -134,18 +139,42 @@ extension SurfaceResumeBindingSnapshot {
                 rhs: identity.checkpointId
             )
         } == true
-        return SessionRestorableAgentSnapshot(
+        let canInheritPreviousSessionState = continuesPreviousSession &&
+            previousBinding?.launchFlavor.representsSameExecutionLocation(
+                as: launchFlavor
+            ) == true
+        let inheritedLaunchCommand = canInheritPreviousSessionState
+            ? previousForKind?.launchCommand
+            : nil
+        let effectiveLaunchCommand = launchCommand ?? inheritedLaunchCommand
+        let effectiveSelection = restoreWorkingDirectorySelection
+            ?? (canInheritPreviousSessionState
+                ? previousForKind?.restoreWorkingDirectorySelection
+                : nil)
+        let projectedWorkingDirectory: String? = if let effectiveSelection {
+            effectiveSelection.resolved(
+                snapshotWorkingDirectory: cwd,
+                launchWorkingDirectory: effectiveLaunchCommand?.workingDirectory
+            )
+        } else {
+            cwd
+                ?? effectiveLaunchCommand?.workingDirectory
+                ?? (canInheritPreviousSessionState ? previousForKind?.workingDirectory : nil)
+        }
+        var snapshot = SessionRestorableAgentSnapshot(
             kind: kind,
             sessionId: identity.checkpointId,
-            workingDirectory: cwd
-                ?? launchCommand?.workingDirectory
-                ?? (continuesPreviousSession ? previousForKind?.workingDirectory : nil),
-            launchCommand: launchCommand
-                ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
+            workingDirectory: projectedWorkingDirectory,
+            launchCommand: effectiveLaunchCommand,
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+                ?? (canInheritPreviousSessionState ? previousForKind?.permissionMode : nil),
+            restoreWorkingDirectorySelection: effectiveSelection
         )
+        if let effectiveSelection {
+            snapshot = snapshot.applyingRestoreWorkingDirectorySelection(effectiveSelection)
+        }
+        return snapshot
     }
 
     private var managedSessionIdentity: (kind: String, checkpointId: String)? {
