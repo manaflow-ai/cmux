@@ -615,37 +615,6 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# On a FRESH launch, no wrapper-fired session-start: codex's own injected
-# SessionStart hook (below) fires within ~1s carrying codex's REAL session_id, so
-# it is the single authoritative signal. A pre-exec wrapper-fired session-start
-# there had no session id and minted a junk `fallback-*` record (a phantom in the
-# GUI), so it stays omitted for fresh launches.
-#
-# RESUME is different: codex does NOT fire SessionStart when resuming, so the
-# injected hooks alone would never re-bind the session (its only pid-refreshing
-# event never arrives), leaving it stuck on the dead pre-relaunch pid -> `.ended`
-# -> read-only with no input bar, with no way out (you cannot submit a prompt
-# from a GUI that has no composer). The wrapper has the resumed id (from argv) and
-# the new live pid ($$, exported as CMUX_CODEX_PID above), so it fires the
-# session-start ITSELF. The handler binds surface/workspace/cwd from the cmux env
-# and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
-# flipping it back to idle/editable. The short foreground call only admits the
-# event to cmux's ordered queue; best-effort failure can never break `codex`.
-cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
-if [[ -n "$cmux_codex_resume_sid" \
-      && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
-    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
-    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        printf '%s' "$cmux_codex_resume_payload" \
-            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
-                --socket "$CMUX_SOCKET_PATH" hooks enqueue codex session-start >/dev/null 2>&1 || true
-    else
-        printf '%s' "$cmux_codex_resume_payload" \
-            | CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=1 "$CMUX_CODEX_HOOK_CMUX_BIN" \
-                hooks enqueue codex session-start >/dev/null 2>&1 || true
-    fi
-fi
-
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
 # list (NUL-separated). Non-decision commands perform a bounded foreground
 # admission to cmux's app-owned ordered queue, so Codex never waits for the

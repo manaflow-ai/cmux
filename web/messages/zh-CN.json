@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
-      "team": "团队"
+      "team": "团队",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "加载中…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -3873,6 +3892,7 @@
     "email": "电子邮件",
     "emailUnavailable": "电子邮件地址不可用",
     "organization": "组织",
-    "personalAccount": "个人账户"
+    "personalAccount": "个人账户",
+    "switchAccountButton": "使用其他账号"
   }
 }
