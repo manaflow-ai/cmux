@@ -52,8 +52,24 @@ BASELINE_FILE="${LINT_BASELINE_FILE:-scripts/remote-tmux-polling-baseline.txt}"
 # reads the reason. Only functions that exist in the tree belong here; a stale name would
 # let a future wait in a function that happens to reuse it slip through.
 ALLOW=(
+  "Sources/RemoteTmuxControlConnection.swift:terminateProcessTree|SIGKILL escalation after SIGTERM. The edge would be 'the process handled the signal', and a process that IGNORES SIGTERM emits nothing at all — the absence of an exit is only observable by giving it a moment and looking again."
   "Sources/RemoteTmuxControlConnection.swift:scheduleReconnectAttempt|Reconnect backoff for a host that is unreachable. The edge would be 'the host came back', which nothing local can observe; retrying IS the observation."
+
+  # Deadline arms, not polls: each of these races `await <edge>` against a sleep inside the same task
+  # group, so the edge is what normally ends the wait and the sleep only bounds it. The lint cannot see
+  # that shape, which is why they are listed rather than fixed — see the task note about making the rule
+  # structural instead.
+  "Sources/RemoteTmuxController+Attach.swift:mirrorsWithPublishedTopology|Deadline arm racing waitUntilInitialTopology() for the whole mirror set"
+  "Sources/RemoteTmuxController+Attach.swift:dropMirrorIfTopologyNeverPublishes|Deadline arm racing waitUntilInitialTopology() for one late mirror"
+  "Sources/RemoteTmuxViewConnection.swift:awaitFirstWorkspaces|Deadline arm racing the view's first workspace publication"
+  "Sources/RemoteTmuxController.swift:awaitNewWorkspace|Deadline arm racing the new-workspace signal"
+  "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryWithTimeout|Deadline arm racing the reply for this command number"
+  "Sources/RemoteTmuxControlConnection.swift:detachThenStop|Backstop for a stream that has stopped answering; tmux's own %exit ends the wait and cancels it"
   "Sources/RemoteTmuxSessionMirror+OutputRouting.swift:schedulePaneSeedDeliveryDeadline|Deadline arm on a pane's readiness wait: the task is cancelled when the surface becomes ready, and on expiry the seed is drained or gracefully deferred rather than retried"
+  "Sources/RemoteTmuxViewConnection.swift:scheduleBringupRetry|Bounded backoff. The bringup it retries failed WITHOUT producing an edge to wait on, which is the whole reason it exists"
+  "Sources/RemoteTmuxControlConnection.swift:detachAwaitingExit|Deadline arm racing the %exit observer registered beside it; the observer ends the wait and cancels the deadline"
+  "Sources/RemoteTmuxControlConnection+PaneSubscriptions.swift:queryOutcomeWithTimeout|Deadline arm racing the reply for this command number; the reply removes the completion and the timeout task finds nothing to resume"
+  "Sources/RemoteTmuxViewConnection.swift:wait|The one-shot timer behind RemoteTmuxRetryDelay, which only scheduleBringupRetry uses for its bounded backoff; cancelling the task releases it"
 )
 
 normalize() { sed -E 's/^[[:space:]]+//; s/[[:space:]]+/ /g; s/[[:space:]]+$//' <<<"$1"; }

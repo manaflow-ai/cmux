@@ -58,6 +58,16 @@ import Testing
         #expect(!RemoteTmuxSSHTransport.indicatesAuthRequired(socketMissing))
     }
 
+    /// The login cmux offers is one shape — `ssh <host> true` into the shared ControlMaster — and
+    /// the wait that resumes the mirror ends when that master's socket appears. Only a transport
+    /// whose control stream goes through that master can be fixed by it. et's cannot: its stream
+    /// carries its own credentials, and with the master already up the socket edge fires at once,
+    /// so offering the login there would park and resume in a loop instead of backing off.
+    @Test func onlyTheSSHTransportDeclaresAnSSHShapedLogin() {
+        #expect(RemoteTmuxSSHTransportProfile().authenticationIsSSHShaped)
+        #expect(!RemoteTmuxETTransportProfile(port: 2022).authenticationIsSSHShaped)
+    }
+
     @Test func tmuxSocketPermissionErrorIsNotAnAuthPrompt() {
         // ssh authenticated fine here; tmux could not open its socket. listSessions
         // asks about auth before it asks about the server, so classifying this as
@@ -128,7 +138,7 @@ import Testing
 
     @Test func controlModeArgumentsAreNonInteractive() {
         let host = RemoteTmuxHost(destination: "user@host")
-        let args = host.controlModeArguments(sessionName: "work", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work", mode: .attach)
         #expect(consecutive(args, "-o", "BatchMode=yes"))
         #expect(!args.contains("BatchMode=no"))
     }
@@ -153,7 +163,7 @@ import Testing
         )
 
         let host = RemoteTmuxHost(destination: "user@example.test")
-        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work session", mode: .attach)
         let dashDash = try #require(args.firstIndex(of: "--"))
         let command = args[dashDash + 2]
         let result = try runShell(
@@ -170,7 +180,7 @@ import Testing
 
     @Test func controlModeArgumentsUseRemoteTmuxResolverAfterDestinationGuard() throws {
         let host = RemoteTmuxHost(destination: "-oProxyCommand=evil")
-        let args = host.controlModeArguments(sessionName: "work session", createIfMissing: false)
+        let args = host.controlModeArguments(sessionName: "work session", mode: .attach)
         let dashDash = try #require(args.firstIndex(of: "--"))
         #expect(args[dashDash + 1] == "-oProxyCommand=evil")
         let remoteCommand = args[dashDash + 2]
@@ -817,8 +827,7 @@ import Testing
 
         // Subscribed but declining (the dismissed-host case) is NOT handled.
         _ = observers.add(
-            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
-            onActivePaneChanged: nil,
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onActivePaneChanged: nil,
             onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
             onConnectionStateChanged: nil,
             onAuthRequired: { _ in false }
@@ -829,8 +838,7 @@ import Testing
         // an `||` would short-circuit and skip the rest.
         var secondRan = false
         _ = observers.add(
-            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil,
-            onActivePaneChanged: nil,
+            onPaneOutput: nil, onPaneSeed: nil, onPaneCwd: nil, onPaneReflow: nil, onActivePaneChanged: nil,
             onSessionChanged: nil, onTopologyChanged: nil, onReconnectReady: nil, onExit: nil,
             onConnectionStateChanged: nil,
             onAuthRequired: { _ in secondRan = true; return true }
@@ -980,5 +988,46 @@ import Testing
             host: RemoteTmuxHost(destination: "build-box"), sshArgv: ["/usr/bin/ssh", "build-box", "true"]
         )
         #expect((params["title"] as? String)?.contains("build-box") == true)
+    }
+    // MARK: - a transport that prompts instead of failing
+
+    /// A transport that authenticates itself reports no stderr at all: it prints a prompt to its
+    /// terminal and waits. cmux hands it pipes, so the prompt arrives in the bytes before control
+    /// mode. Read as transient, that attach failed with nothing to explain it — measured through a
+    /// corporate ssh broker, whose passcode prompt produced no stderr and no transport log.
+    @Test func anUnansweredCredentialPromptBeforeControlModeAsksForALogin() {
+        let prompt = """
+        (someone@build-box) two-factor login for someone
+
+        Enter a passcode:
+        Passcode:
+        """
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(stderr: "", preControlOutput: prompt)
+                == .authRequired
+        )
+        // The same bytes with no prompt stay transient, so this cannot swallow an ordinary drop.
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "", preControlOutput: "Last login: Tue Jul 22 19:04:24 2026\nwelcome\n")
+                == .transient
+        )
+    }
+
+    /// A gone session still wins, because a host can report both and ending is the correct outcome.
+    @Test func aGoneSessionOutranksAPromptInTheSameOutput() {
+        #expect(
+            RemoteTmuxReconnectDisposition.classify(
+                stderr: "can't find session: work", preControlOutput: "Enter a passcode:")
+                == .sessionGone
+        )
+    }
+
+    /// Prose that merely mentions a passcode is not a prompt awaiting input.
+    @Test func mentioningAPasscodeIsNotAPrompt() {
+        #expect(
+            RemoteTmuxSSHTransport.indicatesUnansweredCredentialPrompt(
+                "your passcode was accepted, continuing\n") == false
+        )
     }
 }

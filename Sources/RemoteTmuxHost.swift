@@ -46,10 +46,57 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``RemoteTmuxController`` keys its per-endpoint state.
     var id: String { connectionHash }
 
-    init(destination: String, port: Int? = nil, identityFile: String? = nil) {
+    /// Which transport carries this host's control stream.
+    ///
+    /// Part of the host rather than a global setting, because it is a property of the
+    /// endpoint: one host may be reachable over a session-preserving transport while
+    /// another is plain ssh. Defaults to ssh, so an unspecified host behaves exactly as
+    /// before.
+    let transport: RemoteTmuxTransportKind
+
+    /// The port of a non-ssh transport, when it differs from ssh's.
+    ///
+    /// Separate from ``port`` because the two are genuinely different endpoints on the same
+    /// host: one-shot discovery and mutation commands keep riding ssh even when the control
+    /// stream does not, so folding both into one field points ssh at the other transport's
+    /// port and every one-shot fails with `kex_exchange_identification`.
+    let transportPort: Int?
+
+    /// Where the transport's remote helper lives, once discovered.
+    ///
+    /// `et` needs `etterminal`'s absolute path because a non-interactive ssh does not have it on
+    /// PATH, and the path differs by platform and package manager. Resolved by probing the host
+    /// rather than assumed — deliberately not part of ``connectionHash``, since it describes how to
+    /// reach the endpoint rather than which endpoint it is, and two spellings of it must not split
+    /// one host into two.
+    let transportTerminalPath: String?
+
+    /// The wrapper that fronts the transport client, for a host that is not directly reachable.
+    ///
+    /// Set when reaching this host means going through a broker that resolves the route — a
+    /// tunnel, an agent socket, a short-lived credential — and then launches the client itself.
+    /// Like ``transportTerminalPath`` this is deliberately absent from ``connectionHash``: it
+    /// describes how to reach the endpoint, not which endpoint it is, so a host reached directly
+    /// and the same host reached through a broker are one endpoint that should share one
+    /// connection rather than two competing ones.
+    let transportBroker: RemoteTmuxTransportBroker?
+
+    init(
+        destination: String,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        transport: RemoteTmuxTransportKind = .ssh,
+        transportPort: Int? = nil,
+        transportTerminalPath: String? = nil,
+        transportBroker: RemoteTmuxTransportBroker? = nil
+    ) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.transport = transport
+        self.transportPort = transportPort
+        self.transportTerminalPath = transportTerminalPath
+        self.transportBroker = transportBroker
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -82,9 +129,34 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// distinct endpoints must never collapse onto one socket and risk routing a
     /// command to the wrong server.
     var connectionHash: String {
-        let fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        // The transport and its port belong in the fingerprint because they decide what the
+        // control stream actually is. Everything keyed by this hash — the attach single-flight,
+        // the transport registry, matching a mirror to a host — would otherwise treat an ssh
+        // host and an et host at the same destination as one endpoint, and hand an attach a
+        // cached connection whose profile or port is wrong. Two et hosts on different
+        // etserver ports collide the same way.
+        //
+        // Only appended for a non-default transport, so a plain ssh host keeps the hash it has
+        // today: it names the shared master's socket path and persisted mirror state, and
+        // changing it for existing hosts would orphan both.
+        var fingerprint = "\(destination)\u{1f}\(port.map(String.init) ?? "")\u{1f}\(identityFile ?? "")"
+        // Normalized, so two spellings of one endpoint are one key. An unset et port and an
+        // explicit 2022 both resolve to 2022 in `RemoteTmuxTransportKind.profile(port:)`, and ssh
+        // ignores a transport port entirely — hashing the spelling instead of the meaning gave the
+        // controller two keys for the same host, which bypasses mirror de-duplication and lets one
+        // host be mirrored twice.
+        if transport != .ssh {
+            fingerprint += "\u{1f}\(transport.rawValue)\u{1f}\(transport.resolvedTransportPort(transportPort))"
+        }
+        return Self.fnv1a64Hex(fingerprint)
+    }
+
+    /// FNV-1a 64-bit hex digest — a stable, dependency-free short hash used to derive
+    /// collision-resistant identifiers from a string (the host ``connectionHash`` and
+    /// the multiplexed view-session owner hash both build on it).
+    static func fnv1a64Hex(_ string: String) -> String {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325 // FNV offset basis
-        for byte in fingerprint.utf8 {
+        for byte in string.utf8 {
             hash ^= UInt64(byte)
             hash = hash &* 0x0000_0100_0000_01b3 // FNV prime
         }
@@ -335,10 +407,10 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     ///
     /// - Parameters:
     ///   - sessionName: the tmux session to attach to (or create).
-    ///   - createIfMissing: `new-session -A -s` (attach or create) vs `attach-session -t`.
+    ///   - mode: which tmux command opens the session — see ``RemoteTmuxControlAttachMode``.
     func controlModeArguments(
         sessionName: String,
-        createIfMissing: Bool,
+        mode: RemoteTmuxControlAttachMode,
         controlPersistSeconds: Int = 180
     ) -> [String] {
         var args = ["-tt"]
@@ -346,9 +418,8 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             controlPersistSeconds: controlPersistSeconds,
             batchMode: true
         ))
-        let remoteCommand = Self.tmuxRemoteCommand(arguments: createIfMissing
-            ? ["-CC", "new-session", "-A", "-s", sessionName]
-            : ["-CC", "attach-session", "-t", sessionName])
+        let remoteCommand = Self.tmuxRemoteCommand(
+            arguments: mode.tmuxArguments(sessionName: sessionName))
         args.append(contentsOf: ["--", destination, remoteCommand])
         return args
     }
