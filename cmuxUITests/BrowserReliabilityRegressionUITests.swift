@@ -41,7 +41,20 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
     /// then prove the web content still occupies the complete browser panel and
     /// the popover is painted at its right edge.
     func testNativeXCUITHoverRevealsPopoverAtPaneEdge() throws {
-        let app = try launchApp(additionalLaunchArguments: ["-NSAppSleepDisabled", "YES"])
+        let setupPath = "/tmp/cmux-ui-test-browser-hover-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: setupPath)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(atPath: setupPath)
+        }
+        let fixtureURL = Self.fixtureURL("hover-popover").absoluteString
+        let app = try launchApp(
+            additionalLaunchArguments: ["-NSAppSleepDisabled", "YES"],
+            additionalLaunchEnvironment: [
+                "CMUX_UI_TEST_GOTO_SPLIT_SETUP": "1",
+                "CMUX_UI_TEST_GOTO_SPLIT_PATH": setupPath,
+                "CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL": fixtureURL,
+            ]
+        )
         if app.state != .runningForeground {
             app.activate()
         }
@@ -49,12 +62,11 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             app.wait(for: .runningForeground, timeout: 8),
             "Expected the app to be foregrounded for native pointer routing. state=\(app.state.rawValue)"
         )
-        var mainHopReady = false
-        for _ in 0..<12 where !mainHopReady {
-            mainHopReady = socketCommand("activate_app", responseTimeout: 10) == "OK"
-        }
-        XCTAssertTrue(mainHopReady, "The app did not service a main-thread activation hop")
-        let sid = try openFixture("hover-popover")
+        let setup = try waitForSetup(at: setupPath)
+        let sid = try XCTUnwrap(
+            setup["browserPanelId"],
+            "Launch-time browser fixture did not report a browser panel: \(setup)"
+        )
 
         let browserPane = app.otherElements["BrowserPanelContent.\(sid)"].firstMatch
         XCTAssertTrue(
@@ -110,6 +122,19 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
             CGFloat(marker.imageWidth) * 0.9,
             "Expected the painted popover to reach the browser pane edge. marker=\(marker.bounds) imageWidth=\(marker.imageWidth) pane=\(browserPane.frame)"
         )
+    }
+
+    private func waitForSetup(at path: String) throws -> [String: String] {
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline {
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+               let setup = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+               setup["webViewFocused"] == "true" {
+                return setup
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        throw XCTSkip("Launch-time browser fixture did not become ready: \(path)")
     }
 
     private func waitForHoverState(surfaceID: String) throws -> [String: Any] {

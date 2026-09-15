@@ -42,7 +42,10 @@ class BrowserFixtureSocketTestCase: XCTestCase {
     // MARK: - Launch
 
     @discardableResult
-    func launchApp(additionalLaunchArguments: [String] = []) throws -> XCUIApplication {
+    func launchApp(
+        additionalLaunchArguments: [String] = [],
+        additionalLaunchEnvironment: [String: String] = [:]
+    ) throws -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += [
             "-socketControlMode", "allowAll",
@@ -56,6 +59,9 @@ class BrowserFixtureSocketTestCase: XCTestCase {
         app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        for (key, value) in additionalLaunchEnvironment {
+            app.launchEnvironment[key] = value
+        }
         // Debug launches require a tag outside reload.sh; provide one in UITests so CI
         // does not fail with "Application ... does not have a process ID".
         app.launchEnvironment["CMUX_TAG"] = launchTag
