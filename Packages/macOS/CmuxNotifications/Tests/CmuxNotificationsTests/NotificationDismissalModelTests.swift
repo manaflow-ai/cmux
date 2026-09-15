@@ -24,6 +24,7 @@ private final class FakeHost: NotificationDismissalHosting {
     var visibleIndicatorSurfaces: Set<UUID> = []
     var pendingNotificationSurfaces: Set<UUID> = []
     var workspacesWithPendingNotifications: Set<UUID> = []
+    var sidebarPreviewAvailable = false
     var hasDismissibleState = true
     var hasDismissiblePanelState = false
     var selectionLookupCount = 0
@@ -96,8 +97,19 @@ private final class FakeHost: NotificationDismissalHosting {
         return visibleIndicatorSurfaces.contains(surfaceId)
     }
 
+    func storeHasSidebarNotificationPreview(workspaceId: UUID) -> Bool {
+        sidebarPreviewAvailable
+    }
+
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         log.append("markRead:\(short(surfaceId))")
+    }
+
+    func storeClearSidebarNotificationPreviews(workspaceId: UUID) -> Bool {
+        guard sidebarPreviewAvailable else { return false }
+        log.append("storeClearSidebarNotificationPreviews")
+        sidebarPreviewAvailable = false
+        return true
     }
 
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
@@ -320,6 +332,31 @@ struct NotificationDismissalModelTests {
         #expect(!model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
         #expect(host.selectionLookupCount == 0)
         #expect(host.detailedLookupCount == 0)
+        #expect(host.log.isEmpty)
+    }
+
+    @Test func terminalInteractionRetiresReadSidebarPreviewAfterSelectionGate() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.hasDismissibleState = false
+        host.sidebarPreviewAvailable = true
+
+        #expect(model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.selectionLookupCount == 1)
+        #expect(host.detailedLookupCount == 0)
+        #expect(!host.sidebarPreviewAvailable)
+        #expect(host.log == ["storeClearSidebarNotificationPreviews"])
+    }
+
+    @Test func terminalInteractionDoesNotRetirePreviewForUnselectedWorkspace() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.hasDismissibleState = false
+        host.sidebarPreviewAvailable = true
+        host.selectedWorkspaceId = UUID()
+
+        #expect(!model.dismissNotificationOnTerminalInteraction(workspaceId: workspaceId, surfaceId: panelId))
+        #expect(host.selectionLookupCount == 1)
+        #expect(host.detailedLookupCount == 0)
+        #expect(host.sidebarPreviewAvailable)
         #expect(host.log.isEmpty)
     }
 
