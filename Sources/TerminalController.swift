@@ -26,6 +26,8 @@ import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
 
+private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
+
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -1917,7 +1919,7 @@ class TerminalController {
                         .debugCloseConnections(connectionID: selectedConnectionID)
                     cycles += 1
                     closedConnectionIDs.append(contentsOf: closed.map(\.uuidString))
-                    MobileDebugLog.anchormux(
+                    mobileReconnectDebugLog.info(
                         "debug.reconnect_loop cycle=\(cycles) closed=\(closed.count) interval_s=\(intervalSeconds)"
                     )
                     let remaining = durationSeconds - Double(cycles - 1) * intervalSeconds
