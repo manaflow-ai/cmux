@@ -7,6 +7,7 @@
   html, body { margin: 0; min-height: 100%; background: #20242b; color: white; font: 16px system-ui; }
   #stage { position: relative; min-height: 320px; padding: 24px; }
   #trigger { position: absolute; right: 24px; top: 120px; width: 112px; height: 42px; }
+  #trigger:hover { background: #00ff00; }
   #popover {
     display: none;
     position: fixed;
@@ -25,6 +26,7 @@
 </head>
 <body>
 <div id="stage">
+  <output id="native-state" role="status">Native hover idle</output>
   <button id="trigger">Hover me</button>
   <div id="popover" role="status">Popover</div>
 </div>
@@ -37,14 +39,26 @@
   };
   const trigger = document.getElementById('trigger');
   const popover = document.getElementById('popover');
+  const nativeState = document.getElementById('native-state');
+  const publishNativeState = () => {
+    nativeState.textContent = trigger.matches(':hover') &&
+      state.trustedPointerEnterCount > 0 && state.trustedMouseEnterCount > 0
+      ? 'Native hover active' : 'Native hover idle';
+  };
   trigger.addEventListener('pointerenter', event => {
     state.pointerEnterCount += 1;
     if (event.isTrusted) state.trustedPointerEnterCount += 1;
     popover.dataset.visible = 'true';
+    publishNativeState();
   });
   trigger.addEventListener('mouseenter', event => {
     state.mouseEnterCount += 1;
     if (event.isTrusted) state.trustedMouseEnterCount += 1;
+    publishNativeState();
+  });
+  trigger.addEventListener('mouseleave', () => {
+    popover.dataset.visible = 'false';
+    nativeState.textContent = 'Native hover idle';
   });
   window.__cmuxHoverState = () => {
     const rect = popover.getBoundingClientRect();
