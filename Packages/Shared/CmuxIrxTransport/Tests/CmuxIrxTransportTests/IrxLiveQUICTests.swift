@@ -687,6 +687,7 @@ struct IrxLiveQUICTests {
         let retired = try #require(recovered)
         let dialStartsBeforeRetirement =
             journal.counterSnapshot()["dial-started"] ?? 0
+        let terminationWatcher = try #require(await engine.terminationWatcherForTesting())
         #expect(
             await engine.retire(
                 connection: retired.connection,
@@ -694,7 +695,7 @@ struct IrxLiveQUICTests {
             )
         )
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        await terminationWatcher.value
         #expect(await engine.currentSession() == nil)
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0

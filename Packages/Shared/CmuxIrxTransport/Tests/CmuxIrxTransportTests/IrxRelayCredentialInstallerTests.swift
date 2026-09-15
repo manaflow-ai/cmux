@@ -34,17 +34,20 @@ struct IrxRelayCredentialInstallerTests {
 
     @Test func gatedInstallationRetriesWithoutAnotherMintAndStopsAfterInvalidation() async throws {
         let native = RelayInstallProbe(failFirst: true)
+        let retryRelease = IrxAsyncLatch()
         let gate = IrxRelayCredentialRotationGate()
         let generation = await gate.begin()
         let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
             sleep: { _ in
                 await native.noteSleep()
-                try await Task.sleep(for: .milliseconds(100))
+                await retryRelease.wait()
             }, install: { try await native.install($0) })
         await installer.replace(with: [credential("old")], ownership: .init(gate: gate, generation: generation))
         try await waitUntil { await native.sleepCount == 1 }
+        let pendingRetry = try #require(await installer.pendingTaskForTesting())
         await gate.invalidate()
-        try await Task.sleep(for: .milliseconds(200))
+        await retryRelease.signal()
+        await pendingRetry.value
         #expect(await native.tokens == ["old"])
 
         let current = await gate.begin()

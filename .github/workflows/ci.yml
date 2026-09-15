@@ -1,21 +1,12 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # Changes to CI guard scripts also retrigger the full workflow through this path.
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Always create the gate. The changes job owns routing; workflow-level path
+  # filters leave source-only PRs untested and need a competing fallback status.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - Resources/bin/cmux-hermes-agent-wrapper
-      - tests/test_hermes_wrapper_hooks.py
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
+    types: [opened, reopened, synchronize, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -427,9 +418,8 @@ jobs:
     name: GhosttyKit release check
     permissions:
       contents: read
-    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
-    # workflow_dispatch keeps the same guard available for explicit CI runs.
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
+    # Validate the pinned dependency before any selected platform build.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -479,6 +469,7 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+
       - name: Web tests
         run: bun run test
 
@@ -522,6 +513,36 @@ jobs:
       - name: React Doctor
         working-directory: webviews
         run: bun run react-doctor:ci
+
+  web-production-build:
+    needs: changes
+    if: ${{ needs.changes.outputs.web == 'true' }}
+    name: web-production-build
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run the Vercel production build
+        env:
+          VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
+          # These are syntactically valid fixtures, never production credentials.
+          # Keep environment validation and the compiler's type checks enabled.
+          RESEND_API_KEY: "re_ci_build"
+          CMUX_FEEDBACK_FROM_EMAIL: "ci@manaflow.com"
+          STACK_SECRET_SERVER_KEY: "ci-build-only"
+          NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-4000-8000-000000000000"
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "ci-build-only"
+          DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+          DIRECT_DATABASE_URL: "postgres://cmux:cmux@127.0.0.1:1/cmux"
+        run: bun run vercel-build
 
   diff-sidecar-check:
     needs: changes
@@ -1912,6 +1933,7 @@ jobs:
             CmuxAuthRuntime
             CmuxBrowser
             CmuxIrohTransport
+            CmuxIrxTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1954,7 +1976,7 @@ jobs:
             # CmuxFoundation has several process-tree suites whose child
             # fixtures share global process resources; run each suite in its
             # own Swift Testing process just like the auth/transport suites.
-            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
@@ -2024,6 +2046,7 @@ jobs:
       - workflow-guard-tests
       - ghosttykit-release-check
       - web-typecheck
+      - web-production-build
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
@@ -2045,6 +2068,7 @@ jobs:
           required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")
           allowed_routed = {
               "web-typecheck",
+              "web-production-build",
               "react-apps-check",
               "diff-sidecar-check",
               "web-db-migrations",
@@ -2060,6 +2084,7 @@ jobs:
           outputs = needs["changes"].get("outputs", {})
           routed_outputs = {
               "web-typecheck": "web",
+              "web-production-build": "web",
               "react-apps-check": "web",
               "diff-sidecar-check": "macos",
               "web-db-migrations": "web",
@@ -2633,6 +2658,7 @@ jobs:
       - workflow-guard-tests
       - ghosttykit-release-check
       - web-typecheck
+      - web-production-build
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
@@ -2662,6 +2688,30 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          for name in ("changes", "workflow-guard-tests", "ghosttykit-release-check", "linux-preflight", "tests"):
+              if needs.get(name, {}).get("result") != "success":
+                  bad[name] = needs.get(name, {}).get("result", "missing")
+
+          routes = needs.get("changes", {}).get("outputs", {})
+          if "true" in (routes.get("web"), routes.get("macos")):
+              if needs.get("diff-sidecar-check", {}).get("result") != "success":
+                  bad["diff-sidecar-check"] = needs.get("diff-sidecar-check", {}).get("result", "missing")
+          for name, route in {
+              "web-typecheck": "web",
+              "web-production-build": "web",
+              "web-db-migrations": "web",
+              "react-apps-check": "web",
+              "app-host-unit-tests": "macos",
+              "swift-package-tests": "macos",
+              "tests-build-and-lag": "macos",
+              "release-build": "macos",
+              "agent-session-web-resources": "agent_session_web",
+          }.items():
+              if routes.get(route) not in {"true", "false"}:
+                  bad[route] = "missing or invalid route"
+              elif routes[route] == "true" and needs.get(name, {}).get("result") != "success":
+                  bad[name] = needs.get(name, {}).get("result", "missing")
 
           if bad:
               for name, result in bad.items():

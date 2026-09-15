@@ -163,6 +163,7 @@ def explicitly_gated_actions() -> set[str]:
     has_movement_gate = False
     for path in DISPATCH_SOURCES:
         source = path.read_text(encoding="utf-8")
+        actions.update(gated_local_action_switches(source))
         for call_name in GATE_CALLS:
             for body in balanced_call_bodies(source, call_name):
                 actions.update(
@@ -181,7 +182,36 @@ def explicitly_gated_actions() -> set[str]:
     return actions
 
 
+def gated_local_action_switches(source: str) -> set[str]:
+    # Pane sizing maps a direction to a typed local action immediately before
+    # the gate. Count that mapping only when the gate consumes that variable.
+    actions: set[str] = set()
+    for match in re.finditer(
+        r"let\s+(\w+)\s*:\s*KeyboardShortcutSettings\.Action\s*=\s*\{"
+        r"\s*switch\s+\w+\s*\{(?P<cases>[^{}]*)\}\s*\}\(\)\s*"
+        r"if\s+let\s+\w+\s*=\s*focusedDockStoreForShortcut\("
+        r"\s*action:\s*\1\s*[,)]",
+        source,
+    ):
+        actions.update(re.findall(r"case\s+\.\w+\s*:\s*\.(\w+)", match.group("cases")))
+    return actions
+
+
 class DockShortcutRoutingGuardTests(unittest.TestCase):
+    def test_local_action_mapping_requires_its_gate(self) -> None:
+        sample = """
+        let action: KeyboardShortcutSettings.Action = {
+            switch direction {
+            case .left: .resizePaneLeft
+            case .right: .resizePaneRight
+            }
+        }()
+        if let dock = focusedDockStoreForShortcut(action: action, preferredWindow: window) {}
+        """
+        self.assertEqual(gated_local_action_switches(sample), {"resizePaneLeft", "resizePaneRight"})
+        self.assertEqual(gated_local_action_switches(sample.replace("action: action", "action: other")), set())
+        self.assertEqual(gated_local_action_switches(sample.replace("focusedDockStoreForShortcut", "unrelated")), set())
+
     def test_every_action_has_one_explicit_ownership_disposition(self) -> None:
         dispositions = disposition_actions()
         classified = set().union(*dispositions.values())
