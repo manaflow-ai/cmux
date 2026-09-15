@@ -510,7 +510,7 @@ final class AppearanceSettingsTests: XCTestCase {
                         object: nil,
                         queue: nil
                     ) { _ in
-                        handler()
+                        MainActor.assumeIsolated { handler() }
                     }
                 },
                 removeObserver: { observer in

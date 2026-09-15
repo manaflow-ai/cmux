@@ -5,17 +5,6 @@ import Testing
 
 @Suite("Cloud banner core")
 struct CloudBannerCoreTests {
-    @Test("VPN warning preserves unknown and non-off states")
-    func vpnWarningOnlyProjectsExplicitOff() {
-        #expect(CloudPortsVPNWarning.projection(tunnelState: nil) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .starting) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .awaitingApproval) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .up) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .stopping) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .failed("route")) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .off) != nil)
-    }
-
     @MainActor
     @Test("two live clients preserve each other's dismissals")
     func clientsReadModifyWriteTheCurrentMap() {
