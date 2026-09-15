@@ -105,11 +105,11 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             navigate(window, to: "Mobile")
             let pairingToggle = window.checkBoxes["SettingsMobileIOSPairingHostToggle"].firstMatch
             XCTAssertTrue(pairingToggle.waitForExistence(timeout: 5))
-            if pairingToggle.value as? String != "1" {
+            let detail = window.staticTexts["Allows iOS pairing and Iroh networking for this Mac."].firstMatch
+            if !detail.exists {
                 pairingToggle.click()
             }
             let title = window.staticTexts["Enable iOS pairing"].firstMatch
-            let detail = window.staticTexts["Allows iOS pairing and Iroh networking for this Mac."].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 5))
             XCTAssertTrue(detail.waitForExistence(timeout: 5))
             let header = try XCTUnwrap(window.staticTexts.matching(identifier: "Mobile").allElementsBoundByIndex.first {
@@ -134,6 +134,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             full.name = "Mac Settings - \(appearance)"
             full.lifetime = .keepAlways
             add(full)
+            pairingToggle.click()
             app.terminate()
         }
     }
