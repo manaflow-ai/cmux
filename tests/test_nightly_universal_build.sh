@@ -9,7 +9,7 @@ if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
   in_build && /^      - name:/ { in_build=0 }
   in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
-  in_build && /xcodebuild -jobs 2 -scheme cmux/ { saw_bounded_jobs=1 }
+  in_build && /xcodebuild -jobs 1 -scheme cmux/ { saw_bounded_jobs=1 }
   END { exit !(saw_wrapper && saw_bounded_jobs) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly Release builds must bound xcodebuild concurrency and retain failure diagnostics"
