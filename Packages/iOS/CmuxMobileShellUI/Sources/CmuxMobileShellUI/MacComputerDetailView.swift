@@ -1221,13 +1221,15 @@ struct MacComputerDetailView: View {
                 Text(routeTitle(for: group.kind))
                     .font(.callout)
                 Spacer(minLength: 8)
-                Button { removeRouteGroup(group) } label: {
-                    Image(systemName: "trash")
+                if group.kind != .iroh {
+                    Button { removeRouteGroup(group) } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                    .accessibilityLabel(L10n.string("mobile.connections.route.remove", defaultValue: "Remove route"))
+                    .accessibilityIdentifier("MobileComputerRemoveRoute-\(group.id)")
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.red)
-                .accessibilityLabel(L10n.string("mobile.connections.route.remove", defaultValue: "Remove route"))
-                .accessibilityIdentifier("MobileComputerRemoveRoute-\(group.id)")
             }
             ForEach(group.routes, id: \.id) { route in
                 HStack {
