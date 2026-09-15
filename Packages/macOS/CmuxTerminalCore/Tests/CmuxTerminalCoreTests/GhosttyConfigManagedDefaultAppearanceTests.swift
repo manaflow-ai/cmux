@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import CmuxFoundation
 @testable import CmuxTerminalCore
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/7161
@@ -32,6 +33,33 @@ import Testing
     }
 
     // MARK: Managed-default-theme gate (issue #7161)
+
+    @Test(arguments: [true, false])
+    func cmuxFontSizeEditsPreserveAppearancePreference(_ adaptive: Bool) throws {
+        try withTempConfig("# appearance is inherited\n") { path in
+            let editor = CmuxGhosttyConfigSettingEditor()
+            let url = URL(fileURLWithPath: path)
+            try editor.writeSetting(key: CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey, value: "15", to: url)
+            try editor.writeSetting(key: CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey, value: "14", to: url)
+
+            var config = GhosttyConfig()
+            config.loadResolvedUserConfig(
+                configPaths: [path],
+                preferredColorScheme: .light,
+                adaptiveDefaultThemeEnabled: adaptive,
+                environment: [:],
+                bundleResourceURL: nil
+            )
+
+            #expect(config.sidebarFontSize == 15)
+            #expect(config.surfaceTabBarFontSize == 14)
+            #expect(config.backgroundColor.hexString() == (adaptive ? "#FEFFFF" : "#282C34"))
+            #expect(config.foregroundColor.hexString() == (adaptive ? "#000000" : "#FFFFFF"))
+            #expect(GhosttyConfigDiscovery().shouldApplyManagedDefaultAppearance(
+                configPaths: [path], adaptiveDefaultThemeEnabled: adaptive
+            ) == adaptive)
+        }
+    }
 
     @Test func managedDefaultThemeCanBeDisabled() throws {
         try withTempConfig("# no settings\n") { path in

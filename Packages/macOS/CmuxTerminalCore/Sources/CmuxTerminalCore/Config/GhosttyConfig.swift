@@ -8,11 +8,11 @@ public import Foundation
 /// `GhosttyConfig` is the value type that drives the embedded ghostty runtime's
 /// appearance. It parses ghostty's textual config format (``parse(_:loadingThemesImmediatelyFor:)``),
 /// resolves themes by light/dark color scheme, and can fold in cmux's managed
-/// default appearance only when the caller enables it and the user's config is
-/// untouched. Once the user adds any directive, its colors resolve from
-/// Ghostty's built-in defaults plus the user's settings. The wire format it
-/// reads (directive keys, theme resolution, NSColor hex codecs) is frozen and
-/// pinned by tests.
+/// default appearance only when the caller enables it and the user's config has
+/// no Ghostty directives beyond cmux's UI font preferences. Other directives
+/// resolve colors from Ghostty's built-in defaults plus the user's settings.
+/// The wire format it reads (directive keys, theme resolution, NSColor hex
+/// codecs) is frozen and pinned by tests.
 public struct GhosttyConfig {
     /// The light/dark terminal theme preference. An alias for
     /// ``TerminalColorSchemePreference``; the nested name keeps the
@@ -387,9 +387,10 @@ public struct GhosttyConfig {
     }
 
     /// Optionally applies cmux's managed default appearance when the resolved
-    /// user config contains no directives, then parses the user's config files.
-    /// Any configured Ghostty setting preserves Ghostty's own resolved color
-    /// base instead of receiving the managed appearance.
+    /// user config contains only cmux UI font preferences or no directives,
+    /// then parses the user's config files. Other Ghostty settings preserve
+    /// Ghostty's own resolved color base instead of receiving the managed
+    /// appearance.
     mutating func loadResolvedUserConfig(
         configPaths: [String],
         preferredColorScheme: ColorSchemePreference,
@@ -880,7 +881,8 @@ public struct GhosttyConfig {
     /// directives, its explicit terminal-color directives, and its last
     /// `theme` value.
     public struct UserAppearanceConfigSummary {
-        /// Whether any parsed Ghostty config directive was seen.
+        /// Whether any parsed Ghostty config directive was seen, excluding
+        /// cmux's sidebar and surface-tab-bar font preferences.
         public var hasConfigDirective = false
         /// Whether any `theme` directive was seen.
         public var hasThemeDirective = false
@@ -894,15 +896,26 @@ public struct GhosttyConfig {
         public init() {}
 
         /// Whether the config is eligible for cmux's managed default
-        /// appearance. Only an untouched config is eligible; any user directive
-        /// preserves Ghostty's own resolved base. The caller's adaptive-default
-        /// preference is evaluated separately.
+        /// appearance. cmux's UI font preferences do not configure Ghostty's
+        /// terminal appearance. Any other directive preserves Ghostty's own
+        /// resolved base. The caller's adaptive-default preference is evaluated
+        /// separately.
         public var shouldApplyDefaultAppearance: Bool {
             !hasConfigDirective
         }
 
         /// Records one config directive into the summary.
         public mutating func recordDirective(key: String, value: String?) {
+            // The cmux settings UI writes these app-owned preferences into the
+            // shared config file. Changing chrome text size is not a choice of
+            // terminal palette and must not disable inherited light/dark colors.
+            switch key {
+            case CmuxGhosttyConfigSettingEditor.sidebarFontSizeKey,
+                 CmuxGhosttyConfigSettingEditor.surfaceTabBarFontSizeKey:
+                return
+            default:
+                break
+            }
             hasConfigDirective = true
             switch key {
             case "theme":
@@ -919,8 +932,8 @@ public struct GhosttyConfig {
     }
 
     /// Whether cmux should inject its managed default appearance: true only when
-    /// the caller enables it and the resolved user config contains no
-    /// directives.
+    /// the caller enables it and the resolved user config contains no Ghostty
+    /// directives other than cmux's UI font preferences.
     public static func shouldApplyManagedDefaultAppearance(
         configPaths: [String],
         adaptiveDefaultThemeEnabled: Bool = false

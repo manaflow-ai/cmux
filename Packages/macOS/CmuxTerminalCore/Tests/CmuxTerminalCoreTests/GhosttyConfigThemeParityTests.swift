@@ -9,6 +9,9 @@ import Testing
 @Suite struct GhosttyConfigThemeParityTests {
     enum Scenario: String, CaseIterable, Sendable {
         case noConfig
+        case sidebarFontSize
+        case surfaceTabBarFontSize
+        case cmuxFontSizes
         case nonAppearanceSetting
         case partialExplicitColors
         case fullExplicitColors
@@ -82,8 +85,11 @@ import Testing
         "#000DD0", "#000EE0", "#000FF0", "#0010FF",
     ]
 
-    @Test(arguments: Scenario.allCases)
-    func configuredColorsStayStableAcrossAppearanceChanges(_ scenario: Scenario) throws {
+    @Test(arguments: Scenario.allCases, [false, true])
+    func configuredColorsStayStableAcrossAppearanceChanges(
+        _ scenario: Scenario,
+        withCmuxFontPreferences: Bool
+    ) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-10199-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -91,7 +97,11 @@ import Testing
 
         let fixture = try makeFixture(for: scenario, in: directory)
         let configURL = directory.appendingPathComponent("config", isDirectory: false)
-        try fixture.configContents.write(to: configURL, atomically: true, encoding: .utf8)
+        // App-owned font preferences must not change any scenario's terminal colors,
+        // whether the palette is inherited or explicitly configured through Ghostty.
+        let contents = fixture.configContents + (withCmuxFontPreferences
+            ? "sidebar-font-size = 15\nsurface-tab-bar-font-size = 14\n" : "")
+        try contents.write(to: configURL, atomically: true, encoding: .utf8)
 
         let light = try loadSnapshot(configPath: configURL.path, colorScheme: .light)
         let darkAfterFlip = try loadSnapshot(configPath: configURL.path, colorScheme: .dark)
@@ -115,9 +125,20 @@ import Testing
         )
 
         switch scenario {
-        case .noConfig:
+        case .noConfig, .sidebarFontSize, .surfaceTabBarFontSize, .cmuxFontSizes:
+            let contents: String
+            switch scenario {
+            case .sidebarFontSize:
+                contents = "sidebar-font-size = 15\n"
+            case .surfaceTabBarFontSize:
+                contents = "surface-tab-bar-font-size = 14\n"
+            case .cmuxFontSizes:
+                contents = "surface-tab-bar-font-size = 14\nsidebar-font-size = 15\n"
+            default:
+                contents = "# no Ghostty settings\n"
+            }
             return ScenarioFixture(
-                configContents: "# no Ghostty settings\n",
+                configContents: contents,
                 light: snapshot(
                     foreground: "#000000",
                     background: "#FEFFFF",
