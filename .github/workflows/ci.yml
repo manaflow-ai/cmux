@@ -485,6 +485,12 @@ jobs:
       - name: Production build
         env:
           VERCEL_PREVIEW_COMMENTS_ENABLED: "0"
+          SKIP_ENV_VALIDATION: "1"
+          RESEND_API_KEY: "re_ci_build"
+          CMUX_FEEDBACK_FROM_EMAIL: "ci@manaflow.com"
+          STACK_SECRET_SERVER_KEY: "ci-build-only"
+          NEXT_PUBLIC_STACK_PROJECT_ID: "00000000-0000-0000-0000-000000000000"
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: "ci-build-only"
         run: bun run vercel-build
 
       - name: Web tests
