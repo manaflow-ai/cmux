@@ -327,10 +327,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return machine.isLocal ? .local : .cloud(machine.rawValue)
         }
         private func publishSelectedMachineSelection() {
-            let node = selection.nodeID.flatMap { id in
-                CloudTreeNodeBuilder.flattened(nodes).first { $0.id == id }
+            guard let nodeID = selection.nodeID else {
+                onSelectionChange(.empty)
+                return
             }
-            let next = CloudTreeSelection(nodeID: node?.id, machine: machineSelection(for: node))
+            guard let node = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == nodeID }) else {
+                // A refresh can briefly omit a row while the catalog and
+                // machine list converge. Preserve the captured identity;
+                // validation on invocation will fail closed if it is truly
+                // gone rather than silently switching to this Mac.
+                return
+            }
+            let next = CloudTreeSelection(nodeID: node.id, machine: machineSelection(for: node))
             selection = next
             onSelectionChange(next)
         }
