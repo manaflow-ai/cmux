@@ -15,6 +15,11 @@ import os
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
+
+    /// Compatibility name for the legacy TCP listener. It uses the same
+    /// Stack bearer authorization path; keeping this alias documents the
+    /// transport boundary without introducing a third authorization mode.
+    static let legacyPrivateNetworkListener: Self = .stackBearer
 }
 
 /// Immutable trust context carried from transport admission into RPC dispatch.

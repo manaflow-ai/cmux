@@ -754,17 +754,6 @@ final class MobileHostService {
             if result.startDrain {
                 Task { await connection.drainQueuedEvents() }
             }
-            if result.shouldClose {
-                Task {
-                    await connection.close(
-                        reason: "event queue exceeded bounded capacity",
-                        exit: CmxIrohAdmittedConnectionExit(
-                            lifecycle: .controlWriteFailed,
-                            failure: .sendQueueOverflow
-                        )
-                    )
-                }
-            }
         }
         if !resyncSurfaceIDs.isEmpty {
             MobileTerminalRenderObserver.requestRenderGridFullResync(
@@ -1383,7 +1372,7 @@ final class MobileHostService {
             let transport = CmxNetworkByteTransport(acceptedConnection: connection)
             await Self.acceptTransport(
                 transport,
-                authorization: .legacyPrivateNetworkListener,
+                authorization: .stackBearer,
                 isCurrent: {
                     await MobileHostService.shared.canAcceptConnection(
                         generation: generation
@@ -2976,20 +2965,6 @@ actor MobileHostConnection {
         }
         if result.startDrain {
             Task { await self.drainQueuedEvents() }
-        }
-        if result.shouldClose {
-            // The bounded queue fills when the control stream stops draining
-            // (e.g. the peer's network path died mid-write) while terminal
-            // events keep arriving. The peer violated nothing; field host
-            // rings (2026-07-23 WiFi path flap) showed this close mislabeled
-            // protocolViolation seconds after admission.
-            await close(
-                reason: "event queue exceeded bounded capacity",
-                exit: CmxIrohAdmittedConnectionExit(
-                    lifecycle: .controlWriteFailed,
-                    failure: .sendQueueOverflow
-                )
-            )
         }
         return result.admitted
     }

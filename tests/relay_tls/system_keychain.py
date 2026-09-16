@@ -216,10 +216,14 @@ def main():
                 except subprocess.TimeoutExpired:
                     print(f"Cleanup command timed out: {command[3]}", flush=True)
         results.append(handshake(client, directory, "valid", "removed-root", args.output, args.diagnostics))
-        cleanup = subprocess.run(["security", "find-certificate", "-c", subject, KEYCHAIN],
-                                 capture_output=True, check=False, timeout=15).returncode != 0
+        lookup = subprocess.run(["security", "find-certificate", "-c", subject, KEYCHAIN],
+                                capture_output=True, check=False, timeout=15)
+        # security exits with errSecItemNotFound (-25300 modulo 256), not an
+        # arbitrary failure: a locked/unreadable keychain is not cleanup proof.
+        cleanup = lookup.returncode == 44 and not lookup.stdout
         report = {"framework": pin, "macos": run("sw_vers", "-productVersion").strip(),
-                  "results": results, "root_removed": cleanup}
+                  "results": results, "root_removed": cleanup,
+                  "root_lookup_exit": lookup.returncode}
         (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
         expected = [False, True, False, False, False]
         if [result["accepted"] for result in results] != expected or not cleanup:
