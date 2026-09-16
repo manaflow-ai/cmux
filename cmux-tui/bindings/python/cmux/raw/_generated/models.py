@@ -497,26 +497,26 @@ class GetCellPixelsResult:
 
 
 @dataclass(frozen=True)
-class GuestURLAcknowledgeResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestURLAcknowledgeResult'
+class GuestUrlAcknowledgeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlAcknowledgeResult'
     accepted: bool
 
 
 @dataclass(frozen=True)
-class GuestURLClaimResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestURLClaimResult'
+class GuestUrlClaimResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlClaimResult'
     claimed: bool
 
 
 @dataclass(frozen=True)
-class GuestURLOpenResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestURLOpenResult'
+class GuestUrlOpenResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlOpenResult'
     opened: bool
 
 
 @dataclass(frozen=True)
-class GuestURLSubscribeResult:
-    __cmux_schema_path__: ClassVar[str] = 'types/GuestURLSubscribeResult'
+class GuestUrlSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlSubscribeResult'
     url_open_ready: bool
 
 
@@ -2785,10 +2785,10 @@ __all__ = [
     'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
-    'GuestURLAcknowledgeResult',
-    'GuestURLClaimResult',
-    'GuestURLOpenResult',
-    'GuestURLSubscribeResult',
+    'GuestUrlAcknowledgeResult',
+    'GuestUrlClaimResult',
+    'GuestUrlOpenResult',
+    'GuestUrlSubscribeResult',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',

@@ -507,7 +507,7 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "8d911ab333b36d13624cdd6b13f05f4976ee022437b3ba83d5025192ef11f5a7",
+      "sha256": "d125ffba38d646092a27ff44e8ec6ea390cffc7d7d0827a820f2df880aa8fbe9",
       "size": 25941
     },
     {
@@ -541,23 +541,23 @@
       "size": 1135
     },
     {
-      "path": "GuestUrlacknowledgeResult.java",
-      "sha256": "6362f8b602c9f49c285ceeb55ca9ee471fdbe71bf8d53cc20785715ba3f4c045",
+      "path": "GuestUrlAcknowledgeResult.java",
+      "sha256": "351b6395ecddbca2528386b6d9aa792d37a4f4ed3659925226ae9e302c2ed8c3",
       "size": 2026
     },
     {
-      "path": "GuestUrlclaimResult.java",
-      "sha256": "3c424ac21ed76b08147d17ed16fae1df1f8a2e555ab1893d81f3331a8c28cb42",
+      "path": "GuestUrlClaimResult.java",
+      "sha256": "7e209d3e251dda2e0d7e9012f6d0e616b1b2d5b76da57a3c66a3c92853b8f190",
       "size": 1950
     },
     {
-      "path": "GuestUrlopenResult.java",
-      "sha256": "bfd5e8494a77ecb02d289cc32f580d39726fa921d42caead659f0215e8d7133f",
+      "path": "GuestUrlOpenResult.java",
+      "sha256": "0e0d380d935711d25baefc7d1c1e9f80179b1258b62d99ad7659e2a4b8daafa7",
       "size": 1919
     },
     {
-      "path": "GuestUrlsubscribeResult.java",
-      "sha256": "27236649a1cf56dcbe997312a1c59b19fd03827439a3ee01ce748ad82788ef0f",
+      "path": "GuestUrlSubscribeResult.java",
+      "sha256": "a2cd750b54a5bd502f788dff749ab5e15f026b091c44a8c9f3a15645ae6e66e8",
       "size": 2104
     },
     {
@@ -902,7 +902,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e8f836b5b297233dab618df9db09c36fc7641a935deaa5a5d08f181db468aa28",
+      "sha256": "12e3291145d159a46b221dc73b2ce7386bca8f2c12eb8bcb795724b883a3117a",
       "size": 4260
     },
     {
@@ -1617,7 +1617,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7",
+  "ir_sha256": "b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

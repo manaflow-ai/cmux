@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7";
+pub const ir_sha256 = "b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -450,19 +450,19 @@ pub const GetCellPixelsResult = struct {
     width_px: u16,
 };
 
-pub const GuestURLAcknowledgeResult = struct {
+pub const GuestUrlAcknowledgeResult = struct {
     accepted: bool,
 };
 
-pub const GuestURLClaimResult = struct {
+pub const GuestUrlClaimResult = struct {
     claimed: bool,
 };
 
-pub const GuestURLOpenResult = struct {
+pub const GuestUrlOpenResult = struct {
     opened: bool,
 };
 
-pub const GuestURLSubscribeResult = struct {
+pub const GuestUrlSubscribeResult = struct {
     url_open_ready: bool,
 };
 
@@ -4249,7 +4249,7 @@ pub const UrlOpenRequest = struct {
     url: []const u8,
 };
 
-pub const UrlOpenResult = GuestURLOpenResult;
+pub const UrlOpenResult = GuestUrlOpenResult;
 
 pub fn urlOpen(client: anytype, request: UrlOpenRequest) !wire.Decoded(UrlOpenResult) {
     return client.callTyped(
@@ -4268,7 +4268,7 @@ pub const UrlOpenClaimRequest = struct {
     request_id: []const u8,
 };
 
-pub const UrlOpenClaimResult = GuestURLClaimResult;
+pub const UrlOpenClaimResult = GuestUrlClaimResult;
 
 pub fn urlOpenClaim(client: anytype, request: UrlOpenClaimRequest) !wire.Decoded(UrlOpenClaimResult) {
     return client.callTyped(
@@ -4288,7 +4288,7 @@ pub const UrlOpenResultRequest = struct {
     request_id: []const u8,
 };
 
-pub const UrlOpenResultResult = GuestURLAcknowledgeResult;
+pub const UrlOpenResultResult = GuestUrlAcknowledgeResult;
 
 pub fn urlOpenResult(client: anytype, request: UrlOpenResultRequest) !wire.Decoded(UrlOpenResultResult) {
     return client.callTyped(
@@ -4307,7 +4307,7 @@ pub const UrlOpenSubscribeRequest = struct {
     terminal_ids: []const []const u8,
 };
 
-pub const UrlOpenSubscribeResult = GuestURLSubscribeResult;
+pub const UrlOpenSubscribeResult = GuestUrlSubscribeResult;
 
 pub fn urlOpenSubscribe(client: anytype, request: UrlOpenSubscribeRequest) !client_runtime.Stream {
     return client.openStream(

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7. */
+/* cmux-tui mux protocol 12, IR b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14. */
 
 
 import type * as T from "./types.js";
@@ -948,14 +948,14 @@ export interface UrlOpenRequest extends CmuxRequestBase {
   "terminal_id": string;
   "url": string;
 }
-export type UrlOpenResult = T.GuestURLOpenResult;
+export type UrlOpenResult = T.GuestUrlOpenResult;
 
 /** Protocol v12; authority: frontend. */
 export interface UrlOpenClaimRequest extends CmuxRequestBase {
   cmd: "url-open-claim";
   "request_id": string;
 }
-export type UrlOpenClaimResult = T.GuestURLClaimResult;
+export type UrlOpenClaimResult = T.GuestUrlClaimResult;
 
 /** Protocol v12; authority: frontend. */
 export interface UrlOpenResultRequest extends CmuxRequestBase {
@@ -963,14 +963,14 @@ export interface UrlOpenResultRequest extends CmuxRequestBase {
   "opened": boolean;
   "request_id": string;
 }
-export type UrlOpenResultResult = T.GuestURLAcknowledgeResult;
+export type UrlOpenResultResult = T.GuestUrlAcknowledgeResult;
 
 /** Protocol v12; authority: frontend. */
 export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
   cmd: "url-open-subscribe";
   "terminal_ids": Array<string>;
 }
-export type UrlOpenSubscribeResult = T.GuestURLSubscribeResult;
+export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
 
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {

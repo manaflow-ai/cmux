@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7.
+// cmux-tui mux protocol 12, IR b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1321,7 +1321,7 @@ pub struct UrlOpenRequest {
 }
 
 #[rustfmt::skip]
-pub type UrlOpenResult = T::GuestURLOpenResult;
+pub type UrlOpenResult = T::GuestUrlOpenResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1330,7 +1330,7 @@ pub struct UrlOpenClaimRequest {
 }
 
 #[rustfmt::skip]
-pub type UrlOpenClaimResult = T::GuestURLClaimResult;
+pub type UrlOpenClaimResult = T::GuestUrlClaimResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1340,7 +1340,7 @@ pub struct UrlOpenResultRequest {
 }
 
 #[rustfmt::skip]
-pub type UrlOpenResultResult = T::GuestURLAcknowledgeResult;
+pub type UrlOpenResultResult = T::GuestUrlAcknowledgeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1349,7 +1349,7 @@ pub struct UrlOpenSubscribeRequest {
 }
 
 #[rustfmt::skip]
-pub type UrlOpenSubscribeResult = T::GuestURLSubscribeResult;
+pub type UrlOpenSubscribeResult = T::GuestUrlSubscribeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

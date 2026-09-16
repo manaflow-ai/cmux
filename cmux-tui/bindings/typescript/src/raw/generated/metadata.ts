@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7. */
+/* cmux-tui mux protocol 12, IR b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7" as const;
+export const SDK_IR_SHA256 = "b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2964,7 +2964,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "GuestURLAcknowledgeResult": {
+  "GuestUrlAcknowledgeResult": {
     "additional_properties": false,
     "fields": {
       "accepted": {
@@ -2978,7 +2978,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "GuestURLClaimResult": {
+  "GuestUrlClaimResult": {
     "additional_properties": false,
     "fields": {
       "claimed": {
@@ -2992,7 +2992,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "GuestURLOpenResult": {
+  "GuestUrlOpenResult": {
     "additional_properties": false,
     "fields": {
       "opened": {
@@ -3006,7 +3006,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
-  "GuestURLSubscribeResult": {
+  "GuestUrlSubscribeResult": {
     "additional_properties": false,
     "fields": {
       "url_open_ready": {
@@ -11386,7 +11386,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "GuestURLOpenResult"
+      "name": "GuestUrlOpenResult"
     }
   },
   "url-open-claim": {
@@ -11406,7 +11406,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "GuestURLClaimResult"
+      "name": "GuestUrlClaimResult"
     }
   },
   "url-open-result": {
@@ -11434,7 +11434,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "GuestURLAcknowledgeResult"
+      "name": "GuestUrlAcknowledgeResult"
     }
   },
   "url-open-subscribe": {
@@ -11457,7 +11457,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "GuestURLSubscribeResult"
+      "name": "GuestUrlSubscribeResult"
     }
   },
   "vt-state": {

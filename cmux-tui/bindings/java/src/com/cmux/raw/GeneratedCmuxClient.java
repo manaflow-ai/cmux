@@ -532,19 +532,19 @@ public abstract class GeneratedCmuxClient {
         return BrowserProviderUnregisterResult.fromWire(result);
     }
 
-    public final GuestURLOpenResult urlOpen(UrlOpenRequest request) throws CmuxException {
+    public final GuestUrlOpenResult urlOpen(UrlOpenRequest request) throws CmuxException {
         Object result = execute(Commands.URL_OPEN, request.toWire());
-        return GuestURLOpenResult.fromWire(result);
+        return GuestUrlOpenResult.fromWire(result);
     }
 
-    public final GuestURLClaimResult urlOpenClaim(UrlOpenClaimRequest request) throws CmuxException {
+    public final GuestUrlClaimResult urlOpenClaim(UrlOpenClaimRequest request) throws CmuxException {
         Object result = execute(Commands.URL_OPEN_CLAIM, request.toWire());
-        return GuestURLClaimResult.fromWire(result);
+        return GuestUrlClaimResult.fromWire(result);
     }
 
-    public final GuestURLAcknowledgeResult urlOpenResult(UrlOpenResultRequest request) throws CmuxException {
+    public final GuestUrlAcknowledgeResult urlOpenResult(UrlOpenResultRequest request) throws CmuxException {
         Object result = execute(Commands.URL_OPEN_RESULT, request.toWire());
-        return GuestURLAcknowledgeResult.fromWire(result);
+        return GuestUrlAcknowledgeResult.fromWire(result);
     }
 
     public final CmuxStream<ProtocolEvent> urlOpenSubscribe(UrlOpenSubscribeRequest request) throws CmuxException {

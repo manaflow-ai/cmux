@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2e289a5acd91480ba96137965e22bb6774c92835f2e15d6bd7a626f2a5bb31b7.
+// cmux-tui mux protocol 12, IR b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -374,25 +374,25 @@ pub struct GetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GuestURLAcknowledgeResult {
+pub struct GuestUrlAcknowledgeResult {
     pub accepted: bool,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GuestURLClaimResult {
+pub struct GuestUrlClaimResult {
     pub claimed: bool,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GuestURLOpenResult {
+pub struct GuestUrlOpenResult {
     pub opened: bool,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GuestURLSubscribeResult {
+pub struct GuestUrlSubscribeResult {
     pub url_open_ready: bool,
 }
 

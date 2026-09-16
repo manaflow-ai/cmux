@@ -5259,7 +5259,7 @@
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
   },
-  "GuestURLOpenResult": {
+  "GuestUrlOpenResult": {
    "kind": "object",
    "fields": {
     "opened": {
@@ -5273,7 +5273,7 @@
    },
    "additional_properties": false
   },
-  "GuestURLSubscribeResult": {
+  "GuestUrlSubscribeResult": {
    "kind": "object",
    "fields": {
     "url_open_ready": {
@@ -5287,7 +5287,7 @@
    },
    "additional_properties": false
   },
-  "GuestURLClaimResult": {
+  "GuestUrlClaimResult": {
    "kind": "object",
    "fields": {
     "claimed": {
@@ -5301,7 +5301,7 @@
    },
    "additional_properties": false
   },
-  "GuestURLAcknowledgeResult": {
+  "GuestUrlAcknowledgeResult": {
    "kind": "object",
    "fields": {
     "accepted": {
@@ -10548,7 +10548,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "GuestURLOpenResult"
+    "name": "GuestUrlOpenResult"
    },
    "stream": null,
    "constraints": [
@@ -10578,7 +10578,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "GuestURLSubscribeResult"
+    "name": "GuestUrlSubscribeResult"
    },
    "stream": {
     "kind": "subscribe",
@@ -10612,7 +10612,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "GuestURLClaimResult"
+    "name": "GuestUrlClaimResult"
    },
    "stream": null,
    "constraints": [
@@ -10647,7 +10647,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "GuestURLAcknowledgeResult"
+    "name": "GuestUrlAcknowledgeResult"
    },
    "stream": null,
    "constraints": [

@@ -324,13 +324,13 @@ class GeneratedClientMixin:
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
 
-    def url_open(self, terminal_id: str, url: str) -> GuestURLOpenResult:
+    def url_open(self, terminal_id: str, url: str) -> GuestUrlOpenResult:
         return self._invoke_command('url-open', UrlOpenRequest(terminal_id=terminal_id, url=url))
 
-    def url_open_claim(self, request_id: str) -> GuestURLClaimResult:
+    def url_open_claim(self, request_id: str) -> GuestUrlClaimResult:
         return self._invoke_command('url-open-claim', UrlOpenClaimRequest(request_id=request_id))
 
-    def url_open_result(self, opened: bool, request_id: str) -> GuestURLAcknowledgeResult:
+    def url_open_result(self, opened: bool, request_id: str) -> GuestUrlAcknowledgeResult:
         return self._invoke_command('url-open-result', UrlOpenResultRequest(opened=opened, request_id=request_id))
 
     def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
