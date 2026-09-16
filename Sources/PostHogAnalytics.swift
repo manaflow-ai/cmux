@@ -389,7 +389,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return nil }
         value = value.replacingOccurrences(
-            of: #"/(?:[^\s/]+/)*[^\s/]+"#,
+            of: #"/(?:[^/\n]+/)*[^/\s\n]+"#,
             with: "[path]",
             options: .regularExpression
         )
