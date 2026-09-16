@@ -28,7 +28,8 @@ struct TerminalHTMLFileBrowserAction {
         guard let browserURL = browserURL(for: fileURL) else { return false }
         return container.openTerminalBrowserLink(
             url: browserURL,
-            sourcePanelId: sourcePanelId
+            sourcePanelId: sourcePanelId,
+            placement: BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: defaults)
         )
     }
 }

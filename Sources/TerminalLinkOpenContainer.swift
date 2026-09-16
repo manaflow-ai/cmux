@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Host operations needed to give terminal links identical behavior in the
@@ -19,7 +20,11 @@ protocol TerminalLinkOpenContainer: AnyObject {
     ) -> Bool
 
     @discardableResult
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool
 }
 
 struct CloudTerminalLinkTarget: Sendable, Equatable {

@@ -103,6 +103,13 @@ struct SettingCatalogTests {
         #expect(ids.contains("browser.defaultZoomLevel"))
     }
 
+    @Test func terminalLinkBrowserPlacementDefaultsToReuseOrSplit() {
+        let setting = SettingCatalog().browser.terminalLinkBrowserPlacement
+        #expect(setting.defaultValue == .reuseOrSplit)
+        #expect(TerminalLinkBrowserPlacement(rawValue: "samePane") == .samePane)
+        #expect(TerminalLinkBrowserPlacement(rawValue: "unknown") == nil)
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }

@@ -28,6 +28,7 @@ public struct BrowserSection: View {
     @State private var discardDelay: DefaultsValueModel<Double>
     @State private var askWhereToSaveDownloads: DefaultsValueModel<Bool>
     @State private var openTermLinks: DefaultsValueModel<Bool>
+    @State private var terminalLinkBrowserPlacement: DefaultsValueModel<TerminalLinkBrowserPlacement>
     @State private var interceptOpen: DefaultsValueModel<Bool>
     @State private var hosts: DefaultsValueModel<String>
     @State private var external: DefaultsValueModel<String>
@@ -79,6 +80,7 @@ public struct BrowserSection: View {
         _discardDelay = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hiddenWebViewDiscardDelaySeconds))
         _askWhereToSaveDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.askWhereToSaveDownloads))
         _openTermLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.openTerminalLinksInCmuxBrowser))
+        _terminalLinkBrowserPlacement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.terminalLinkBrowserPlacement))
         _interceptOpen = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.interceptTerminalOpenCommandInCmuxBrowser))
         _hosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.hostsToOpenInEmbeddedBrowser))
         _external = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.urlsToAlwaysOpenExternally))
@@ -107,7 +109,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, terminalLinkBrowserPlacement, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -314,6 +316,30 @@ public struct BrowserSection: View {
                 Toggle("", isOn: Binding(get: { openTermLinks.current }, set: { openTermLinks.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Terminal Link Browser Placement
+            SettingsCardRow(
+                configurationReview: .json("browser.terminalLinkBrowserPlacement"),
+                String(localized: "settings.browser.terminalLinkPlacement", defaultValue: "Terminal Link Browser Placement"),
+                subtitle: terminalLinkBrowserPlacement.current.settingsSubtitle,
+                controlWidth: Self.columnWidth
+            ) {
+                Picker(
+                    "",
+                    selection: Binding(
+                        get: { terminalLinkBrowserPlacement.current },
+                        set: { terminalLinkBrowserPlacement.set($0) }
+                    )
+                ) {
+                    ForEach(TerminalLinkBrowserPlacement.allCases) { placement in
+                        Text(placement.displayName).tag(placement)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsBrowserTerminalLinkPlacementPicker")
             }
             SettingsCardDivider()
 
@@ -692,65 +718,6 @@ public struct BrowserSection: View {
                 || model.current == BrowserURLAllowlistPolicy.defaultAllowlistText
         )
         .accessibilityIdentifier("SettingsBrowserURLAllowlistResetButton")
-    }
-
-    @ViewBuilder
-    private func importBrowserDataBlock(importHintModel: DefaultsValueModel<Bool>, onImport: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
-                    .cmuxFont(size: 13, weight: .semibold)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                        .cmuxFont(size: 12.5, weight: .semibold)
-                    Text(String(localized: "browser.import.hint.subtitle", defaultValue: "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."))
-                        .cmuxFont(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("SettingsBrowserImportSummary")
-                    Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                        .cmuxFont(size: 10.5)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1)
-                )
-            }
-            HStack(spacing: 8) {
-                Button(String(localized: "settings.browser.import.choose", defaultValue: "Choose…")) { onImport() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsBrowserImportChooseButton")
-                Button(String(localized: "settings.browser.import.refresh", defaultValue: "Refresh")) {}
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(true)
-            }
-            .accessibilityIdentifier("SettingsBrowserImportActions")
-            Toggle(
-                String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"),
-                isOn: Binding(get: { importHintModel.current }, set: { importHintModel.set($0) })
-            )
-            .controlSize(.small)
-            .accessibilityIdentifier("SettingsBrowserImportHintToggle")
-            .settingsSearchAnchors(["setting:browserImport:import-hint"])
-            Text(String(localized: "settings.browser.import.hint.settingsNote", defaultValue: "Shown until you import or dismiss it on a blank tab."))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .accessibilityIdentifier("SettingsBrowserImportSection")
     }
 
     private func browserThemeSubtitle(_ mode: BrowserThemeMode) -> String {

@@ -1484,6 +1484,13 @@
           "default": true,
           "description": "Open clicked terminal links in the embedded browser."
         },
+        "terminalLinkBrowserPlacement": {
+          "type": "string",
+          "enum": ["reuseOrSplit", "samePane", "split"],
+          "default": "reuseOrSplit",
+          "descriptionKey": "schemaDescriptions.browser.terminalLinkBrowserPlacement",
+          "description": "Where clicked terminal links and intercepted open commands land in the embedded browser. reuseOrSplit (default) reuses the nearest pane on the right or creates a split; samePane opens a browser tab in the source terminal pane; split always creates a browser split. External routing rules and explicit browser commands keep their behavior."
+        },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",
           "default": true,

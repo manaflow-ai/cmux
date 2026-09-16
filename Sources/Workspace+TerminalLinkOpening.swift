@@ -1,4 +1,5 @@
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension Workspace: TerminalLinkOpenContainer {
@@ -47,15 +48,22 @@ extension Workspace: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-        }
-        return newBrowserSplit(
+        let request = BrowserSplitRequest(
+            url: url,
+            focus: true,
+            preloadInitialNavigationInBackground: false,
+            allowsExternalBrowserFallback: false
+        )
+        return BrowserSplitContainer.workspace(self).openTerminalLink(
             from: target.containerPanelID,
-            orientation: .horizontal,
-            url: url
+            request: request,
+            placement: placement
         ) != nil
     }
 }

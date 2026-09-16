@@ -16596,36 +16596,12 @@ struct CMUXCLI {
                 return
             }
 
-            var params: [String: Any] = [:]
-            if !url.isEmpty {
-                params["url"] = url
-            }
-            if let profileSelector {
-                params["profile"] = profileSelector
-            }
-            if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
-                params["surface_id"] = sourceSurface
-            }
-            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            if let workspaceRaw {
-                if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                    params["workspace_id"] = workspace
-                }
-            }
-            if respectExternalOpenRules {
-                params["respect_external_open_rules"] = true
-            }
-            if let windowRaw = windowOpt {
-                if let window = try normalizeWindowHandle(windowRaw, client: client) {
-                    params["window_id"] = window
-                }
-            }
-            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-            let payload = try client.sendV2(method: "browser.open_split", params: params)
-            let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
-            let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
-            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
-            output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
+            try createBrowserFromCLI(
+                subcommand: subcommand, url: url, surfaceRaw: surfaceRaw,
+                workspaceOpt: workspaceOpt, windowOpt: windowOpt, focusOpt: focusOpt,
+                profileSelector: profileSelector, respectExternalOpenRules: respectExternalOpenRules,
+                client: client, jsonOutput: effectiveJSONOutput, idFormat: effectiveIDFormat
+            )
             return
         }
 

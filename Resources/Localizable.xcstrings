@@ -321637,6 +321637,419 @@
         }
       }
     },
+    "settings.browser.terminalLinkPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Link Browser Placement"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserplatzierung für Terminal-Links"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placement du navigateur pour les liens du terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع متصفح روابط الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación del navegador para enlaces del terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機連結的瀏覽器位置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端链接浏览器位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 링크 브라우저 배치"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクのブラウザ配置"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.subtitle.reuseOrSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open terminal links in a nearby browser pane, or create a split when none is available."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Links in einem benachbarten Browserbereich öffnen oder eine Teilung erstellen, wenn keiner verfügbar ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les liens du terminal dans un volet de navigateur voisin ou créer une division si aucun n’est disponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح روابط الطرفية في جزء متصفح قريب أو أنشئ تقسيمًا عند عدم توفره."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre los enlaces del terminal en un panel del navegador cercano o crea una división si no hay ninguno disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在附近的瀏覽器窗格中開啟終端機連結，若沒有可用窗格則建立分割。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在附近的浏览器窗格中打开终端链接，没有可用窗格时创建分屏。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가까운 브라우저 패널에서 터미널 링크를 열고, 없으면 분할을 만듭니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近くのブラウザペインでターミナルリンクを開き、利用できない場合は分割を作成します。"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.subtitle.samePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open terminal links as browser tabs in the pane where the link was clicked."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Links als Browser-Tabs in dem Bereich öffnen, in dem der Link angeklickt wurde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les liens du terminal sous forme d’onglets dans le volet où le lien a été cliqué."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح روابط الطرفية كعلامات تبويب في الجزء الذي نُقر فيه على الرابط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre los enlaces del terminal como pestañas del navegador en el panel donde se hizo clic."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將終端機連結開啟為瀏覽器分頁，放在點選連結的窗格中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将终端链接作为浏览器标签页打开在点击链接的窗格中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 클릭한 패널에서 터미널 링크를 브라우저 탭으로 엽니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクをクリックしたペインでターミナルリンクをブラウザタブとして開きます。"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.subtitle.split": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always open terminal links in a new browser split."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Links immer in einer neuen Browserteilung öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours ouvrir les liens du terminal dans une nouvelle division de navigateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح روابط الطرفية دائمًا في تقسيم متصفح جديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre siempre los enlaces del terminal en una nueva división del navegador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一律在新的瀏覽器分割中開啟終端機連結。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "始终在新的浏览器分屏中打开终端链接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항상 새 브라우저 분할에서 터미널 링크를 엽니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルリンクを常に新しいブラウザ分割で開きます。"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.reuseOrSplit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reuse or Split"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederverwenden oder teilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réutiliser ou diviser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة الاستخدام أو التقسيم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reutilizar o dividir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複使用或分割"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复用或分屏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재사용 또는 분할"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再利用または分割"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.samePane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same Pane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gleicher Bereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Même volet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نفس الجزء"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mismo panel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一窗格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 패널"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同じペイン"
+          }
+        }
+      }
+    },
+    "settings.browser.terminalLinkPlacement.split": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Split"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle division"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم جديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva división"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增分割"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分屏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割"
+          }
+        }
+      }
+    },
     "settings.browser.reactGrabVersion": {
       "extractionState": "manual",
       "localizations": {
@@ -359194,6 +359607,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.showSearchSuggestions suggest autocomplete address bar search suggestions browser.showSearchSuggestions 建議 自動完成 網址列 搜尋建議"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.terminal-link-placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement terminal links browser pane split same pane reuse or split"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement Terminal-Links Browser Bereich Teilung gleicher Bereich wiederverwenden oder teilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement liens du terminal navigateur volet division même volet réutiliser ou diviser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement روابط الطرفية متصفح جزء تقسيم نفس الجزء إعادة استخدام أو تقسيم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement enlaces del terminal navegador panel división mismo panel reutilizar o dividir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement 終端機連結 瀏覽器 窗格 分割 同一窗格 重複使用或分割"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement 终端链接 浏览器 窗格 分屏 同一窗格 复用或分屏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement 터미널 링크 브라우저 패널 분할 같은 패널 재사용 또는 분할"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.terminalLinkBrowserPlacement ターミナルリンク ブラウザ ペイン 分割 同じペイン 再利用または分割"
           }
         }
       }
