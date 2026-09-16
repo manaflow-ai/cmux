@@ -37,6 +37,8 @@ def main():
     events = queue.Queue()
     batches = []
     collector_contacted = threading.Event()
+    seen_event_ids = set()
+    event_ids_lock = threading.Lock()
 
     class Collector(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
@@ -48,7 +50,14 @@ def main():
             batches.append({"path": self.path, "payload": payload})
             for event in payload.get("batch", []):
                 if event.get("event") == "$exception":
-                    events.put(event)
+                    # A process can exit after HTTP delivery but before the SDK
+                    # persists its acknowledgement. Retries retain the same UUID;
+                    # a duplicate capture creates a new UUID and must fail.
+                    event_id = event["uuid"]
+                    with event_ids_lock:
+                        if event_id not in seen_event_ids:
+                            seen_event_ids.add(event_id)
+                            events.put(event)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -136,6 +145,8 @@ def main():
             assert properties["crash_app_namespace"] == (bundle_id if native else "com.cmuxterm.app"), properties
             assert properties["app_version"] == info["CFBundleShortVersionString"], properties
             assert properties["$app_namespace"] == bundle_id, properties
+            assert properties["$app_version"] == info["CFBundleShortVersionString"], properties
+            assert properties["$app_build"] == info["CFBundleVersion"], properties
             expected_type = "UnknownCrash" if native else "EXC_BAD_ACCESS"
             assert properties["$exception_fingerprint"] == f"cmux-mac-crash:{expected_type}"
             assert properties["$exception_list"][0]["value"] == "Previous launch crashed"
