@@ -233,7 +233,7 @@ public struct SidebarBranchOrdering: Sendable {
 
     /// Unique pull requests in first-seen panel order, deduplicated by
     /// normalized review URL; fresher then higher-status states win.
-    /// Explicit workspace rows follow panel rows and share their deduplication.
+    /// Explicit workspace rows follow panel rows and override matching panel state.
     /// - Parameter additionalPullRequests: Workspace-owned rows to merge after panel state.
     public func orderedUniquePullRequests(
         orderedPanelIds: [UUID],
@@ -278,8 +278,9 @@ public struct SidebarBranchOrdering: Sendable {
         var orderedKeys: [String] = []
         var pullRequestsByKey: [String: SidebarPullRequestState] = [:]
 
-        let states = orderedPanelIds.compactMap { panelPullRequests[$0] } + additionalPullRequests
-        for state in states {
+        let states = orderedPanelIds.compactMap { panelPullRequests[$0] }.map { ($0, false) }
+            + additionalPullRequests.map { ($0, true) }
+        for (state, isExplicit) in states {
             let key = reviewKey(for: state)
             if pullRequestsByKey[key] == nil {
                 orderedKeys.append(key)
@@ -287,7 +288,7 @@ public struct SidebarBranchOrdering: Sendable {
                 continue
             }
             guard let existing = pullRequestsByKey[key] else { continue }
-            if freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
+            if isExplicit || freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
                 pullRequestsByKey[key] = state
             } else if freshnessPriority(state.isStale) == freshnessPriority(existing.isStale),
                       statusPriority(state.status) > statusPriority(existing.status) {

@@ -99,4 +99,14 @@ struct WorkspaceManualPullRequestTests {
         #expect(emissions == 2)
     }
 
+    @Test func handoffStatusOverridesEarlierWatcherState() throws {
+        let workspace = Workspace(title: "Test")
+        let panel = try #require(workspace.focusedPanelId)
+        let url = try #require(URL(string: "https://github.com/owner/repo/pull/123"))
+        workspace.updatePanelGitBranch(panelId: panel, branch: "feature", isDirty: false)
+        workspace.updatePanelPullRequest(panelId: panel, number: 123, label: "PR", url: url, status: .open, branch: "feature")
+        workspace.attachManualPullRequest(number: 123, label: "PR", url: url, status: .closed, branch: "feature")
+        #expect(workspace.sidebarPullRequestsInDisplayOrder().map(\.status) == [.closed])
+    }
+
 }
