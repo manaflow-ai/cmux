@@ -53,6 +53,22 @@ final class MobilePairingModel {
         /// Whether this Mac's Iroh endpoint is registered, so signed-in
         /// iPhones can discover it automatically without any QR.
         let reachableViaIroh: Bool
+        /// v2 pairing uses authenticated discovery without a QR code.
+        let v2Only: Bool
+
+        init(
+            attachURL: String,
+            tailscaleLines: [String],
+            manualEntry: CmxManualPairingEntry?,
+            reachableViaIroh: Bool,
+            v2Only: Bool = false
+        ) {
+            self.attachURL = attachURL
+            self.tailscaleLines = tailscaleLines
+            self.manualEntry = manualEntry
+            self.reachableViaIroh = reachableViaIroh
+            self.v2Only = v2Only
+        }
 
         /// Whether at least one Tailscale route resolved.
         var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
@@ -66,7 +82,8 @@ final class MobilePairingModel {
                 attachURL: attachURL,
                 tailscaleLines: MobilePairingModel.tailscaleLines(routes),
                 manualEntry: CmxManualPairingEntry.best(in: routes),
-                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes)
+                reachableViaIroh: MobilePairingModel.hasIrohRoute(routes),
+                v2Only: v2Only
             )
         }
     }
@@ -197,6 +214,11 @@ final class MobilePairingModel {
             )
             return
         }
+        if MobileHostIrxRuntime.isEnabled {
+            state = Self.v2StatusTransition(status, baselineConnectionCount: status.activeConnectionCount)
+            observeHostStatus()
+            return
+        }
         guard let routePlan = PairingRoutePlan.make(routes: status.routes) else {
             state = .needsReachableTransport(
                 reachableViaIroh: Self.hasIrohRoute(status.routes)
@@ -322,12 +344,14 @@ final class MobilePairingModel {
                     self.state = .pairingDisabled
                     return
                 }
-                let next = Self.statusTransition(
-                    from: self.state,
-                    routes: status.routes,
-                    activeConnectionCount: status.activeConnectionCount,
-                    baselineConnectionCount: baseline
-                )
+                let next = MobileHostIrxRuntime.isEnabled
+                    ? Self.v2StatusTransition(status, baselineConnectionCount: baseline)
+                    : Self.statusTransition(
+                        from: self.state,
+                        routes: status.routes,
+                        activeConnectionCount: status.activeConnectionCount,
+                        baselineConnectionCount: baseline
+                    )
                 if next != self.state {
                     self.state = next
                 }
@@ -346,6 +370,19 @@ final class MobilePairingModel {
                 }
             }
         }
+    }
+
+    /// Waits for authenticated registration, which may finish after relay binding.
+    static func v2StatusTransition(
+        _ status: MobileHostServiceStatus,
+        baselineConnectionCount: Int
+    ) -> State {
+        guard status.isRunning, status.isPairingReady else { return .preparing }
+        let ready = State.ready(Ready(
+            attachURL: "", tailscaleLines: [], manualEntry: nil,
+            reachableViaIroh: true, v2Only: true
+        ))
+        return status.activeConnectionCount > baselineConnectionCount ? .connected(from: ready) : ready
     }
 
     /// Computes the next render state from a host status event. Pure, so the
