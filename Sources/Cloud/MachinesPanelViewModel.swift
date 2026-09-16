@@ -173,6 +173,7 @@ struct MachinePlanSnapshot: Equatable {
     }
 }
 
+
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
@@ -287,6 +288,8 @@ final class MachinesPanelViewModel: ObservableObject {
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
     private var authSignOutObserver: NSObjectProtocol?
+    private var featureFlagObserver: CloudFeatureAvailabilityObserver?
+    private var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
@@ -319,9 +322,14 @@ final class MachinesPanelViewModel: ObservableObject {
                 self?.resetForAuthTransition()
             }
         }
-        // The catalog posts on every resource/projection change (link state,
-        // terminals, panes opening or closing); re-read its snapshot instead of
-        // waiting for the slow poll.
+        featureFlagObserver = CloudFeatureAvailabilityObserver(
+            isEnabled: { CloudMachinesFeature.isEnabled },
+            didChange: { [weak self] enabled in
+                guard let self else { return }
+                if enabled, self.wantsPolling { self.startPolling() }
+                else { self.pausePolling() }
+            }
+        )
         treeChangeObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,
@@ -450,6 +458,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Older servers omitting the flag retain the desktop-only polling policy
     /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
+        guard CloudMachinesFeature.isEnabled else { return }
         statsTask?.cancel()
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
@@ -457,13 +466,14 @@ final class MachinesPanelViewModel: ObservableObject {
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
                     group.addTask {
-                        (id, try? await VMClient.shared.stats(id: id))
+                        (id, (try? await VMClient.shared.stats(id: id)) ?? .unavailable())
                     }
                 }
                 for await (id, stats) in group {
                     guard !Task.isCancelled, let stats else { continue }
                     await MainActor.run { [weak self] in
-                        guard let self, let index = self.machines.firstIndex(where: { $0.id == id }),
+                        guard let self, CloudMachinesFeature.isEnabled,
+                              let index = self.machines.firstIndex(where: { $0.id == id }),
                               self.machines[index].capabilities.stats else { return }
                         self.machines[index].stats = stats
                     }
@@ -477,13 +487,14 @@ final class MachinesPanelViewModel: ObservableObject {
     /// nothing is surfaced, and the previous readout stays until a fetch
     /// succeeds. An `unavailable` payload clears it.
     func refreshUsage() {
+        guard CloudMachinesFeature.isEnabled else { return }
         usageTask?.cancel()
         guard let client = MachineUsageClient.shared else { return }
         usageTask = Task { [weak self] in
             // A failed refresh clears the readout: a stale spend figure is
             // worse than none, and the next poll restores it.
             let usage = (try? await client.teamUsage())?.byMachineID ?? [:]
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self else { return }
             self.applyUsage(usage)
         }
     }
@@ -500,16 +511,23 @@ final class MachinesPanelViewModel: ObservableObject {
     /// create that lands mid-poll must still replace its pending row with the
     /// real machine now, not on the next 45 s sweep.
     private var refreshRequestedWhileLoading = false
+    /// Invalidates refresh completions when the Cloud gate closes. A cancelled
+    /// URLSession task may still resume on the main actor, so cancellation
+    /// alone is not enough to prevent stale rows or follow-up work.
+    private var refreshGeneration: UInt64 = 0
 
     func refresh() {
+        guard CloudMachinesFeature.isEnabled else { return }
         guard refreshTask == nil else {
             refreshRequestedWhileLoading = true
             return
         }
         isLoading = true
+        let generation = refreshGeneration
         refreshTask = Task { [weak self] in
             await self?.performRefresh()
             guard let self else { return }
+            guard generation == self.refreshGeneration else { return }
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 self.refreshRequestedWhileLoading = false
@@ -519,6 +537,11 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func startPolling() {
+        wantsPolling = true
+        guard CloudMachinesFeature.isEnabled else {
+            pausePolling()
+            return
+        }
         refresh()
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
@@ -532,8 +555,18 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func stopPolling() {
+        wantsPolling = false
+        pausePolling()
+    }
+
+    private func pausePolling() {
         pollTask?.cancel()
         pollTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshRequestedWhileLoading = false
+        refreshGeneration &+= 1
+        isLoading = false
         statsTask?.cancel()
         statsTask = nil
         usageTask?.cancel()
@@ -575,9 +608,12 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
+        pollTask?.cancel()
+        pollTask = nil
         refreshTask?.cancel()
         refreshTask = nil
         refreshRequestedWhileLoading = false
+        refreshGeneration &+= 1
         statsTask?.cancel()
         statsTask = nil
         usageTask?.cancel()
@@ -604,6 +640,10 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
+        guard CloudMachinesFeature.isEnabled else {
+            isLoading = false
+            return
+        }
         guard let client = VMClient.shared else {
             isLoading = false
             return
@@ -611,6 +651,7 @@ final class MachinesPanelViewModel: ObservableObject {
         do {
             let page = try await client.listPage()
             try Task.checkCancellation()
+            guard CloudMachinesFeature.isEnabled else { return }
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays

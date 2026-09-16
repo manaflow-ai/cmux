@@ -552,8 +552,7 @@ export async function activePersonalPlanForUser(
           inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
         ),
-      )
-      .limit(10);
+      );
     return highestPersonalPlanId(rows.map((row) => row.plan));
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return null;

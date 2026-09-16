@@ -496,19 +496,14 @@ function rollbackProviderCreate(
 /** Check the copied or requested shape before provisioning side effects. */
 function requireMemoryPlan(planId: string, memoryMb: number | null) {
   const maxMemoryMb = maxMemoryMbForPlan(planId);
-  // Legacy snapshots and callers may not carry a durable shape. The provider
-  // or default profile supplies that shape later, so only reject a measured
-  // request that exceeds the plan ceiling.
-  if (memoryMb !== null && memoryMb > maxMemoryMb) {
+  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
     return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
   }
   return Effect.void;
 }
 
 function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
-  // An explicit reservation or runtime memory is authoritative. The image
-  // shape is only the fallback for older callers that do not send either.
-  return input.resourceReservation?.memoryMb ?? input.memoryMb ?? input.imageSize?.memoryMb ?? null;
+  return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
 }
 
 const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;

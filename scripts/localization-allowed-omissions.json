@@ -3110,17 +3110,5 @@
       "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
-  },
-  "mobile.pairing.disabled.body": {
-    "class": "format",
-    "source": "iOS pairing is off on this Mac. Open Settings and enable iOS pairing to discover this Mac from cmux on your iPhone."
-  },
-  "mobile.pairing.disabled.openSettings": {
-    "class": "format",
-    "source": "Open Settings"
-  },
-  "mobile.pairing.disabled.title": {
-    "class": "format",
-    "source": "Enable iOS pairing"
   }
 }
