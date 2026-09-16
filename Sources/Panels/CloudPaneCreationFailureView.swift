@@ -8,9 +8,11 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
     func body(content: Content) -> some View {
         content.overlay(alignment: .topTrailing) {
             if let failure = failureStore.failure {
-                CloudPaneCreationFailureView(failure: failure) {
-                    failureStore.dismiss(id: failure.id)
-                }
+                CloudPaneCreationFailureView(
+                    failure: failure,
+                    onRetry: failureStore.canRetry ? { failureStore.retry(id: failure.id) } : nil,
+                    onDismiss: { failureStore.dismiss(id: failure.id) }
+                )
                 .padding(.top, 12)
                 .padding(.trailing, 16)
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -22,6 +24,7 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
 /// An inline, dismissible failure card for a cloud terminal creation request.
 struct CloudPaneCreationFailureView: View {
     let failure: CloudPaneCreationFailure
+    var onRetry: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     /// Renders the failure, recovery guidance, and dismissal action.
@@ -47,6 +50,11 @@ struct CloudPaneCreationFailureView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
+                    if let onRetry {
+                        Button(String(localized: "common.retry", defaultValue: "Retry"), action: onRetry)
+                            .buttonStyle(.borderedProminent)
+                            .accessibilityIdentifier("CloudPaneCreationFailureRetry")
+                    }
                     Button(String(localized: "cloudPane.newTerminalFailed.ok", defaultValue: "OK")) {
                         onDismiss()
                     }

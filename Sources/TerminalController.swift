@@ -26,6 +26,8 @@ import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
 
+private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
+
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -1874,6 +1876,70 @@ class TerminalController {
                     "closed_count": closed.count,
                 ])
             }
+        case "debug.mobile.transport.reconnect_loop":
+            guard let duration = request.params["duration_seconds"] as? NSNumber,
+                  let interval = request.params["interval_seconds"] as? NSNumber else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds and interval_seconds are required"
+                )
+            }
+            let durationSeconds = duration.doubleValue
+            let intervalSeconds = interval.doubleValue
+            guard durationSeconds > 0, durationSeconds <= 1_800,
+                  intervalSeconds >= 0.25, intervalSeconds <= 300 else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds must be 0<value<=1800 and interval_seconds must be 0.25...300"
+                )
+            }
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: durationSeconds + 30) {
+                let startedAt = ContinuousClock.now
+                let clock = ContinuousClock()
+                var cycles = 0
+                var closedConnectionIDs: [String] = []
+                while startedAt.duration(to: ContinuousClock.now) < .seconds(durationSeconds) {
+                    guard !Task.isCancelled else { break }
+                    let closed = await MobileHostConnectionRegistry.shared
+                        .debugCloseConnections(connectionID: selectedConnectionID)
+                    cycles += 1
+                    closedConnectionIDs.append(contentsOf: closed.map(\.uuidString))
+                    mobileReconnectDebugLog.info(
+                        "debug.reconnect_loop cycle=\(cycles) closed=\(closed.count) interval_s=\(intervalSeconds)"
+                    )
+                    let elapsed = startedAt.duration(to: ContinuousClock.now)
+                    let elapsedComponents = elapsed.components
+                    let elapsedSeconds = Double(elapsedComponents.seconds)
+                        + Double(elapsedComponents.attoseconds) / 1_000_000_000_000_000_000
+                    let remaining = durationSeconds - elapsedSeconds
+                    guard remaining > 0 else { break }
+                    let delay = min(intervalSeconds, remaining)
+                    try? await clock.sleep(for: .seconds(delay))
+                }
+                return .ok([
+                    "duration_seconds": durationSeconds,
+                    "interval_seconds": intervalSeconds,
+                    "cycles": cycles,
+                    "closed_connection_ids": closedConnectionIDs,
+                    "closed_count": closedConnectionIDs.count,
+                ])
+            }
 #endif
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
@@ -3149,6 +3215,7 @@ class TerminalController {
             "vm.attach_info",
             "vm.cmux_remote_info",
             "vm.ssh_info",
+            "vm.scp_info",
             "vm.sessions",
             "vm.session_attach_info",
             "vm.tree",
@@ -4163,7 +4230,6 @@ class TerminalController {
 #endif
         return result
     }
-
     nonisolated func v2Ok(id: Any?, result: Any) -> String {
         guard let idValue = Self.v2WireId(id),
               let payload = JSONValue(foundationObject: result) else {
@@ -4171,7 +4237,6 @@ class TerminalController {
         }
         return Self.v2Encoder.ok(id: idValue, result: payload)
     }
-
     /// Bridges a legacy `Any?` request id to the wire value: missing ids
     /// encode as JSON `null`; an unencodable id reports overall encode
     /// failure (the legacy `isValidJSONObject` behavior).
@@ -4179,7 +4244,6 @@ class TerminalController {
         guard let id else { return .null }
         return JSONValue(foundationObject: id)
     }
-
     /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
     /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
     /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
@@ -4212,6 +4276,9 @@ class TerminalController {
             return v2Ok(id: id, result: payload)
         case .failure(let error):
             if case VMClientError.disabledByManagedPolicy = error {
+                return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
+            }
+            if case VMClientError.cloudMachinesDisabled = error {
                 return v2Error(id: id, code: "cloud_disabled", message: String(describing: error))
             }
             if let deliveryError = error as? CloudFileDelivery.DeliveryError {
@@ -4340,7 +4407,7 @@ class TerminalController {
             return true
         case .httpStatus(let status, _):
             return status == 401
-        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy:
+        case .sessionRefreshFailed, .backendUnreachable, .malformedResponse, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled:
             return false
         }
     }
@@ -4569,6 +4636,12 @@ class TerminalController {
     /// active scriptable window. Lives here so it can read the controller's
     /// `private` `tabManager` / `v2LocateTabManager`.
     func resolveTabManager(routing: ControlRoutingSelectors) -> TabManager? {
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            guard routing.workspaceID == nil || routing.workspaceID == owner else { return nil }
+            guard let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else { return nil }
+            return AppDelegate.shared?.tabManagerFor(tabId: owner)
+        }
         if routing.hasWindowIDParam {
             guard let windowId = routing.windowID else { return nil }
             return AppDelegate.shared?.tabManagerFor(windowId: windowId)
@@ -5256,7 +5329,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect", "cloud_vpn_setup"
+            "set_color", "clear_color", "mobile_connect"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5265,23 +5338,6 @@ class TerminalController {
         ])
 
         v2MainSync {
-            if action == "cloud_vpn_setup" {
-                // Pane creation belongs to the main actor. The socket focus
-                // policy controls selection, just as for the mobile setup pane.
-                guard let workspace = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-                    preferredTabManager: tabManager,
-                    focus: v2FocusAllowed()
-                ) else {
-                    result = .err(code: "unavailable", message: String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable"), data: nil)
-                    return
-                }
-                result = .ok([
-                    "action": action,
-                    "workspace_id": workspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id)
-                ])
-                return
-            }
             if action == "mobile_connect" {
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
@@ -6120,7 +6176,12 @@ class TerminalController {
                 surfaceID: self.v2UUID(params, "surface_id")
                     ?? self.v2UUID(params, "terminal_id")
                     ?? self.v2UUID(params, "tab_id"),
-                paneID: self.v2UUID(params, "pane_id")
+                paneID: self.v2UUID(params, "pane_id"),
+                remoteRelayOwnerWorkspaceID: self.v2UUID(
+                    params,
+                    WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey
+                ),
+                remoteRelayConnectionID: self.v2UUID(params, WorkspaceRemoteRelayCommandRewriter.connectionIDKey)
             )
             guard let tabManager = self.resolveTabManager(routing: routing) else {
                 return .finished(.err(code: "unavailable", message: "TabManager not available", data: nil))
@@ -6128,10 +6189,9 @@ class TerminalController {
             if let lineLimit, lineLimit <= 0 {
                 return .finished(.err(code: "invalid_params", message: "lines must be greater than 0", data: nil))
             }
-            // The former witness resolved the explicit `surface_id` param only
-            // (no terminal_id/tab_id aliases) for target selection.
-            let explicitSurfaceID = self.v2UUID(params, "surface_id")
-            let hasSurfaceIDParam = params["surface_id"] != nil
+            // Consume the same terminal alias that the relay policy validates.
+            let explicitSurfaceID = self.v2UUID(params, "surface_id") ?? self.v2UUID(params, "terminal_id")
+            let hasSurfaceIDParam = params["surface_id"] != nil || params["terminal_id"] != nil
             let workspaceID: UUID
             let surfaceId: UUID
             let terminalSurface: TerminalSurface
@@ -6186,6 +6246,17 @@ class TerminalController {
                             data: ["surface_id": id.uuidString]
                         ))
                     }
+                    guard self.remoteRelayTargetIsCurrent(
+                        routing: routing,
+                        workspace: ws,
+                        surfaceID: id
+                    ) else {
+                        return .finished(.err(
+                            code: "not_found",
+                            message: "Surface not found for the given surface_id",
+                            data: nil
+                        ))
+                    }
                     guard let target = ws.controlSocketTerminalTarget(for: id) else {
                         return .finished(.err(
                             code: "surface_unavailable",
@@ -6208,6 +6279,17 @@ class TerminalController {
                     }
                     surfaceId = focused.surfaceID
                     terminalSurface = target.surface
+                    guard self.remoteRelayTargetIsCurrent(
+                        routing: routing,
+                        workspace: ws,
+                        surfaceID: surfaceId
+                    ) else {
+                        return .finished(.err(
+                            code: "not_found",
+                            message: "No focused surface",
+                            data: nil
+                        ))
+                    }
                 }
                 workspaceID = ws.id
                 resolvedWindowID = self.v2ResolveWindowId(tabManager: tabManager)
@@ -12097,7 +12179,7 @@ class TerminalController {
             // connection diagnostics exist for). The wait blocks only on the
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
-            let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
+            let report = await MobileHostDiagnostics.log.snapshot()
             export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
@@ -12299,6 +12381,7 @@ class TerminalController {
           reset_bonsplit_underflow_count  - Reset bonsplit underflow counter (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
+          debug.mobile.transport.reconnect_loop - Repeatedly close mobile transports for a bounded duration (test-only)
         """
 #endif
         return text
