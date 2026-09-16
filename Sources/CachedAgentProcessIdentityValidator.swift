@@ -122,15 +122,6 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
-                if hermesSessionValidation == .currentHookRecord,
-                   snapshot.kind == .claude,
-                   Self.hasEnabledForkSessionFlag(in: arguments) {
-                    // Claude's forked child keeps the parent conversation in
-                    // `--resume`; the hook record is the authoritative child
-                    // identity once PID generation, scope, and executable
-                    // have already matched.
-                    return true
-                }
                 guard let observedSessionID = nonOptionValue(after: option, in: arguments)
                     ?? authoritativeEnvironmentSessionID else {
                     // The identity option only appears on explicit resumes. A
@@ -189,8 +180,13 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         let observedSessionID: String?
         switch snapshot.kind {
         case .claude:
+            // In a fork, --resume names the parent. Only an explicit child
+            // identity can contradict the current hook record; a cached
+            // snapshot still cannot vouch for a missing child identity.
+            let identityOptions = Self.hasEnabledForkSessionFlag(in: arguments)
+                ? ["--session-id"] : ["--session-id", "--resume", "-r"]
             observedSessionID = firstValue(
-                after: ["--session-id", "--resume", "-r"],
+                after: identityOptions,
                 in: arguments
             ) ?? authoritativeEnvironmentSessionID
         case .codex:
