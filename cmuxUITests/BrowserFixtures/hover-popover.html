@@ -36,10 +36,16 @@
     mouseEnterCount: 0,
     trustedPointerEnterCount: 0,
     trustedMouseEnterCount: 0,
+    mouseMoveCount: 0,
+    lastMouseMove: null,
   };
   const trigger = document.getElementById('trigger');
   const popover = document.getElementById('popover');
   const nativeState = document.getElementById('native-state');
+  document.addEventListener('mousemove', event => {
+    state.mouseMoveCount += 1;
+    state.lastMouseMove = { x: event.clientX, y: event.clientY, target: event.target.id, trusted: event.isTrusted };
+  }, true);
   const publishNativeState = () => {
     nativeState.textContent = trigger.matches(':hover') &&
       state.trustedPointerEnterCount > 0 && state.trustedMouseEnterCount > 0
@@ -67,6 +73,8 @@
       mouseEnterCount: state.mouseEnterCount,
       trustedPointerEnterCount: state.trustedPointerEnterCount,
       trustedMouseEnterCount: state.trustedMouseEnterCount,
+      mouseMoveCount: state.mouseMoveCount,
+      lastMouseMove: state.lastMouseMove,
       popoverVisible: popover.dataset.visible === 'true',
       popoverRight: rect.right,
       viewportWidth: innerWidth,
