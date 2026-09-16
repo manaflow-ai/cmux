@@ -95,10 +95,11 @@ LogLevel ERROR
                 while True:
                     try:
                         line = stream.readline()
-                    except TimeoutError:
+                    except (TimeoutError, socket.timeout):
                         idle_connection_closed.set()
                         return
                     if not line:
+                        idle_connection_closed.set()
                         return
                     if line.startswith(b"auth "):
                         stream.write(b"OK\n")
@@ -120,6 +121,10 @@ LogLevel ERROR
                             "expires_at_unix": int(time.time()) + lifetime,
                         }
                         response = {"id": request["id"], "ok": True, "result": result}
+                    elif request["method"] == "vm.file_transfer_failure":
+                        params = request["params"]
+                        assert set(params).issubset({"phase", "failure", "error_number"}), params
+                        response = {"id": request["id"], "ok": True, "result": {"reference": "operation=test trace=00000000000000000000000000000001"}}
                     else:
                         response = {"id": request["id"], "ok": False, "error": {"code": "unexpected", "message": request["method"]}}
                     stream.write(json.dumps(response).encode() + b"\n")
@@ -208,6 +213,7 @@ LogLevel ERROR
             assert (guest / "parallel/a").read_bytes() == (guest / "parallel/b").read_bytes() == payload.read_bytes()
             print("PASS concurrent transfers keep independent keys", flush=True)
 
+            idle_connection_closed.clear()
             watch = subprocess.Popen([cli, "--json", "vm", "push", "test-vm", str(tree), "watch", "--watch", "--interval", "0.2"], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             try:
                 for _ in range(100):
@@ -229,7 +235,11 @@ LogLevel ERROR
                 if watch.poll() is None:
                     watch.kill()
                     watch.wait()
-            assert all(r["method"] == "vm.scp_info" for r in requests), requests
+            assert all(r["method"] in {"vm.scp_info", "vm.file_transfer_failure"} for r in requests), requests
+            failures = [r["params"] for r in requests if r["method"] == "vm.file_transfer_failure"]
+            assert len(failures) == 2, failures
+            assert {p["phase"] for p in failures} == {"process", "connect"}
+            assert all(p["failure"] == "process" for p in failures), failures
             assert max(len(json.dumps(r)) for r in requests) < 1024
             print("PASS watch and bounded control messages without file bytes", flush=True)
         finally:
