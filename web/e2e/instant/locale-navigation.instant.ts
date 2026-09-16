@@ -73,31 +73,29 @@ test("locale switch preserves a nested route after client-side navigation", asyn
 });
 
 test("an old-locale prefetch cannot undo an explicit language switch", async ({ page }) => {
+  const oldPage = await page.context().newPage();
+  await oldPage.goto("/ko/blog");
   await page.goto("/ko");
   await page.locator('a[href="/ko/blog"]').first().click();
   await expect(page.getByRole("heading", { name: "블로그", exact: true })).toBeVisible();
 
-  // Hold the new document while the old page finishes a background request.
-  // Both responses come from the real server; only their ordering is controlled.
-  await page.route((url) => url.pathname === "/blog", async (route) => {
-    if (!route.request().isNavigationRequest()) return route.continue();
-    const response = await route.fetch();
-    await page.evaluate(async () => {
-      const prefetch = await fetch("/ko/blog?_rsc=locale-cookie-regression", {
-        headers: { RSC: "1", "Next-Router-Prefetch": "1" },
-        cache: "no-store",
-      });
-      await prefetch.text();
-    });
-    await route.fulfill({ response });
-  });
-
   await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("en");
   await expect(page).toHaveURL((url) => url.pathname === "/blog");
   await expect(page.getByRole("heading", { name: "Blog", exact: true })).toBeVisible();
+  // An older tab still has Korean links. Complete its background request after
+  // the new tab selects English, using the real server and shared browser cookies.
+  const status = await oldPage.evaluate(async () => {
+    const prefetch = await fetch("/ko/blog?_rsc=locale-cookie-regression", {
+      headers: { RSC: "1", "Next-Router-Prefetch": "1" },
+      cache: "no-store",
+    });
+    await prefetch.text();
+    return prefetch.status;
+  });
+  expect(status).toBe(200);
   expect((await page.context().cookies(page.url()))
     .find((cookie) => cookie.name === "NEXT_LOCALE")?.value).toBe("en");
-  await page.unrouteAll({ behavior: "wait" });
+  await oldPage.close();
   await page.reload();
   await expect(page).toHaveURL((url) => url.pathname === "/blog");
   await expect(page.getByRole("heading", { name: "Blog", exact: true })).toBeVisible();
