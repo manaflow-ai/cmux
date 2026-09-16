@@ -129,7 +129,7 @@ final class SharedLiveAgentIndex {
     // An ownership-sensitive restore waits for one scan that started after its
     // request. The deadline keeps an uncooperative loader from holding a
     // restored terminal behind admission indefinitely.
-    private static let ownershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
+    nonisolated static let defaultOwnershipScanWaitNanoseconds: UInt64 = 10_000_000_000
 
     nonisolated private static func remainingOwnershipRefreshNanoseconds(
         until deadline: UInt64
@@ -219,11 +219,13 @@ final class SharedLiveAgentIndex {
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
+    private let ownershipScanWaitNanoseconds: UInt64
 
     init(
         indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
             SharedLiveAgentIndexLoader().loadResultSynchronously()
         },
+        ownershipScanWaitNanoseconds: UInt64 = SharedLiveAgentIndex.defaultOwnershipScanWaitNanoseconds,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -246,6 +248,7 @@ final class SharedLiveAgentIndex {
         self.hookStoreDirectoryProvider = hookStoreDirectoryProvider
         self.dateProvider = dateProvider
         self.forkExecutableWatchSourceBudgetProvider = forkExecutableWatchSourceBudgetProvider
+        self.ownershipScanWaitNanoseconds = ownershipScanWaitNanoseconds
     }
 
     func forkValidationExecutableFingerprint(
@@ -539,7 +542,7 @@ final class SharedLiveAgentIndex {
         ensureWatchingHookStoreDirectory()
         var requestedRefreshGeneration: UUID?
         let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
-            &+ Self.ownershipRefreshTimeoutNanoseconds
+            &+ ownershipScanWaitNanoseconds
         while true {
             guard !Task.isCancelled else { return .cancelled }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
@@ -1487,7 +1490,7 @@ final class SharedLiveAgentIndex {
         guard let result = await awaitIndexLoaderResult(
             loader.task,
             generation: loader.generation,
-            timeoutNanoseconds: Self.ownershipRefreshTimeoutNanoseconds
+            timeoutNanoseconds: ownershipScanWaitNanoseconds
         ) else {
             retireTimedOutIndexLoader(generation: loader.generation)
             removeOrMarkCancelledForkValidationRequests(

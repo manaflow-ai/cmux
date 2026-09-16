@@ -84,10 +84,7 @@ export async function authenticateRequestRouteToken(
     name: "auth",
     startedAt,
     ...(result.ok ? {} : { error: result.reason }),
-    attributes: {
-      outcome: result.ok ? "accepted" : result.reason,
-      ...(result.ok ? { auth_mode: result.identity.apiKeyId ? "api_key" : "route_token" } : {}),
-    },
+    attributes: { outcome: result.ok ? "accepted" : result.reason },
   });
   if (result.ok) recordCoderouterIdentity(result.identity);
   return result;

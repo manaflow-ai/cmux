@@ -334,9 +334,6 @@ function eventProperties(
     case "coderouter_claude_upstream_removed":
       return {};
   }
-  // Keep this closed-schema builder fail-closed if a new event is added before
-  // its telemetry properties are defined.
-  return null;
 }
 
 function accountAddedProperties(

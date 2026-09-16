@@ -88,7 +88,7 @@ export async function resolveCodeRouterRequestContext(
     // Browser-authenticated control-plane requests do not have a route token,
     // so record the resolved Stack identity and team together for the
     // PostHog trace.
-    recordCoderouterIdentity({ teamId: team.teamId, stackUserId: user.id, vmId: null }, "control_plane");
+    recordCoderouterIdentity({ teamId: team.teamId, stackUserId: user.id, vmId: null });
 
     // Parse native tokens so malformed mixed auth never falls through as a
     // browser-cookie request. Verification above remains authoritative.
