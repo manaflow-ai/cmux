@@ -352,6 +352,10 @@ struct CLIOmpHookBindingTests {
         environment["CMUX_CODEX_HOOK_PID"] = "2"
         environment["CMUX_CODEX_PID"] = "2"
         environment["CMUX_CODEX_INVOCATION_ID"] = "foreground-ambient-tty-boundary"
+        environment["CMUX_CODEX_PARENT_INVOCATION_ID"] = ""
+        environment["CMUX_CODEX_TURN_LEDGER_PATH"] = context.root
+            .appendingPathComponent("codex-turn-ledger.json")
+            .path
 
         let result = Harness.runHookProcess(
             context: context,
