@@ -2124,7 +2124,6 @@
 		F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000D /* MobileBrowserWireEncoder.swift */; };
 		C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
-		378A335F7490434F885DFCB5 /* MobileHostAuthTransition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82400769459E4B62B069B50C /* MobileHostAuthTransition.swift */; };
 		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
 		C1A071000000000000000002 /* MobileHostConnectionEventLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */; };
 		3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */; };
@@ -2136,19 +2135,11 @@
 		B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8B056D80000000000000002 /* MobileHostIdentityTests.swift */; };
 		C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */; };
 		A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */; };
-		2D1BB4A6764C4E75954DCDCE /* MobileHostIrohAuthObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */; };
-		C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */; };
-		C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */; };
-		580314EE177B4D28B72D3841 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */; };
-		F27AD81F6AC74A12BD43FC08 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */; };
-		C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000027 /* MobileHostIrohRuntime.swift */; };
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
-		D26540D626A54219AEE44452 /* MobileHostIrxRuntime+ActivationRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC230B736694FB8A763CA64 /* MobileHostIrxRuntime+ActivationRetry.swift */; };
 		C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */; };
 		C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000011 /* MobileHostIrxRuntime.swift */; };
 		BC6C909156BA44C7923C2218 /* MobileHostIrxSettingsMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */; };
-		156B411AB47D44568DE7176F /* MobileHostIrxSignOutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A0FFD4E20874BE3B5671AED /* MobileHostIrxSignOutTests.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
 		C1B181000000000000000A /* MobileHostListenerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B181000000000000001A /* MobileHostListenerState.swift */; };
 		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
@@ -2160,7 +2151,6 @@
 		C0DE00000000000000000C8D /* MobileHostService+TicketAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */; };
 		F67FBC88671C40AC3A3284CE /* MobileHostService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7ACA497A6831165EA879C642 /* MobileHostService.swift */; };
 		C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */; };
-		AC65A402DDEB403FA642532E /* MobileHostSignOutCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77313FE7D264F4DB60A5441 /* MobileHostSignOutCredentialStore.swift */; };
 		4C1A7E10B2D34F56A8C90011 /* MobileHostStatusVerificationLimiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */; };
 		4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */; };
 		C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */; };
@@ -5928,7 +5918,6 @@
 		F1100000000000000000000D /* MobileBrowserWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserWireEncoder.swift; sourceTree = "<group>"; };
 		C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationSupport.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
-		82400769459E4B62B069B50C /* MobileHostAuthTransition.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthTransition.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
 		C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventLaneTests.swift; sourceTree = "<group>"; };
 		79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventQueue.swift; sourceTree = "<group>"; };
@@ -5940,19 +5929,11 @@
 		B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIdentityTests.swift; sourceTree = "<group>"; };
 		C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAdmissionTests.swift; sourceTree = "<group>"; };
 		A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohApplicationLaneRouter.swift; sourceTree = "<group>"; };
-		D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthObserver.swift; sourceTree = "<group>"; };
-		C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Activation.swift"; sourceTree = "<group>"; };
-		C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Lifecycle.swift"; sourceTree = "<group>"; };
-		CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
-		96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsSnapshot.swift"; sourceTree = "<group>"; };
-		C1B1810000000000000027 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
-		CFC230B736694FB8A763CA64 /* MobileHostIrxRuntime+ActivationRetry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+ActivationRetry.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000014 /* MobileHostIrxRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrxRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000011 /* MobileHostIrxRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxRuntime.swift; sourceTree = "<group>"; };
 		C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxSettingsMappingTests.swift; sourceTree = "<group>"; };
-		1A0FFD4E20874BE3B5671AED /* MobileHostIrxSignOutTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxSignOutTests.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
 		C1B181000000000000001A /* MobileHostListenerState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostListenerState.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
@@ -5964,7 +5945,6 @@
 		C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileHostService+TicketAuthorization.swift"; sourceTree = "<group>"; };
 		7ACA497A6831165EA879C642 /* MobileHostService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostService.swift; sourceTree = "<group>"; };
 		C0DE10510000000000000002 /* MobileHostServiceSettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostServiceSettingsTests.swift; sourceTree = "<group>"; };
-		A77313FE7D264F4DB60A5441 /* MobileHostSignOutCredentialStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostSignOutCredentialStore.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiter.swift; sourceTree = "<group>"; };
 		4C1A7E10B2D34F56A8C90014 /* MobileHostStatusVerificationLimiterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostStatusVerificationLimiterTests.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalTheme.swift; sourceTree = "<group>"; };
@@ -7982,14 +7962,6 @@
 				C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */,
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1B1810000000000000011 /* MobileHostIrxRuntime.swift */,
-				C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */,
-				C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */,
-				C1B1810000000000000027 /* MobileHostIrohRuntime.swift */,
-				96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
-				CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */,
-				CFC230B736694FB8A763CA64 /* MobileHostIrxRuntime+ActivationRetry.swift */,
-				82400769459E4B62B069B50C /* MobileHostAuthTransition.swift */,
-				D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */,
 				C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */,
 				C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */,
 				C1B1810000000000000018 /* MobileHostV2Installation.swift */,
@@ -11110,8 +11082,6 @@
 				A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */,
 				F739BB5F7AEF47A6A38D6B7C /* CloudWorkspaceMembershipTests.swift */,
 				D4DAE66C6AF74046B5545B47 /* CloudSurfaceOwnershipTests.swift */,
-				A77313FE7D264F4DB60A5441 /* MobileHostSignOutCredentialStore.swift */,
-				1A0FFD4E20874BE3B5671AED /* MobileHostIrxSignOutTests.swift */,
 				E54D698BB1584C2BAC3A61DF /* CloudSurfaceDragFixture.swift */,
 				DF212BA811D54BB986A5E27F /* CloudSurfaceMoveOwnershipTests.swift */,
 				528BC06A8197486F91B4E426 /* CloudSurfaceDragFeedbackTests.swift */,
@@ -13437,22 +13407,14 @@
 				F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */,
 				F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */,
 				C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */,
-				378A335F7490434F885DFCB5 /* MobileHostAuthTransition.swift in Sources */,
 				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */,
 				C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */,
 				C1B1810000000000000009 /* MobileHostDiagnostics.swift in Sources */,
 				B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */,
 				A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */,
-				2D1BB4A6764C4E75954DCDCE /* MobileHostIrohAuthObserver.swift in Sources */,
-				C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */,
-				C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */,
-				580314EE177B4D28B72D3841 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */,
-				F27AD81F6AC74A12BD43FC08 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */,
-				C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */,
 				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
 				C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */,
-				D26540D626A54219AEE44452 /* MobileHostIrxRuntime+ActivationRetry.swift in Sources */,
 				C1B1810000000000000004 /* MobileHostIrxRuntime+SettingsControl.swift in Sources */,
 				C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */,
 				C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */,
@@ -15503,11 +15465,9 @@
 				B8B056D80000000000000001 /* MobileHostIdentityTests.swift in Sources */,
 				C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */,
 				BC6C909156BA44C7923C2218 /* MobileHostIrxSettingsMappingTests.swift in Sources */,
-				156B411AB47D44568DE7176F /* MobileHostIrxSignOutTests.swift in Sources */,
 				DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */,
 				A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */,
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
-				AC65A402DDEB403FA642532E /* MobileHostSignOutCredentialStore.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
 				7A1B2C3D4E5F60718293A4B6 /* MobileHostTerminalThemeTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
