@@ -25,7 +25,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public final class SearchState: ObservableObject {
         /// The current search needle.
         @Published public var needle: String
-
         /// The 1-based index of the selected match, if known.
         @Published public var selected: UInt?
 
@@ -93,12 +92,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-
-    /// Presentation state for the current runtime renderer. This distinguishes a
-    /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-
+    /// Current renderer health; the direct callback below is the observation seam for hosts.
+    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+        didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
+    }
+    var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
+    let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
@@ -306,6 +306,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    @MainActor weak var surfaceResizeAuthority: (any TerminalSurfaceResizeAuthority)?
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -838,7 +839,6 @@ extension TerminalSurface: TerminalSurfacing {}
 /// exclusively owned by the request from creation until `close()` runs.
 private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
     let window: NSWindow
-
     @MainActor
     func close() {
         window.contentView = nil

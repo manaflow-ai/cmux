@@ -9,6 +9,36 @@ import Testing
 
 @MainActor
 struct CloudProviderRefreshCoordinatorTests {
+    @Test("Panel refreshes coalesce per machine while separate machines remain independent")
+    func panelRefreshesCoalescePerMachine() async {
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var machines: [SurfaceMachineID] = []
+        let coordinator = CloudMachineRefreshCoordinator { machine in
+            machines.append(machine)
+            if machines.count == 2 { started.resolve(true) }
+            _ = await release.result
+        }
+        coordinator.refresh(.cloud("first"))
+        coordinator.refresh(.cloud("first"))
+        coordinator.refresh(.cloud("second"))
+        _ = await started.result
+        #expect(machines.count == 2)
+        #expect(Set(machines) == [.cloud("first"), .cloud("second")])
+        coordinator.cancelAll()
+        release.resolve(true)
+    }
+
+    @Test("Canceled panel refreshes do not start their operation")
+    func canceledRefreshDoesNotStart() async {
+        var calls = 0
+        let coordinator = CloudMachineRefreshCoordinator { _ in calls += 1 }
+        coordinator.refresh(.cloud("canceled"))
+        coordinator.cancelAll()
+        await Task.yield()
+        #expect(calls == 0)
+    }
+
     @Test("Concurrent catalog reads cannot supersede the initial graph publication")
     func concurrentReadersShareTheFirstPublication() async {
         let coordinator = CloudProviderRefreshCoordinator()

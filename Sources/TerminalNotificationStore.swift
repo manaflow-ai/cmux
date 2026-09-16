@@ -471,11 +471,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         indexes = Self.buildIndexes(for: notifications)
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshDockBadge()
             }
@@ -1646,10 +1642,8 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+        effects.applySidebarOrdering(defaults: .standard) {
+            reorderSidebars(for: notification)
         }
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
@@ -1694,10 +1688,8 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+        effects.applySidebarOrdering(defaults: .standard) {
+            reorderSidebars(for: notification)
         }
 
         updated.insert(notification, at: 0)

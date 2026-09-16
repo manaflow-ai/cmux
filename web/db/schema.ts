@@ -1157,6 +1157,27 @@ export const coderouterRouteTokens = pgTable(
   ],
 );
 
+/** Long-lived user-created credentials for direct CodeRouter API clients. */
+export const coderouterApiKeys = pgTable(
+  "coderouter_api_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    label: text("label").notNull().default("default"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_api_keys_hash_unique").on(table.keyHash),
+    index("coderouter_api_keys_team_created_idx").on(table.teamId, table.createdAt),
+    index("coderouter_api_keys_user_created_idx").on(table.stackUserId, table.createdAt),
+  ],
+);
+
 /**
  * Envelope-encrypted provider credentials. Every secret-bearing field is
  * ciphertext; the plaintext data key exists only briefly in Vercel memory.
@@ -2046,3 +2067,40 @@ export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
   alertKey: text("alert_key").primaryKey(),
   reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
+export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
+  userId: text("user_id").notNull(),
+  eventId: uuid("event_id").notNull(),
+  payload: jsonb("payload").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  leaseId: uuid("lease_id"),
+  attempts: integer("attempts").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.eventId] }),
+  index("cloud_diagnostic_events_pending_idx").on(table.nextAttemptAt).where(sql`${table.deliveredAt} is null`),
+  index("cloud_diagnostic_events_retention_idx").on(table.receivedAt),
+]);
+
+export const cloudDiagnosticBudgets = pgTable("cloud_diagnostic_budgets", {
+  userId: text("user_id").notNull(),
+  minute: bigint("minute", { mode: "number" }).notNull(),
+  bytes: integer("bytes").notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.minute] })]);
+
+export const cloudOperationSteps = pgTable("cloud_operation_steps", {
+  userId: text("user_id").notNull(),
+  operationId: uuid("operation_id").notNull(),
+  stepId: uuid("step_id").notNull(),
+  phase: text("phase").notNull(),
+  outcome: text("outcome").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 day'`),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.operationId, table.stepId] }),
+  index("cloud_operation_steps_expiry_idx").on(table.expiresAt),
+]);

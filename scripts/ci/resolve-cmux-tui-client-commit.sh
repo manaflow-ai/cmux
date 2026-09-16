@@ -20,7 +20,9 @@
 #                       Default 0: the newest candidate must be published, or this fails.
 #   --head <rev>        history to search (default HEAD).
 # Env: CMUX_TUI_CLIENT_MANIFEST_BASE (default https://files.cmux.com/cmux-tui),
-#      CMUX_TUI_CLIENT_REMOTE (default origin; where a shallow clone deepens from).
+#      CMUX_TUI_CLIENT_REMOTE (default origin; where a shallow clone deepens from),
+#      CMUX_TUI_CLIENT_FETCH_ATTEMPTS (default 5; tries per deepen before giving up),
+#      CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS (default 2; first backoff, doubles per try).
 # The chosen 40-hex commit is the only stdout line; diagnostics go to stderr.
 set -euo pipefail
 
@@ -47,6 +49,21 @@ case "$MAX_FALLBACK" in
 esac
 # Decimal, so a value with a leading zero (08) is not read as octal by the arithmetic below.
 MAX_FALLBACK=$((10#$MAX_FALLBACK))
+FETCH_ATTEMPTS="${CMUX_TUI_CLIENT_FETCH_ATTEMPTS:-5}"
+FETCH_RETRY_SECONDS="${CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS:-2}"
+case "$FETCH_ATTEMPTS" in
+  ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2; exit 64 ;;
+esac
+case "$FETCH_RETRY_SECONDS" in
+  ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS must be a non-negative integer" >&2; exit 64 ;;
+esac
+# Normalize before the positive check so an all-zero spelling (00) is rejected too.
+FETCH_ATTEMPTS=$((10#$FETCH_ATTEMPTS))
+FETCH_RETRY_SECONDS=$((10#$FETCH_RETRY_SECONDS))
+if [[ $FETCH_ATTEMPTS -lt 1 ]]; then
+  echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2
+  exit 64
+fi
 
 head_sha="$(git rev-parse --verify "${HEAD_REV}^{commit}")"
 shallow_file="$(git rev-parse --git-path shallow)"
@@ -70,6 +87,27 @@ collect_candidates() {
   done < <(git log -n $((want + 8)) --format=%H "$head_sha" -- "${PATHS[@]}")
 }
 
+# The deepen fetch is the resolver's one network call to GitHub, made after a
+# 40-minute build on a release runner. A transient failure there (DNS blip,
+# connection reset) must not fail the release, so retry with bounded backoff.
+# Release run 34851108495 died on "Could not resolve host: github.com".
+fetch_deepen() {
+  local attempt=1 delay="$FETCH_RETRY_SECONDS"
+  while :; do
+    if git fetch --quiet --deepen="$deepen" "$REMOTE" "$head_sha" 2>/dev/null \
+       || git fetch --quiet --deepen="$deepen" "$REMOTE"; then
+      return 0
+    fi
+    if [[ $attempt -ge $FETCH_ATTEMPTS ]]; then
+      return 1
+    fi
+    log "deepen attempt $attempt of $FETCH_ATTEMPTS failed; retrying in ${delay}s"
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+  done
+}
+
 deepen=200
 rounds=0
 while :; do
@@ -82,9 +120,8 @@ while :; do
     break
   fi
   log "shallow clone shows ${#CANDIDATES[@]} usable cmux-tui commit(s); deepening by $deepen from $REMOTE"
-  if ! git fetch --quiet --deepen="$deepen" "$REMOTE" "$head_sha" 2>/dev/null \
-     && ! git fetch --quiet --deepen="$deepen" "$REMOTE"; then
-    log "could not deepen the clone from $REMOTE"
+  if ! fetch_deepen; then
+    log "could not deepen the clone from $REMOTE after $FETCH_ATTEMPTS attempt(s)"
     break
   fi
   rounds=$((rounds + 1))
@@ -101,9 +138,11 @@ skipped=0
 for ((i = 0; i < ${#CANDIDATES[@]}; i++)); do
   sha="${CANDIDATES[$i]}"
   url="$BASE/$sha/manifest.json"
-  # One probe per candidate, no retry loop: a transient failure just moves on to the
-  # next candidate (or fails exact mode, which a re-run covers) instead of waiting.
-  if curl --proto '=https,file' --tlsv1.2 -fsS -o /dev/null "$url" 2>/dev/null; then
+  # One probe per candidate: a 404 moves on to the next candidate (or fails exact
+  # mode). curl retries resolution and connection blips itself, bounded, so a DNS
+  # hiccup on the release runner does not read as a missing manifest.
+  if curl --proto '=https,file' --tlsv1.2 -fsS -o /dev/null \
+       --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$url" 2>/dev/null; then
     chosen="$sha"
     break
   fi

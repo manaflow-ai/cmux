@@ -38,9 +38,8 @@ struct MachineCreateRowActions {
                 presentFailure(operation: operation, output: output)
             },
             copyFailure: { [weak coordinator] id in
-                guard let output = coordinator?.operation(id: id)?.failureOutput else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(output, forType: .string)
+                guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }
+                CloudErrorCopy.copy("\(operation.request.failureLabel)\n\(output)")
             }
         )
     }
@@ -66,6 +65,7 @@ struct MachineCreateRowActions {
             main: NSApp.mainWindow
         )
         content.apply(to: alert, presentingWindow: window)
+        CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(content.flattenedText)")
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)
         } else {

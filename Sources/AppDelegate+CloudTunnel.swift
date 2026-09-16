@@ -1,8 +1,8 @@
 import AppKit
 
 /// Composition of the app-managed Cloud tunnel: built once at startup next to
-/// the other Cloud clients, handed to ``VMClient`` as the private-network gate
-/// and to ``TerminalController`` for the `vm.tunnel_*` socket verbs.
+/// the other Cloud clients, and handed to ``TerminalController`` for the
+/// explicit `vm.tunnel_*` socket verbs.
 ///
 /// ``CloudActivationPolicy`` is the one decision every tunnel consumer flows
 /// through: it is built here from local state only, gates every start inside
@@ -14,11 +14,7 @@ extension AppDelegate {
         let tunnelManager = VMTunnelManager()
         let activation = CloudActivationPolicy.live(browserTunnel: tunnelManager)
         let coordinator = CloudTunnelCoordinator.live(
-            consumers: CloudTunnelAppConsumers(
-                cloudBrowserCount: { [weak self] in
-                    self?.cloudVMBrowserCount() ?? 0
-                }
-            ),
+            consumers: CloudTunnelAppConsumers(),
             tunnelManager: tunnelManager,
             activation: activation
         )
@@ -45,36 +41,4 @@ extension AppDelegate {
         }
     }
 
-    /// Workspaces bound to a Cloud machine across every window: attached
-    /// panes, `cmux vm tui` and `vm ssh` terminals the app hosts. Each one is a
-    /// live consumer of the private network for the idle policy.
-    @MainActor
-    func cloudVMWorkspaceCount() -> Int {
-        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        var count = 0
-        for manager in managers {
-            for workspace in manager.workspacesById.values where workspace.isManagedCloudVMWorkspace {
-                count += 1
-            }
-        }
-        return count
-    }
-
-    /// Browser panels on Cloud machines are the only long-lived consumers of
-    /// the system Network Extension. Terminal panels use the user-space hub.
-    @MainActor
-    func cloudVMBrowserCount() -> Int {
-        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
-        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
-            managers.append(tabManager)
-        }
-        return managers.reduce(into: 0) { count, manager in
-            for workspace in manager.workspacesById.values where workspace.isManagedCloudVMWorkspace {
-                count += workspace.panels.values.filter { $0.panelType == .browser }.count
-            }
-        }
-    }
 }
