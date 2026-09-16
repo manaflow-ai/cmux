@@ -2125,6 +2125,8 @@
 		2D1BB4A6764C4E75954DCDCE /* MobileHostIrohAuthObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */; };
 		C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */; };
 		C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */; };
+		580314EE177B4D28B72D3841 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */; };
+		F27AD81F6AC74A12BD43FC08 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */; };
 		C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000027 /* MobileHostIrohRuntime.swift */; };
 		C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */; };
 		C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */; };
@@ -5898,6 +5900,8 @@
 		D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthObserver.swift; sourceTree = "<group>"; };
 		C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Activation.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Lifecycle.swift"; sourceTree = "<group>"; };
+		CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsControl.swift"; sourceTree = "<group>"; };
+		96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+SettingsSnapshot.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000027 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
 		C1A070000000000000000014 /* MobileHostIrohServerEventWriter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohServerEventWriter.swift; sourceTree = "<group>"; };
 		C1B1810000000000000013 /* MobileHostIrxLegacyDialectServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxLegacyDialectServer.swift; sourceTree = "<group>"; };
@@ -7923,6 +7927,8 @@
 				C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */,
 				C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */,
 				C1B1810000000000000027 /* MobileHostIrohRuntime.swift */,
+				96B74A19A0164D73B2CACECA /* MobileHostIrohRuntime+SettingsSnapshot.swift */,
+				CC0B11FD025E45A6BBD99DE8 /* MobileHostIrohRuntime+SettingsControl.swift */,
 				CFC230B736694FB8A763CA64 /* MobileHostIrxRuntime+ActivationRetry.swift */,
 				82400769459E4B62B069B50C /* MobileHostAuthTransition.swift */,
 				D1E157D677F84A069CBFB988 /* MobileHostIrohAuthObserver.swift */,
@@ -13343,6 +13349,8 @@
 				2D1BB4A6764C4E75954DCDCE /* MobileHostIrohAuthObserver.swift in Sources */,
 				C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */,
 				C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */,
+				580314EE177B4D28B72D3841 /* MobileHostIrohRuntime+SettingsControl.swift in Sources */,
+				F27AD81F6AC74A12BD43FC08 /* MobileHostIrohRuntime+SettingsSnapshot.swift in Sources */,
 				C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */,
 				C1A070000000000000000004 /* MobileHostIrohServerEventWriter.swift in Sources */,
 				C1B1810000000000000003 /* MobileHostIrxLegacyDialectServer.swift in Sources */,
