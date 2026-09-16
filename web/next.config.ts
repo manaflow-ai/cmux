@@ -97,6 +97,12 @@ const nextConfig: NextConfig = {
     if (isDocsZone) {
       return {
         beforeFiles: [
+          // Direct docs previews use the same search URLs as the main site.
+          // Serve their own index instead of requiring the outer site router.
+          {
+            source: `/_docs-search/${docsChannel}/:path*`,
+            destination: "/pagefind/:path*",
+          },
           {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",

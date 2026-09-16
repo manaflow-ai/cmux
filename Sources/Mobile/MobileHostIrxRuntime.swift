@@ -266,7 +266,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.setSettingsPhase(.failed)
-                    Self.journal.record("v2-host", "setup-retry", ["error": String(describing: type(of: error))])
+                    Self.journal.record("v2-host", "setup-retry", [
+                        "error": (error as? V2ControlFailure)?.diagnosticCode ?? String(describing: type(of: error))
+                    ])
                     let delay = Self.activationRetryDelay(after: error, failureCount: failureCount, jitterUnitInterval: Double.random(in: 0...1))
                     failureCount += 1
                     try? await Task.sleep(for: .seconds(delay))
@@ -347,7 +349,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     identityGeneration: device.identityGeneration,
                     appVersion: device.metadata.appVersion,
                     releaseTrack: Self.hostReleaseTrack),
-                identity: LegacyCompatibilityService.compatibilityIdentity(from: identity),
+                identity: LegacyCompatibilityService.compatibilityIdentity(
+                    from: identity, deviceID: MobileHostIdentity.deviceID()),
+                previousDeviceID: LegacyCompatibilityService.compatibilityIdentity(from: identity).deviceID,
                 accessTokenPair: { [weak auth] in
                     guard let auth else { return nil }
                     guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
@@ -799,6 +803,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
+            hostDeviceID: legacyCurrent?.current?.entries[peer.endpointIDHex] != nil
+                ? MobileHostIdentity.deviceID() : nil,
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             // Admission has already authenticated this bounded pooled peer.

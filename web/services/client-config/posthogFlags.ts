@@ -1,27 +1,19 @@
 import { POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
+import type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+  ClientConfigFlagValue,
+} from "./types";
+
+export type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+  ClientConfigFlagValue,
+} from "./types";
 
 export const MAX_CLIENT_CONFIG_REQUEST_BYTES = 16 * 1024;
 export const CLIENT_CONFIG_FLAGS_TIMEOUT_MS = 4_000;
 export const POSTHOG_FLAGS_HOST = (process.env.POSTHOG_FLAGS_HOST ?? "https://us.i.posthog.com").replace(/\/$/, "");
-
-export type ClientConfigFlagValue = boolean | string;
-
-export type ClientConfig = {
-  readonly featureFlags: Record<string, ClientConfigFlagValue>;
-  readonly featureFlagPayloads: Record<string, unknown>;
-  readonly errorsWhileComputingFlags: boolean;
-  readonly requestId?: string;
-};
-
-export type ClientConfigEvaluationContext = {
-  readonly groups?: Record<string, unknown>;
-  readonly personProperties?: Record<string, unknown>;
-  readonly groupProperties?: Record<string, unknown>;
-  readonly anonDistinctId?: string;
-  readonly deviceId?: string;
-  readonly timezone?: string;
-  readonly evaluationContexts?: readonly string[];
-};
 
 export function normalizeDistinctId(value: unknown): string {
   if (typeof value !== "string") return "anonymous";
@@ -125,6 +117,11 @@ export function normalizePostHogFlagsResponse(body: Record<string, unknown>): Cl
 export function isPostHogFlagsResponseAvailable(body: Record<string, unknown>): boolean {
   if (isFeatureFlagsQuotaLimited(body.quotaLimited)) return false;
   return isFlagsRecord(body.featureFlags) || isFlagsRecord(body.flags) || isFlagsRecord(body.featureFlagPayloads);
+}
+
+export function isPostHogFlagsResponseComplete(body: Record<string, unknown>): boolean {
+  return body.errorsWhileComputingFlags !== true &&
+    (!isFlagsRecord(body.flags) || !Object.values(body.flags as Record<string, unknown>).some(isFailedDetailedFlag));
 }
 
 function isFeatureFlagsQuotaLimited(value: unknown): boolean {

@@ -5,7 +5,7 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in, then turns on the explicitly requested v2 IROH pairing host. v2 pairing
+/// in, and on explicit pairing opt-in before starting the v2 IROH host. v2 pairing
 /// uses the signed-in account and device identity, so it has no QR or address
 /// to display.
 ///
@@ -21,6 +21,8 @@ final class MobilePairingModel {
         case loading
         /// The Mac is not signed in; pairing can't be authorized yet.
         case signedOut
+        /// iOS pairing is disabled in Mac Settings.
+        case pairingDisabled
         /// Signed in; bringing the v2 IROH listener up.
         case preparing
         /// The v2 IROH listener is ready for the signed-in iPhone.
@@ -163,8 +165,8 @@ final class MobilePairingModel {
         await refresh()
     }
 
-    /// Re-evaluates sign-in state and, when signed in, brings the v2 listener
-    /// up. Safe to call repeatedly when auth state settles.
+    /// Re-evaluates sign-in and pairing opt-in before starting the v2 listener.
+    /// Safe to call repeatedly when auth or settings change.
     func refresh() async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -188,8 +190,11 @@ final class MobilePairingModel {
             return
         }
         signedInEmail = coordinator.currentUser?.primaryEmail
+        guard MobileHostService.isListeningEnabled else {
+            state = .pairingDisabled
+            return
+        }
         state = .preparing
-        enablePairingHost()
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
@@ -263,6 +268,10 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
+                guard MobileHostService.isListeningEnabled else {
+                    self.state = .pairingDisabled
+                    return
+                }
                 let next = Self.v2StatusTransition(status, baselineConnectionCount: baseline)
                 if next != self.state {
                     self.state = next
@@ -324,11 +333,6 @@ final class MobilePairingModel {
         }
     }
 
-    private func enablePairingHost() {
-        // Never force the listener on under a managed remote-control disable.
-        guard MobileRemoteControlPolicy.isEnabled else { return }
-        UserDefaults.standard.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
-    }
 
     /// Whether this Mac's Iroh endpoint is registered in `routes`.
     private nonisolated static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {
