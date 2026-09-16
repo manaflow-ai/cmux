@@ -54,7 +54,20 @@ function pushPayloadFingerprint(
   const canonicalPayload = {
     targetBundleId,
     kind: payload.kind,
-    encryptedPayloads: payload.encryptedPayloads,
+    ...(payload.encryptedPayloads?.length
+      ? { encryptedPayloads: payload.encryptedPayloads }
+      : {
+          title: payload.title,
+          subtitle: payload.subtitle,
+          body: payload.body,
+          replyShape: payload.replyShape,
+          workspaceId: payload.workspaceId,
+          surfaceId: payload.surfaceId,
+          macDeviceId: payload.macDeviceId,
+          macInstanceTag: payload.macInstanceTag,
+          notificationId: payload.notificationId,
+          retargetsToLiveSurfaceOwner: payload.retargetsToLiveSurfaceOwner,
+        }),
     expirationEpochSeconds: payload.expirationEpochSeconds,
     dismissedIds: payload.dismissedIds,
     badgeCount: payload.badgeCount,
@@ -64,6 +77,23 @@ function pushPayloadFingerprint(
     .createHash("sha256")
     .update(JSON.stringify(canonicalPayload))
     .digest("hex");
+}
+
+function validatePushProtocol(
+  protocol: PushProtocol | undefined,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  targetNamespace: ReturnType<typeof normalizeApnsBundle>,
+): Response | null {
+  if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
+    return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
+  }
+  if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
+    return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
+  }
+  if (encryptedPayloads.length > 0 && !targetNamespace) {
+    return jsonResponse({ error: "missing_target_namespace" }, 400);
+  }
+  return null;
 }
 
 function summaryResponse(
@@ -147,14 +177,9 @@ async function sendPush(
   const targetNamespaceResult = resolveTargetNamespace(requestedNamespace, encryptedPayloads.length > 0);
   if (!targetNamespaceResult.ok) return jsonResponse({ error: targetNamespaceResult.error }, 400);
   const targetNamespace = targetNamespaceResult.value;
-  if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
-    return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
-  }
-  if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
-    return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
-  }
+  const protocolError = validatePushProtocol(protocol, encryptedPayloads, targetNamespace);
+  if (protocolError) return protocolError;
   if (encryptedPayloads.length > 0) {
-    if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
     const matchesOwner = encryptedPayloads.every((envelope) => {
       const tuple = envelope.tuple as Record<string, unknown>;
       return tuple.accountID === user.id && tuple.iosBuildID === targetNamespace.bundleId

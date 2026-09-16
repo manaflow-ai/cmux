@@ -23,8 +23,41 @@ extension MobileShellComposite {
               let macBuildID = status.macClientNamespace else {
             return
         }
+        phonePushKeyExchangeRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask = nil
+        let exchanged = await performPhonePushKeyExchange(
+            client: client,
+            accountID: accountID,
+            macDeviceID: macDeviceID,
+            macInstanceTag: macInstanceTag,
+            macBuildID: macBuildID
+        )
+        guard !exchanged, !Task.isCancelled else { return }
+        phonePushKeyExchangeRetryTask = Task { @MainActor [weak self, client] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(8))
+                guard !Task.isCancelled, let self else { return }
+                let exchanged = await self.performPhonePushKeyExchange(
+                    client: client,
+                    accountID: accountID,
+                    macDeviceID: macDeviceID,
+                    macInstanceTag: macInstanceTag,
+                    macBuildID: macBuildID
+                )
+                if exchanged { return }
+            }
+        }
+    }
+
+    private func performPhonePushKeyExchange(
+        client: MobileCoreRPCClient,
+        accountID: String,
+        macDeviceID: String,
+        macInstanceTag: String,
+        macBuildID: String
+        ) async -> Bool {
         for attempt in 0..<3 {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
             do {
                 let exchange = try await client.exchangePhonePushKey(
                     hooks: hooks,
@@ -49,14 +82,15 @@ extension MobileShellComposite {
                     macBuildID: response.macBuildID
                 )
                 await hooks.pinPeerDescriptor(response.descriptor, context)
-                return
+                return true
             } catch {
                 phonePushKeyExchangeLog.error(
                     "key exchange failed attempt=\(attempt + 1, privacy: .public) error=\(String(describing: error), privacy: .public)"
                 )
-                guard attempt < 2 else { return }
+                guard attempt < 2 else { return false }
                 try? await Task.sleep(for: .seconds(1 << attempt))
             }
         }
+        return false
     }
 }

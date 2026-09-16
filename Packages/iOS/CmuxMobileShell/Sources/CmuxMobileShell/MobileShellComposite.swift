@@ -1179,6 +1179,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
+    /// Retries the authenticated phone-push key exchange while the RPC client
+    /// remains connected after a transient failure.
+    private var phonePushKeyExchangeRetryTask: Task<Void, Never>?
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
@@ -2027,6 +2030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask?.cancel()
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
@@ -11373,6 +11377,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func cancelRemoteOperationTasks() {
         hostIdentityAdoptionTask?.cancel()
         hostIdentityAdoptionTask = nil
+        phonePushKeyExchangeRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         notificationReconcileTask?.cancel()

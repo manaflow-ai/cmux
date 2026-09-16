@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>dev.cmux.ios.$(CMUX_DEV_TAG).NotificationService</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
     <key>CFBundleName</key>
     <string>NotificationService</string>
     <key>CFBundleExecutable</key>
