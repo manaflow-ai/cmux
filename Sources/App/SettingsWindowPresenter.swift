@@ -354,6 +354,9 @@ final class SettingsWindowPresenter: NSObject {
     }
 
     private func makeConfiguredWindow() -> NSWindow {
+        // NSHostingController can signal onAppear during factory layout.
+        // Initialize readiness before that callback, never after it.
+        isContentReadyForNavigation = false
         let window = windowFactory(self)
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.isReleasedWhenClosed = false
@@ -386,7 +389,6 @@ final class SettingsWindowPresenter: NSObject {
         )
         installWindowController(for: window)
         settingsWindow = window
-        isContentReadyForNavigation = false
         return window
     }
 
