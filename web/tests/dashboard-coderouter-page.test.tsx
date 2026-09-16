@@ -48,6 +48,7 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/server", () => ({
+  connection: async () => undefined,
   // The usage ledger defers its ClickHouse insert past the response with
   // `after`; the render under test only needs the callback to be accepted.
   after: (task: () => unknown) => {

@@ -82,6 +82,9 @@ try {
   passed('team administrator can explicitly share and unshare a private import');
   member = await app.createUser({ displayName: `VM scope member ${suffix}` });
   await teamA.addUser(member.id);
+  for (const permission of await member.listPermissions(teamA, { recursive: false })) {
+    await member.revokePermission(teamA, permission.id);
+  }
   assert.equal(await member.hasPermission(teamA, "$manage_api_keys"), false);
   const memberTokens = await (await member.createSession({ expiresInMillis: 600_000, isImpersonation: true })).getTokens();
   const denied = await fetch(new URL(`/api/coderouter/accounts/${privateAccountId}/sharing`, origin), {
