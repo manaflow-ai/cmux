@@ -5476,6 +5476,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // in minutes with a report instead. XCTest rounds the allowance up
         // to the nearest minute.
         executionTimeAllowance = 60
+        // Test surfaces belong to no workspace; make the portal treat them as
+        // visible so lifecycle behavior, not workspace lookup, is under test.
+        Workspace.portalRenderingAuthorityOverrideForTesting = { _ in true }
         if Self.suiteBaselineWindowNumbers == nil {
             Self.suiteBaselineWindowNumbers = Set(NSApp.windows.map(\.windowNumber))
             Self.suiteBaselinePortalCount = TerminalWindowPortalRegistry.debugPortalCount()
@@ -5493,6 +5496,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     var trackedSurfaces: [TerminalSurface] = []
 
     override func tearDown() {
+        Workspace.portalRenderingAuthorityOverrideForTesting = nil
         // Global flags first: a failed assertion can skip a test's own reset,
         // and latched interactive state changes every later test's sync path.
         // (Window-live-resize is now instance-scoped on each portal, so it

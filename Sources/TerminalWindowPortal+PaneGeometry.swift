@@ -13,13 +13,26 @@ extension WindowTerminalPortal {
             guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
                   entry.needsSettledCommit, let hostedView = entry.hostedView,
                   !hostedView.isHidden, hostedView.window === window else { continue }
-            entriesByHostedId[hostedId]?.needsSettledCommit = false
-            _ = hostedView.commitPortalGeometry(phase: .settled)
+            // Only an accepted commit retires the request; a frame the view
+            // could not publish (no window, empty) stays pending.
+            if hostedView.commitPortalGeometry(phase: .settled) {
+                entriesByHostedId[hostedId]?.needsSettledCommit = false
+            }
         }
     }
 
     /// Whether frames written right now are drag ticks the user is watching.
     var isInteractiveGeometryActive: Bool {
         isWindowLiveResizeActive || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+    }
+
+    /// Records that the bounded settlement retry ran out while layout was
+    /// still changing. Nothing is published; the pending commits wait for the
+    /// next pass that observes stable geometry.
+    func noteSettlementExhausted() {
+#if DEBUG
+        let pending = entriesByHostedId.values.filter { $0.visibleInUI && $0.needsSettledCommit }.count
+        cmuxDebugLog("portal.settle.exhausted pending=\(pending)")
+#endif
     }
 }

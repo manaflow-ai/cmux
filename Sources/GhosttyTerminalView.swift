@@ -5079,7 +5079,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Sizes the Metal drawable and content scale for `size`, then commits
     /// the geometry to the surface model, which owns the grid and PTY size.
     ///
-    /// - Returns: Whether the drawable, renderer, or PTY size changed.
+    /// - Returns: Whether the geometry was accepted as the committed size. A
+    ///   repeated commit of the same size is accepted and changes nothing.
     @discardableResult
     func commitPaneGeometry(size: CGSize, phase: TerminalPaneGeometry.Phase) -> Bool {
         guard let terminalSurface else { return false }
@@ -5115,9 +5116,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingSurfaceSize = size
         clipsToBounds = true
         layer?.masksToBounds = true
-        let didChangeDrawable = applyDrawableGeometry(geometry)
-        let surfaceSizeChanged = terminalSurface.commitPaneGeometry(geometry)
-        return didChangeDrawable || surfaceSizeChanged
+        _ = applyDrawableGeometry(geometry)
+        _ = terminalSurface.commitPaneGeometry(geometry)
+        return true
     }
 
     /// Re-applies the current pane size: the committed geometry for a
@@ -11349,7 +11350,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// The portal calls this only for a visible, unhidden entry from a
     /// settled layout pass or a drag tick.
     ///
-    /// - Returns: Whether the renderer or PTY size changed.
+    /// - Returns: Whether the frame was accepted as the committed size.
     @discardableResult
     func commitPortalGeometry(phase: TerminalPaneGeometry.Phase) -> Bool {
         _ = synchronizeGeometryAndContent()

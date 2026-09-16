@@ -1136,7 +1136,10 @@ final class WindowTerminalPortal: NSObject {
                 geometrySettlementPassesRemaining -= 1
                 scheduleExternalGeometrySynchronize(forceImmediate: false)
             } else {
-                commitSettledPaneGeometries()
+                // Layout is still moving. A size published now would not be
+                // the resting size, so keep the request pending; the next
+                // external change reschedules a pass that can settle.
+                noteSettlementExhausted()
             }
         }
     }
@@ -1868,7 +1871,7 @@ final class WindowTerminalPortal: NSObject {
                     self.geometrySettlementPassesRemaining -= 1
                     self.scheduleExternalGeometrySynchronize(forceImmediate: false)
                 } else {
-                    self.commitSettledPaneGeometries()
+                    self.noteSettlementExhausted()
                 }
             }
         }
