@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import Testing
 import CmuxSidebar
 
@@ -11,6 +12,23 @@ import CmuxSidebar
 @MainActor
 @Suite(.serialized)
 struct WorkspaceContextTests {
+    @Test func assigningTheAlreadyReportedPRStillRefreshesTheSidebar() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedPanelId)
+        let url = try #require(URL(string: "https://github.com/acme/project/pull/123"))
+        workspace.updatePanelPullRequest(panelId: panel, number: 123, label: "PR", url: url, status: .open)
+        var changes = 0
+        let observation = workspace.sidebarObservationPublisher.sink { changes += 1 }
+        defer { observation.cancel() }
+        let before = changes
+        workspace.setWorkspacePullRequest(number: 123, label: "PR", url: url)
+        #expect(changes > before)
+        let assigned = changes
+        workspace.clearWorkspacePullRequest()
+        #expect(changes > assigned)
+    }
+
     @Test func assignedContextSurvivesShellReportsAndFocusChanges() throws {
         try withWorkspace { workspace, apply in
             let first = try #require(workspace.focusedPanelId)
