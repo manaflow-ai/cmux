@@ -288,6 +288,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             panel.surface.teardownSurface()
         }
 
+        panel.hostedView.setVisibleInUI(true)
         window.orderFront(nil)
         window.displayIfNeeded()
         GhosttyTerminalView.stagePortalReconciliation(
@@ -331,12 +332,10 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
 
-        #expect(
-            panel.hostedView.isHidden,
+        #expect(panel.hostedView.isHidden,
             "A detached current host must persist its hidden intent before the authoritative rebind"
         )
     }
-
     @Test func portalRegistryBindsDeferWindowLayoutUntilCoalescedPass() async {
         let size = NSSize(width: 640, height: 360)
         let window = NSWindow(
@@ -395,11 +394,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             "Anchor changes must wait for the queued portal convergence pass"
         )
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.main.async {
-                continuation.resume()
-            }
-        }
+        await flushPortalReconciliationPasses()
         #expect(container.layoutCount > 0, "The coalesced window pass must still converge layout")
         #expect(
             firstPanel.hostedView.frame.width == 240,
@@ -443,6 +438,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         panel.hostedView.layoutSubtreeIfNeeded()
         _ = panel.hostedView.reconcileGeometryNow()
         _ = panel.hostedView.surfaceView.forceRefreshSurface()
+        await waitForLiveSurface(panel.surface)
         @MainActor func terminalSize() throws -> CGSize {
             let sample = try #require(panel.surface.rawSizingSample())
             return CGSize(width: CGFloat(sample.surfaceWidthPx), height: CGFloat(sample.surfaceHeightPx))
@@ -535,12 +531,20 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             }
         }
     }
-
     private func flushPortalReconciliationTurn() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             RunLoop.main.perform(inModes: [.common]) {
                 continuation.resume()
             }
+        }
+    }
+    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previous = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previous }
+        await withCheckedContinuation { continuation in
+            surface.onRuntimeReady = { continuation.resume() }
+            surface.requestInputDemandSurfaceStartIfNeeded()
         }
     }
 
