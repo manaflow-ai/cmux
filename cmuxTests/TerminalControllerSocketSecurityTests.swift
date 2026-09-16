@@ -815,7 +815,6 @@ final class TerminalControllerSocketSecurityTests {
 
         for method in [
             "mobile.panel.artifact.stat",
-            "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
         ] {
             let requestLine = try makeV2RequestLine(method: method, params: [:])
@@ -834,6 +833,16 @@ final class TerminalControllerSocketSecurityTests {
             XCTAssertNotEqual(workerError["code"] as? String, "internal_error", method)
             XCTAssertEqual(workerError["code"] as? String, "invalid_params", method)
         }
+
+        // Fetch requires the authenticated mobile RPC execution context; a
+        // local control socket must not bypass artifact-transfer authorization.
+        let fetchEnvelope = try await sendV2RequestAsync(
+            method: "mobile.panel.artifact.fetch",
+            params: [:],
+            to: socketPath
+        )
+        let fetchError = try XCTUnwrap(fetchEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(fetchError["code"] as? String, "method_not_found")
     }
 
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
