@@ -17,6 +17,11 @@ import {
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
 import { rateLimitDeploymentPartition } from "../../../services/rateLimitPartition";
+import {
+  clientConfigCacheKey,
+  readCachedClientConfig,
+  writeCachedClientConfig,
+} from "../../../services/client-config/runtimeCache";
 
 
 export async function POST(request: Request): Promise<Response> {
@@ -26,6 +31,15 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
   const distinctId = normalizeDistinctId(body.value.distinctId);
+  const context = normalizeClientConfigEvaluationContext(body.value.context);
+  const cacheKey = clientConfigCacheKey(distinctId, context);
+  const cachedConfig = await readCachedClientConfig(cacheKey);
+  // A complete, exact-evaluation hit has no downstream work left to protect.
+  // Return it before Firewall so repeated polls do not consume the durable
+  // limiter budget or call PostHog again.
+  if (cachedConfig) {
+    return json(cachedConfig, 200, { "x-cmux-client-config-cache": "hit" });
+  }
 
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails
   // open rather than making client config unavailable for every app boot.
@@ -58,7 +72,6 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  const context = normalizeClientConfigEvaluationContext(body.value.context);
   try {
     const response = await fetch(postHogFlagsUrl(), {
       method: "POST",
@@ -79,7 +92,9 @@ export async function POST(request: Request): Promise<Response> {
       return json({ error: "client_config_unavailable" }, 502);
     }
 
-    return json(normalizePostHogFlagsResponse(raw as Record<string, unknown>));
+    const config = normalizePostHogFlagsResponse(raw as Record<string, unknown>);
+    await writeCachedClientConfig(cacheKey, config);
+    return json(config, 200, { "x-cmux-client-config-cache": "miss" });
   } catch {
     return json({ error: "client_config_unavailable" }, 502);
   }
