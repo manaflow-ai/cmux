@@ -158,6 +158,7 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
+        cloudDeviceID: @escaping @Sendable () async -> String?,
         appLog: AppLog? = nil,
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
@@ -193,7 +194,9 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
-        _cloudSessionController = State(initialValue: MobileCloudComposition(auth: auth).makeController())
+        _cloudSessionController = State(initialValue: MobileCloudComposition(
+            auth: auth, deviceID: cloudDeviceID
+        ).makeController())
     }
     #else
     /// Creates the root scene (non-iOS: no push).

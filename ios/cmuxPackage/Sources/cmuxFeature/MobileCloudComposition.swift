@@ -14,9 +14,11 @@ import UIKit
 /// client's device identity persists under Application Support.
 struct MobileCloudComposition {
     private let auth: MobileAuthComposition
+    private let deviceID: @Sendable () async -> String?
 
-    init(auth: MobileAuthComposition) {
+    init(auth: MobileAuthComposition, deviceID: @escaping @Sendable () async -> String?) {
         self.auth = auth
+        self.deviceID = deviceID
     }
 
     /// The Keychain service base; the bundle id is appended so tagged builds
@@ -33,13 +35,8 @@ struct MobileCloudComposition {
         )
         guard !baseURL.isEmpty, let appNamespace = auth.appNamespace else { return nil }
         let coordinator = auth.coordinator
-        // Use the same durable device owner as Iroh. A locked Keychain must
-        // defer enrollment rather than minting another access grant.
-        let deviceIDResolver = MobileIrohDurableDeviceIDResolver(
-            defaults: MobileIrohSendableDefaults(.standard),
-            appNamespace: appNamespace,
-            keychainAccessGroup: auth.keychainAccessGroup
-        )
+        // The app injects the active Iroh installation's identity reader.
+        // Unavailable protected storage defers enrollment without minting a new ID.
         let service = CloudVMService(
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
@@ -48,7 +45,7 @@ struct MobileCloudComposition {
                 teamID: { await coordinator.resolvedTeamID },
                 coherentTokenPair: { try? await coordinator.coherentTokenPair() }
             ),
-            deviceID: { await deviceIDResolver.resolve() }
+            deviceID: deviceID
         )
         // Unsigned simulator apps cannot use the data-protection Keychain (no
         // application-identifier entitlement), mirroring DeviceIdentityStore's
