@@ -301,7 +301,6 @@ extension Workspace {
             ? .observedAgentCommandRunning
             : .manualResumeAvailable
     }
-
     func updateRestoredAgentResumeState(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot,
@@ -343,7 +342,6 @@ extension Workspace {
             break
         }
     }
-
     func updateBindingOnlyRestoredAgentResumeState(
         panelId: UUID,
         shellState: PanelShellActivityState
@@ -364,7 +362,6 @@ extension Workspace {
             break
         }
     }
-
     private func invalidateRestoredAgentSnapshot(
         panelId: UUID,
         restoredAgent: SessionRestorableAgentSnapshot
@@ -589,7 +586,14 @@ extension Workspace {
             }
         }
     }
-
+    /// The index a deferred restore resolves against: the settled refresh when
+    /// it completed, otherwise the most recent completed load.
+    nonisolated static func deferredResumeIndex(
+        refreshed: RestorableAgentSessionIndex?,
+        lastKnown: RestorableAgentSessionIndex?
+    ) -> RestorableAgentSessionIndex? {
+        refreshed ?? lastKnown
+    }
     private func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {
@@ -709,15 +713,11 @@ extension Workspace {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
             if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    restorableAgent.resumeStartupInput(
-                        useLocalRestoreVerb: false,
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
-                    )
+                    restorableAgent.remoteResumeStartupInput()
                 } else {
                     restorableAgent.resumeStartupInput(
                         restoringWorkingDirectory: restore.resumeWorkingDirectory
@@ -730,6 +730,13 @@ extension Workspace {
                         cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                         continue
                     }
+                    guard !binding.isAgentHookBinding ||
+                            (binding.restoreWorkingDirectorySelection.map {
+                                if case .exact = $0 { true } else { false }
+                            } == true) else {
+                        cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                        continue
+                    }
                 }
                 let approvedBinding = policy.approvedSurfaceResumeBinding(
                     binding,
@@ -739,9 +746,14 @@ extension Workspace {
                     promptForApproval: true,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
+                let matchingRestorableAgent = restoredAgentSnapshotsByPanelId[panelId].flatMap {
+                    Self.restorableAgentForSessionRestore($0, resumeBinding: binding)
+                }
                 startupInput = approvedBinding.flatMap {
                     if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                        return $0.remoteStartupInput()
+                        return $0.remoteStartupInput(
+                            registration: matchingRestorableAgent?.registration
+                        )
                     }
                     return policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
                 }
@@ -815,7 +827,9 @@ extension Workspace {
             }
         }
     }
-
+#if DEBUG
+    func resolveDeferredAgentResumeRestoresForTesting(using index: RestorableAgentSessionIndex) { resolveDeferredAgentResumeRestores(using: index) }
+#endif
     func removeDeferredAgentResumeRestore(panelId: UUID) {
         deferredAgentResumeRestoresByPanelId.removeValue(forKey: panelId)
         if let claim = deferredAgentResumeClaimsByPanelId.removeValue(forKey: panelId) {
@@ -825,7 +839,6 @@ extension Workspace {
             )
         }
     }
-
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
@@ -849,7 +862,6 @@ extension Workspace {
             restoredAgentLifecycle.setResumeState(.manualResumeAvailable, panelId: panelId)
         }
     }
-
     private func deferredAgentResumeRestoreMatchesCurrentSession(
         panelId: UUID,
         restore: DeferredAgentResumeRestore
@@ -874,7 +886,6 @@ extension Workspace {
         } else if restore.restorableAgent != nil {
             return false
         }
-
         if restore.resumeBinding != nil {
             guard let currentBinding = surfaceResumeBindingsByPanelId[panelId],
                   let currentKind = currentBinding.kind,
@@ -901,7 +912,6 @@ extension Workspace {
         }
         return true
     }
-
     private func retireAgentHookResumeBinding(
         panelId: UUID,
         matching binding: SurfaceResumeBindingSnapshot
@@ -913,7 +923,6 @@ extension Workspace {
         }
         retireAgentHookResumeBinding(panelId: panelId)
     }
-
     /// Replaces a deferred automatic resume with a typed explanation, so the
     /// pane says why nothing was resumed and how to resume it by hand.
     private func explainDeferredAgentResumeRestore(
@@ -1008,17 +1017,6 @@ extension Workspace {
         }
         deferredAgentResumeRestoresByPanelId.removeAll()
     }
-
-    /// Uses the most recent completed index when a refresh could not settle.
-    /// A missing refreshed index means the scan was inconclusive, not that the
-    /// previously loaded session index is stale.
-    nonisolated static func deferredResumeIndex(
-        refreshed: RestorableAgentSessionIndex?,
-        lastKnown: RestorableAgentSessionIndex?
-    ) -> RestorableAgentSessionIndex? {
-        refreshed ?? lastKnown
-    }
-
     func agentHibernationLifecycleState(
         panelId: UUID,
         fallback: AgentHibernationLifecycleState?
@@ -1028,13 +1026,11 @@ extension Workspace {
             fallback: fallback
         )
     }
-
     func agentLifecycleStateForTextBoxEscape(panelId: UUID) -> AgentHibernationLifecycleState {
         AgentHibernationLifecycleState.aggregateForTextBoxEscape(
             statusKeyedStates: agentLifecycleStatesByPanelId[panelId] ?? [:]
         )
     }
-
     private func recordAgentLifecycleChange(panelId: UUID) {
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,

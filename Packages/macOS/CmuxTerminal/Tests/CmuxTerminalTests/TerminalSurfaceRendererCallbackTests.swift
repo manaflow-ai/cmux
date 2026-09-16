@@ -11,7 +11,7 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)
@@ -25,6 +25,13 @@ import Testing
             fixture.runtimeSurface,
             terminalRendererFailedCallback,
             context.toOpaque()
+        ))
+        // A submitted frame owns the original userdata until native free.
+        #expect(!ghostty_surface_set_render_presented_callback(
+            fixture.runtimeSurface, terminalRendererPresentedCallback, nil
+        ))
+        #expect(!ghostty_surface_set_render_failed_callback(
+            fixture.runtimeSurface, terminalRendererFailedCallback, nil
         ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
@@ -35,7 +42,7 @@ import Testing
     }
 
     @Test func registeredFailureCallbackForwardsTokenAndTriggersOneRecoveryProbe() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)
@@ -48,6 +55,9 @@ import Testing
             fixture.runtimeSurface,
             terminalRendererFailedCallback,
             context.toOpaque()
+        ))
+        #expect(!ghostty_surface_set_render_failed_callback(
+            fixture.runtimeSurface, terminalRendererFailedCallback, nil
         ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
@@ -64,7 +74,7 @@ import Testing
     }
 
     @Test func shellExitHealthSurvivesRendererRebuildAndPresentation() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
         let context = installCallbackContext(on: surface)
@@ -100,6 +110,17 @@ import Testing
             Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
         ))
         #expect(surface.renderHealth == .shellExited)
+    }
+
+    @Test func disablingNativeCallbacksAlsoDisablesRendererRegistration() {
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
+        defer { fixture.tearDown() }
+        fixture.surface.installRuntimeSurfaceForTesting(
+            fixture.runtimeSurface,
+            configureNativeCallbacks: false,
+            configureRendererCallbacks: true
+        )
+        #expect(!ghostty_surface_request_render_with_token(fixture.runtimeSurface, 1))
     }
 
     private func installCallbackContext(

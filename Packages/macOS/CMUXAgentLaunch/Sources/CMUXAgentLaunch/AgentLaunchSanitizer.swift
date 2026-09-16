@@ -237,16 +237,39 @@ public enum AgentLaunchSanitizer {
         }
         return false
     }
+
+    /// Removes captured cwd options before an argument boundary.
+    ///
+    /// - Parameters:
+    ///   - args: The captured command arguments to sanitize.
+    ///   - workingDirectory: The saved cwd whose matching options should be removed.
+    ///   - agentKind: The exact built-in kind, or `nil` for a custom registration.
+    ///   - removeAllWorkingDirectoryOptions: Whether to remove every cwd option regardless of value.
+    /// - Returns: Sanitized arguments while preserving content after `--`.
     public static func removingSavedWorkingDirectoryOptions(
         from args: [String],
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String? = nil,
+        removeAllWorkingDirectoryOptions: Bool = false
     ) -> [String] {
-        guard let workingDirectory = normalizedWorkingDirectory(workingDirectory) else {
+        let savedWorkingDirectory = normalizedWorkingDirectory(workingDirectory)
+        guard removeAllWorkingDirectoryOptions || savedWorkingDirectory != nil else {
             return args
         }
-
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let optionPolicy = AgentWorkingDirectoryOptionPolicy(
+            agentKind: agentKind,
+            builtInAgentKind: agentKind
+        )
+        let valueOptions = optionPolicy.valueOptions
+        let unconditionallyRemovableValueOptions = optionPolicy.unconditionallyRemovableValueOptions
+        let attachedShortValueOptions = optionPolicy.attachedShortValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
+        let shouldRemoveValue: (String, String) -> Bool = { option, value in
+            (removeAllWorkingDirectoryOptions && unconditionallyRemovableValueOptions.contains(option)) ||
+                savedWorkingDirectory.map {
+                    workingDirectoryValue(value, matches: $0)
+                } == true
+        }
         var result: [String] = []
         var index = 0
         while index < args.count {
@@ -255,15 +278,45 @@ public enum AgentLaunchSanitizer {
                 result.append(contentsOf: args[index...])
                 break
             }
-            if valueOptions.contains(arg),
-               index + 1 < args.count,
-               workingDirectoryValue(args[index + 1], matches: workingDirectory) {
-                index += 2
-                continue
+            if valueOptions.contains(arg) {
+                guard index + 1 < args.count else {
+                    if removeAllWorkingDirectoryOptions &&
+                        unconditionallyRemovableValueOptions.contains(arg) {
+                        index += 1
+                        continue
+                    }
+                    result.append(arg)
+                    index += 1
+                    continue
+                }
+                let value = args[index + 1]
+                if removeAllWorkingDirectoryOptions &&
+                    unconditionallyRemovableValueOptions.contains(arg) &&
+                    value.hasPrefix("-") && value != "-" {
+                    // An option-looking token cannot be a reliable cwd value.
+                    // Remove only the incomplete cwd option so the next option
+                    // remains available to the replayed agent command.
+                    index += 1
+                    continue
+                }
+                if shouldRemoveValue(arg, value) {
+                    index += 2
+                    continue
+                }
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                let option = String(prefix.dropLast())
                 let value = String(arg.dropFirst(prefix.count))
-                if workingDirectoryValue(value, matches: workingDirectory) {
+                if shouldRemoveValue(option, value) {
+                    index += 1
+                    continue
+                }
+            }
+            if let option = attachedShortValueOptions.first(where: {
+                arg.count > $0.count && arg.hasPrefix($0)
+            }) {
+                let value = String(arg.dropFirst(option.count))
+                if shouldRemoveValue(option, value) {
                     index += 1
                     continue
                 }

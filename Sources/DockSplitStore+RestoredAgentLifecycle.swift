@@ -69,7 +69,6 @@ extension DockSplitStore {
             break
         }
     }
-
     /// Starts title admission for a terminal rebuilt directly inside this Dock.
     func armRestoredPanelTitleBoundary(
         panelId: UUID,
@@ -186,7 +185,6 @@ extension DockSplitStore {
             return self.resumeAgentHibernation(panelId: terminal.id, focus: focus)
         }
     }
-
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
         guard let terminal = panels[panelId] as? TerminalPanel,
@@ -249,7 +247,6 @@ extension DockSplitStore {
             }
         }
     }
-
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {
         agentRuntimeByPanelId[panelId]?.statusEntries[key]
     }
@@ -263,7 +260,6 @@ extension DockSplitStore {
             $0.statusEntries[key] = entry
         }
     }
-
     func clearAgentRuntimeStatusEntry(key: String, panelId: UUID) {
         mutateAgentRuntime(panelId: panelId) {
             $0.statusEntries.removeValue(forKey: key)
@@ -468,7 +464,6 @@ extension DockSplitStore {
             }
         }
     }
-
     private func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {
@@ -588,15 +583,11 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
             if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    restorableAgent.resumeStartupInput(
-                        useLocalRestoreVerb: false,
-                        restoringWorkingDirectory: restore.resumeWorkingDirectory
-                    )
+                    restorableAgent.remoteResumeStartupInput()
                 } else {
                     restorableAgent.resumeStartupInput(
                         restoringWorkingDirectory: restore.resumeWorkingDirectory
@@ -605,7 +596,8 @@ extension DockSplitStore {
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
             } else if let binding = currentResumeBinding ?? restore.resumeBinding {
                 if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
+                    guard binding.launchFlavor.remoteContext == restore.remoteResumeContext,
+                          !binding.isAgentHookBinding || binding.hasExactRestoreWorkingDirectorySelection else {
                         cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                         continue
                     }
@@ -618,9 +610,14 @@ extension DockSplitStore {
                     promptForApproval: true,
                     approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
                 )
+                let matchingRestorableAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId].flatMap {
+                    Workspace.restorableAgentForSessionRestore($0, resumeBinding: binding)
+                }
                 startupInput = approvedBinding.flatMap {
                     if restore.restoresRemoteWorkspaceTerminalSnapshot {
-                        return $0.remoteStartupInput()
+                        return $0.remoteStartupInput(
+                            registration: matchingRestorableAgent?.registration
+                        )
                     }
                     return policy.surfaceResumeStartupLaunch(forApprovedBinding: $0)?.initialInput
                 }
@@ -700,7 +697,9 @@ extension DockSplitStore {
             }
         }
     }
-
+#if DEBUG
+    func resolveDeferredAgentResumeRestoresForTesting(using index: RestorableAgentSessionIndex) { resolveDeferredAgentResumeRestores(using: index) }
+#endif
     /// Builds a transfer-scoped persistent-SSH attach that prints the live-owner
     /// notice without replaying the embedded agent command.
     private func detachedRemoteLiveOwnerNoticeAttachCommand(

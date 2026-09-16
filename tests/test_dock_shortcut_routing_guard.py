@@ -158,11 +158,39 @@ def movement_shortcut_actions() -> set[str]:
     )
 
 
+def dynamic_action_bindings(source: str) -> dict[str, set[str]]:
+    """Resolve local Action values built from exhaustive enum switches.
+
+    Dispatchers may compute an Action once and pass that local into the Dock
+    gate. Treat each enum case returned by that switch as explicitly gated when
+    the corresponding local is passed as the gate's `action:` argument.
+    """
+    bindings: dict[str, set[str]] = {}
+    pattern = re.compile(
+        r"let\s+(?P<name>[A-Za-z][A-Za-z0-9_]*)\s*:\s*"
+        r"KeyboardShortcutSettings\.Action\s*=\s*\{\s*"
+        r"switch\s+[A-Za-z][A-Za-z0-9_]*\s*\{(?P<body>.*?)\}\s*\}\(\)",
+        flags=re.DOTALL,
+    )
+    for match in pattern.finditer(source):
+        actions = set(
+            re.findall(
+                r"case\s+\.[A-Za-z][A-Za-z0-9_]*\s*:\s*"
+                r"\.([A-Za-z][A-Za-z0-9_]*)",
+                match.group("body"),
+            )
+        )
+        if actions:
+            bindings[match.group("name")] = actions
+    return bindings
+
+
 def explicitly_gated_actions() -> set[str]:
     actions: set[str] = set()
     has_movement_gate = False
     for path in DISPATCH_SOURCES:
         source = path.read_text(encoding="utf-8")
+        dynamic_bindings = dynamic_action_bindings(source)
         for call_name in GATE_CALLS:
             for body in balanced_call_bodies(source, call_name):
                 actions.update(
@@ -176,6 +204,12 @@ def explicitly_gated_actions() -> set[str]:
                     body,
                 ):
                     has_movement_gate = True
+                for name, mapped_actions in dynamic_bindings.items():
+                    if re.search(
+                        rf"\baction\s*:\s*{re.escape(name)}\b",
+                        body,
+                    ):
+                        actions.update(mapped_actions)
     if has_movement_gate:
         actions.update(movement_shortcut_actions())
     return actions

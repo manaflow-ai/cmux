@@ -13,7 +13,14 @@ extension DockSplitStore {
         let binding = surfaceResumeBindingsByPanelId[panelId]
             ?? managedAgentResumeBindingsByPanelId[panelId]
         guard let agent = restoredAgent
-            ?? binding.flatMap({ $0.isAgentHookBinding ? $0.managedRestorableAgentSnapshot(replacing: nil) : nil })
+            ?? binding.flatMap({
+                $0.isAgentHookBinding
+                    ? $0.managedRestorableAgentSnapshot(
+                        replacing: nil,
+                        previousBinding: nil
+                    )
+                    : nil
+            })
         else {
             return false
         }

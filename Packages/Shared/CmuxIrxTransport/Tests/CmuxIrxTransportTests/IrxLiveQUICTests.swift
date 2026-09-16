@@ -694,7 +694,7 @@ struct IrxLiveQUICTests {
             )
         )
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        try await IrxAsyncWait.until { await engine.currentSession() == nil }
         #expect(await engine.currentSession() == nil)
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0
