@@ -3042,6 +3042,10 @@
       "nb": "Standard technical UI term with the same spelling in this language."
     }
   },
+  "cloudTree.resources.loading.symbol": {
+    "source": "…",
+    "class": "format"
+  },
   "cloudTree.resources.missing": {
     "source": "—",
     "class": "format"
