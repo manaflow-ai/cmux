@@ -72,7 +72,7 @@ test("locale switch preserves a nested route after client-side navigation", asyn
   await expect(page).toHaveTitle(title);
 });
 
-test("an old-locale prefetch cannot undo an explicit language switch", async ({ page }) => {
+test("an old-locale background request cannot undo an explicit language switch", async ({ page }) => {
   const oldPage = await page.context().newPage();
   await oldPage.goto("/ko/blog");
   await page.goto("/ko");
@@ -85,8 +85,7 @@ test("an old-locale prefetch cannot undo an explicit language switch", async ({ 
   // An older tab still has Korean links. Complete its background request after
   // the new tab selects English, using the real server and shared browser cookies.
   const status = await oldPage.evaluate(async () => {
-    const prefetch = await fetch("/ko/blog?_rsc=locale-cookie-regression", {
-      headers: { RSC: "1", "Next-Router-Prefetch": "1" },
+    const prefetch = await fetch("/ko/blog", {
       cache: "no-store",
     });
     await prefetch.text();
