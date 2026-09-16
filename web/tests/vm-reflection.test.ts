@@ -118,8 +118,8 @@ describe("requireVmPrincipal", () => {
     expect(await requireVmPrincipal(guestRequest(), { authenticate: boundIdentity, loadVm: async () => otherOwner })).toEqual({ ok: false, reason: "vm_owner_mismatch" });
   });
 
-  test("ownership is the creating user or the billing team", () => {
-    expect(vmPrincipalOwns(self, { stackUserId: "user-1", teamId: "team-x" })).toBe(true);
+  test("the creator cannot authorize a machine through a different team", () => {
+    expect(vmPrincipalOwns(self, { stackUserId: "user-1", teamId: "team-x" })).toBe(false);
     expect(vmPrincipalOwns(self, { stackUserId: "user-x", teamId: "team-1" })).toBe(true);
     expect(vmPrincipalOwns(row({ id: SELF_ID, billingTeamId: null }), { stackUserId: "user-x", teamId: "user-1" })).toBe(false);
     expect(vmPrincipalOwns(self, { stackUserId: "user-x", teamId: "team-x" })).toBe(false);
