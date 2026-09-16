@@ -9,7 +9,6 @@ import CmuxRemoteSession
 import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)

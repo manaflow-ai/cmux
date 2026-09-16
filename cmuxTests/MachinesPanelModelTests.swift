@@ -2,13 +2,11 @@ import Foundation
 import Bonsplit
 import Testing
 import XCTest
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 final class MachinesPanelModelTests: XCTestCase {
     func testSnapshotMapsSummaryFields() {
         let summary = VMSummary(
@@ -31,7 +29,6 @@ final class MachinesPanelModelTests: XCTestCase {
             Date(timeIntervalSince1970: 1_787_400_000)
         )
     }
-
     func testDesktopImageDetection() {
         let desktop = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "noble-dolphin",
