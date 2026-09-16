@@ -75,12 +75,21 @@ struct NotificationRowSnapshotBoundaryTests {
     @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let childId = try #require(manager.tabs.first?.id)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let childIds = manager.tabs.map(\.id)
         let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [childId])
+            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: childIds)
         )
+        let generatedGroup = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let generatedAnchorId = try #require(generatedGroup.liveAnchorWorkspaceId)
+        let generatedAnchor = try #require(manager.tabs.first { $0.id == generatedAnchorId })
+        manager.closeWorkspace(generatedAnchor)
+
+        // A promoted anchor retains its own title. The display-title index must
+        // still use the group name after the group is renamed.
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let anchor = try #require(manager.tabs.first { $0.id == group.anchorWorkspaceId })
+        let anchorId = try #require(group.liveAnchorWorkspaceId)
+        let anchor = try #require(manager.tabs.first { $0.id == anchorId })
         let staleAnchorTitle = anchor.title
 
         let appDelegate = AppDelegate()
@@ -90,6 +99,7 @@ struct NotificationRowSnapshotBoundaryTests {
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
         #expect(anchor.title == staleAnchorTitle)
+        #expect(anchor.title != "Renamed Group")
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 
