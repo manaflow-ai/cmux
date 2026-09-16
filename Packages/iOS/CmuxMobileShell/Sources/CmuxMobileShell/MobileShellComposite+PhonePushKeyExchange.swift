@@ -16,7 +16,8 @@ extension MobileShellComposite {
         client: MobileCoreRPCClient,
         status: MobileHostStatusResponse
     ) async {
-        guard let hooks = phonePushKeyExchangeHooks,
+        guard status.capabilities.contains(Self.phonePushKeyExchangeCapability),
+              phonePushKeyExchangeHooks != nil,
               let accountID = identityProvider?.currentUserID,
               let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
@@ -34,8 +35,8 @@ extension MobileShellComposite {
         )
         guard !exchanged, !Task.isCancelled else { return }
         phonePushKeyExchangeRetryTask = Task { @MainActor [weak self, client] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(8))
+            for retry in 0..<4 {
+                try? await Task.sleep(for: .seconds(8 * (1 << retry)))
                 guard !Task.isCancelled, let self else { return }
                 let exchanged = await self.performPhonePushKeyExchange(
                     client: client,
@@ -46,6 +47,7 @@ extension MobileShellComposite {
                 )
                 if exchanged { return }
             }
+            phonePushKeyExchangeLog.error("key exchange retries exhausted; reconnect or retry pairing to recover")
         }
     }
 
@@ -55,7 +57,8 @@ extension MobileShellComposite {
         macDeviceID: String,
         macInstanceTag: String,
         macBuildID: String
-        ) async -> Bool {
+    ) async -> Bool {
+        guard let hooks = phonePushKeyExchangeHooks else { return false }
         for attempt in 0..<3 {
             guard !Task.isCancelled else { return false }
             do {
@@ -69,7 +72,7 @@ extension MobileShellComposite {
                       response.macDeviceID == macDeviceID,
                       response.macInstanceTag == macInstanceTag,
                       response.macBuildID == macBuildID else {
-                    return
+                    return false
                 }
                 let context = MobilePhonePushKeyExchangeContext(
                     accountID: accountID,

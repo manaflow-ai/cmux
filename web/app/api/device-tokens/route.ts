@@ -95,7 +95,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
       let existingInstallation:
-        | { id: string; userId: string; deliveryLeaseUntil: Date | null }
+        | { id: string; userId: string; deliveryLeaseUntil: Date | null; pushKeyId: string; pushPublicKey: string | null }
         | undefined;
       if (!isLegacy) {
         [existingInstallation] = await tx
@@ -103,6 +103,8 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             id: deviceTokens.id,
             userId: deviceTokens.userId,
             deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+            pushKeyId: deviceTokens.pushKeyId,
+            pushPublicKey: deviceTokens.pushPublicKey,
           })
           .from(deviceTokens)
           .where(and(
@@ -119,6 +121,8 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           userId: deviceTokens.userId,
           bundleId: deviceTokens.bundleId,
           deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+          pushKeyId: deviceTokens.pushKeyId,
+          pushPublicKey: deviceTokens.pushPublicKey,
         })
         .from(deviceTokens)
         .where(and(
@@ -142,9 +146,13 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         };
       }
 
+      const provesInstallationOwnership = (row: typeof existingInstallation) =>
+        row?.pushKeyId === pushKeyId && row.pushPublicKey === pushPublicKey;
+      const provesTokenOwnership = (row: typeof existingToken) =>
+        row?.pushKeyId === pushKeyId && row.pushPublicKey === pushPublicKey;
       if (
-        (existingInstallation && existingInstallation.userId !== user.id)
-        || (existingToken && existingToken.userId !== user.id)
+        (existingInstallation && existingInstallation.userId !== user.id && !provesInstallationOwnership(existingInstallation))
+        || (existingToken && existingToken.userId !== user.id && !provesTokenOwnership(existingToken))
       ) {
         return { limitReached: false, conflict: true };
       }

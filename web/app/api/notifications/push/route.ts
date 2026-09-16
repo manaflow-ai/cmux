@@ -96,6 +96,25 @@ function validatePushProtocol(
   return null;
 }
 
+function validateEncryptedRecipients(
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  targetNamespace: ReturnType<typeof normalizeApnsBundle>,
+): Response | null {
+  if (encryptedPayloads.length === 0) return null;
+  if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
+  const matchesOwner = encryptedPayloads.every((envelope) => {
+    const tuple = envelope.tuple as Record<string, unknown>;
+    return tuple.accountID === userID && tuple.iosBuildID === targetNamespace.bundleId
+      && tuple.macDeviceID === payload.macDeviceId
+      && (tuple.macInstanceTag ?? null) === payload.macInstanceTag;
+  });
+  return matchesOwner
+    ? null
+    : jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
+}
+
 function summaryResponse(
   summary: PushSendSummary,
   correlationId: string,
@@ -179,15 +198,13 @@ async function sendPush(
   const targetNamespace = targetNamespaceResult.value;
   const protocolError = validatePushProtocol(protocol, encryptedPayloads, targetNamespace);
   if (protocolError) return protocolError;
-  if (encryptedPayloads.length > 0) {
-    const matchesOwner = encryptedPayloads.every((envelope) => {
-      const tuple = envelope.tuple as Record<string, unknown>;
-      return tuple.accountID === user.id && tuple.iosBuildID === targetNamespace.bundleId
-        && tuple.macDeviceID === payload.value.macDeviceId
-        && (tuple.macInstanceTag ?? null) === payload.value.macInstanceTag;
-    });
-    if (!matchesOwner) return jsonResponse({ error: "push_recipient_tuple_mismatch" }, 403);
-  }
+  const recipientError = validateEncryptedRecipients(
+    user.id,
+    payload.value,
+    encryptedPayloads,
+    targetNamespace,
+  );
+  if (recipientError) return recipientError;
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(

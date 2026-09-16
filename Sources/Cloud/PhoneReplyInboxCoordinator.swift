@@ -136,18 +136,31 @@ final class PhoneReplyInboxCoordinator {
                 ackIds.append(reply.replyId)
                 continue
             }
-            guard let decrypted = decrypt(
+            let decryptOutcome = decrypt(
                 reply,
                 accountID: await MainActor.run { client.authenticatedAccountID() }
-            ) else {
-                let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
-                decryptFailureCounts[reply.replyId] = failures
-                if failures == Self.maxDecryptFailures {
+            )
+            guard case let .success(decrypted) = decryptOutcome else {
+                switch decryptOutcome {
+                case .permanentFailure:
+                    decryptFailureCounts.removeValue(forKey: reply.replyId)
+                    ackIds.append(reply.replyId)
                     phoneReplySweepLog.error(
-                        "relayed phone reply still unavailable after decrypt failures reply=\(reply.replyId.prefix(8), privacy: .public)"
+                        "relayed phone reply dropped after permanent decrypt failure reply=\(reply.replyId.prefix(8), privacy: .public)"
                     )
+                case .retryable:
+                    let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
+                    decryptFailureCounts[reply.replyId] = failures
+                    if failures >= Self.maxDecryptFailures {
+                        ackIds.append(reply.replyId)
+                        decryptFailureCounts.removeValue(forKey: reply.replyId)
+                        phoneReplySweepLog.error(
+                            "relayed phone reply dropped after bounded decrypt retries reply=\(reply.replyId.prefix(8), privacy: .public)"
+                        )
+                    } else {
+                        retryableCount += 1
+                    }
                 }
-                retryableCount += 1
                 continue
             }
             decryptFailureCounts.removeValue(forKey: reply.replyId)
@@ -210,7 +223,13 @@ final class PhoneReplyInboxCoordinator {
         let text: String
     }
 
-    private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptedReply? {
+    private enum DecryptOutcome {
+        case success(DecryptedReply)
+        case permanentFailure
+        case retryable
+    }
+
+    private func decrypt(_ reply: PhoneReplyRecord, accountID: String?) -> DecryptOutcome {
         if let encryptedPayload = reply.encryptedPayload {
             return decrypt(
                 reply,
@@ -221,8 +240,8 @@ final class PhoneReplyInboxCoordinator {
         guard let accountID,
               let workspaceId = reply.workspaceId,
               let surfaceId = reply.surfaceId,
-              let text = reply.text else { return nil }
-        return DecryptedReply(
+              let text = reply.text else { return .permanentFailure }
+        return .success(DecryptedReply(
             replyId: reply.replyId,
             accountID: accountID,
             issuedAtEpochSeconds: Double(reply.createdAtMs) / 1000,
@@ -231,39 +250,54 @@ final class PhoneReplyInboxCoordinator {
             surfaceId: surfaceId,
             retargetsToLiveSurfaceOwner: reply.retargetsToLiveSurfaceOwner,
             text: text
-        )
+        ))
     }
 
     private func decrypt(
         _ reply: PhoneReplyRecord,
         encryptedPayload: PhonePushEncryptedPayload,
         accountID: String?
-    ) -> DecryptedReply? {
-        guard let identity = try? PhonePushKeyStore.current(
-            bundleID: Bundle.main.bundleIdentifier ?? "cmux"
-        ), let tuple = Optional(encryptedPayload.tuple),
-            tuple.accountID == accountID,
-            tuple.macDeviceID == MobileHostIdentity.deviceID(),
-            tuple.macInstanceTag == MobileHostIdentity.instanceTag(),
-            let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple),
-            let data = try? PhonePushCrypto.decrypt(
-            envelope: encryptedPayload,
-            tuple: tuple,
-            recipientInstallationID: identity.installationID,
-            recipientKeyID: identity.keyID,
-            trustedSenderKeyID: sender.keyID,
-            senderPublicKey: sender.publicKey,
-            privateKey: identity.privateKey
-        ) else { return nil }
+    ) -> DecryptOutcome {
+        guard let accountID,
+              encryptedPayload.tuple.accountID == accountID,
+              encryptedPayload.tuple.macDeviceID == MobileHostIdentity.deviceID(),
+              encryptedPayload.tuple.macInstanceTag == MobileHostIdentity.instanceTag() else {
+            return .permanentFailure
+        }
+        let identity: PhonePushKeyMaterial
+        do {
+            identity = try PhonePushKeyStore.current(
+                bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+            )
+        } catch {
+            return .retryable
+        }
+        guard let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: encryptedPayload.tuple) else {
+            return .retryable
+        }
+        let data: Data
+        do {
+            data = try PhonePushCrypto.decrypt(
+                envelope: encryptedPayload,
+                tuple: encryptedPayload.tuple,
+                recipientInstallationID: identity.installationID,
+                recipientKeyID: identity.keyID,
+                trustedSenderKeyID: sender.keyID,
+                senderPublicKey: sender.publicKey,
+                privateKey: identity.privateKey
+            )
+        } catch {
+            return .permanentFailure
+        }
         guard let result = try? JSONDecoder().decode(DecryptedReply.self, from: data),
               result.replyId == reply.replyId,
-              result.accountID == accountID else { return nil }
+              result.accountID == accountID else { return .permanentFailure }
         guard PhonePushReplyFreshness.accepts(
             issuedAt: result.issuedAtEpochSeconds,
             expiresAt: result.expiresAtEpochSeconds,
             now: now().timeIntervalSince1970
-        ) else { return nil }
-        return result
+        ) else { return .permanentFailure }
+        return .success(result)
     }
 }
 
