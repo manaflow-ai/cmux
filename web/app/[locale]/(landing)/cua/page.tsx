@@ -66,7 +66,6 @@ export default async function ComputerUsePage({
             />
           </BrandLogoLink>
           <div>
-            <p className="mb-1 text-xs font-medium text-muted">cmux / product</p>
             <h1 className="text-2xl font-semibold tracking-tight">Computer use</h1>
           </div>
         </div>
