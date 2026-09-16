@@ -48,6 +48,25 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
         super.tearDown()
     }
 
+    func testCategoryHeaderStaysBelowTheTitlebar() {
+        let app = makeLaunchedApp()
+        let window = openSettings(app)
+        navigate(window, to: "Account")
+        navigate(window, to: "Browser")
+
+        let header = requireElement(
+            candidates: [window.staticTexts["SettingsBrowserSection"]],
+            timeout: 4.0,
+            description: "Browser category header"
+        )
+        let toolbar = window.toolbars.firstMatch
+        XCTAssertTrue(toolbar.exists)
+        XCTAssertTrue(poll(timeout: 3.0) {
+            header.frame.minY >= toolbar.frame.maxY
+        }, "The category header must not scroll behind the title bar")
+        XCTAssertFalse(window.buttons["SettingsBrowserImportChooseButton"].exists)
+    }
+
     // MARK: - TIER 1 (behavioral)
 
     /// Import Browser Data → **Choose…** opens the import wizard.

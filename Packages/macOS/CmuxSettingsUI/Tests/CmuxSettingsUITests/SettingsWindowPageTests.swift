@@ -48,7 +48,10 @@ import Testing
     /// in off screen so SwiftUI treats the content as presented.
     static func host(_ root: SettingsWindowRoot, in fixture: Fixture) -> NSWindow {
         let hosting = NSHostingController(rootView: root.defaultAppStorage(fixture.defaults))
+        hosting.sceneBridgingOptions = [.title]
         let window = NSWindow(contentViewController: hosting)
+        window.styleMask.insert(.fullSizeContentView)
+        window.toolbar = NSToolbar(identifier: "SettingsWindowPageTests")
         window.setContentSize(NSSize(width: 980, height: 680))
         window.contentView?.layoutSubtreeIfNeeded()
         window.setFrameOrigin(NSPoint(x: -4000, y: -4000))
@@ -56,7 +59,7 @@ import Testing
         return window
     }
 
-    @Test func categoryPagesReplaceTheirControls() {
+    @Test func categoryPagesReplaceTheirControls() throws {
         let fixture = Self.makeFixture()
         let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
         defer { window.close() }
@@ -65,6 +68,13 @@ import Testing
         Self.navigate(to: .browser, in: window)
         let browserControls = Self.controlCount(in: window.contentView)
         #expect(browserControls > accountControls + 10)
+        let browserScroll = try #require(Self.scrollViews(in: window.contentView).max {
+            ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+        })
+        let top = try #require(Self.controls(in: browserScroll.documentView).map {
+            $0.convert($0.bounds, to: nil).maxY
+        }.max())
+        #expect(top <= window.contentLayoutRect.maxY + 1)
 
         Self.navigate(to: .account, in: window)
         #expect(Self.controlCount(in: window.contentView) == accountControls)
@@ -116,7 +126,14 @@ import Testing
         #expect(scroll.documentVisibleRect.minY > 100)
 
         Self.navigate(to: .browser, in: window)
-        #expect(scroll.documentVisibleRect.minY < 30)
+        let resetScroll = try #require(Self.scrollViews(in: window.contentView).max {
+            ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+        })
+        #expect(resetScroll.documentVisibleRect.minY < 30)
+        let top = try #require(Self.controls(in: resetScroll.documentView).map {
+            $0.convert($0.bounds, to: nil).maxY
+        }.max())
+        #expect(top <= window.contentLayoutRect.maxY + 1)
     }
 
     @Test func browserDraftsSurvivePageReplacement() {
@@ -137,6 +154,12 @@ import Testing
         let editors = Self.textViews(in: window.contentView).map(\.string)
         #expect(editors.contains("unsaved-http.example"))
         #expect(editors.contains("unsaved-url.example"))
+    }
+
+    private static func controls(in view: NSView?) -> [NSControl] {
+        guard let view else { return [] }
+        return ((view as? NSControl).map { [$0] } ?? [])
+            + view.subviews.flatMap { controls(in: $0) }
     }
 
     private static func textViews(in view: NSView?) -> [NSTextView] {
