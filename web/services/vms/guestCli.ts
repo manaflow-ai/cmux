@@ -33,14 +33,9 @@
 
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
 export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
-export const GUEST_CMUX_OPEN_URL_PATH = "/usr/local/bin/cmux-open-url";
-
-/** A tiny BROWSER-compatible entry point installed beside the guest cmux shim. */
-export const GUEST_CMUX_OPEN_URL = `#!/bin/sh
-exec ${GUEST_CMUX_SHIM_PATH} open-url "$@"
-`;
 
 export const GUEST_CMUX_SHIM = `#!/bin/sh
 # cmux — in-VM CLI. One grammar, the same as on a Mac:
@@ -51,6 +46,11 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+if [ "\${1:-}" = open-url ]; then
+  shift
+  exec ${GUEST_BROWSER_OPENER_PATH} "$@"
+fi
 
 # The daemon binary lives under the daemon's home, which depends on the image
 # layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
@@ -2760,40 +2760,6 @@ case "\${1:-}" in
     fi
     exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@"
     ;;
-  open-url)
-    # OS browser openers (BROWSER, GH_BROWSER, xdg-open wrappers) use this
-    # verb. Human-auth URLs are delivered as a terminal-scoped notification so
-    # the Mac can place them in the owning Cloud workspace without selecting it.
-    # No attached Mac means no durable request: print a usable fallback and
-    # return success so callers keep polling instead of launching guest Chrome.
-    shift
-    cmux_open_url="\${1:-}"
-    cmux_open_scheme="\$(printf '%s' "\$cmux_open_url" | tr '[:upper:]' '[:lower:]')"
-    case "\$cmux_open_scheme" in
-      http://*|https://*) ;;
-      *)
-        [ -n "\$cmux_open_url" ] && printf 'Open this URL: %s\\n' "\$cmux_open_url"
-        exit 0
-        ;;
-    esac
-    cmux_open_terminal="\${CMUX_TUI_TERMINAL_ID:-}"
-    cmux_open_attached=
-    if [ -n "\$cmux_open_terminal" ] && command -v jq >/dev/null 2>&1; then
-      cmux_open_clients="\$("\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --json client list 2>/dev/null || true)"
-      if printf '%s' "\$cmux_open_clients" | jq -e --arg terminal "\$cmux_open_terminal" \
-        'any(.[]?; (.attached_terminal_ids // []) | index($terminal))' >/dev/null 2>&1; then
-        cmux_open_attached=1
-      fi
-    fi
-    if [ -n "\$cmux_open_attached" ]; then
-      if "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify \
-        --title cmux.open-url --body "\$cmux_open_url" --terminal "\$cmux_open_terminal" >/dev/null 2>&1; then
-        exit 0
-      fi
-    fi
-    printf 'Open this URL: %s\\n' "\$cmux_open_url"
-    exit 0
-    ;;
   *)
     # Local daemon session. cmux-tui's own grammar is \`cmux <resource> <action>\`.
     local_alias "\$@" 2>/dev/null || exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" "\$@"
@@ -2804,18 +2770,10 @@ esac
 /** Shell command installing the shim (idempotent; safe to run on every heal). */
 export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
-  const openURL = Buffer.from(GUEST_CMUX_OPEN_URL, "utf8").toString("base64");
-  const browserEnv = "[ -x /usr/local/bin/cmux-open-url ] && { [ -n \"$" + "{BROWSER-}\" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n \"$" + "{GH_BROWSER-}\" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }";
-  const browserEnvFish = "if test -x /usr/local/bin/cmux-open-url; and not set -q BROWSER; set -gx BROWSER /usr/local/bin/cmux-open-url; end; if test -x /usr/local/bin/cmux-open-url; and not set -q GH_BROWSER; set -gx GH_BROWSER /usr/local/bin/cmux-open-url; end";
   return [
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
+    guestBrowserInstallCommand(),
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `mv ${GUEST_CMUX_SHIM_PATH}.tmp ${GUEST_CMUX_SHIM_PATH}`,
-    `printf '%s' '${openURL}' | base64 -d > ${GUEST_CMUX_OPEN_URL_PATH}.tmp`,
-    `chmod 0755 ${GUEST_CMUX_OPEN_URL_PATH}.tmp`,
-    `mv ${GUEST_CMUX_OPEN_URL_PATH}.tmp ${GUEST_CMUX_OPEN_URL_PATH}`,
-    `printf '%s\\n' '${browserEnv}' > /etc/profile.d/cmux-open-url.sh`,
-    `for cmux_rc in /etc/bash.bashrc /etc/skel/.bashrc /root/.bashrc /home/cmux/.bashrc /home/ubuntu/.bashrc /etc/zsh/zprofile /etc/zsh/zshrc /home/cmux/.zshrc /home/ubuntu/.zshrc; do [ -f "\$cmux_rc" ] || continue; grep -Fqx '${browserEnv}' "\$cmux_rc" 2>/dev/null || printf '%s\\n' '${browserEnv}' >> "\$cmux_rc"; done`,
-    `for cmux_rc in /etc/fish/config.fish /home/cmux/.config/fish/config.fish /home/ubuntu/.config/fish/config.fish; do [ -f "\$cmux_rc" ] || continue; grep -Fqx '${browserEnvFish}' "\$cmux_rc" 2>/dev/null || printf '%s\\n' '${browserEnvFish}' >> "\$cmux_rc"; done`,
   ].join(" && ");
 }

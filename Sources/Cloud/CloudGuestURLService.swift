@@ -1,0 +1,117 @@
+import AppKit
+import CmuxCloudMachines
+import Foundation
+
+/// Owns one ephemeral opener subscription per connected VM. The daemon holds
+/// requests only while this process is alive; rejection and disconnect unblock
+/// the guest with a printable fallback. Auth URLs never enter persistent state.
+@MainActor
+final class CloudGuestURLService {
+    private let executable: URL?
+    private let machineID: String
+    private let resolve: (String) -> TerminalLinkOpenRequest?
+    private var process: Process?
+    private var reader: Task<Void, Never>?
+    private var terminals: [String] = []
+    private var socketPath: String?
+    private var link: CloudMachineLink?
+    private var generation = UUID()
+    private var admission = CloudMachineNotificationGate()
+
+    init(machineID: String, executable: URL?, resolve: @escaping (String) -> TerminalLinkOpenRequest?) {
+        self.machineID = machineID
+        self.executable = executable
+        self.resolve = resolve
+    }
+
+    func update(link: CloudMachineLink, socketPath: String, terminals: [String]) {
+        let sorted = Array(Set(terminals)).sorted()
+        if self.socketPath == socketPath, self.link === link, self.terminals == sorted, process?.isRunning == true { return }
+        stop()
+        self.link = link
+        self.socketPath = socketPath
+        self.terminals = sorted
+        guard let executable, !sorted.isEmpty, sorted.count <= 256 else { return }
+        let taskGeneration = generation
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments(socket: socketPath, request: ["cmd": "url-open-subscribe", "terminal_ids": sorted], stream: true)
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        // Reuse the existing nonblocking process pipe reader; at most 16 daemon
+        // requests can be outstanding, and each must be claimed before opening.
+        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading, bufferingPolicy: .bufferingNewest(16))
+        do { try process.run() } catch { return }
+        self.process = process
+        reader = Task { [weak self] in
+            for await line in lines {
+                guard !Task.isCancelled, let self, self.generation == taskGeneration else { return }
+                guard let data = line.data(using: .utf8), let request = CloudGuestURLRequest(data: data) else { continue }
+                await self.deliver(request, link: link, socket: socketPath, generation: taskGeneration)
+            }
+        }
+    }
+
+    func updateTerminals(_ terminals: [String]) {
+        guard let link, let socketPath else { return }
+        update(link: link, socketPath: socketPath, terminals: terminals)
+    }
+
+    func stop() {
+        generation = UUID()
+        reader?.cancel()
+        reader = nil
+        if process?.isRunning == true { process?.terminate() }
+        process = nil
+        link = nil
+        socketPath = nil
+        terminals = []
+    }
+
+    private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, socket: String, generation: UUID) async {
+        guard let initial = resolve(request.terminalID), terminals.contains(request.terminalID) else { return }
+        // A claim is rejected once the guest's bounded wait has expired.
+        guard let data = try? await link.run(arguments: arguments(socket: socket, request: [
+            "cmd": "url-open-claim", "request_id": request.requestID
+        ]), timeout: .seconds(4)),
+              let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              reply["claimed"] as? Bool == true,
+              self.generation == generation, !Task.isCancelled else { return }
+        var opened = false
+        if let current = resolve(request.terminalID), current.sourceWorkspaceId == initial.sourceWorkspaceId,
+           admission.admit(machineID: machineID, event: CloudMachineNotificationEvent(
+               id: request.requestID, terminalID: request.terminalID, title: "url-open", body: request.url
+           )) == .allowed {
+            var externalURL: URL?
+            let coordinator = TerminalLinkOpenCoordinator(externalOpen: { externalURL = $0; return true })
+            var context = current
+            context = TerminalLinkOpenRequest(rawValue: request.url, sourceWorkspaceId: context.sourceWorkspaceId,
+                                              sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false)
+            opened = coordinator.open(context)
+            if let externalURL {
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = false
+                // AppKit reports real external-browser delivery before the guest
+                // gets success; errors leave it printing the fallback URL.
+                opened = await withCheckedContinuation { continuation in
+                    NSWorkspace.shared.open(externalURL, configuration: configuration) { application, _ in
+                        continuation.resume(returning: application != nil)
+                    }
+                }
+            }
+        }
+        guard self.generation == generation, !Task.isCancelled else { return }
+        _ = try? await link.run(arguments: arguments(socket: socket, request: [
+            "cmd": "url-open-result", "request_id": request.requestID, "opened": opened
+        ]), timeout: .seconds(4))
+    }
+
+    private func arguments(socket: String, request: [String: Any], stream: Bool = false) -> [String] {
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let json = String(data: data, encoding: .utf8) else { return [] }
+        return ["--socket", socket, stream ? "--jsonl" : "--json", "raw", "command", "--request-json", json]
+            + (stream ? ["--stream"] : [])
+    }
+}

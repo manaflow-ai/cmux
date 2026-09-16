@@ -83,6 +83,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -682,6 +683,11 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Private, connection-scoped guest-to-frontend OS browser opening.
+    UrlOpenSubscribe { terminal_ids: Vec<String> },
+    UrlOpen { terminal_id: String, url: String },
+    UrlOpenClaim { request_id: String },
+    UrlOpenResult { request_id: String, opened: bool },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -3838,6 +3844,7 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -3848,6 +3855,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4758,6 +4766,7 @@ impl ClientRegistry {
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
+        self.url_opens.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -9157,6 +9166,9 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if let Command::UrlOpen { terminal_id, url } = cmd {
+        return url_open::start(mux, client, id, terminal_id, url, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -11255,6 +11267,17 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::UrlOpenSubscribe { terminal_ids } => {
+            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
+            Ok(json!({"url_open_ready": true}))
+        }
+        Command::UrlOpenClaim { request_id } => {
+            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
+        }
+        Command::UrlOpenResult { request_id, opened } => {
+            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        }
+        Command::UrlOpen { .. } => anyhow::bail!("URL opening requires the asynchronous request path"),
         Command::PasteImage {
             surface,
             terminal_id,
@@ -14355,7 +14378,7 @@ mod tests {
         );
     }
 
-    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+    pub(super) fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
         let outbound = Arc::new(BoundedOutbound::default());
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }

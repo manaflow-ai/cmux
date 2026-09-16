@@ -49,6 +49,7 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -1183,7 +1184,7 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-          const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
+          const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand}`);
           if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
@@ -1693,7 +1694,7 @@ export class FreestyleProvider implements VMProvider {
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+        command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,

@@ -16,6 +16,7 @@ use super::{GlobalArgs, OutputMode};
 #[derive(Clone, Debug)]
 pub(super) struct RawCommandPlan {
     pub request: Value,
+    pub stream: bool,
 }
 
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
@@ -45,7 +46,7 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader
         .get_mut()
@@ -93,6 +94,12 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            if plan.stream {
+                if super::wire::print_local_success(value.get("data").unwrap_or(&Value::Null), global.output) != 0 {
+                    return 3;
+                }
+                continue;
+            }
             return super::wire::print_local_success(
                 value.get("data").unwrap_or(&Value::Null),
                 global.output,
@@ -179,7 +186,7 @@ mod tests {
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
-        let plan = RawCommandPlan { request: request.clone() };
+        let plan = RawCommandPlan { request: request.clone(), stream: false };
         assert_eq!(plan.request, request);
     }
 

@@ -268,6 +268,9 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
+        if !request.focus {
+            return container.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: false)
+        }
         deferOperation { [self] in
             let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)

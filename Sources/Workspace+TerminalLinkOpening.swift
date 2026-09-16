@@ -47,15 +47,16 @@ extension Workspace: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+            return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
         }
         return newBrowserSplit(
             from: target.containerPanelID,
             orientation: .horizontal,
-            url: url
+            url: url,
+            focus: focus
         ) != nil
     }
 }

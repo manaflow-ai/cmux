@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
-import { GUEST_CMUX_OPEN_URL_PATH, GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
+import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
 
 /**
  * Runs the shim against a fake cmux-tui binary that prints its argv one word
@@ -42,45 +42,6 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
-  test("routes an attached terminal's web URL through the durable host notification, with a headless fallback", () => {
-    let notifyPath = "";
-    const attached = runShim(
-      ["open-url", "HTTPS://github.com/login/device"],
-      { CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
-      (directory) => {
-        notifyPath = join(directory, "notify-args");
-        writeFileSync(join(directory, "cmux-tui"), `#!/bin/sh
-if [ "$3" = --json ] && [ "$4" = client ] && [ "$5" = list ]; then printf '%s' '[{"attached_terminal_ids":["${TERMINAL_ID}"]}]'; exit 0; fi
-if [ "$4" = notify ]; then printf '%s\\n' "$@" >> "$HOME/notify-args"; exit 0; fi
-exit 91
-`);
-      },
-    );
-    expect(attached.status).toBe(0);
-    expect(attached.stdout).toBe("");
-    expect(readFileSync(notifyPath, "utf8")).toContain("cmux.open-url");
-    expect(readFileSync(notifyPath, "utf8")).toContain("HTTPS://github.com/login/device");
-
-    const headless = runShim(["open-url", "https://github.com/login/device"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
-    expect(headless.status).toBe(0);
-    expect(headless.stdout).toBe("Open this URL: https://github.com/login/device\n");
-  });
-
-  test("installs a guest BROWSER command and exports it through all shell families", () => {
-    const install = guestCliInstallCommand();
-    expect(install).toContain(GUEST_CMUX_SHIM_PATH);
-    expect(install).toContain(GUEST_CMUX_OPEN_URL_PATH);
-    expect(install).toContain("BROWSER=/usr/local/bin/cmux-open-url");
-    expect(install).toContain("GH_BROWSER=/usr/local/bin/cmux-open-url");
-    expect(install).toContain("/etc/bash.bashrc");
-    expect(install).toContain("/etc/skel/.bashrc");
-    expect(install).toContain("/root/.bashrc");
-    expect(install).toContain("/home/cmux/.bashrc");
-    expect(install).toContain("/etc/zsh/zprofile");
-    expect(install).toContain("/etc/fish/config.fish");
-    expect(install).toContain("set -gx BROWSER");
-  });
-
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
     const directory = mkdtempSync(join(tmpdir(), "cmux-peer-exec-"));
     const socket = join(directory, "peer.sock");
