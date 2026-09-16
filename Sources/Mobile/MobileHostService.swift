@@ -693,6 +693,11 @@ final class MobileHostService {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
+        // Preserve an existing user's explicit choice from before the settings
+        // catalog migration. A current explicit disable always wins above.
+        if let legacyOverride = defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool {
+            return legacyOverride
+        }
         return false
     }
 
