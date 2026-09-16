@@ -583,7 +583,6 @@ import Testing
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
-        workspace.bind(to: window)
         let contentView = try #require(window.contentView)
         hostingView.frame = contentView.bounds
         hostingView.autoresizingMask = [.width, .height]
@@ -687,6 +686,7 @@ import Testing
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
+        workspace.bind(to: window)
         let contentView = try #require(window.contentView)
         hostingView.frame = contentView.bounds
         hostingView.autoresizingMask = [.width, .height]
