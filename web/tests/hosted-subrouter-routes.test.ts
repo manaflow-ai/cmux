@@ -1,8 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const modifiedEnvironment = [
-  "SUBROUTER_ALLOWED_TEAM_IDS",
-  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
   "SUBROUTER_STACK_AUTH_TIMEOUT_MS",
   "SUBROUTER_HOSTED_URL",
   "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
@@ -11,8 +9,6 @@ const originalEnvironment = Object.fromEntries(
   modifiedEnvironment.map((name) => [name, process.env[name]]),
 ) as Record<(typeof modifiedEnvironment)[number], string | undefined>;
 
-process.env.SUBROUTER_ALLOWED_TEAM_IDS = "*";
-process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS = "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS = "10000";
 process.env.SUBROUTER_HOSTED_URL = "https://sr.test";
 process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN =
@@ -223,6 +219,56 @@ describe("hosted Subrouter account routes", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "team_not_found" });
     expect(calls).toHaveLength(0);
+  });
+
+  test("rejects a team the caller is not a member of even when it exists elsewhere", async () => {
+    // Membership is the only requirement, and it is checked against the
+    // caller's own team list; a team missing from that list is 403 for every
+    // verb, including mutations.
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?teamId=team-c", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          label: "work",
+          apiKey: "sk-test",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "team_not_found" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("any member can use and manage accounts without a Stack permission", async () => {
+    // The user holds no Stack team permissions at all (listPermissions is
+    // empty) and team-b is not the selected team. Membership alone grants
+    // both capabilities, so the hosted tenant exchange asks for both and the
+    // upload succeeds.
+    currentUser = Object.assign(stackUser(), {
+      listPermissions: async () => [],
+    });
+
+    const response = await accountsRoute.POST(
+      request("/api/subrouter/accounts?teamId=team-b", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "openai-apikey",
+          label: "work",
+          apiKey: "sk-test",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls[0]?.url.pathname).toBe("/_subrouter/auth/stack");
+    expect(calls[0]?.body).toEqual({
+      teamId: "team-b",
+      teamName: "Team B",
+      capabilities: ["use", "manage_accounts"],
+    });
+    expect(calls[1]?.url.pathname).toBe("/_subrouter/accounts");
   });
 
   test("blocks cross-site cookie mutations before exchanging a tenant", async () => {
@@ -685,8 +731,8 @@ async function hostedFetch(
       return Response.json({ error: "unauthorized" }, { status: exchangeStatus });
     }
     return Response.json({
-      tenantId: "team-a",
-      tenantName: "Team A",
+      tenantId: body.teamId,
+      tenantName: body.teamName,
       tenantKey,
       proxyUrl: `https://sr.test/t/${tenantKey}`,
       capabilities: body.capabilities,

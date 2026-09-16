@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxTestSupport
 
@@ -59,7 +60,7 @@ final class WindowDecorationsController {
         for name in TitlebarWindowGeometryNotifications.names {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
         }
-        observers.append(center.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             self?.applyDefaultsDrivenDecorationChangeIfNeeded()
         })
     }
@@ -354,12 +355,21 @@ final class WindowDecorationsController {
                     tabManager: context.tabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
-            case .cloudVM:
-                guard let anchorView else { return }
-                _ = appDelegate.showNewWorkspaceContextMenu(
-                    anchorView: anchorView,
-                    debugSource: "titlebar.minimalSidebar.cloudMenu"
-                )
+            case .newWorkspaceMenu:
+                if let anchorView {
+                    _ = appDelegate.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        debugSource: "titlebar.minimalSidebarControl.newWorkspaceMenu"
+                    )
+                } else if let contentView = window.contentView {
+                    // Window-monitor path: no control view exists yet, so drop
+                    // the menu where the click landed.
+                    _ = appDelegate.showNewWorkspaceContextMenu(
+                        anchorView: contentView,
+                        at: contentView.convert(locationInWindow, from: nil),
+                        debugSource: "titlebar.minimalSidebarControl.newWorkspaceMenu"
+                    )
+                }
             case .focusHistoryBack:
                 guard context.tabManager.canNavigateBack else { return }
                 context.tabManager.navigateBack()

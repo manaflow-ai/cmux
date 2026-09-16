@@ -32,7 +32,7 @@ describe("vm error choke point", () => {
       message: "The Cloud VM image is not available in this environment.",
       action: "Retry in a moment.",
       details: { imageRequested: true },
-      diagnostics: { provider: "freestyle", image: "blaxel/xfce-vnc:latest", envVar: "FREESTYLE_SANDBOX_SNAPSHOT" },
+      diagnostics: { provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", envVar: "FREESTYLE_SANDBOX_SNAPSHOT" },
       phase: "create",
       retryable: true,
     });

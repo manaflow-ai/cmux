@@ -1,4 +1,5 @@
 import CmuxNotifications
+import CmuxSettings
 import Foundation
 
 struct TerminalNotification: Identifiable, Hashable, Sendable {
@@ -17,6 +18,10 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
     var replyShape: TerminalNotificationReplyShape = .none
+    var soundContext: NotificationSoundOverrideContext?
+    /// Who emitted the text. Remote origins are clamped to display-only side effects by
+    /// the store and surface to hooks as `CMUX_NOTIFICATION_ORIGIN`.
+    var origin: TerminalNotificationOrigin = .local
 
     init(
         id: UUID,
@@ -33,7 +38,9 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         paneFlash: Bool = true,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
         clickAction: TerminalNotificationClickAction? = nil,
-        replyShape: TerminalNotificationReplyShape = .none
+        replyShape: TerminalNotificationReplyShape = .none,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) {
         self.id = id
         self.tabId = tabId
@@ -50,6 +57,8 @@ struct TerminalNotification: Identifiable, Hashable, Sendable {
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
         self.replyShape = replyShape
+        self.soundContext = soundContext
+        self.origin = origin
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {

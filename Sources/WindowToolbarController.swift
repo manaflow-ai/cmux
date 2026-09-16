@@ -114,11 +114,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             }
         })
 
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.updateToolbarVisibilityIfNeeded()
             }

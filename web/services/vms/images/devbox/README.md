@@ -1,99 +1,519 @@
-# cmux Cloud devbox image (e2b / daytona / freestyle)
+# cmux Cloud devbox image (Freestyle)
 
-One devbox definition for the three non-Blaxel Cloud VM providers. The
-Dockerfile here is the source of truth for E2B and Daytona;
-`web/scripts/build-devbox-freestyle.ts` replays the same steps over
-Freestyle exec (its build API has no COPY). Parity targets are the chatmux
-devbox (`chatmux:infra/sandbox-images/Dockerfile`) and the Blaxel
-`cmux-devbox` template (`../blaxel/`): same devtools, mise node/python/bun,
-uv, gh, Chrome + cua-driver, pinned coding agents, ble.sh ghost text,
-half-life prompt, seeded history, and the coderouter agent-config generator.
-Blaxel keeps its own template; nothing here changes it.
+The devbox definition for cmux Cloud machines. The Dockerfile here is the
+reference recipe: Ubuntu 24.04 (the distro every Freestyle machine runs),
+the shell layer, and the **desktop layer** from `desktop/`, started by the
+`cmux-devbox-boot` supervisor when there is no systemd (`docker build` proves
+the whole desktop at build time). `web/scripts/build-devbox-freestyle.ts`
+builds the same devbox on top of the `freestyle/ubuntu` base VM: it reads the
+desktop package list, the Ghostty `.deb` and the agent pins from the
+Dockerfile's `ARG`s (`devbox-image-common.ts`) and installs the desktop files
+through the one `DEVBOX_DESKTOP_INSTALLS` map, so the two recipes cannot
+drift. Parity targets are the chatmux devbox
+(`chatmux:infra/sandbox-images/Dockerfile`) for the shell layer: same
+devtools, node/python/bun, uv, gh, Chrome + cua-driver, pinned coding agents,
+ble.sh ghost text, half-life prompt, seeded history, and the coderouter
+agent-config generator.
 
-`vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
-`agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
-Blaxel counterparts, so edit both copies together.
+On Freestyle the toolchain is the base's, not mise: `freestyle/ubuntu`
+already ships Node LTS under nvm (symlinked into `/usr/local/bin`), Bun,
+Python 3.12, uv, Docker (running from boot), and its own copies of Claude
+Code, Codex and OpenCode. The bake keeps all of that and replaces the agent
+copies with the exact Dockerfile pins (`npm install -g` on the base's npm,
+every agent bin symlinked into `/usr/local/bin` so daemon panes resolve them
+without a login profile), and installs `bubblewrap`, codex's Linux sandbox
+prerequisite, so codex runs on the distro's `bwrap` instead of warning on
+every launch that it is falling back to its bundled copy. A cmux login banner
+(`cmux-motd`, rendered by pam_motd on SSH) replaces the stock Ubuntu and
+Freestyle motd text.
+
+## Agent pins: bump, epoch, promote
+
+The coding agents are exact npm releases in the Dockerfile's `ARG
+CMUX_IMAGE_<TOOL>_VERSION` lines, and machines never self-update
+(`DISABLE_AUTOUPDATER=1` for Claude Code, `check_for_update_on_startup =
+false` for codex), so a new Claude Code or Codex reaches cmux Cloud only
+through a rebake:
+
+```bash
+# from web/
+bun run devbox:pins:check            # pins next to the npm registry's current releases; exit 1 when behind
+bun run devbox:pins:check --write    # rewrite the ARG lines to those releases
+```
+
+then bump `CMUX_IMAGE_EPOCH` in the same file and promote both ladders (see
+"Promote" below). `--write` touches only the ARG lines and refuses ranges,
+tags and packages the image does not bake; the chatmux devbox template
+(`chatmux:infra/sandbox-images/Dockerfile`) is bumped by hand in its own
+repo to keep the parity the header describes.
+
+Two invariants keep the checked-in manifest describing the machine users get
+(`devboxSourceDriftProblems` in `devbox-image-common.ts`, run by
+`devbox:manifest:check`, `vm-image-manifest.test.ts` and `promote` before it
+writes):
+
+- every `defaultForKind` entry was baked at the Dockerfile's current
+  `CMUX_IMAGE_EPOCH` (the entry's `epoch`, or the `cmux devbox epoch` prefix
+  of its `notes` on older entries), so an epoch bump lands together with its
+  promotion and a rollback to an older ladder also reverts the sources;
+- an entry that recorded `devboxSource` (`{ layers, digest, schema }`,
+  `devboxSourceDigest()`: sha256 over the files the bake ships verbatim, the
+  agent, cua-driver and Ghostty pins, the desktop apt list, the epoch and,
+  from schema 2, the Dockerfile's instructions (its comments dropped by the
+  Dockerfile grammar, parser directives kept) and every non-blank line of
+  `build-devbox-freestyle.ts`, comments included, per layer set. Dockerfile
+  prose is excluded because a comment cannot change a machine; bake-script
+  comments are intentionally part of the digest, because telling a comment
+  from code in TypeScript needs a full lexer and any line heuristic can hide
+  a code change, so a comment-only edit to the bake script also asks for a
+  re-promotion) was baked from exactly this checkout's sources. An entry is checked with the schema it was recorded
+  with (absent: 1), so a formula change never forces a rebake; new bakes
+  record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
+  --upgrade-source-schema` moves older defaults up without a bake only where
+  every input the newer schema adds is proven from what the entry recorded:
+  its digest at its own schema, its `builderScriptVersion` against this
+  checkout's bake script, and the Dockerfile's instructions at its
+  `repoCommit` (read from git) against this checkout's. Anything else is
+  kept and reported; a rebake is the only other way up.
+
+Rollback is therefore a revert of the promotion commit as a whole, never the
+manifest flags alone.
+
+## One work user, one machine name (`workUser.ts`)
+
+Every prompt on a cmux Cloud machine reads `cmux@cmux`. Both halves are
+contract, not decoration:
+
+- The work user is **`cmux`** (uid 1000, `/home/cmux`, passwordless sudo):
+  the base's `ubuntu` account **renamed** right after the machine's own name is
+  set, before any layer writes into the home or names the account. Freestyle's exec API
+  resolves its default `linuxUser` to "the account holding uid 1000", so a
+  rename (rather than a second account) keeps the provider's own surfaces,
+  SSH, the desktop session, and the terminals the cmux-tui daemon opens all
+  in one home. The base's `/etc/sudoers.d/90-freestyle` names the old
+  account, so the step replaces every sudoers drop-in that does not name
+  `cmux`.
+- The machine is named **`cmux`**, not the base's `freestyle-vm`. That half is
+  its own contract (`services/vms/images/identity.ts`): the static and live
+  name, the loopback alias, per-machine SSH host keys, and a residue audit.
+- **Sessions are not root.** Coding agents refuse to run as root:
+  `claude --dangerously-skip-permissions` exits before it starts. The daemon
+  drops to `cmux` (docs/cloud-cmux-tui-daemon.md), root stays one `sudo`
+  away, and the verifier proves both that the refusal is gone and that a pane
+  the daemon opens really reports `cmux@cmux`.
+
+The default Bash prompt shows `cmux@<vm-name>`. It reads `/etc/cmux/vm-name`
+with Bash's built-in `read` before each prompt. Create and attach install
+the current name. Rename updates it on a running machine. A paused or
+unreachable machine gets the saved name on its next attach. The prompt name
+uses the display label in lowercase with hyphens, or the generated slug when
+there is no usable label. Routing ids do not change.
+
+Set `PS1` after the `/etc/cmux/bashrc` source line in `~/.bashrc` to customize
+the prompt. For example, `PS1='\u@${__cmux_vm_name}:\w\$ '` keeps the live
+name with a different layout. A fixed prompt or a prompt tool also works.
+The line editor attaches at the first prompt, after these user settings load.
+Remove the source line to replace the full cmux shell setup. Lifecycle updates
+only write system defaults, never user rc files or prompt settings. The
+name reader never rewrites `PS1`, runs Git, calls the network, or starts a
+child process. The shell variable is local scratch state, not exported
+configuration. After the first upgrade, open a new shell to load this setup. That shell then reads
+later name changes at its next prompt without a restart.
+
+The Dockerfile and Freestyle recipe use these same shell files.
+`vm-devbox-image.test.ts` checks the image contract; `vm-guest-prompt.test.ts`
+checks live prompt updates and user overrides.
+
+## Desktop layer (`desktop/`)
+
+Ported from the retired Blaxel `sandbox/cmux-devbox` image, the same stack
+on every provider: TigerVNC serving an openbox session with the tint2 dock
+(Chrome, Files, Ghostty), Thunar, the CC0 mountain-lake wallpaper, the
+accessibility bus for computer-use, TigerVNC's clipboard helper, and noVNC
+on 6901. The contract (`web/services/vms/images/desktop.ts`;
+`vm-devbox-desktop.test.ts` pins it, the Mac app's Displays row, the CLI's
+`cloudVMDesktopPort` and the Freestyle driver's `openPort` depend on it):
+
+- `start-vnc.sh` runs as the work user `cmux` with `HOME=/home/cmux`
+  and `DISPLAY=:1`, so the desktop session is the same account terminals
+  and SSH land in; RFB on **5901 loopback-only** (no VNC auth: the owner's
+  private network is the only ingress), noVNC via websockify on **6901**
+  at `/`. Idempotent: every component is guarded by a liveness probe.
+- The session runs one D-Bus session bus (reused across supervisor passes),
+  the accessibility bus (`at-spi-bus-launcher --launch-immediately`, so
+  `cua-driver`'s `get_window_state` resolves window trees), openbox, feh
+  (wallpaper), tint2, `vncconfig -nowin` (clipboard between the noVNC pane
+  and X apps), a resize watcher (noVNC remote resize re-fills the wallpaper
+  and nudges the dock), and websockify.
+- It publishes `DISPLAY` and the accessibility bus (`AT_SPI_BUS_ADDRESS` for
+  AT-SPI clients, `AT_SPI_BUS` for `cua-driver doctor`) at `/run/cmux-desktop/env`
+  (the unit's `RuntimeDirectory=`, owned by `cmux`, readable by all).
+  `/etc/cmux/desktop-env.sh`, sourced by `/etc/profile.d/cmux-desktop.sh`
+  and the bashrc chain (every pane the cmux-tui daemon opens, root's
+  included), points any shell without a `DISPLAY` at the desktop while it
+  is up, so `agent-browser`, `xdotool` and `cua-driver mcp`/`call` act on
+  the screen a person can watch. The desktop session and the cmux-tui daemon
+  are the same account, so an app started from a terminal pane joins the
+  session bus of the screen a person is watching; root gets `DISPLAY` but not
+  that bus (it admits only its owner).
+- Readiness is signalled by its owners, never inferred from elapsed time:
+  Xvnc reports its display on `-displayfd` once it accepts connections, the
+  accessibility bus is awaited by name (`gdbus wait org.a11y.Bus`), the
+  resize watcher reacts to RandR events (`xev`), and the unit is
+  `Type=notify`: `start-vnc.sh` sends READY once the display, noVNC and the
+  published env are up, so `systemctl start cmux-desktop` (the driver's
+  port-open heal, the bake) returns exactly when the screen is usable.
+  websockify has no readiness signal of its own, so its 6901 bind is the one
+  bounded connect wait (`wait_listening`).
+- The `cmux-desktop` systemd unit runs `cmux-desktop-boot` as `cmux`,
+  which re-asserts Chrome's pre-accepted first run and re-runs the
+  idempotent `start-vnc.sh` every 30 s. In a container (no systemd) the
+  `cmux-devbox-boot` boot supervisor starts the same `cmux-desktop-boot` as
+  the uid-1000 account and restarts it if it exits; under systemd it starts
+  nothing (the bake and the verifier count exactly one desktop supervisor).
+- `cmux` has passwordless sudo, so coding agents' root-refusing modes
+  (`claude --dangerously-skip-permissions`) work, and the cmux-tui daemon
+  runs sessions as that same account.
+- Agents are trusted everywhere. codex: `codex-managed.toml` is baked to
+  `/etc/codex/managed_config.toml` with `trust_level = "trusted"` for `/root`
+  and the work user's home, and the `codex()` function in `agent-config.sh` adds the
+  launch directory's git root per invocation (codex trust is exact-path).
+  claude: `agent-config.sh` seeds `~/.claude.json` (onboarding done, bypass
+  accepted, the placeholder API key approved, `/` trusted) and exports `CLAUDE_CODE_SANDBOXED=1` (trust gate)
+  and `IS_SANDBOX=1` (root gate for `--dangerously-skip-permissions`), plus
+  `DISABLE_AUTOUPDATER=1` so the pinned Claude Code does not reinstall itself
+  on first launch;
+  `managed-settings.json` sets `skipDangerousModePermissionPrompt`.
+- Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
+  (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against
+  `ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256` before dpkg runs); the apt list is
+  `ARG CMUX_IMAGE_DESKTOP_PACKAGES`. `devbox-image-common.ts` reads all three.
+
+One snapshot serves both kinds: the desktop bake is promoted as the default
+for `desktop` and for `base` alike (`--kinds desktop,base`, the default for a
+desktop bake), so every machine cmux Cloud creates is this devbox with its
+screen, whatever kind a client names (`VM_IMAGE_DEFAULT_KIND` in
+`services/vms/images/resolver.ts` is desktop for a request that names none).
+`devbox:bake:freestyle --no-desktop` can still bake a shell-only image for
+experiments; it is not promoted, and the verifier reads `/etc/cmux/image-stamp`
+and rejects a desktop snapshot passed as a base image. A daemon change (the
+cmux-tui pin) reaches machines only through a rebake: the driver's
+attach-time heal never upgrades a healthy baked daemon.
+
+The Freestyle base slug is only the input to the cmux bake. The ids recorded in
+`manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
+contract first, then resizing and re-booting each shape. Never point a machine
+at a raw `freestyle/*` base, because it has no cmux-tui state or startup
+contract.
+
+Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
+Displays row, `cmux vm open <m>:desktop`) returns
+`http://<private VPC IPv4>:6901/vnc.html?path=websockify`, reachable only
+over the owner's WireGuard tunnel, exactly the path the daemon route takes,
+after a guest-side heal that is one blocking `systemctl start cmux-desktop`
+(the unit's READY is the signal). No public ingress is ever opened for it: noVNC has no
+auth of its own, so a machine outside a private network gets an error, not
+a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
+edge. The daemon still runs as root, so root shells get `DISPLAY` but not
+the session bus.
+
+## Identity: the machine is `cmux`
+
+`web/services/vms/images/identity.ts` is the contract. The Freestyle base
+calls every VM `freestyle-vm` (static in `/etc/hostname`, the `127.0.1.1`
+alias in `/etc/hosts`, the comment on its SSH host keys), so before this
+contract a cmux machine introduced itself as the provider's in every pane
+(`root@freestyle-vm in ~ λ`), in `hostname`, `$HOSTNAME`, `uname -n`, the
+journal, and the host-key comments. The bake's `identity` step, right after
+the base inventory, renames it:
+
+- **Hostname `cmux`**, static and live (`hostnamectl set-hostname`, with a
+  file-plus-`sethostname` fallback), and the `127.0.1.1 cmux` alias so
+  `getent hosts cmux` and sudo resolve it. Only the alias line of
+  `/etc/hosts` changes; the provider's `# BEGIN freestyle-tls-egress` block
+  and every other line stay byte for byte.
+- **SSH host keys regenerated** under the new name (the base's keys were
+  generated when Freestyle built its rootfs and are shared by every VM booted
+  from that base). `cmux-devbox-boot` regenerates them again on every clone,
+  in a detached subshell so the daemon start never waits, so no two machines
+  from one snapshot share a host key.
+- **The journal starts over** in the cleanup step, so a machine's log begins
+  under its own name instead of with the base's boot as `freestyle-vm`.
+
+The `identity-final` step before the stamp re-runs the check plus a
+whole-word residue audit (`freestyle-vm` under `/etc`, `/home`, `/root`,
+`/usr/local`, `/opt`, package trees skipped). `verify-devbox-image.ts` proves
+the same on a machine booted from the snapshot, plus the prompt a person sees
+in a real pty for both accounts, a journal that knows no other name, and
+different host keys on a second machine; `derive-devbox-sizes.ts` checks the
+hostname on the master and on every derived size after its own boot.
+
+What stays the provider's, on purpose, because the exec/fs API and the
+transport run on it: the guest agent (`freestyle-vms-agent.service`,
+`/sbin/freestyle-vms-agent`), its first-boot host-key unit
+(`freestyle-vms-hostkeys.service`, inert once keys exist), the resolver
+drop-in `/etc/systemd/resolved.conf.d/60-freestyle-vms.conf`, the power-off
+wrappers in `/usr/local/sbin`, the TLS-egress block in `/etc/hosts`, the
+metadata service at 169.254.169.254, and the gateway endpoints
+(`vm-ssh.freestyle.sh`, `*.vm.freestyle.sh`). Those name the platform
+(`freestyle-vms`), never the machine, and the whole-word audit leaves them
+alone. The container recipe has no identity step: `docker build` mounts
+`/etc/hostname` and `/etc/hosts` from the daemon and the runtime names each
+container, so the hostname there is the runtime's.
+
+## Terminal capabilities (`cmux-terminfo.src`)
+
+Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
+`xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, and inherit
+`TERM_PROGRAM=ghostty` with `TERM_PROGRAM_VERSION` from
+`/etc/cmux/ghostty-version` (the Ghostty .deb pin, written by the bake and
+the Dockerfile) via the supervisor's environment, the same identity the app
+exports to local and SSH shells. Claude Code and other agents gate
+synchronized output, progress reporting, strikethrough, and Cmd-click on
+`TERM_PROGRAM`; `verify-devbox-image.ts` reads the daemon's environ to prove
+it. Programs still resolve TERM against the guest's terminfo. Stock ncurses
+`xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
+and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
+ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`
+(Ghostty's entry under both names, bright colors 8-15 as `38;5;n`) as
+`infocmp -x` source; the bake compiles it into `/etc/terminfo`, ahead of
+`/lib` and `/usr/share` in ncurses' search order, before seeding ble.sh's
+per-TERM tput caches. Regenerate it from a cmux checkout with the command in
+its header when the overlay changes; `vm-devbox-image.test.ts` compiles and
+queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
 
 ## Session daemon: cmux-tui
 
-Every provider attaches through the cmux-tui remote daemon on port 1337
-(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md) — the same model as
-Blaxel. The binary is NOT baked: each driver installs the pinned
-files.cmux.com build (sha256-verified) at create time and heals pin drift on
-attach (`web/services/vms/drivers/cmuxTuiDaemon.ts`). The image ships only
-`cmux-devbox-boot`, the supervisor that waits for the binary and restarts
-the daemon:
+Machines attach through the cmux-tui remote daemon on port 1337
+(transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
+installs the pinned files.cmux.com build (sha256-verified, the driver's own
+install command) at `/home/cmux/.cmux/bin/cmux-tui`, proves the daemon answers,
+then parks it, because a Freestyle snapshot is a memory image and a live
+daemon would give every machine the builder's Noise identity. The
+`cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd
+unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
+at the VM's IPv6 address, so the listener must be dual-stack), reads the
+platform instance id from the metadata service, wipes the remote identity
+when the machine is a clone, and starts the daemon. The driver runs no
+bootstrap at create; it heals pin drift and a missing listener on attach
+(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
+ships only the supervisor and waits for a driver install.
 
-- e2b: no start command; the driver starts the daemon as a root background
-  command (E2B pause/resume preserves processes) and heals on attach. The
-  route is the sandbox's public port host (`wss://1337-<id>.e2b.app/v1/link`);
-  the E2B proxy's only request auth is a header the cmux-tui dialer cannot
-  send, so sandboxes are created with public port traffic and the daemon's
-  Noise device enrollment gates sessions.
-- daytona: `cmux-devbox-boot` is the registered snapshot entrypoint. Stop
-  kills processes while the disk (binary, daemon identity under /root)
-  persists; start re-runs the entrypoint. The route is the preview proxy
-  with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter, minted
-  fresh per attach.
-- freestyle (beta platform, `freestyle-beta` npm alias): the baked
-  `cmux-tui-daemon` systemd unit runs the supervisor with
-  `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` — the beta API has no HTTP ingress to
-  arbitrary ports, so the route is the VM's stable public IPv6 straight to
-  the daemon (`ws://[ipv6]:1337/v1/link`, Noise enrollment as the session
-  gate) and the listener must be dual-stack. The freestyle driver's beta arm
-  (`drivers/freestyleBeta.ts`) serves these machines; its legacy arm keeps
-  serving the old-platform fleet, dispatched per machine on the id shape and
-  the `providerMetadata.freestylePlatform` marker. The manifest entry marks
-  beta images with `features.freestylePlatform: "beta"`.
+Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
+half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
-Shells spawned by the daemon run as root with HOME=/root and get the bash
-devshell (ble.sh ghost text, half-life prompt, seeded history) through the
-`/etc/bash.bashrc` chain, exactly like Blaxel machines.
+## Sizes: one bake, one snapshot per size
 
-## Bake
+A Freestyle VM boots at its snapshot's size and resize is grow-only, so the
+bake happens once on the ladder floor (`freestyle/ubuntu-sm`, 2 vCPU / 4 GiB /
+16 GB) and `derive-devbox-sizes.ts` turns it into one snapshot per size:
+boot the bake, `vm.resize`, snapshot, delete, then boot the derived snapshot
+once more and check `nproc`, memory, the grown root filesystem and the
+daemon/desktop units. Sizes are Freestyle's own ladder
+(`web/services/vms/images/sizes.ts`, verbatim from freestyle-vms
+`catalog/snapshots.json`), so every cmux machine is a shape Freestyle already
+bills and caps:
 
-Run from `web/`. Each script refuses a stale checkout
-(`CMUX_BAKE_ALLOW_BRANCH=1` for deliberate branch bakes). No local Docker
-and no daemon build are needed.
+| name | vCPU | memory | disk | Freestyle base |
+|---|---|---|---|---|
+| `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
+| `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
+| `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
+| `lgx` | 12 | 24 GiB | 96 GB | derived snapshot |
+| `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
+| `2xl` | 32 | 64 GiB | 128 GB | `freestyle/ubuntu-2xl` |
+
+The manifest records one entry per kind and size (`size: { name, cpu,
+memoryMb, storageMb }`), each the default for its kind+size. The resolver
+picks the smallest size whose memory covers the plan's `memoryMb`
+(`defaultMemoryMbForPlan`; today's default of 8 GiB lands on `md`), so
+the driver never resizes at create and nothing has to grow at boot. Snapshot
+slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
+
+Run `bun run devbox:manifest:check` before a promotion. It requires one
+validated default for every size in both ladders and checks the recorded CPU,
+memory, and disk values against `sizes.ts`.
+
+### BusyBox probe
+
+`freestyle/busybox` is not a supported machine image. It has only BusyBox
+utilities and no systemd or cmux devbox contract. To measure whether a future
+shell-only image can run cmux-tui, use the disposable probe:
 
 ```bash
-E2B_API_KEY=...       bun scripts/build-devbox-e2b.ts --tag <tag>        # skipCache by default
-DAYTONA_API_KEY=...   bun scripts/build-devbox-daytona.ts cmux-devbox-<tag>
-FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag>
+FREESTYLE_API_KEY=... bun run devbox:probe:busybox --fx
 ```
 
-Daytona snapshot names are immutable: always a fresh versioned name.
-Freestyle (beta) auth is `FREESTYLE_API_KEY`, or
-`FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`; the argument is the
-snapshot slug (falls back to slugless on a collision) and the printed
-`sh-…` id is the pointer to pin. Agent pins live only in the Dockerfile ARG
-defaults; bump them together with `CMUX_IMAGE_EPOCH` and the Blaxel
-template. The cmux-tui pin comes from the artifacts manifest at deploy time
-(`CMUX_VM_CMUX_TUI_MANIFEST_URL`), never from the image.
+The probe installs the pinned static cmux-tui build, starts the daemon, runs the
+small `fx` binary, records RSS, and deletes the VM. It never writes the image
+manifest. A BusyBox result becomes a product option only after a separate
+cmux-derived bake passes the same daemon, persistence, and attach checks as the
+Ubuntu ladder.
 
-## Verify
+## Promote: bake, verify, derive sizes, record (one command)
 
-Each bake prints a `next` command. The verifier boots one sandbox on the
-named provider, asserts the toolchain, the exact agent pins, ghost text
-under a tmux PTY, and byte-identical baked files, then replays the driver's
-create-time cmux-tui bootstrap and asserts the daemon contract (session
-answering, port 1337 listening, the provider's supervisor alive), and
-deletes the sandbox:
+The checked-in manifest (`web/services/vms/images/manifest.json`) is the
+only source of truth for the image users get: the resolver serves the entry
+flagged `defaultForKind` for the requested kind and the plan's size, in local
+dev and every deployed runtime alike, and no env var selects or overrides
+it. `promote-devbox-image.ts` is the only sanctioned writer:
 
 ```bash
-bun scripts/verify-devbox-image.ts e2b cmux-devbox:<tag>
-bun scripts/verify-devbox-image.ts daytona cmux-devbox-<tag>
+# from web/, with the Freestyle key in env
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
+```
+
+Snapshots are account-scoped: promote under the Freestyle account the
+deployment's `FREESTYLE_API_KEY` belongs to, or the recorded ids are
+unreachable from production.
+
+It runs the stale-checkout preflight (`CMUX_BAKE_ALLOW_BRANCH=1` for
+deliberate branch bakes), the bake, then `verify-devbox-image.ts`; only a
+passing verify derives the sizes and writes the manifest, appending one
+entry per kind and size flagged `defaultForKind` while demoting the
+provider's previous defaults for those kind+size pairs (a sized promotion
+also demotes size-less defaults: the ladder replaces the single-shape
+image). Before writing it re-checks the manifest invariants and the source
+drift invariants above, so a bake from another epoch or other sources is
+refused rather than caught by CI. Existing entries are never removed, so
+rollback is a manifest revert. The last stdout line is `IMAGE_ID <id>` (the
+bake); `--out <json>` writes the summary with every derived id. Commit the
+manifest diff in a PR; merging it is the promotion.
+
+One bake, both kinds: the desktop bake promoted with `--kinds desktop,base`
+(the default) appends one `desktop` row and one `base` row per size, both at
+the same snapshot id, so the manifest serves the one devbox for every kind.
+A promotion is idempotent per kind: promoting an image again with more kinds
+appends only the rows it does not have yet (how a desktop-only promotion
+gains the base rows without a rebake), and a promotion that would add
+nothing is refused.
+
+Promote both compatibility kinds together so the defaults keep sharing the
+same snapshot at every size:
+
+```bash
+bun run devbox:bake:freestyle cmux-devbox-<tag> --out /tmp/desktop.json
+bun run devbox:promote -- freestyle --bake-result /tmp/desktop.json --kinds desktop,base --pointer-slug cmux-devbox-<tag>
+```
+
+A promotion that verified and derived but did not write (a refused write, a
+crash after `derive-devbox-sizes.ts`) is resumed without re-deriving:
+`--bake-result <json> --sizes-result <derive --out json>` re-verifies the
+bake and adopts the derived ids (they already exist on the account, each
+booted and checked by that run).
+
+Pin the daemon for both with `CMUX_VM_CMUX_TUI_MANIFEST_URL` (one commit's
+`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) so the two ladders
+cannot straddle an artifacts publish.
+
+### Two promotions in flight
+
+Two PRs that each promote a ladder conflict on `manifest.json` (both append
+rows and flip the same defaults). Whichever merges second resolves it through
+the writer, never by hand: merge `main` taking main's manifest wholesale, then
+replay the rows the promotion appended (the `entries` of its `--out` summary,
+or those rows copied from the PR's manifest diff):
+
+```bash
+bun run devbox:promote -- freestyle --replay /tmp/desktop-summary.json
+bun run devbox:promote -- freestyle --replay /tmp/base-summary.json
+```
+
+`--replay` performs only the manifest edit (`appendImageManifestEntries`: the
+same append, clash check and demotion rule as a promotion, followed by the
+invariants), no bake, verify, derive or slug move: the rows already carry
+their verify outcome and derived ids. The other PR's rows stay listed,
+demoted, for rollback.
+
+## Bake and verify by hand
+
+Each script refuses a stale checkout (`CMUX_BAKE_ALLOW_BRANCH=1` for
+deliberate branch bakes). No local Docker and no daemon build are needed.
+
+```bash
+FREESTYLE_API_KEY=... bun scripts/build-devbox-freestyle.ts cmux-devbox-<tag> [--no-desktop] [--replace-slug]
+```
+
+The container recipe builds and self-checks locally (amd64; the desktop
+comes up under `cmux-devbox-boot` during the build and is torn down before
+the image is committed):
+
+```bash
+docker build --platform linux/amd64 -t cmux-devbox:dev services/vms/images/devbox
+```
+
+Freestyle bakes on `freestyle/ubuntu` (4 vCPU / 8 GiB / 32 GB): VMs always
+boot at their snapshot's size and resizing is grow-only, so the builder's
+shape is what every cmux Cloud machine gets. Freestyle snapshot slugs are
+reassignable; the printed `sh-…` id is the pointer to pin. Agent pins live
+only in the Dockerfile ARG defaults; bump them together with
+`CMUX_IMAGE_EPOCH` and the chatmux template. The cmux-tui pin comes from
+the artifacts manifest at deploy time (`CMUX_VM_CMUX_TUI_MANIFEST_URL`),
+never from the image.
+
+Each bake prints a `next` command. The verifier boots one VM from the
+snapshot, asserts the toolchain, the exact agent pins, `bwrap`, ghost text
+under a tmux PTY, byte-identical baked files, the work user and machine name
+(one uid-1000 account named `cmux`, no `ubuntu` left behind, a login prompt
+reading `cmux@cmux`, `claude --dangerously-skip-permissions` accepted), the
+first interactive launch of `claude --dangerously-skip-permissions` as root
+and of `codex` as root and as `cmux` reaching the ready composer with no
+first-run gate on screen (onboarding, folder trust, the bypass confirmation,
+the custom API key consent, the root gate, codex's update picker and
+bubblewrap warning; readiness is the composer text itself, polled and
+bounded), and (when `/etc/cmux/image-stamp` says `desktop`) the desktop
+contract (both ports,
+RFB loopback-only, the session processes, the wallpaper on the root window,
+one supervisor, `DISPLAY` in root's and the work user's login shells,
+`cua-driver doctor` seeing the display and the accessibility bus, every
+desktop file byte-identical), then waits for
+the baked daemon to come up on its own, asserts the daemon contract (current
+pin, running as the work user, identity bound to this instance id) and that a second machine from the
+snapshot holds a different daemon identity, and deletes both sandboxes:
+
+```bash
 bun scripts/verify-devbox-image.ts freestyle <sh-snapshot-id>
 ```
 
-## Manifest
+Only after verify passes may an entry carry `validationStatus: "passed"`;
+`vm-image-manifest.test.ts` refuses a `defaultForKind` entry with any other
+status. Machines created from the old cmuxd-remote images cannot serve the
+`cmux-remote` transport and need recreation on a devbox image.
 
-Only after verify passes: take the `manifestEntry` the bake printed, set
-`validationStatus` to `passed`, describe the validation in `notes`, and add
-it to `web/services/vms/images/manifest.json` (append; never rewrite
-existing entries). Point the env var at the new image
-(`E2B_CMUXD_WS_TEMPLATE` / `DAYTONA_SANDBOX_SNAPSHOT` /
-`FREESTYLE_SANDBOX_SNAPSHOT`) where it should serve, and flip
-`defaultForLocalDev` only from a validated entry. Machines created from the
-old cmuxd-remote images cannot serve the `cmux-remote` transport and need
-recreation on a devbox image.
+## Checking a private connection
+
+A healthy daemon inside an image does not prove that a particular Mac client
+can connect to it. Check the client and image together before replacing a
+snapshot to address an attach failure:
+
+```bash
+# From web/, using the Freestyle account that owns this snapshot.
+# Load FREESTYLE_API_KEY from ~/.secrets/cmux.env without printing it.
+bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
+```
+
+For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+first requires the client's `wireguard-hub` capability; an older client must
+be updated before a private-network image can be assessed. Rebuilding a guest
+image cannot add that missing capability to an installed Mac app.
+
+The probe creates its own VPC, VM from the requested snapshot, and temporary
+WireGuard tunnel. It uses the production driver to confirm the machine serves
+the trusted-carrier listener, dials it with `--carrier` (no enrollment, no
+approval), reads the session snapshot through the private hub, then connects
+again the same way. The report records both commits and the trusted-listener,
+reconnect, and snapshot results.
+The client need not match the image's older baked commit: successful protocol
+operations are the compatibility check.
+
+Keys and invitations are held in an owner-only temporary directory. Processes,
+VM, tunnel, and VPC are cleaned up on success and failure; Deletion retries only explicit provider conflict responses with bounded
+exponential backoff; only a successful delete confirms completion. Permanent
+refusals fail immediately, and each resource cleanup has a 30-second deadline. The probe never opens
+public ingress, installs a system VPN, or changes an existing machine. A
+cleanup failure names the resource requiring operator attention and fails the
+command. Run this alongside `devbox:verify` when validating a new image or a
+new Cloud client.
