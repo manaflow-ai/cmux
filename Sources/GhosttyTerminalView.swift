@@ -13782,7 +13782,7 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
-    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
+    @Environment(\.workspaceAttentionColor) var workspaceAttentionColor
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
