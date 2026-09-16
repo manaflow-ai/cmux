@@ -408,7 +408,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   let node = outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode else { return }
             open(node)
         }
-
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
         /// group rows toggle. Creation is never an open side effect: the hover
@@ -486,6 +485,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(row.resource.id, .split, true)
                 }
+            case .resourcesPool, .resource:
+                break
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) {
@@ -493,7 +494,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             }
         }
-
         private func openMachine(_ machine: MachineSnapshot) {
             if machine.freeAccess == .expired {
                 machineActions.promptUpgrade()
