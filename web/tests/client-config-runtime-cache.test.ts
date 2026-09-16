@@ -9,6 +9,7 @@ import {
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalDeploymentId = process.env.VERCEL_DEPLOYMENT_ID;
+const originalVercelEnvironment = process.env.VERCEL_ENV;
 const mutableEnv = process.env as Record<string, string | undefined>;
 
 afterEach(() => {
@@ -16,6 +17,8 @@ afterEach(() => {
   else mutableEnv.NODE_ENV = originalNodeEnv;
   if (originalDeploymentId === undefined) delete mutableEnv.VERCEL_DEPLOYMENT_ID;
   else mutableEnv.VERCEL_DEPLOYMENT_ID = originalDeploymentId;
+  if (originalVercelEnvironment === undefined) delete mutableEnv.VERCEL_ENV;
+  else mutableEnv.VERCEL_ENV = originalVercelEnvironment;
 });
 
 describe("client config runtime cache", () => {
@@ -39,6 +42,24 @@ describe("client config runtime cache", () => {
     const second = clientConfigCacheKey("install-1", {});
 
     expect(first).not.toBe(second);
+  });
+
+  test("keeps different identities separate through the SDK's key transformation", async () => {
+    mutableEnv.NODE_ENV = "production";
+    mutableEnv.VERCEL_ENV = "preview";
+    mutableEnv.VERCEL_DEPLOYMENT_ID = "cache-isolation-test";
+    // These identities collide under the SDK's default 32-bit key hash.
+    const firstKey = clientConfigCacheKey("cache-person-37326", {});
+    const secondKey = clientConfigCacheKey("cache-person-46051", {});
+    if (!firstKey || !secondKey) throw new Error("expected cache keys");
+    const firstConfig = { featureFlags: { enabled: true }, featureFlagPayloads: {}, errorsWhileComputingFlags: false };
+    const secondConfig = { ...firstConfig, featureFlags: { enabled: false } };
+
+    await writeCachedClientConfig(firstKey, firstConfig);
+    await writeCachedClientConfig(secondKey, secondConfig);
+
+    expect(await readCachedClientConfig(firstKey)).toEqual(firstConfig);
+    expect(await readCachedClientConfig(secondKey)).toEqual(secondConfig);
   });
 
   test("skips caching when evaluation context nesting exceeds the bound", () => {
