@@ -64,6 +64,18 @@ import Testing
         #expect(target.reference.frame.size == NSSize(width: 360, height: 240))
     }
 
+    @Test func wrappingPreservesFocusedContent() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))
+        window.contentView?.addSubview(field)
+        #expect(window.makeFirstResponder(field))
+
+        _ = try #require(resolver.installationTarget(for: window))
+
+        #expect(window.firstResponder === field)
+    }
+
     private func makeWindow() -> NSWindow {
         let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
         let window = NSWindow(

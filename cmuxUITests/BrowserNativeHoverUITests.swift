@@ -43,12 +43,12 @@ final class BrowserNativeHoverUITests: XCTestCase {
 
         blank.hover()
         XCTAssertTrue(idle.waitForExistence(timeout: 5))
-        capture(app, name: "native-hover-before")
+        capture(app.windows.firstMatch, name: "native-hover-before")
         for attempt in 1...2 {
             target.hover()
             let didEnter = active.waitForExistence(timeout: 5)
             let screenshot = browserHost.screenshot()
-            capture(app, name: "native-hover-enter-\(attempt)")
+            capture(app.windows.firstMatch, name: "native-hover-enter-\(attempt)")
             XCTAssertTrue(didEnter, "Native pointer/mouse enter and CSS :hover must all activate")
             XCTAssertTrue(
                 hasPaintedHoverMarkers(screenshot),
@@ -56,13 +56,13 @@ final class BrowserNativeHoverUITests: XCTestCase {
             )
             blank.hover()
             let didLeave = idle.waitForExistence(timeout: 5)
-            capture(app, name: "native-hover-leave-\(attempt)")
+            capture(app.windows.firstMatch, name: "native-hover-leave-\(attempt)")
             XCTAssertTrue(didLeave, "Moving away must deliver mouseleave and dismiss the popover")
         }
     }
 
-    private func capture(_ app: XCUIApplication, name: String) {
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+    private func capture(_ window: XCUIElement, name: String) {
+        let attachment = XCTAttachment(screenshot: window.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)

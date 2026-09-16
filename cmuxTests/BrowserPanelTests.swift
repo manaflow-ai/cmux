@@ -3996,11 +3996,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             defer: false
         )
         defer { window.orderOut(nil) }
+        let originalContentView = window.contentView
         let portal = WindowBrowserPortal(window: window)
         _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -4011,6 +4012,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
+        XCTAssertTrue(contentView.isDescendant(of: container))
         XCTAssertGreaterThan(
             hostIndex,
             contentIndex,
@@ -4191,13 +4193,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
+        let originalContentView = window.contentView
         let browserPortal = WindowBrowserPortal(window: window)
         let terminalPortal = WindowTerminalPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
