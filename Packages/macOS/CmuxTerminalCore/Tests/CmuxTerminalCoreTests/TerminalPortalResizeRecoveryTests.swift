@@ -2,6 +2,20 @@ import CmuxTerminalCore
 import Testing
 
 struct TerminalPortalResizeRecoveryTests {
+    @Test func activeDividerKeepsPublicationDeferredUntilItsOwnEnd() {
+        var phase = TerminalPortalResizePhase()
+        phase.begin()
+        let acceptsGeometry1 = phase.observeNativeResize(active: false, interactiveResizeActive: true)
+        #expect(acceptsGeometry1)
+        #expect(phase.defersRenderer)
+        #expect(!phase.isEnding)
+        let acceptsGeometry2 = phase.observeNativeResize(active: false, interactiveResizeActive: false)
+        #expect(acceptsGeometry2)
+        #expect(phase.isEnding)
+        phase.commitEnd(nativeResizeActive: false)
+        #expect(!phase.defersRenderer)
+    }
+
     @Test func observedResizeEndSchedulesFinalGeometryWithoutNotification() {
         var phase = TerminalPortalResizePhase()
         let acceptsGeometry3 = phase.observeNativeResize(active: true)

@@ -1132,7 +1132,7 @@ final class WindowTerminalPortal: NSObject, TerminalSurfaceResizeAuthority {
             }
         }
         let nativeResizeActive = isWindowLiveResizeActive
-        guard resizePhase.observeNativeResize(active: nativeResizeActive) else { return }
+        guard resizePhase.observeNativeResize(active: nativeResizeActive, interactiveResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)) else { return }
         let endingLiveResize = resizePhase.isEnding
         guard ensureInstalled(syncLayout: false) else {
             if endingLiveResize {

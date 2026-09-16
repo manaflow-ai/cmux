@@ -43,8 +43,9 @@ public struct TerminalPortalResizePhase: Sendable {
     /// or an explicit start establishes a new resize transaction.
     ///
     /// - Parameter active: The current native live-resize signal.
+    /// - Parameter interactiveResizeActive: Whether a divider/sidebar still owns the resize.
     /// - Returns: Whether the caller should reconcile geometry for this event.
-    public mutating func observeNativeResize(active: Bool) -> Bool {
+    public mutating func observeNativeResize(active: Bool, interactiveResizeActive: Bool = false) -> Bool {
         switch (phase, active) {
         case (.completedAwaitingNativeEnd, true):
             return false
@@ -52,6 +53,10 @@ public struct TerminalPortalResizePhase: Sendable {
             phase = .idle
         case (.idle, true):
             phase = .resizing
+        case (.resizing, false) where !interactiveResizeActive:
+            // A reparented view may miss didEndLiveResize. Preserve the gate
+            // until the next geometry commit, but never await a lost callback.
+            phase = .ending
         default:
             break
         }

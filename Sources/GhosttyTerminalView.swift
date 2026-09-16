@@ -3291,19 +3291,10 @@ class GhosttyApp {
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
-            let cellSize = CGSize(
-                width: CGFloat(action.action.cell_size.width),
-                height: CGFloat(action.action.cell_size.height)
-            )
-            let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async {
-                surfaceView.cellSize = cellSize
-                _ = terminalSurface?.fontSizeLineageSnapshot()
-                NotificationCenter.default.post(
-                    name: .ghosttyDidUpdateCellSize,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.cellSize: cellSize]
-                )
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView else { return }
+                surfaceView.synchronizeCellMetrics()
+                _ = surfaceView.terminalSurface?.fontSizeLineageSnapshot()
             }
             return true
         case GHOSTTY_ACTION_START_SEARCH:
@@ -5302,7 +5293,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             caller: caller
         )
-        return didChange || surfaceSizeChanged
+        let cellMetricsChanged = synchronizeCellMetrics()
+        return didChange || surfaceSizeChanged || cellMetricsChanged
     }
 
     @discardableResult

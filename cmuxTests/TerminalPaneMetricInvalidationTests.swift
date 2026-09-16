@@ -85,6 +85,21 @@ struct TerminalPaneMetricInvalidationTests {
         #expect(!portal.isRendererResizeDeferred)
     }
 
+    @Test func activeDividerDoesNotFinishWhenNativeWindowResizeIsInactive() throws {
+        let fixture = try TerminalPaneMetricsFixture()
+        defer { fixture.tearDown() }
+        try fixture.bind()
+        let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: fixture.window)
+        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window) }
+        fixture.split.setPosition(320, ofDividerAt: 0)
+        TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: fixture.window)
+        #expect(portal.isRendererResizeDeferred)
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window)
+        try fixture.settle()
+        #expect(!portal.isRendererResizeDeferred)
+    }
+
     private func assertGridAndText(_ fixture: TerminalPaneMetricsFixture, cell: CGSize, font: Float) throws {
         let sample = try #require(fixture.surface.rawSizingSample())
         let runtime = try #require(fixture.surface.surface)
