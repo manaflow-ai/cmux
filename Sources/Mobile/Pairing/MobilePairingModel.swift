@@ -5,7 +5,7 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in, then turns on the explicitly requested v2 IROH pairing host. v2 pairing
+/// in, and on explicit pairing opt-in before starting the v2 IROH host. v2 pairing
 /// uses the signed-in account and device identity, so it has no QR or address
 /// to display.
 ///
@@ -165,8 +165,8 @@ final class MobilePairingModel {
         await refresh()
     }
 
-    /// Re-evaluates sign-in state and, when signed in, brings the v2 listener
-    /// up. Safe to call repeatedly when auth state settles.
+    /// Re-evaluates sign-in and pairing opt-in before starting the v2 listener.
+    /// Safe to call repeatedly when auth or settings change.
     func refresh() async {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
@@ -332,6 +332,7 @@ final class MobilePairingModel {
             return current
         }
     }
+
 
     /// Whether this Mac's Iroh endpoint is registered in `routes`.
     private nonisolated static func hasIrohRoute(_ routes: [CmxAttachRoute]) -> Bool {

@@ -513,7 +513,7 @@ struct MobileHostIdentityTests {
         #expect(defaults.string(forKey: "mobileHost.deviceID") == sharedID.lowercased())
     }
 
-    @Test func repairsInvalidSharedIDFileWithoutRewritingEquivalentDefaults() throws {
+    @Test func repairsInvalidSharedIDFile() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -528,8 +528,8 @@ struct MobileHostIdentityTests {
         defaults.set(fallbackID, forKey: "mobileHost.deviceID")
 
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID.lowercased())
-        // The identity is unchanged. Avoid a redundant defaults notification
-        // while repairing the shared file, just as on the shared-ID read path.
+        // Repair the shared file without rewriting an equivalent defaults ID.
+        // Avoiding that write also avoids reentrant defaults notifications.
         #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
         #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID.lowercased())
     }

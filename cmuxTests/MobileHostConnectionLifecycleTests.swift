@@ -1,4 +1,3 @@
-import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
@@ -127,35 +126,6 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        AppDelegate.shared = appDelegate
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        _ = manager.addWorkspace(select: true, eagerLoadTerminal: false)
-        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        appDelegate.registerMainWindow(
-            window,
-            windowId: windowID,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState()
-        )
-        defer {
-            window.delegate = nil
-            window.close()
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
-            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
-            manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
-        try #require(appDelegate.listMainWindowSummaries().contains { $0.windowId == windowID })
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
         let registry = MobileHostConnectionRegistry.shared
@@ -346,11 +316,6 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
-        let clock = ContinuousClock()
-        let readinessDeadline = clock.now.advanced(by: .seconds(5))
-        while Self.retainedUsableSessionEvents().isEmpty, clock.now < readinessDeadline {
-            await Task.yield()
-        }
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]
@@ -570,7 +535,7 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let transport = ScriptedMobileHostByteTransport()
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
@@ -587,9 +552,13 @@ extension MobileHostAuthorizationTests {
             Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
         )
         await session.debugHandleReceiveDataForTesting(frame)
-        let responses = await transport.waitForSentBufferCount(1)
-        #expect(responses.count == 1)
-        #expect(await !session.isSubscribed(to: "terminal.updated"))
+        let sent = await transport.waitForSentBufferCount(1)
+        var buffer = try #require(sent.first)
+        let responseData = try #require(MobileSyncFrameCodec.decodeFrames(from: &buffer).first)
+        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(error["code"] as? String == "unauthorized")
+        #expect(await session.isSubscribed(to: "terminal.updated") == false)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
