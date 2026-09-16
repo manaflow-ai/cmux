@@ -2386,7 +2386,7 @@ actor VMClient {
                 do {
                     let refreshedAccessToken = try await auth.forceRefreshAccessToken()
                     guard let refreshedRefreshToken = await auth.refreshToken(), !refreshedRefreshToken.isEmpty else {
-                        throw VMClientError.notSignedIn
+                        throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
                     }
                     req.setValue("Bearer \(refreshedAccessToken)", forHTTPHeaderField: "Authorization")
                     req.setValue(refreshedRefreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
@@ -2395,11 +2395,11 @@ actor VMClient {
                 } catch let error as VMClientError {
                     throw error
                 } catch AuthError.networkError {
-                    throw VMClientError.sessionRefreshFailed
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
                 } catch AuthError.unauthorized {
-                    throw VMClientError.notSignedIn
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
                 } catch {
-                    throw VMClientError.sessionRefreshFailed
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
                 }
             }
             if retryTransientServiceUnavailable,
