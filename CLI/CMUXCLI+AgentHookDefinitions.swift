@@ -437,7 +437,7 @@ extension CMUXCLI {
             let socket = "\"$(printenv CMUX_SOCKET_PATH || true)\""
             let executable = "\"$(printenv CMUX_BUNDLED_CLI_PATH || true)\""
             ambientGuard = "[ -n \(socket) ] && [ -S \(socket) ] && [ -f \(executable) ] && [ -x \(executable) ]"
-            ambientInvocation = "\(executable) --socket \(socket) \(routedArguments)"
+            ambientInvocation = "\(pinnedHookEnvironmentPrefix(routedArguments: routedArguments))\(executable) --socket \(socket) \(routedArguments)"
         } else {
             ambientGuard = pinnedHookAmbientDispatchGuard
             ambientInvocation = pinnedHookAmbientInvocation(routedArguments: routedArguments)
