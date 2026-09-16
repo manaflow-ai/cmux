@@ -185,7 +185,7 @@ struct MacAuthComposition {
                 // usable remote surface.
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
@@ -200,10 +200,6 @@ struct MacAuthComposition {
                 // revoke them with the captured pre-clear token pair before
                 // the coordinator's server-session revocation tail completes.
                 await VMClient.revokeEndpointLeases(
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
-                )
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )

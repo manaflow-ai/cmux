@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import Bonsplit
 import Carbon
@@ -1218,11 +1219,7 @@ final class SystemWideHotkeyController {
 
         installHotKeyHandlerIfNeeded()
 
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             self?.refreshRegistration()
         }
         shortcutObserver = NotificationCenter.default.addObserver(

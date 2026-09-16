@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "aperçu",
-      "team": "équipe"
+      "team": "équipe",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "Chargement…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -912,6 +931,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use : automatisez votre Mac avec l’IA",
+      "metaDescription": "Laissez Claude Code et Codex contrôler votre Mac avec cmux Computer Use. Automatisez les apps natives avec captures, accessibilité, clics et saisie.",
+      "docsMetaTitle": "Configurer Computer Use et ses outils pour agents",
+      "docsMetaDescription": "Configurez cmux Computer Use sur macOS : autorisations, outils Claude Code et Codex, ciblage des apps, contrôle des sessions, compétences et dépannage.",
+      "tagline": "Laissez Claude Code et Codex contrôler votre Mac.",
+      "intro": "Donnez aux agents de programmation IA accès aux apps natives du Mac. Avec cmux Computer Use, ils lisent les interfaces, prennent des captures, cliquent et saisissent du texte.",
+      "imageAlt": "Configuration de cmux Computer Use avec les autorisations d’accessibilité et de capture d’écran",
+      "caption": "Les autorisations de Computer Use sont gérées par un assistant distinct ; vos sessions de terminal restent ouvertes pendant la configuration.",
+      "featuresTitle": "Contrôler les apps natives du Mac",
+      "featureInspect": "Inspectez les interfaces avec les arbres d’accessibilité et les captures d’écran.",
+      "featureAct": "Cliquez, saisissez du texte, faites défiler, glissez et utilisez les raccourcis clavier des apps macOS.",
+      "featureReview": "Suivez le curseur visible de l’agent, vérifiez le résultat et revenez au terminal à l’origine de l’action.",
+      "agentsTitle": "Vos agents de programmation dans cmux",
+      "agentsBody": "Exécutez {agents} et d’autres agents en ligne de commande dans cmux.",
+      "supportTitle": "Agents pris en charge",
+      "supportBody": "Les outils natifs Computer Use sont automatiquement reliés aux sessions Claude Code et Codex lancées dans cmux. Les autres agents fonctionnent dans le terminal, mais ne bénéficient pas encore de cette intégration automatique de contrôle du Mac.",
+      "setupTitle": "Bien démarrer",
+      "step1": "Installez et ouvrez cmux pour Mac. Activez Computer Use dans Réglages → Computer Use.",
+      "step2": "Utilisez les boutons d’autorisation pour accorder à cmux Computer Use l’accès à l’accessibilité et à l’enregistrement de l’écran dans Réglages Système. Si l’assistant manque dans la liste, ajoutez ou glissez sa vignette d’app dans le panneau des autorisations.",
+      "step3": "Démarrez une nouvelle session Claude Code ou Codex dans cmux. Demandez d’utiliser Computer Use et précisez l’app et la tâche. Les outils se connectent automatiquement, sans configuration MCP manuelle.",
+      "permissionsTitle": "Autorisations et configuration",
+      "permissionsBody": "L’accessibilité permet à l’assistant de lire et de manipuler les interfaces. L’enregistrement de l’écran permet les captures. Accordez les deux à cmux Computer Use. Ouvrir cmux ou démarrer un agent n’accorde aucun accès et n’ouvre pas automatiquement la configuration.",
+      "tahoeBody": "Sur macOS Tahoe, acceptez aussi la confirmation supplémentaire de capture pendant la configuration. Attendez que cmux affiche les deux autorisations accordées avant de relancer la tâche.",
+      "promptTitle": "Essayer avec Calculatrice",
+      "prompt": "Utilise cmux Computer Use pour ouvrir Calculatrice, cliquer sur 100 + 105 et me montrer le résultat.",
+      "workflowBody": "Inspectez d’abord la cible, agissez sur les éléments de cet instantané, puis inspectez à nouveau pour vérifier le résultat. Les index d’éléments ne valent que pour l’instantané courant ; actualisez-les après une navigation ou un changement de disposition. Un clic confirmé ne prouve pas à lui seul que la tâche est terminée.",
+      "toolsTitle": "Outils pour agents",
+      "toolsBody": "cmux-cua est le serveur MCP intégré qui expose des outils structurés pour contrôler les apps natives. Il s’agit de noms d’outils, pas de commandes shell. Les arguments dépendent du profil de l’agent ; consultez les schémas fournis à la session.",
+      "codexBody": "Codex utilise get_app_state avec un nom d’app ou un identifiant de bundle pour obtenir une capture et un arbre d’accessibilité. Agissez via un element_index actuel ou les coordonnées de la capture, puis rappelez get_app_state. Outils disponibles :",
+      "claudeBody": "Claude Code trouve la cible avec list_apps et list_windows, puis appelle get_window_state avec pid et window_id. Préférez les jetons d’éléments ou des index récents. Le profil natif propose aussi perform_actions pour regrouper des actions qui n’invalident pas les cibles suivantes.",
+      "controlTitle": "Suivre et arrêter Computer Use",
+      "controlBody": "L’entrée Computer Use dans la barre des menus indique l’agent actif. Focus Computer Use suit l’app pilotée ; Focus Calling Terminal revient au terminal d’origine. Revenir au terminal n’arrête pas l’automatisation. Utilisez l’action d’arrêt du menu pour terminer la session de contrôle.",
+      "disableBody": "Désactivez Computer Use dans les réglages. Pour exclure ces outils d’une nouvelle session d’agent, définissez CMUX_COMPUTER_USE_MCP_DISABLED=1 avant son lancement.",
+      "skillTitle": "Compétences",
+      "skillBody": "La compétence cmux-cua décrit le cycle d’inspection et d’action. Elle est facultative et n’accorde aucune autorisation macOS. Pour une installation persistante, utilisez l’installateur de compétences de votre agent ; cmux n’installe pas de compétences globales par défaut.",
+      "skillLink": "Lire la compétence cmux-cua",
+      "browserTitle": "Apps natives et automatisation du navigateur",
+      "browserBody": "Computer Use pilote les fenêtres natives du Mac via les captures et l’accessibilité. Pour les panneaux de navigateur cmux, utilisez cmux browser pour les instantanés DOM, sélecteurs, formulaires et JavaScript. Une référence de surface de navigateur diffère d’un index d’élément d’app native.",
+      "browserLink": "Référence de l’automatisation du navigateur",
+      "troubleTitle": "Dépannage",
+      "missingTitle": "L’agent ne dispose pas des outils Computer Use",
+      "missingBody": "Activez Computer Use dans cmux et lancez une nouvelle session Claude Code ou Codex à l’intérieur. Les sessions existantes peuvent conserver leurs anciens outils. Vérifiez qu’aucune variable d’environnement ni politique administrée ne désactive Computer Use.",
+      "blockedTitle": "Configuration incomplète, clics sans effet ou captures vides",
+      "blockedBody": "Rouvrez Réglages → Computer Use et terminez les deux étapes d’autorisation, y compris toute confirmation de capture supplémentaire. Réessayez ensuite. Si l’assistant doit redémarrer, vos sessions de terminal peuvent rester ouvertes.",
+      "targetTitle": "Mauvaise fenêtre ciblée ou clic bloqué",
+      "targetBody": "Inspectez à nouveau l’app et choisissez un élément de son état actuel. Si une autre fenêtre masque la cible, affichez la fenêtre voulue et inspectez-la avant de réessayer. Ne réutilisez pas d’anciens index ou coordonnées.",
+      "productLink": "Présentation de cmux Computer Use",
+    "copyTitle": "Copier un prompt Computer Use",
+    "copyPrompt": "Copier le prompt",
+    "copiedPrompt": "Copié",
+    "installPrompt": "Utilise la compétence $cmux-cua. Si elle manque, installe-la avec ton installateur habituel. Si les autorisations manquent, demande-moi d’ouvrir Réglages cmux → Computer Use. Inspecte avant d’agir et vérifie chaque changement.\n\nTâche : [décris la tâche ici]"
+    },
     "remoteTmux": {
       "moshContrast": "Pour passer d’un réseau à l’autre, utilisez cmux mosh-tmux. Il ouvre un terminal Mosh pleinement intégré attaché à une session tmux nommée ; il ne remplace pas le miroir natif des espaces, onglets et divisions fourni par le mode de contrôle tmux via SSH."
     },
@@ -1594,6 +1667,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Contrôle de l’ordinateur",
       "gettingStarted": "Premiers pas",
       "concepts": "Concepts",
       "workspaceGroups": "Groupes d'espaces de travail",
@@ -3870,5 +3944,12 @@
         "action": "Gérer l’abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "Adresse e-mail",
+    "emailUnavailable": "adresse e-mail indisponible",
+    "organization": "Organisation",
+    "personalAccount": "compte personnel",
+    "switchAccountButton": "Utiliser un autre compte"
   }
 }

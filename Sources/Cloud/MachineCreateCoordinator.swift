@@ -308,13 +308,13 @@ final class MachineCreateCoordinator {
     }
 
     /// Forgets every operation. Completions for the dropped ids are ignored.
-    func cancelAllForAuthTransition() {
+    func cancelAllForAuthTransition(cleanupCreatedMachines: Bool = true) {
         guard !operations.isEmpty || !cancellableLaunches.isEmpty else { return }
         // Install tombstones before terminating the children. A create can
         // announce its machine after the cancellation handle runs, and that
         // late output still needs to reach the cleanup path during sign-out.
         let runningOperations = operations.filter(\.isRunning)
-        for operation in runningOperations where !operation.request.isBaseSetup {
+        for operation in runningOperations where cleanupCreatedMachines && !operation.request.isBaseSetup {
             var cancelled = CancelledCreate(
                 isBaseSetup: false,
                 markerCarry: progressMarkerCarry[operation.id] ?? ""
@@ -337,7 +337,7 @@ final class MachineCreateCoordinator {
         for (id, cancelled) in cancelledCreates where cancelled.isBaseSetup {
             cancelledCreates[id] = nil
         }
-        for operation in runningOperations where !operation.request.isBaseSetup {
+        for operation in runningOperations where cleanupCreatedMachines && !operation.request.isBaseSetup {
             if let machineID = operation.createdMachineID {
                 cleanupCancelledMachine(machineID)
             }
@@ -506,11 +506,11 @@ final class MachineCreateCoordinator {
             progressMarkerCarry.removeValue(forKey: id)
         }
         let finished = Finished(operation: operation, outcome: outcome)
+        if case let .created(_, workspaceID) = outcome, let workspaceID { selectCreatedWorkspace(workspaceID, for: operation.request) }
         lastFinished = finished
         notifier(MachineCreateNotice(finished: finished))
         postDidChange(finished: finished)
     }
-
     /// De-duplicates cleanup requests when a machine id appears in progress
     /// output and again in the process's final completion.
     private func cleanupCancelledMachine(_ machineID: String) {

@@ -11,18 +11,12 @@ struct MobileIrxCompatibilityProjectionTests {
     @Test(arguments: [false, true])
     func directoryProjectionKeepsStableAndNightlySeparate(reverseOrder: Bool) throws {
         let records = [
-            ("stable-peer", IrxDeviceListEntry(
-                deviceID: "physical-mac", status: "active", revoked: false,
-                appVersion: "0.64.22", releaseTrack: "stable",
-                bindingID: "stable-binding", tag: "default", identityGeneration: 2
-            )),
-            ("nightly-peer", IrxDeviceListEntry(
-                deviceID: "physical-mac", status: "active", revoked: false,
-                appVersion: "0.64.22-nightly.3439608067501", releaseTrack: "nightly",
-                bindingID: "nightly-binding", tag: "nightly", identityGeneration: 3
-            )),
+            record(endpointID: "stable-peer", appVersion: "0.64.22",
+                   recordID: "stable-binding", tag: "default", generation: 2),
+            record(endpointID: "nightly-peer", appVersion: "0.64.22-nightly.3439608067501",
+                   recordID: "nightly-binding", tag: "nightly", generation: 3),
         ]
-        let snapshot = snapshot(entries: Dictionary(uniqueKeysWithValues: reverseOrder ? records.reversed() : records))
+        let snapshot = snapshot(records: reverseOrder ? records.reversed() : records)
         let entries = MobileIrxRuntimeComposition.macListAuthEntries(from: snapshot)
         let state = MobileMacListAuthState()
         state.applyPolicyMinimumSupportedMacVersions(stable: "0.64.23", nightly: nil)
@@ -48,9 +42,9 @@ struct MobileIrxCompatibilityProjectionTests {
 
     @Test
     func missingStableRecordCannotBorrowNightlyCompatibility() {
-        let snapshot = snapshot(entries: ["nightly-peer": .init(
-            deviceID: "physical-mac", status: "active", revoked: false,
-            appVersion: "0.64.22-nightly.3439608067501", releaseTrack: "nightly"
+        let snapshot = snapshot(records: [record(
+            endpointID: "nightly-peer", appVersion: "0.64.22-nightly.3439608067501",
+            recordID: "nightly-binding", tag: "nightly", generation: 3
         )])
         let state = MobileMacListAuthState()
         state.applyPolicyMinimumSupportedMacVersions(stable: "0.64.23", nightly: nil)
@@ -59,8 +53,21 @@ struct MobileIrxCompatibilityProjectionTests {
         #expect(!state.compatibilityEntry(pairingID: "physical-mac\u{1F}nightly").isOutdated)
     }
 
-    private func snapshot(entries: [String: IrxDeviceListEntry]) -> IrxDeviceListSnapshot {
-        .init(entries: entries, rev: 1, issuedAt: .now, ttlSeconds: 300,
-              receivedAtWall: .now, receivedAtMonotonic: .now)
+    private func snapshot(records: [V2DeviceRecord]) -> V2Directory {
+        let now = Int(Date().timeIntervalSince1970)
+        return .init(devices: records, issuedAt: now, permissionExpiresAt: now + 300,
+                     relayURLs: [], revision: 1, teamID: "team")
+    }
+
+    private func record(endpointID: String, appVersion: String, recordID: String,
+                        tag: String, generation: Int) -> V2DeviceRecord {
+        .init(descriptor: .init(endpointID: endpointID,
+            identity: .init(appNamespace: "dev.cmux", buildTag: tag,
+                deviceID: "physical-mac", environment: "staging", projectID: "cmux",
+                teamID: "team", userID: "user"),
+            identityGeneration: generation,
+            metadata: .init(appVersion: appVersion, capabilities: [], displayName: "Mac",
+                pairingEnabled: true, platform: .mac, relayURLs: [])),
+            deviceRecordID: recordID, revision: 1, revoked: false)
     }
 }

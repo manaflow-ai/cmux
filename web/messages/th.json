@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ภาพรวม",
-      "team": "ทีม"
+      "team": "ทีม",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "กำลังโหลด…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -912,6 +931,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: ให้เอเจนต์ AI ควบคุม Mac",
+      "metaDescription": "ให้ Claude Code และ Codex ควบคุม Mac ผ่าน cmux Computer Use ทำงานในแอปด้วยภาพหน้าจอ การช่วยการเข้าถึง การคลิก การพิมพ์ และแป้นพิมพ์",
+      "docsMetaTitle": "ตั้งค่า Computer Use และเครื่องมือเอเจนต์",
+      "docsMetaDescription": "ตั้งค่า cmux Computer Use บน macOS เรียนรู้เรื่องสิทธิ์ เครื่องมือ Claude Code และ Codex การเลือกแอป เซสชัน สกิล และการแก้ปัญหา",
+      "tagline": "ให้ Claude Code และ Codex ควบคุม Mac ของคุณ",
+      "intro": "ให้เอเจนต์เขียนโค้ด AI ใช้แอปเนทีฟบน Mac ด้วย cmux Computer Use เพื่ออ่านหน้าจอแอป ถ่ายภาพหน้าจอ คลิกปุ่ม และพิมพ์ข้อความ",
+      "imageAlt": "หน้าตั้งค่าสิทธิ์การช่วยการเข้าถึงและภาพหน้าจอของ cmux Computer Use",
+      "caption": "สิทธิ์ของ Computer Use จัดการโดยโปรแกรมช่วยแยกต่างหาก เซสชันเทอร์มินัลจึงเปิดค้างไว้ได้ระหว่างการตั้งค่าเริ่มต้น",
+      "featuresTitle": "ควบคุมแอปเนทีฟบน Mac",
+      "featureInspect": "ตรวจสอบหน้าจอแอปด้วยโครงสร้างการช่วยการเข้าถึงและภาพหน้าจอ",
+      "featureAct": "คลิก พิมพ์ เลื่อน ลาก และใช้ปุ่มลัดในแอป macOS",
+      "featureReview": "ติดตามเคอร์เซอร์ที่มองเห็นได้ของเอเจนต์ ตรวจสอบผลลัพธ์ และกลับไปยังเทอร์มินัลต้นทาง",
+      "agentsTitle": "เอเจนต์เขียนโค้ดของคุณใน cmux",
+      "agentsBody": "เรียกใช้ {agents} และเอเจนต์บรรทัดคำสั่งอื่น ๆ ใน cmux",
+      "supportTitle": "เอเจนต์ที่รองรับ",
+      "supportBody": "เครื่องมือ Computer Use สำหรับแอปเนทีฟจะเชื่อมต่ออัตโนมัติกับเซสชัน Claude Code และ Codex ที่เริ่มใน cmux เอเจนต์อื่นทำงานในเทอร์มินัลได้ แต่ยังไม่ได้รับการเชื่อมต่อควบคุม Mac แบบอัตโนมัตินี้",
+      "setupTitle": "เริ่มต้นใช้งาน",
+      "step1": "ติดตั้งและเปิด cmux สำหรับ Mac เปิด Computer Use ในการตั้งค่า → Computer Use",
+      "step2": "ใช้ปุ่มสิทธิ์เพื่ออนุญาตการช่วยการเข้าถึงและการบันทึกหน้าจอให้ cmux Computer Use ในการตั้งค่าระบบ หากไม่พบโปรแกรมช่วยในรายการ ให้เพิ่มหรือลากไอคอนแอปไปยังแผงสิทธิ์",
+      "step3": "เริ่มเซสชัน Claude Code หรือ Codex ใหม่ใน cmux ขอให้ใช้ Computer Use พร้อมระบุแอปและงาน เครื่องมือจะเชื่อมต่ออัตโนมัติโดยไม่ต้องตั้งค่า MCP เอง",
+      "permissionsTitle": "สิทธิ์และการตั้งค่า",
+      "permissionsBody": "การช่วยการเข้าถึงอนุญาตให้อ่านและโต้ตอบกับหน้าจอแอป ส่วนการบันทึกหน้าจอใช้ถ่ายภาพหน้าจอ ให้สิทธิ์ทั้งสองแก่ cmux Computer Use การเปิด cmux หรือเริ่มเอเจนต์ไม่ใช่การให้สิทธิ์และจะไม่เปิดหน้าตั้งค่าโดยอัตโนมัติ",
+      "tahoeBody": "บน macOS Tahoe ต้องยืนยันการจับภาพหน้าจอเพิ่มเติมระหว่างตั้งค่าด้วย รอจน cmux แสดงว่าได้รับสิทธิ์ทั้งสองก่อนลองงานอีกครั้ง",
+      "promptTitle": "ลองใช้กับเครื่องคิดเลข",
+      "prompt": "ใช้ cmux Computer Use เปิดเครื่องคิดเลข คลิก 100 + 105 แล้วแสดงผลลัพธ์ให้ฉันดู",
+      "workflowBody": "ตรวจสอบเป้าหมายก่อน ใช้ตัวควบคุมจากภาพสถานะปัจจุบัน แล้วตรวจสอบผลอีกครั้ง ดัชนีองค์ประกอบใช้ได้กับภาพสถานะนั้นเท่านั้น ต้องอ่านใหม่หลังเปลี่ยนหน้าหรือเค้าโครง การตอบรับว่าคลิกสำเร็จอย่างเดียวไม่ได้ยืนยันว่างานเสร็จแล้ว",
+      "toolsTitle": "เครื่องมือเอเจนต์",
+      "toolsBody": "cmux-cua คือเซิร์ฟเวอร์ MCP ที่มาพร้อมแอปและให้เครื่องมือแบบมีโครงสร้างสำหรับควบคุมแอปเนทีฟ รายการนี้เป็นชื่อเครื่องมือ ไม่ใช่คำสั่งเชลล์ อาร์กิวเมนต์ขึ้นอยู่กับโปรไฟล์เอเจนต์ ให้ใช้สคีมาที่มีในเซสชัน",
+      "codexBody": "Codex เรียก get_app_state ด้วยชื่อแอปหรือรหัสบันเดิลเพื่อรับภาพหน้าจอและโครงสร้างการช่วยการเข้าถึง ใช้ element_index ปัจจุบันหรือพิกัดในภาพ แล้วเรียก get_app_state อีกครั้ง เครื่องมือที่มี:",
+      "claudeBody": "Claude Code ใช้ list_apps และ list_windows หาเป้าหมาย แล้วใช้ get_window_state กับ pid และ window_id ควรใช้โทเคนองค์ประกอบหรือดัชนีล่าสุด โปรไฟล์เนทีฟยังมี perform_actions สำหรับกลุ่มการกระทำที่ไม่ทำให้เป้าหมายถัดไปใช้ไม่ได้",
+      "controlTitle": "ติดตามและหยุด Computer Use",
+      "controlBody": "Computer Use บนแถบเมนูแสดงเอเจนต์ที่ทำงานอยู่ Focus Computer Use ติดตามแอปที่ควบคุม ส่วน Focus Calling Terminal กลับไปเทอร์มินัลต้นทางโดยไม่หยุดงานอัตโนมัติ ใช้คำสั่งหยุดในเมนูเพื่อจบเซสชันควบคุม",
+      "disableBody": "ปิด Computer Use ในการตั้งค่า หากต้องการไม่ให้เอเจนต์ใหม่มีเครื่องมือเหล่านี้ ให้ตั้ง CMUX_COMPUTER_USE_MCP_DISABLED=1 ก่อนเริ่มเอเจนต์",
+      "skillTitle": "สกิล",
+      "skillBody": "สกิล cmux-cua อธิบายขั้นตอนตรวจสอบและลงมือทำ เป็นตัวเลือกเสริมและไม่ให้สิทธิ์ macOS หากต้องการติดตั้งถาวร ให้ใช้ตัวติดตั้งสกิลของเอเจนต์ cmux จะไม่ติดตั้งสกิลส่วนกลางตามค่าเริ่มต้น",
+      "skillLink": "อ่านสกิล cmux-cua",
+      "browserTitle": "แอปเนทีฟและระบบอัตโนมัติในเบราว์เซอร์",
+      "browserBody": "Computer Use ควบคุมหน้าต่าง Mac ผ่านภาพหน้าจอและการช่วยการเข้าถึง สำหรับแผงเบราว์เซอร์ cmux ให้ใช้ cmux browser กับภาพสถานะ DOM ตัวเลือกองค์ประกอบ แบบฟอร์ม และ JavaScript การอ้างอิงพื้นผิวเบราว์เซอร์ต่างจากดัชนีองค์ประกอบแอปเนทีฟ",
+      "browserLink": "คู่มือคำสั่งเบราว์เซอร์อัตโนมัติ",
+      "troubleTitle": "การแก้ปัญหา",
+      "missingTitle": "เอเจนต์ไม่มีเครื่องมือ Computer Use",
+      "missingBody": "เปิด Computer Use แล้วเริ่มเซสชัน Claude Code หรือ Codex ใหม่ใน cmux เซสชันเดิมอาจยังใช้ชุดเครื่องมือเก่า ตรวจสอบว่าตัวแปรสภาพแวดล้อมหรือนโยบายที่จัดการไม่ได้ปิดฟังก์ชันนี้",
+      "blockedTitle": "ตั้งค่าไม่ครบ คลิกไม่สำเร็จ หรือภาพหน้าจอว่าง",
+      "blockedBody": "เปิดการตั้งค่า → Computer Use อีกครั้ง ทำขั้นตอนสิทธิ์ทั้งสองและการยืนยันจับภาพเพิ่มเติมให้ครบ แล้วลองใหม่ หากต้องเริ่มโปรแกรมช่วยใหม่ เทอร์มินัลยังเปิดไว้ได้",
+      "targetTitle": "เลือกหน้าต่างผิดหรือคลิกถูกบล็อก",
+      "targetBody": "ตรวจสอบแอปอีกครั้งและเลือกองค์ประกอบจากสถานะปัจจุบัน หากหน้าต่างอื่นบังเป้าหมาย ให้แสดงหน้าต่างที่ต้องการแล้วตรวจสอบก่อนลองใหม่ อย่าใช้พิกัดหรือดัชนีเก่าซ้ำ",
+      "productLink": "ภาพรวม cmux Computer Use",
+    "copyTitle": "คัดลอกพรอมต์ Computer Use",
+    "copyPrompt": "คัดลอกพรอมต์",
+    "copiedPrompt": "คัดลอกแล้ว",
+    "installPrompt": "ใช้สกิล $cmux-cua หากไม่มีให้ติดตั้งด้วยตัวติดตั้งสกิลตามปกติ หากขาดสิทธิ์ให้บอกฉันเปิดการตั้งค่า cmux → Computer Use ตรวจสอบก่อนทำและยืนยันหลังทุกการเปลี่ยนแปลง\n\nงาน: [อธิบายงานที่นี่]"
+    },
     "remoteTmux": {
       "moshContrast": "สำหรับการสลับระหว่างเครือข่าย ให้ใช้ cmux mosh-tmux ซึ่งจะเปิดเทอร์มินัล Mosh ที่ผสานรวมอย่างสมบูรณ์และแนบกับ tmux session ที่มีชื่อ โดยไม่ได้แทนที่การสะท้อน workspace, tab และ split แบบเนทีฟที่โหมดควบคุม tmux ผ่าน SSH มีให้"
     },
@@ -1596,6 +1669,7 @@
       }
     },
     "navItems": {
+      "computerUse": "ควบคุมคอมพิวเตอร์",
       "gettingStarted": "เริ่มต้นใช้งาน",
       "concepts": "แนวคิด",
       "workspaceGroups": "กลุ่มเวิร์กสเปซ",
@@ -3873,5 +3947,12 @@
         "action": "จัดการแพ็กเกจ"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "อีเมล",
+    "emailUnavailable": "ไม่พบอีเมล",
+    "organization": "องค์กร",
+    "personalAccount": "บัญชีส่วนตัว",
+    "switchAccountButton": "ใช้บัญชีอื่น"
   }
 }

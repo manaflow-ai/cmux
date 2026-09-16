@@ -294,7 +294,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "genel bakış",
-      "team": "ekip"
+      "team": "ekip",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +339,24 @@
         "pro": "Pro",
         "loading": "Yükleniyor…"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "community": {
@@ -912,6 +931,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: Yapay zekâ ile Mac otomasyonu",
+      "metaDescription": "Claude Code ve Codex, cmux Computer Use ile Mac’inizi yönetsin. Yerel uygulamaları ekran görüntüleri, erişilebilirlik, tıklama ve klavye ile otomatikleştirin.",
+      "docsMetaTitle": "Computer Use kurulumu ve ajan araçları",
+      "docsMetaDescription": "macOS’ta cmux Computer Use kurulumu: izinler, Claude Code ve Codex araçları, uygulama seçimi, oturum denetimleri, beceriler ve sorun giderme.",
+      "tagline": "Claude Code ve Codex, Mac’inizi kontrol etsin.",
+      "intro": "Yapay zekâ kodlama ajanlarına yerel Mac uygulamalarına erişim verin. cmux Computer Use ile arayüzleri okuyabilir, ekran görüntüsü alabilir, denetimlere tıklayabilir ve metin yazabilirler.",
+      "imageAlt": "cmux Computer Use erişilebilirlik ve ekran görüntüsü izinlerinin kurulumu",
+      "caption": "Computer Use izinlerini ayrı bir yardımcı uygulama yönetir; ilk kurulum sırasında terminal oturumlarınız açık kalır.",
+      "featuresTitle": "Yerel Mac uygulamalarını kontrol edin",
+      "featureInspect": "Uygulama arayüzlerini erişilebilirlik ağaçları ve ekran görüntüleriyle inceleyin.",
+      "featureAct": "macOS uygulamalarında tıklayın, yazın, kaydırın, sürükleyin ve klavye kısayollarını kullanın.",
+      "featureReview": "Ajanın görünür imlecini izleyin, sonucu inceleyin ve çağrıyı yapan terminale dönün.",
+      "agentsTitle": "cmux içindeki kodlama ajanlarınız",
+      "agentsBody": "{agents} ve diğer komut satırı ajanlarını cmux içinde çalıştırın.",
+      "supportTitle": "Desteklenen ajanlar",
+      "supportBody": "Yerel Computer Use araçları, cmux içinde başlatılan Claude Code ve Codex oturumlarına otomatik bağlanır. Diğer ajanlar terminalde çalışabilir, ancak bu otomatik Mac kontrolü entegrasyonunu henüz almaz.",
+      "setupTitle": "Başlangıç",
+      "step1": "Mac için cmux’u yükleyip açın. Ayarlar → Computer Use altında Computer Use’u etkinleştirin.",
+      "step2": "İzin denetimlerini kullanarak Sistem Ayarları’nda cmux Computer Use’a Erişilebilirlik ve Ekran Kaydı izinlerini verin. Yardımcı listede yoksa uygulama kutucuğunu izin paneline ekleyin veya sürükleyin.",
+      "step3": "cmux içinde yeni bir Claude Code veya Codex oturumu başlatın. Computer Use kullanmasını isteyip uygulamayı ve görevi belirtin. Araçlar otomatik bağlanır; elle MCP yapılandırması gerekmez.",
+      "permissionsTitle": "İzinler ve kurulum",
+      "permissionsBody": "Erişilebilirlik, arayüzleri okumayı ve kullanmayı; Ekran Kaydı, ekran görüntüsü almayı sağlar. İkisini de cmux Computer Use’a verin. cmux’u açmak veya bir ajan başlatmak izin vermez ve kurulumu otomatik açmaz.",
+      "tahoeBody": "macOS Tahoe’da kurulum sırasındaki ek ekran yakalama onayını da kabul edin. Görevi yeniden denemeden önce cmux’un iki izni de verilmiş göstermesini bekleyin.",
+      "promptTitle": "Hesap Makinesi ile deneyin",
+      "prompt": "cmux Computer Use ile Hesap Makinesi’ni aç, 100 + 105 işlemini tıklayarak gir ve sonucu göster.",
+      "workflowBody": "Önce hedefi inceleyin, o anlık görüntüdeki denetimlerle işlem yapın, sonra sonucu tekrar inceleyin. Öğe indeksleri yalnızca güncel görüntüye aittir; gezinme veya düzen değişikliklerinden sonra yenileyin. Tıklama onayı tek başına görevin bittiğini kanıtlamaz.",
+      "toolsTitle": "Ajan araçları",
+      "toolsBody": "cmux-cua, yerel uygulama kontrolü için yapılandırılmış araçlar sunan yerleşik MCP sunucusudur. Bunlar kabuk komutları değil araç adlarıdır. Argümanlar ajan profiline bağlıdır; oturumdaki şemaları kullanın.",
+      "codexBody": "Codex, uygulama adı veya paket kimliğiyle get_app_state çağırarak ekran görüntüsü ve erişilebilirlik ağacı alır. Güncel element_index veya görüntü koordinatlarıyla işlem yapın, sonra get_app_state çağrısını yineleyin. Araçlar:",
+      "claudeBody": "Claude Code, list_apps ve list_windows ile hedef bulur; pid ve window_id ile get_window_state kullanır. Öğe belirteçlerini veya yeni indeksleri tercih edin. Yerel profil, sonraki hedefleri geçersiz kılmayan işlem grupları için perform_actions da sunar.",
+      "controlTitle": "Computer Use’u izleme ve durdurma",
+      "controlBody": "Menü çubuğundaki Computer Use etkin ajanı gösterir. Focus Computer Use kontrol edilen uygulamayı izler; Focus Calling Terminal kaynak terminale döner. Terminale dönmek otomasyonu durdurmaz. Kontrol oturumunu sonlandırmak için menüdeki durdurma eylemini kullanın.",
+      "disableBody": "Ayarlar’dan Computer Use’u kapatın. Yeni bir ajan oturumundan araçları çıkarmak için başlamadan önce CMUX_COMPUTER_USE_MCP_DISABLED=1 ayarlayın.",
+      "skillTitle": "Beceriler",
+      "skillBody": "cmux-cua becerisi inceleme ve işlem akışını açıklar. İsteğe bağlıdır ve macOS izni vermez. Kalıcı kurulum için ajanın beceri yükleyicisini kullanın; cmux varsayılan olarak genel beceriler yüklemez.",
+      "skillLink": "cmux-cua becerisini okuyun",
+      "browserTitle": "Yerel uygulamalar ve tarayıcı otomasyonu",
+      "browserBody": "Computer Use, yerel Mac pencerelerini ekran görüntüleri ve erişilebilirlikle yönetir. cmux tarayıcı bölmelerinde DOM görüntüleri, seçiciler, formlar ve JavaScript için cmux browser kullanın. Tarayıcı yüzey referansı ile yerel uygulama öğe indeksi farklıdır.",
+      "browserLink": "Tarayıcı otomasyonu başvurusu",
+      "troubleTitle": "Sorun giderme",
+      "missingTitle": "Ajanda Computer Use araçları yok",
+      "missingBody": "Computer Use’u etkinleştirip cmux içinde yeni bir Claude Code veya Codex oturumu başlatın. Mevcut oturumlar eski araç yapılandırmasını tutabilir. Ortam değişkenleri veya yönetim ilkeleriyle devre dışı bırakılmadığını kontrol edin.",
+      "blockedTitle": "Kurulum eksik, tıklamalar başarısız veya görüntüler boş",
+      "blockedBody": "Ayarlar → Computer Use’u yeniden açıp ek yakalama onayları dahil iki izin adımını tamamlayın. Sonra tekrar deneyin. Yardımcı yeniden başlatılacaksa terminaller açık kalabilir.",
+      "targetTitle": "Yanlış pencere veya engellenen tıklama",
+      "targetBody": "Uygulamayı tekrar inceleyip güncel durumdan bir öğe seçin. Başka pencere hedefi kapatıyorsa hedef pencereyi gösterip yeniden inceleyin. Eski koordinatları veya öğe indekslerini tekrar kullanmayın.",
+      "productLink": "cmux Computer Use genel bakışı",
+    "copyTitle": "Computer Use istemini kopyala",
+    "copyPrompt": "İstemi kopyala",
+    "copiedPrompt": "Kopyalandı",
+    "installPrompt": "Bu görevde $cmux-cua becerisini kullan. Yoksa normal yükleyiciyle kur. İzin yoksa cmux Ayarları → Computer Use’u açmamı iste. Önce incele ve her değişikliği doğrula.\n\nGörev: [görevi buraya yaz]"
+    },
     "remoteTmux": {
       "moshContrast": "Ağlar arasında dolaşım için cmux mosh-tmux kullanın. Adlandırılmış bir tmux oturumuna bağlı, tam entegre bir Mosh terminali açar; SSH tmux denetim modunun sunduğu yerel çalışma alanı, sekme ve bölme yansıtmasını değiştirmez."
     },
@@ -1591,6 +1664,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Bilgisayar kullanımı",
       "gettingStarted": "Başlarken",
       "concepts": "Kavramlar",
       "workspaceGroups": "Çalışma Alanı Grupları",
@@ -3866,5 +3940,12 @@
         "action": "Planı yönet"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-posta",
+    "emailUnavailable": "e-posta kullanılamıyor",
+    "organization": "Kuruluş",
+    "personalAccount": "kişisel hesap",
+    "switchAccountButton": "Farklı bir hesap kullan"
   }
 }
