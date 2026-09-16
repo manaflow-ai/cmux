@@ -631,7 +631,13 @@ fn json_hooks(old: &str, a: &Agent, remove: bool, anti: bool) -> Result<String> 
             );
         }
         for (k, v) in events {
-            hm.insert(k, v);
+            if let (Some(existing), Some(incoming)) =
+                (hm.get_mut(&k).and_then(Value::as_array_mut), v.as_array())
+            {
+                existing.extend(incoming.iter().cloned());
+            } else {
+                hm.insert(k, v);
+            }
         }
     }
     drop(hm);
@@ -815,6 +821,13 @@ fn kimi_text(old: &str, a: &Agent, remove: bool) -> String {
             ]);
         }
         lines.push(end.into());
+    } else {
+        while lines.len() > 1
+            && lines.last().is_some_and(String::is_empty)
+            && lines[lines.len() - 2].is_empty()
+        {
+            lines.pop();
+        }
     }
     if lines.is_empty() {
         String::new()
@@ -848,7 +861,6 @@ mod tests {
             false,
         )
         .unwrap();
-        println!("{s}");
         assert!(s.contains("echo user"));
         assert!(s.contains("cmux hooks cursor stop"));
     }
