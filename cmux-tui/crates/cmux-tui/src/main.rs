@@ -2843,6 +2843,10 @@ fn prepare_frontend_session(
     }
 }
 
+// The renderer entrypoint receives the independent session, machine, and
+// frontend color lifetimes explicitly. Keep those ownership boundaries visible
+// rather than hiding them in a mutable global startup context.
+#[allow(clippy::too_many_arguments)]
 fn run_tui_once(
     session: Session,
     session_label: String,
