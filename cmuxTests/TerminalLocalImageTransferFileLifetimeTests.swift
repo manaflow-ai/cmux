@@ -74,6 +74,71 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(imageURL))
     }
 
+    @Test(
+        "Copied image pixels take precedence over an auxiliary URL",
+        arguments: ["folder", "web", "missing-image"]
+    )
+    func imagePixelsTakePrecedenceOverURL(urlKind: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-image-priority-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let pasteboard = NSPasteboard(name: .init("cmux-image-priority-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let item = NSPasteboardItem()
+        #expect(item.setData(png, forType: .png))
+        let auxiliaryURL: URL
+        if urlKind == "web" {
+            auxiliaryURL = try #require(URL(string: "https://example.com/copied-image"))
+            #expect(item.setString(auxiliaryURL.absoluteString, forType: .URL))
+        } else {
+            auxiliaryURL = urlKind == "folder"
+                ? directory
+                : directory.appendingPathComponent("missing.png")
+            #expect(item.setString(auxiliaryURL.absoluteString, forType: .fileURL))
+        }
+        #expect(pasteboard.writeObjects([item]))
+
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .paste,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let urls) = prepared else {
+            Issue.record("Expected an image attachment, got \(prepared)")
+            return
+        }
+        let imageURL = try #require(urls.first)
+        #expect(urls.count == 1)
+        #expect(imageURL != auxiliaryURL)
+        #expect(imageURL.pathExtension == "png")
+        #expect(service.isOwnedTemporaryImageFile(imageURL))
+        #expect(try Data(contentsOf: imageURL) == png)
+    }
+
+    @Test("Finder file and folder pastes preserve their URL identity", arguments: [false, true])
+    func fileOnlyPasteKeepsURLs(isDirectory: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-priority-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = isDirectory ? directory : directory.appendingPathComponent("image.png")
+        if !isDirectory {
+            try #require(Data(base64Encoded: Self.onePixelPNGBase64)).write(to: source)
+        }
+        let pasteboard = NSPasteboard(name: .init("cmux-file-priority-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        #expect(pasteboard.writeObjects([source as NSURL]))
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        #expect(TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .paste,
+            pasteboardService: service
+        ) == .fileURLs([source.standardizedFileURL]))
+    }
+
     private func makeHostedTerminal() throws -> HostedTerminal {
         _ = NSApplication.shared
         let surface = TerminalSurface(
