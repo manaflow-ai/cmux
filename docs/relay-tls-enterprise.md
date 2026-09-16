@@ -23,7 +23,8 @@ separate and unchanged.
 
 Native relay errors record only the host, port, and fixed cause in the macOS
 unified-log category `RelayTLS`. The readiness error includes the same cause
-when available. Diagnostics exclude URL usernames, passwords, paths, queries,
+when available. In Settings → Networking, the same safe message remains visible
+while the Mac retries, and clears when relay readiness recovers. Diagnostics exclude URL usernames, passwords, paths, queries,
 relay tokens, and raw provider error text.
 
 ```sh

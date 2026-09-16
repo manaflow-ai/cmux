@@ -36,7 +36,8 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
             relayFleet: cache?.directory?.relayURLs ?? cache?.relayCredentials.map(\.relayURL) ?? [],
             hasTrustSnapshot: cache?.directory != nil,
             hadLiveDiscovery: hadLiveDiscovery,
-            credentialExpiry: cache?.relayCredentials.map { Date(timeIntervalSince1970: Double($0.expiresAt)) }.max()
+            credentialExpiry: cache?.relayCredentials.map { Date(timeIntervalSince1970: Double($0.expiresAt)) }.max(),
+            failureDescription: listenerState.failureDescription
         )
     }
 
@@ -185,7 +186,8 @@ extension MobileHostIrxRuntime {
         relayFleet: [String],
         hasTrustSnapshot: Bool,
         hadLiveDiscovery: Bool,
-        credentialExpiry: Date?
+        credentialExpiry: Date?,
+        failureDescription: String? = nil
     ) -> CmxIrohSettingsSnapshot {
         let selectedPath = settingsSelectedPath(
             phase: phase,
@@ -221,7 +223,10 @@ extension MobileHostIrxRuntime {
             // until the autopilot mints again.
             policyExpiresAt: credentialExpiry,
             staleRelayIDs: [],
-            failureDescription: phase == .failed ? "irx-activation-failed" : nil,
+            failureDescription: failureDescription ?? (phase == .failed ? String(
+                localized: "connection.relay.unavailable",
+                defaultValue: "Unable to connect. Check your network and try again."
+            ) : nil),
             debugTransportVerificationMode: debugMode
         )
     }

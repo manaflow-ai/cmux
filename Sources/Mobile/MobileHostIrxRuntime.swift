@@ -90,6 +90,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         didSet {
             guard listenerState != oldValue else { return }
             for continuation in listenerContinuations.values { continuation.yield(listenerState) }
+            if listenerState.failureDescription != oldValue.failureDescription { publishIrxSettingsUpdate() }
             if publishesPublicHostStatus {
                 NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
             }
@@ -556,9 +557,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     return
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
-                    self.listenerState.phase = .retrying
-                    self.listenerState.boundPort = nil
-                    self.listenerState.localSocketAddresses = []
+                    self.listenerState.relayFailed(error)
                     let delay = Self.activationRetryDelay(after: error, failureCount: failures, jitterUnitInterval: Double.random(in: 0...1))
                     failures += 1
                     try? await Task.sleep(for: .seconds(delay))
@@ -639,9 +638,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let relayURL = await supervisor.homeRelayURL()
         guard isCurrent(token), !Task.isCancelled else { return }
         var next = listenerState
-        next.phase = healthy ? .ready : .starting
-        next.boundPort = healthy ? port : nil
-        next.localSocketAddresses = healthy ? addresses : []
+        next.updateReadiness(healthy: healthy, port: port, addresses: addresses)
         listenerState = next
         if healthy { publishRoute(relayURL: relayURL) }
         else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }

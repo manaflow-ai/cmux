@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxIrxTransport
 import Foundation
 
 struct MobileHostListenerState: Equatable, Sendable {
@@ -17,6 +18,22 @@ struct MobileHostListenerState: Equatable, Sendable {
         return boundPort != preferredPort
     }
     var isSettled: Bool { phase != .starting }
+
+    /// Keeps the endpoint's credential-free diagnosis through a pending retry.
+    mutating func relayFailed(_ error: any Error) {
+        phase = .retrying
+        boundPort = nil
+        localSocketAddresses = []
+        // Only this controlled error type contains a safe user-facing message.
+        failureDescription = (error as? IrxEndpointError)?.errorDescription
+    }
+
+    mutating func updateReadiness(healthy: Bool, port: Int?, addresses: [String]) {
+        phase = healthy ? .ready : .starting
+        boundPort = healthy ? port : nil
+        localSocketAddresses = healthy ? addresses : []
+        if healthy { failureDescription = nil }
+    }
 }
 
 /// One listener owner supplies both settings state and startup readiness.

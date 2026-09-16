@@ -1,4 +1,3 @@
-import Foundation
 public import IrohLib
 import OSLog
 
@@ -19,7 +18,7 @@ public final class CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCall
     public func onChange(diagnostics snapshot: [RelayConnectionDiagnostic]) async throws {
         for failure in snapshot {
             guard !failure.connected, let kind = failure.failure else { continue }
-            let code = Self.code(kind)
+            let code = kind.diagnosticCode
             let port = failure.port.map(String.init) ?? "unknown"
             #if os(macOS)
             let trust = "system"
@@ -30,36 +29,4 @@ public final class CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCall
         }
     }
 
-    /// Formats a current native snapshot for a local connection error.
-    ///
-    /// Includes only the failing host, port and a fixed diagnostic code. It
-    /// never includes URL userinfo, paths, query strings, tokens or peer text.
-    /// - Parameter diagnostics: Read directly from the active native endpoint.
-    /// - Returns: The first failure, or nil when the snapshot has no failure.
-    public static func failureDescription(for diagnostics: [RelayConnectionDiagnostic]) -> String? {
-        guard let failure = diagnostics.first(where: { !$0.connected && $0.failure != nil }),
-              let kind = failure.failure else { return nil }
-        return String(
-            format: String(
-                localized: "connection.relay.nativeFailure",
-                defaultValue: "Relay connection to %1$@ failed: %2$@."
-            ),
-            failure.port.map { "\(failure.host):\($0)" } ?? failure.host,
-            Self.code(kind)
-        )
-    }
-
-    private static func code(_ kind: RelayFailureKind) -> String {
-        switch kind {
-        case .unknownIssuer: "UnknownIssuer"
-        case .hostnameMismatch: "HostnameMismatch"
-        case .certificateExpired: "CertificateExpired"
-        case .certificateNotYetValid: "CertificateNotYetValid"
-        case .certificateRevoked: "CertificateRevoked"
-        case .systemTrustFailed: "SystemTrustFailed"
-        case .tlsFailed: "TLSFailed"
-        case .networkFailed: "NetworkFailed"
-        case .other: "Other"
-        }
-    }
 }

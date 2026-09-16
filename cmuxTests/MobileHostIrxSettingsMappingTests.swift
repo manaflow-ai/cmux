@@ -150,6 +150,38 @@ struct MobileHostIrxSettingsMappingTests {
         #expect(snapshot.failureDescription != nil)
     }
 
+    @Test func relayFailureReachesSettingsAndClearsWhenReady() {
+        let message = "Relay connection to relay.example.test failed: UnknownIssuer."
+        var listener = MobileHostListenerState()
+        listener.relayFailed(IrxEndpointError.bindFailed(message))
+        let snapshot = MobileHostIrxRuntime.settingsSnapshot(
+            phase: .activating,
+            forceRelayOnly: false,
+            endpointOnline: false,
+            homeRelayURL: nil,
+            relayFleet: fleet,
+            hasTrustSnapshot: true,
+            hadLiveDiscovery: true,
+            credentialExpiry: nil,
+            failureDescription: listener.failureDescription
+        )
+        #expect(snapshot.failureDescription == message)
+        #expect(listener.phase == .retrying)
+        listener.updateReadiness(healthy: false, port: nil, addresses: [])
+        #expect(listener.failureDescription == message)
+        listener.updateReadiness(healthy: true, port: 1234, addresses: [])
+        #expect(listener.failureDescription == nil)
+        #expect(listener.isRunning)
+    }
+
+    @Test func unrelatedErrorsCannotExposeRawCredentialsInSettings() {
+        var listener = MobileHostListenerState()
+        listener.relayFailed(NSError(domain: "example", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "https://user:secret@relay.example/path?token=secret",
+        ]))
+        #expect(listener.failureDescription == nil)
+    }
+
     @Test func unsupportedMutationsThrowExplicitly() async {
         let runtime = await MainActor.run { MobileHostIrxRuntime.shared }
         await #expect(throws: MobileHostIrxSettingsUnsupportedError.self) {

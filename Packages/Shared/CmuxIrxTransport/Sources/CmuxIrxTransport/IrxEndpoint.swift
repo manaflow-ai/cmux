@@ -374,8 +374,7 @@ public actor IrxEndpointSupervisor {
         }
         guard cameOnline == true else {
             // Read this generation's native state, independent of callback delivery.
-            let failure = CmxIrohRelayDiagnosticObserver.failureDescription(
-                for: bound.relayConnectionDiagnostics())
+            let failure = bound.relayConnectionDiagnostics().lazy.compactMap(\.failureDescription).first
             journal.record(
                 "endpoint", "online-timeout",
                 ["generation": String(generation)]

@@ -18,17 +18,17 @@ import Testing
         kind: RelayFailureKind,
         code: String
     ) throws {
-        let description = try #require(CmxIrohRelayDiagnosticObserver.failureDescription(for: [
-            .init(host: "relay.example.test", port: 443, connected: false, failure: kind),
-        ]))
+        let diagnostic = RelayConnectionDiagnostic(
+            host: "relay.example.test", port: 443, connected: false, failure: kind)
+        let description = try #require(diagnostic.failureDescription)
         #expect(description.contains("relay.example.test:443"))
         #expect(description.contains(code))
     }
 
     @Test func connectedRelayHasNoFailureDescription() {
-        #expect(CmxIrohRelayDiagnosticObserver.failureDescription(for: [
-            .init(host: "relay.example.test", port: 443, connected: true, failure: .unknownIssuer),
-        ]) == nil)
+        let diagnostic = RelayConnectionDiagnostic(
+            host: "relay.example.test", port: 443, connected: true, failure: .unknownIssuer)
+        #expect(diagnostic.failureDescription == nil)
     }
 
     @Test func oldNotificationCannotChangeTheCurrentSnapshot() async throws {
@@ -36,6 +36,8 @@ import Testing
         try await observer.onChange(diagnostics: [
             .init(host: "relay.example.test", port: nil, connected: false, failure: .unknownIssuer),
         ])
-        #expect(CmxIrohRelayDiagnosticObserver.failureDescription(for: []) == nil)
+        let current = RelayConnectionDiagnostic(
+            host: "relay.example.test", port: nil, connected: false, failure: nil)
+        #expect(current.failureDescription == nil)
     }
 }
