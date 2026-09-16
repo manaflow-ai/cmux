@@ -306,6 +306,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    /// The last pane geometry published by a host.
+    @MainActor public internal(set) var committedPaneGeometry: TerminalPaneGeometry?
     @MainActor weak var surfaceResizeAuthority: (any TerminalSurfaceResizeAuthority)?
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?

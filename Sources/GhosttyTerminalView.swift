@@ -5081,6 +5081,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var isOpaque: Bool { false }
 
+    /// Whether a window portal owns this view's pane geometry.
+    var paneGeometryIsPortalOwned = false
+
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
         if let size,
            size.width > 0,
@@ -11485,6 +11488,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
+    var paneGeometryIsPortalOwned: Bool { surfaceView.paneGeometryIsPortalOwned }
     func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
     func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
 
