@@ -1,0 +1,43 @@
+name: IROH v2
+
+on:
+  pull_request:
+    paths:
+      - workers/iroh-v2/**
+      - Packages/Shared/CmuxIrxTransport/**
+      - .github/workflows/iroh-v2.yml
+  push:
+    branches: [main]
+    paths:
+      - workers/iroh-v2/**
+      - Packages/Shared/CmuxIrxTransport/**
+      - .github/workflows/iroh-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: workers/iroh-v2
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      - name: Contracts, architecture, generated bindings and unit tests
+        run: bun run check
+      - name: Real Cloudflare runtime and SQLite tests
+        run: bun run test:runtime
+      - name: Validate staging and production bundles
+        run: |
+          bunx wrangler deploy --env staging --dry-run --outdir dist/staging
+          bunx wrangler deploy --env production --dry-run --outdir dist/production

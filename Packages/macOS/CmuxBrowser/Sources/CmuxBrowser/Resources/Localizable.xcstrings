@@ -16,6 +16,48 @@
             "state": "translated",
             "value": "差分ビューアの許可リストが大きすぎます"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-Viewer-Erlaubnisliste ist zu groß"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste d’autorisation du visualiseur de diff est trop grande"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة عارض الفروق المسموحة كبيرة جداً"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de permitidos del visor de diferencias es demasiado grande"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 檢視器允許清單過大"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 查看器白名单过大"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어 허용 목록이 너무 큽니다"
+          }
         }
       }
     },
@@ -32,6 +74,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "差分ビューアの許可リスト項目が重複しています"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelter Eintrag in der Diff-Viewer-Erlaubnisliste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrée en double dans la liste d’autorisation du visualiseur de diff"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال مكرر في قائمة عارض الفروق المسموحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada duplicada en la lista de permitidos del visor de diferencias"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複的 Diff 檢視器允許清單項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复的 Diff 查看器白名单条目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 Diff 뷰어 허용 목록 항목"
           }
         }
       }
@@ -50,6 +134,48 @@
             "state": "translated",
             "value": "差分ビューアの許可リストが空です"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-Viewer-Erlaubnisliste ist leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste d’autorisation du visualiseur de diff est vide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة عارض الفروق المسموحة فارغة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de permitidos del visor de diferencias está vacía"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 檢視器允許清單為空"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 查看器白名单为空"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어 허용 목록이 비어 있습니다"
+          }
         }
       }
     },
@@ -67,6 +193,48 @@
             "state": "translated",
             "value": "差分ビューアの許可リスト項目が無効です"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültiger Eintrag in der Diff-Viewer-Erlaubnisliste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrée non valide dans la liste d’autorisation du visualiseur de diff"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدخال غير صالح في قائمة عارض الفروق المسموحة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada no válida en la lista de permitidos del visor de diferencias"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無效的 Diff 檢視器允許清單項目"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效的 Diff 查看器白名单条目"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 Diff 뷰어 허용 목록 항목"
+          }
         }
       }
     },
@@ -76,13 +244,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid diff viewer manifest"
+            "value": "Could not load the diff viewer. Try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューアのマニフェストが無効です"
+            "value": "差分ビューアを読み込めませんでした。もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diff-Viewer konnte nicht geladen werden. Versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger le visualiseur de diff. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحميل عارض الفروق. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el visor de diferencias. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入Diff 檢視器。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载Diff 查看器。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어를 불러올 수 없습니다. 다시 시도하세요."
           }
         }
       }
@@ -93,13 +303,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid diff viewer token"
+            "value": "Could not open the diff viewer. Try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューアのトークンが無効です"
+            "value": "差分ビューアを開けませんでした。もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diff-Viewer konnte nicht geöffnet werden. Versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le visualiseur de diff. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر فتح عارض الفروق. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el visor de diferencias. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟Diff 檢視器。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开Diff 查看器。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어를 열 수 없습니다. 다시 시도하세요."
           }
         }
       }
@@ -110,13 +362,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff viewer manifest is too large"
+            "value": "The diff is too large to display. Try opening fewer files."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューアのマニフェストが大きすぎます"
+            "value": "差分が大きすぎるため表示できません。開くファイルの数を減らしてください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Diff ist zu groß für die Anzeige. Versuchen Sie, weniger Dateien zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le diff est trop volumineux pour être affiché. Essayez d’ouvrir moins de fichiers."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حجم الفروق أكبر من أن يتم عرضه. حاول فتح عدد أقل من الملفات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las diferencias son demasiado grandes para mostrarlas. Intenta abrir menos archivos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差異內容過大，無法顯示。請嘗試開啟較少的檔案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差异内容过大，无法显示。请尝试打开更少的文件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차이가 너무 커서 표시할 수 없습니다. 여는 파일 수를 줄여 보세요."
           }
         }
       }
@@ -135,6 +429,48 @@
             "state": "translated",
             "value": "差分ビューアのファイルを読み取れません"
           }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-Viewer-Datei ist nicht lesbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier du visualiseur de diff n’est pas lisible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف عارض الفروق غير قابل للقراءة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo del visor de diferencias no es legible"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 檢視器檔案無法讀取"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 查看器文件不可读"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어 파일을 읽을 수 없습니다"
+          }
         }
       }
     },
@@ -151,6 +487,48 @@
           "stringUnit": {
             "state": "translated",
             "value": "差分ビューアの信頼済みディレクトリは安全ではありません"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdiges Diff-Viewer-Verzeichnis ist unsicher"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le répertoire de confiance du visualiseur de diff n’est pas sécurisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل الموثوق لعارض الفروق غير آمن"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El directorio de confianza del visor de diferencias no es seguro"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 檢視器信任的目錄不安全"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 查看器受信任目录不安全"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어 신뢰할 수 있는 디렉토리가 안전하지 않습니다"
           }
         }
       }

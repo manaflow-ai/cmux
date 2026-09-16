@@ -157,6 +157,8 @@ class MockCmuxSocket:
                 "source": "pid",
                 "pid_resolution": pid_resolution,
             }
+        elif method == "agent.hook.enqueue":
+            result = {}
         elif method == "surface.resume.set":
             result = {"ok": True}
         elif method == "feed.push":
@@ -625,8 +627,8 @@ if (hungPidLines.length !== 22) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
-  startedArgs.at(-2) !== "hooks omp session-start" ||
-  startedArgs.at(-1) !== "hooks omp stop"
+  startedArgs.at(-2) !== "hooks enqueue omp session-start" ||
+  startedArgs.at(-1) !== "hooks enqueue omp stop"
 ) {
   throw new Error(`shutdown did not preserve the queued Stop after timeout: ${startedArgs}`);
 }
@@ -696,9 +698,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"FAIL: expected exactly {expected_invocations} hook invocations, got {args_lines!r}")
             return 1
         for expected in [
-            "hooks omp session-start",
-            "hooks omp prompt-submit",
-            "hooks omp stop",
+            "hooks enqueue omp session-start",
+            "hooks enqueue omp prompt-submit",
+            "hooks enqueue omp stop",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")

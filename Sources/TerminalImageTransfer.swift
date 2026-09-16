@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudImagePaste
 import CmuxTerminal
 import AppKit
 import CmuxRemoteSession
@@ -12,18 +13,6 @@ enum TerminalImageTransferMode: Codable, Sendable {
 enum TerminalRemoteUploadTarget: Equatable {
     case workspaceRemote
     case detectedSSH(DetectedSSHSession)
-}
-
-enum TerminalImageTransferTarget: Equatable {
-    case local
-    case remote(TerminalRemoteUploadTarget)
-}
-
-enum TerminalImageTransferPlan: Equatable {
-    case insertText(String)
-    case insertTextSegments([String], interSegmentDelay: TimeInterval)
-    case uploadFiles([URL], TerminalRemoteUploadTarget)
-    case reject
 }
 
 enum TerminalImageTransferPreparedContent: Codable, Equatable, Sendable {
@@ -303,6 +292,8 @@ enum TerminalImageTransferPlanner {
         guard !fileURLs.isEmpty else { return .reject }
 
         switch target {
+        case .cloud:
+            return .pasteCloudImages(fileURLs)
         case .local:
             if mode == .drop,
                fileURLs.count > 1,
@@ -357,6 +348,12 @@ enum TerminalImageTransferPlanner {
         onFailure: @escaping (Error) -> Void
     ) -> TerminalImageTransferOperation? {
         switch plan {
+        case .pasteCloudImages:
+            // The native Cloud session owns both upload and remote paste. A
+            // caller without that transport must fail instead of inserting a path.
+            if let operation, !operation.finish() { return operation }
+            onFailure(CloudImagePasteError.unavailable)
+            return operation
         case .insertText(let text):
             if let operation, !operation.finish() {
                 return operation
@@ -595,27 +592,5 @@ enum TerminalImageTransferPlanner {
                 scheduleAfter: scheduleAfter
             )
         }
-    }
-}
-
-extension TerminalSurface {
-    @MainActor
-    func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
-        guard let workspace = owningWorkspace() else { return .local }
-        if workspace.isRemoteTerminalSurface(id) {
-            return .remote(.workspaceRemote)
-        }
-        // Remote tmux mirror surfaces have no local TTY/process, so the SSH
-        // detector below can't see them. Upload pasted images to the tmux host
-        // over SSH (where claude runs can read them) instead of inserting a
-        // macOS-local path the remote host has no access to.
-        if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
-            return .remote(target)
-        }
-        if let ttyName = workspace.surfaceTTYNames[id],
-           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
-            return .remote(.detectedSSH(session))
-        }
-        return .local
     }
 }

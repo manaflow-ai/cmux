@@ -82,6 +82,29 @@ import Testing
         }
     }
 
+    /// `DisableAutoUpdate` (MDM): the updater never starts and a manual check is a no-op that
+    /// leaves the model idle, whichever build is running.
+    @Test func managedPolicyKeepsTheUpdaterOffAndSuppressesManualChecks() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: false,
+            isDisabledByPolicy: { true }
+        )
+        #expect(!controller.startUpdaterIfNeeded())
+        controller.checkForUpdates()
+        guard case .idle = controller.model.state else {
+            Issue.record("managed-policy manual check should leave the model idle, got \(controller.model.state)")
+            return
+        }
+    }
+
     /// A DEV/staging build disables Sparkle's automatic checks so its scheduler never queries the
     /// public appcast. (The override is also re-asserted before `start()`, so the DEBUG
     /// permission-reset path cannot undo it.)
