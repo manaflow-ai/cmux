@@ -12,6 +12,7 @@ import Testing
 /// stays available to callers that ask for it. The footer Cloud button follows
 /// the footer presentation policy, including the minimal-mode hover reveal.
 @Suite("Sidebar Cloud tab and footer button")
+@MainActor
 struct SidebarCloudWorkspacesSwitcherTests {
     private let localInfo = SurfaceMachineInfo(
         id: .local, name: "This Mac", status: "running", image: nil, hasDesktop: false,
@@ -84,7 +85,6 @@ struct SidebarCloudWorkspacesSwitcherTests {
     }
 
     @Test("Settings opens as one pane per workspace and refocuses instead of duplicating")
-    @MainActor
     func settingsOpensAsOnePane() throws {
         let workspace = Workspace()
         let first = try #require(workspace.openOrFocusSettingsSurface(initialSection: nil))
