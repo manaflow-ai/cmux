@@ -176,7 +176,22 @@ final class PostHogAnalytics: @unchecked Sendable {
         guard !didStart else { return }
         guard isEnabled else { return }
 
-        let config = PostHogConfig(apiKey: apiKey, host: host)
+        let config: PostHogConfig
+#if DEBUG
+        // A loopback collector exercises the real SDK without sending fixture
+        // events to production. Release builds never accept this override.
+        if let rawHost = environment["CMUX_POSTHOG_TEST_HOST"],
+           let url = URL(string: rawHost),
+           url.scheme == "http", url.host == "127.0.0.1", url.port != nil,
+           url.user == nil, url.password == nil {
+            config = PostHogConfig(apiKey: "phc_cmux_e2e", host: rawHost)
+            config.flushAt = 1
+        } else {
+            config = PostHogConfig(apiKey: apiKey, host: host)
+        }
+#else
+        config = PostHogConfig(apiKey: apiKey, host: host)
+#endif
         config.captureApplicationLifecycleEvents = false
         config.captureScreenViews = false
 #if DEBUG
@@ -345,8 +360,9 @@ final class PostHogAnalytics: @unchecked Sendable {
         ]
         let exception: [String: Any] = [
             "type": type,
-            "value": scrubbedCrashValue(reported?.value)
-                ?? "Previous launch crashed; crash report detail unavailable",
+            // Envelope reasons are arbitrary app text. Do not mirror paths,
+            // commands, secrets, or customer content into analytics.
+            "value": "Previous launch crashed",
             "mechanism": mechanism,
         ]
         var properties: [String: Any] = [
@@ -380,25 +396,6 @@ final class PostHogAnalytics: @unchecked Sendable {
               trimmed.unicodeScalars.allSatisfy(allowed.contains)
         else { return nil }
         return trimmed
-    }
-
-    /// Crash values are system reason strings, but they can embed absolute
-    /// paths or addresses; scrub both before mirroring them to PostHog.
-    nonisolated static func scrubbedCrashValue(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        value = value.replacingOccurrences(
-            of: #"/(?:[^/\n]+/)*[^/\s\n]+"#,
-            with: "[path]",
-            options: .regularExpression
-        )
-        value = value.replacingOccurrences(
-            of: #"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"#,
-            with: "[email]",
-            options: .regularExpression
-        )
-        return String(value.prefix(500))
     }
 
     nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {
