@@ -55,6 +55,12 @@ CMUX_API_BASE_URL =
 // back to AuthConfig's production API origin.
 CMUX_IROH_BROKER_BASE_URL =
 
+// IROH v2 control Worker. This is separate from the legacy broker key above
+// so old compatibility routes cannot silently select the v2 backend.
+CMUX_IROH_V2_ENVIRONMENT =
+CMUX_IROH_V2_BASE_URL =
+CMUX_IROH_V2_FORCE_RELAY = 0
+
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.
 CMUX_CRASH_REPORTING_ENABLED = YES

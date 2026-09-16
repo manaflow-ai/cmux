@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
+/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
 
 
 import type * as T from "./types.js";
@@ -549,6 +549,23 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
   "pane": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface PasteImageRequest extends CmuxRequestBase {
+  cmd: "paste-image";
+  "data"?: (string) | null;
+  "lease": string;
+  "mime"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "size"?: (bigint) | null;
+  "surface": T.Id;
+  "terminal_id": string;
+  "upload_id": string;
+}
+export type PasteImageResult = {
+  "accepted": boolean;
+};
+
 /** Protocol v6; authority: control. */
 export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
@@ -1009,6 +1026,7 @@ export type CmuxRequest =
   | NotifyRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | PasteImageRequest
   | PingRequest
   | ProcessInfoRequest
   | PutFrontendProjectionRequest
@@ -1536,6 +1554,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "paste-image": {
+    request: PasteImageRequest;
+    result: PasteImageResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-image-paste-v1";
     stream: null;
   };
   "ping": {
