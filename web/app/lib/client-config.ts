@@ -1,39 +1,20 @@
 "use client";
 
 import posthog from "posthog-js";
+import type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+} from "../../services/client-config/types";
 
-export type ClientConfigFlagValue = boolean | string;
+export type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+  ClientConfigFlagValue,
+} from "../../services/client-config/types";
 
-export type ClientConfig = {
-  readonly featureFlags: Record<string, ClientConfigFlagValue>;
-  readonly featureFlagPayloads: Record<string, unknown>;
-  readonly errorsWhileComputingFlags: boolean;
-  readonly requestId?: string;
-};
-
-export type ClientConfigEvaluationContext = {
-  readonly groups?: Record<string, unknown>;
-  readonly personProperties?: Record<string, unknown>;
-  readonly groupProperties?: Record<string, unknown>;
-  readonly anonDistinctId?: string;
-  readonly deviceId?: string;
-  readonly timezone?: string;
-  readonly evaluationContexts?: readonly string[];
-};
-
-const CLIENT_CONFIG_CACHE_KEY = "cmux.client-config.v1";
-const CLIENT_CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
-
-type StoredClientConfig = {
-  readonly requestBody: string;
-  readonly expiresAt: number;
-  readonly config: ClientConfig;
-};
-
-// Share one short-lived result across flag consumers and full navigations.
-// Key by the complete evaluation so identity or targeting changes miss the
-// cache. Storage is optional; memory still handles storage-disabled browsers.
-let cachedClientConfig: StoredClientConfig | undefined;
+// Coalesce duplicate mounts in one browser process. Durable evaluation caching
+// belongs to the server route, where it can also avoid the rate-limit and
+// PostHog work for every client surface.
 const pendingClientConfigs = new Map<string, Promise<ClientConfig>>();
 
 type PostHogWithFlagContext = typeof posthog & {
@@ -57,9 +38,6 @@ export async function getClientConfig(
     distinctId: options.distinctId ?? getPostHogDistinctId(),
     context: options.context ?? getPostHogEvaluationContext(),
   });
-  const cached = readStoredClientConfig(requestBody);
-  if (cached) return cached;
-
   const pending = pendingClientConfigs.get(requestBody);
   if (pending) return pending;
 
@@ -73,85 +51,13 @@ export async function getClientConfig(
       if (!response.ok) {
         throw new Error("client_config_unavailable");
       }
-      const config = await response.json() as ClientConfig;
-      if (isCacheableClientConfig(config)) writeStoredClientConfig(requestBody, config);
-      return config;
+      return await response.json() as ClientConfig;
     })
     .finally(() => {
       pendingClientConfigs.delete(requestBody);
     });
   pendingClientConfigs.set(requestBody, request);
   return request;
-}
-
-function readStoredClientConfig(requestBody: string): ClientConfig | undefined {
-  if (isFreshClientConfig(cachedClientConfig, requestBody)) return cachedClientConfig.config;
-  cachedClientConfig = undefined;
-  const storage = clientConfigStorage();
-  if (!storage) return undefined;
-
-  try {
-    const raw = storage.getItem(CLIENT_CONFIG_CACHE_KEY);
-    if (!raw) return undefined;
-    const stored = JSON.parse(raw) as Partial<StoredClientConfig>;
-    if (!isFreshClientConfig(stored, requestBody)) {
-      storage.removeItem(CLIENT_CONFIG_CACHE_KEY);
-      return undefined;
-    }
-    cachedClientConfig = stored;
-    return stored.config;
-  } catch {
-    return undefined;
-  }
-}
-
-function isFreshClientConfig(
-  value: Partial<StoredClientConfig> | undefined,
-  requestBody: string,
-): value is StoredClientConfig {
-  return Boolean(value && value.requestBody === requestBody &&
-    typeof value.expiresAt === "number" && value.expiresAt > Date.now() &&
-    isCacheableClientConfig(value.config));
-}
-
-function isCacheableClientConfig(value: unknown): value is ClientConfig {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const config = value as Partial<ClientConfig>;
-  return config.errorsWhileComputingFlags === false &&
-    isRecord(config.featureFlags) &&
-    Object.values(config.featureFlags).every((flag) => typeof flag === "boolean" || typeof flag === "string") &&
-    isRecord(config.featureFlagPayloads);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function writeStoredClientConfig(requestBody: string, config: ClientConfig): void {
-  const stored: StoredClientConfig = {
-    requestBody,
-    expiresAt: Date.now() + CLIENT_CONFIG_CACHE_TTL_MS,
-    config,
-  };
-  cachedClientConfig = stored;
-  const storage = clientConfigStorage();
-  if (!storage) return;
-
-  try {
-    storage.setItem(CLIENT_CONFIG_CACHE_KEY, JSON.stringify(stored));
-  } catch {
-    // Storage is an optional optimization. Private browsing and quota errors
-    // must leave the network-backed path working.
-  }
-}
-
-function clientConfigStorage(): Storage | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
 }
 
 function getPostHogEvaluationContext(): ClientConfigEvaluationContext {
