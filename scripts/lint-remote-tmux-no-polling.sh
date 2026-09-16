@@ -30,10 +30,11 @@ cd "$(dirname "$0")/.." || exit 1
 SCOPE_DIR="${LINT_SCOPE_DIR:-Sources}"
 SCOPE=("$SCOPE_DIR"/RemoteTmux*.swift)
 
-# Primitives that make a wait time-based rather than event-based. `.asyncAfter(` is matched
-# on its own so the receiver's shape does not matter: DispatchQueue.main, .global(), a named
-# queue, all count.
-PATTERN='Task\.sleep|Thread\.sleep|usleep\(|\.asyncAfter\(|DispatchSourceTimer|Timer\.scheduledTimer|ContinuousClock\(\)\.sleep'
+# Primitives that make a wait time-based rather than event-based. `.sleep(` and `.asyncAfter(`
+# are matched on their own so the receiver's shape does not matter: Task, Thread, a
+# ContinuousClock built inline or a clock held in a property, DispatchQueue.main, .global(),
+# a named queue, all count.
+PATTERN='\.sleep[[:space:]]*\(|usleep\(|\.asyncAfter\(|DispatchSourceTimer|Timer\.scheduledTimer'
 
 # Waits that predate this guard, recorded so it blocks NEW ones without pretending the
 # existing ones are all fine. Several are worth revisiting — the sizing debounces in
@@ -66,14 +67,14 @@ normalize() { sed -E 's/^[[:space:]]+//; s/[[:space:]]+/ /g; s/[[:space:]]+$//' 
 hits_file="$(mktemp)" || { echo "lint-remote-tmux-no-polling: mktemp failed" >&2; exit 2; }
 used_file="$(mktemp)" || { echo "lint-remote-tmux-no-polling: mktemp failed" >&2; exit 2; }
 trap 'rm -f "$hits_file" "$used_file"' EXIT
-grep -nHE "$PATTERN" "${SCOPE[@]}" > "$hits_file" 2>"$hits_file.err"   # -H: one file in scope must still prefix its name
+# grep's own diagnostics go straight to stderr. A scratch file for them would be one more
+# redirect that can fail before grep runs, and that failure would read as "no matches".
+grep -nHE "$PATTERN" "${SCOPE[@]}" > "$hits_file"   # -H: one file in scope must still prefix its name
 scan_rc=$?
 if [ "$scan_rc" -gt 1 ]; then
-  echo "lint-remote-tmux-no-polling: the source scan failed (grep exit $scan_rc):" >&2
-  cat "$hits_file.err" >&2; rm -f "$hits_file.err"
+  echo "lint-remote-tmux-no-polling: the source scan failed (grep exit $scan_rc)" >&2
   exit 2
 fi
-rm -f "$hits_file.err"
 
 write_baseline=0
 [ "${1:-}" = "--write-baseline" ] && write_baseline=1
