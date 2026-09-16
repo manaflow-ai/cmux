@@ -1,6 +1,8 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
+import Testing
 @testable import CmuxTerminal
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
@@ -65,16 +67,6 @@ struct PresentedSurfaceFixture {
         surface.surfaceView.frame = surface.paneHost.bounds
         window.contentView?.addSubview(surface.paneHost)
         surface.attachedView = surface.surfaceView
-        // AppKit 26 does not attach a view to an un-ordered window until the
-        // window has entered the on-screen hierarchy. Keep the test window
-        // ordered long enough to establish the real-window relationship, then
-        // model the hidden-at-creation case through the renderer visibility
-        // seam below. This makes presentation readiness deterministic without
-        // changing the production visibility invariant.
-        window.orderFront(nil)
-        if !windowVisibleAtCreation {
-            window.orderOut(nil)
-        }
 
         runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
@@ -83,10 +75,12 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
+        _ = makeRendererCallbackContextForTesting(on: surface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
+        if surface.rendererPresentationState.inFlightToken != nil {
+            acknowledgePendingPresentation()
         }
     }
 
@@ -99,8 +93,6 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        if let token = surface.rendererPresentationState.inFlightToken {
-            surface.rendererFrameDidPresent(token: token)
-        }
+        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
     }
 }
