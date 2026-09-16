@@ -3,6 +3,7 @@ import ObjectiveC
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxTerminal
+import CmuxTerminalCore
 #if DEBUG
 import Bonsplit
 #endif
@@ -697,7 +698,9 @@ final class WindowTerminalPortal: NSObject {
         weak var anchorView: NSView?
         let workspaceID: UUID?
         var visibleInUI: Bool
-        var awaitingGeometrySettlement: Bool
+        /// A visible frame changed outside a drag and waits for the settled
+        /// pass to publish it; drag ticks publish immediately.
+        var needsSettledCommit: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
     }
@@ -1127,13 +1130,13 @@ final class WindowTerminalPortal: NSObject {
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
         if hierarchyWasAlreadySettled {
-            finishVisibleEntryGeometrySettlements()
-        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+            commitSettledPaneGeometries()
+        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) {
             if geometrySettlementPassesRemaining > 0 {
                 geometrySettlementPassesRemaining -= 1
                 scheduleExternalGeometrySynchronize(forceImmediate: false)
             } else {
-                finishVisibleEntryGeometrySettlements()
+                commitSettledPaneGeometries()
             }
         }
     }
@@ -1488,7 +1491,7 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if let hostedView = entry.hostedView {
-            hostedView.finishPortalGeometrySettlement()
+            hostedView.setPaneGeometryPortalOwned(false)
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
@@ -1507,8 +1510,8 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         entry.visibleInUI = false
-        entry.hostedView?.finishPortalGeometrySettlement()
-        entry.awaitingGeometrySettlement = false
+        entry.hostedView?.clearPortalGeometry()
+        entry.needsSettledCommit = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
@@ -1537,11 +1540,10 @@ final class WindowTerminalPortal: NSObject {
         if becameVisible {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
-            entry.awaitingGeometrySettlement = true
-            entry.hostedView?.beginPortalGeometrySettlement()
+            entry.needsSettledCommit = true
         } else if !effectiveVisibleInUI {
-            entry.awaitingGeometrySettlement = false
-            entry.hostedView?.finishPortalGeometrySettlement()
+            entry.needsSettledCommit = false
+            entry.hostedView?.clearPortalGeometry()
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
@@ -1622,6 +1624,10 @@ final class WindowTerminalPortal: NSObject {
             preAdoptionAutoresizingMaskByHostedId[hostedId] = hostedView.autoresizingMask
         }
         hostedView.autoresizingMask = []
+        // From here on the portal owns the pane geometry: the view stops
+        // publishing its own bounds and waits for a commit from a settled
+        // pass or a drag tick.
+        hostedView.setPaneGeometryPortalOwned(true)
 
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
 #if DEBUG
@@ -1648,7 +1654,7 @@ final class WindowTerminalPortal: NSObject {
             anchorView: anchorView,
             workspaceID: hostedView.isRightSidebarDockSurface ? nil : hostedView.surfaceView.terminalSurface?.tabId,
             visibleInUI: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
-            awaitingGeometrySettlement: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
+            needsSettledCommit: visibleInUI && (hostedView.isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: hostedView.surfaceView.terminalSurface?.tabId)),
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1664,7 +1670,7 @@ final class WindowTerminalPortal: NSObject {
         if becameVisible || (visibleInUI && didChangeAnchor) {
             lastHierarchySyncSignature = nil
             geometrySettlementPassesRemaining = 4
-            hostedView.beginPortalGeometrySettlement()
+            entriesByHostedId[hostedId]?.needsSettledCommit = true
         }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
@@ -1830,14 +1836,23 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func finishVisibleEntryGeometrySettlements() {
+    /// Publishes the resting size of every visible entry whose frame changed
+    /// since its last commit. This and the drag-tick commit in
+    /// `synchronizeHostedView` are the only two paths that give a terminal a
+    /// size, so a hidden, detached, or still-moving frame cannot reach it.
+    private func commitSettledPaneGeometries() {
         for hostedId in entriesByHostedId.keys {
-            guard var entry = entriesByHostedId[hostedId], entry.visibleInUI,
-                  entry.awaitingGeometrySettlement, let hostedView = entry.hostedView else { continue }
-            entry.awaitingGeometrySettlement = false
-            entriesByHostedId[hostedId] = entry
-            hostedView.finishPortalGeometrySettlement()
+            guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
+                  entry.needsSettledCommit, let hostedView = entry.hostedView,
+                  !hostedView.isHidden, hostedView.window === window else { continue }
+            entriesByHostedId[hostedId]?.needsSettledCommit = false
+            _ = hostedView.commitPortalGeometry(phase: .settled)
         }
+    }
+
+    /// Whether frames written right now are drag ticks the user is watching.
+    private var isInteractiveGeometryActive: Bool {
+        isWindowLiveResizeActive || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
     }
 
     private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {
@@ -1866,13 +1881,13 @@ final class WindowTerminalPortal: NSObject {
                 )
             }
             if hierarchyWasAlreadySettled {
-                self.finishVisibleEntryGeometrySettlements()
-            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+                self.commitSettledPaneGeometries()
+            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) {
                 if self.geometrySettlementPassesRemaining > 0 {
                     self.geometrySettlementPassesRemaining -= 1
                     self.scheduleExternalGeometrySynchronize(forceImmediate: false)
                 } else {
-                    self.finishVisibleEntryGeometrySettlements()
+                    self.commitSettledPaneGeometries()
                 }
             }
         }
@@ -2277,6 +2292,15 @@ final class WindowTerminalPortal: NSObject {
                         deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.frameChange.deferred")
                     }
                 }
+                // A frame the user is watching move (drag tick) publishes now;
+                // any other visible frame change waits for the settled pass.
+                // Hidden or tiny frames never publish.
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden {
+                    if isInteractiveGeometryActive {
+                        _ = hostedView.commitPortalGeometry(phase: .interactive)
+                    }
+                    entriesByHostedId[hostedId]?.needsSettledCommit = true
+                }
             }
         }
 
@@ -2306,6 +2330,12 @@ final class WindowTerminalPortal: NSObject {
             // normal frame-change refresh path won't run. Nudge geometry + redraw so newly
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
+            // The revealed frame is now user-visible; publish it on the next
+            // settled pass (or immediately inside a drag).
+            if isInteractiveGeometryActive {
+                _ = hostedView.commitPortalGeometry(phase: .interactive)
+            }
+            entriesByHostedId[hostedId]?.needsSettledCommit = true
             // Mid window live-resize the pass runs synchronously inside the
             // resize tick's still-open transaction (see the didResize
             // observer), where refreshSurfaceNow's displayIfNeeded reaches

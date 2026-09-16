@@ -194,7 +194,7 @@ extension TerminalSurface {
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
-    public func updateSize(
+    func updateSize(
         width: CGFloat,
         height: CGFloat,
         xScale: CGFloat,

@@ -347,7 +347,6 @@ enum MobileHostPublicStatusCache {
         }
         return .ok(MobileHostService.identityStatusPayload(
             routes: cachedRoutes,
-            deviceID: deviceID,
             additionalCapabilities: additionalCapabilities,
             phonePushAdmission: phonePushAdmission,
             phonePushQueuePersistenceStatus: phonePushQueuePersistenceStatus

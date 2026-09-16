@@ -4046,7 +4046,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
-    private var deferSurfaceSizeForPortalGeometrySettlement = false
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
@@ -4547,7 +4546,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         if !isAlreadyAttached {
-            updateSurfaceSize()
+            _ = reapplyPaneGeometry()
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
@@ -4998,7 +4997,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // enters the hierarchy while AppKit is still moving it on macOS 15.
         // Consume the committed bounds and let the portal's queued convergence
         // pass handle any later geometry change.
-        updateSurfaceSize()
+        _ = reapplyPaneGeometry()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
@@ -5039,13 +5038,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             layer?.contentsScale = window.backingScaleFactor
             CATransaction.commit()
         }
-        updateSurfaceSize()
+        recommitPaneGeometryForBackingChange()
         invalidateTextInputCoordinates()
     }
 
     override func layout() {
         super.layout()
-        updateSurfaceSize()
+        // A portal-owned view is sized by the portal's commit; only a view
+        // that AppKit lays out directly publishes its own bounds.
+        _ = commitOwnBounds()
         syncKeyboardCopyModeCursorOverlay()
         invalidateTextInputCoordinates()
         terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapplyIfReady(
@@ -5055,7 +5056,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
-        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        _ = commitOwnBounds()
         invalidateTextInputCoordinates()
     }
 
@@ -5066,141 +5067,35 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var isOpaque: Bool { false }
 
-    private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
-        if let size,
-           size.width > 0,
-           size.height > 0 {
-            return size
-        }
-        let currentBounds = bounds.size
-        if currentBounds.width > 0, currentBounds.height > 0 {
-            return currentBounds
-        }
-        if let pending = pendingSurfaceSize,
-           pending.width > 0,
-           pending.height > 0 {
-            return pending
-        }
-        return currentBounds
-    }
+    /// Whether a window portal positions this view. The portal then owns the
+    /// pane geometry: this view never publishes its own bounds, and every
+    /// terminal size arrives through ``commitPaneGeometry(size:phase:)`` from
+    /// the portal's settled pass or drag tick. A frame the user cannot see
+    /// has no path to the PTY.
+    var paneGeometryIsPortalOwned = false
 
-    private static func hasTabDragPasteboardTypes() -> Bool {
-        let pasteboard = NSPasteboard(name: .drag)
-        return hasLiveInternalDrag(in: pasteboard)
-    }
-
-    private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        switch eventType {
-        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func shouldDeferSurfaceResizeForActiveDrag(in window: NSWindow?) -> Bool {
-        // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
-        // or other layout churn. Only defer terminal resizes while an actual drag event
-        // is in flight; otherwise pre-existing panes can stay stuck at their old size.
-        // Interactive geometry resize already has an explicit fast path for sidebar and
-        // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
-        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) {
-            return false
-        }
-        guard hasTabDragPasteboardTypes() else { return false }
-        return isDragResizeEvent(NSApp.currentEvent?.type)
-    }
-
-    private func activeSurfaceResizeDeferralReason() -> String? {
-        if isWindowLiveResizeActive { return nil }
-        if deferSurfaceSizeForPortalGeometrySettlement { return "portalGeometrySettlement" }
-        return Self.shouldDeferSurfaceResizeForActiveDrag(in: window) ? "tabDrag" : nil
-    }
-
-    private var isWindowLiveResizeActive: Bool {
-        inLiveResize || window?.inLiveResize == true
-    }
-
-    @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
-        guard window != nil, !deferredSurfaceSizeRetryQueued else { return false }
-        deferredSurfaceSizeRetryQueued = true
-        Task { @MainActor [weak self] in guard let self else { return }; self.deferredSurfaceSizeRetryQueued = false; _ = self.updateSurfaceSize() }
-        return true
-    }
-
-    @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
-
+    /// Publishes a pane size the host has established as user-visible.
+    ///
+    /// Sizes the Metal drawable and content scale for `size`, then commits
+    /// the geometry to the surface model, which owns the grid and PTY size.
+    ///
+    /// - Returns: Whether the drawable, renderer, or PTY size changed.
     @discardableResult
-    private func updateSurfaceSize(
-        size: CGSize? = nil, bypassLiveResizeCoalescing: Bool = false, caller: StaticString = #function
-    ) -> Bool {
-        guard let terminalSurface = terminalSurface else { return false }
-        let size = resolvedSurfaceSize(preferred: size)
-        guard size.width > 0 && size.height > 0 else {
+    func commitPaneGeometry(size: CGSize, phase: TerminalPaneGeometry.Phase) -> Bool {
+        guard let terminalSurface else { return false }
+        guard let window,
+              let geometry = TerminalPaneGeometry(
+                size: size,
+                backingScale: window.backingScaleFactor,
+                phase: phase
+              ) else {
 #if DEBUG
-            let signature = "nonPositive-\(Int(size.width))x\(Int(size.height))"
+            let signature = "unpublishable-\(Int(size.width))x\(Int(size.height))-win\(window != nil ? 1 : 0)"
             if lastSizeSkipSignature != signature {
                 cmuxDebugLog(
                     "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                    "reason=nonPositive size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
-                    "inWindow=\(window != nil ? 1 : 0)"
-                )
-                lastSizeSkipSignature = signature
-            }
-#endif
-            return false
-        }
-        if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
-        pendingSurfaceSize = size
-        if let deferralReason = activeSurfaceResizeDeferralReason() {
-            scheduleDeferredSurfaceSizeRetryIfNeeded()
-#if DEBUG
-            let signature = "\(deferralReason)-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
-            if lastSizeSkipSignature != signature {
-                cmuxDebugLog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(deferralReason) " +
-                    "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
-                    "inWindow=\(window != nil ? 1 : 0)"
-                )
-                lastSizeSkipSignature = signature
-            }
-#endif
-            return false
-        }
-
-        guard let window else {
-#if DEBUG
-            let signature = "noWindow-\(Int(size.width))x\(Int(size.height))"
-            if lastSizeSkipSignature != signature {
-                cmuxDebugLog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=noWindow " +
+                    "reason=\(window == nil ? "noWindow" : "nonPositive") " +
                     "size=\(String(format: "%.1fx%.1f", size.width, size.height))"
-                )
-                lastSizeSkipSignature = signature
-            }
-#endif
-            return false
-        }
-
-        // Derive pixel size from the window's backing scale, NOT from
-        // convertToBacking: that conversion folds in ancestor transforms
-        // (the canvas layout's NSScrollView magnification), which would
-        // re-typeset the terminal at a shrunken pixel grid while zooming and
-        // render duplicated rows. Terminals keep their logical pixel density
-        // and scale visually under magnification; in split mode the two
-        // formulas are identical.
-        let backingSize = CGSize(
-            width: size.width * max(1.0, window.backingScaleFactor),
-            height: size.height * max(1.0, window.backingScaleFactor)
-        )
-        guard backingSize.width > 0, backingSize.height > 0 else {
-#if DEBUG
-            let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
-            if lastSizeSkipSignature != signature {
-                cmuxDebugLog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=zeroBacking " +
-                    "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
-                    "backing=\(String(format: "%.1fx%.1f", backingSize.width, backingSize.height))"
                 )
                 lastSizeSkipSignature = signature
             }
@@ -5211,21 +5106,69 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if lastSizeSkipSignature != nil {
             cmuxDebugLog(
                 "surface.size.resume surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
-                "backing=\(String(format: "%.1fx%.1f", backingSize.width, backingSize.height))"
+                "size=\(String(format: "%.1fx%.1f", size.width, size.height)) phase=\(phase)"
             )
             lastSizeSkipSignature = nil
         }
 #endif
-        let xScale = backingSize.width / size.width
-        let yScale = backingSize.height / size.height
-        let layerScale = max(1.0, window.backingScaleFactor)
+        if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
+        pendingSurfaceSize = size
+        clipsToBounds = true
+        layer?.masksToBounds = true
+        let didChangeDrawable = applyDrawableGeometry(geometry)
+        let surfaceSizeChanged = terminalSurface.commitPaneGeometry(geometry)
+        return didChangeDrawable || surfaceSizeChanged
+    }
+
+    /// Re-applies the current pane size: the committed geometry for a
+    /// portal-owned view, this view's own bounds otherwise.
+    ///
+    /// - Returns: Whether the drawable, renderer, or PTY size changed.
+    @discardableResult
+    func reapplyPaneGeometry() -> Bool {
+        guard let terminalSurface else { return false }
+        if paneGeometryIsPortalOwned {
+            guard let geometry = terminalSurface.committedPaneGeometry else { return false }
+            let didChangeDrawable = applyDrawableGeometry(geometry)
+            let surfaceSizeChanged = terminalSurface.reapplyCommittedPaneGeometry()
+            return didChangeDrawable || surfaceSizeChanged
+        }
+        return commitOwnBounds()
+    }
+
+    /// Publishes this view's bounds for hosting outside a portal, where AppKit
+    /// layout is the geometry owner (upstream Ghostty behavior).
+    @discardableResult
+    private func commitOwnBounds() -> Bool {
+        guard !paneGeometryIsPortalOwned else { return false }
+        let phase: TerminalPaneGeometry.Phase =
+            (inLiveResize || window?.inLiveResize == true) ? .interactive : .settled
+        return commitPaneGeometry(size: bounds.size, phase: phase)
+    }
+
+    /// Re-commits the committed size after the window backing scale changes.
+    private func recommitPaneGeometryForBackingChange() {
+        if paneGeometryIsPortalOwned {
+            guard let geometry = terminalSurface?.committedPaneGeometry else { return }
+            _ = commitPaneGeometry(size: geometry.size, phase: .settled)
+        } else {
+            _ = commitOwnBounds()
+        }
+    }
+
+    /// Sizes the Metal drawable for the committed geometry.
+    ///
+    /// The pixel size derives from the window backing scale, not from
+    /// `convertToBacking`: that conversion folds in ancestor transforms (the
+    /// canvas layout's magnification), which would re-typeset the terminal at
+    /// a shrunken pixel grid while zooming.
+    private func applyDrawableGeometry(_ geometry: TerminalPaneGeometry) -> Bool {
+        let layerScale = geometry.backingScale
         let drawablePixelSize = CGSize(
-            width: floor(max(0, backingSize.width)),
-            height: floor(max(0, backingSize.height))
+            width: floor(max(0, geometry.backingSize.width)),
+            height: floor(max(0, geometry.backingSize.height))
         )
         var didChange = false
-
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let layer, !nearlyEqual(layer.contentsScale, layerScale) {
@@ -5249,58 +5192,41 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             deferredSurfaceSizeNonMetalRetryCount += 1
         }
         CATransaction.commit()
-
-        let surfaceSizeChanged = terminalSurface.updateSize(
-            width: size.width,
-            height: size.height,
-            xScale: xScale,
-            yScale: yScale,
-            layerScale: layerScale,
-            backingSize: backingSize,
-            coalescePixelOnlyResize: TerminalSurfaceResizeCoalescingPolicy(
-                windowLiveResizeActive: isWindowLiveResizeActive,
-                interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
-                bypass: bypassLiveResizeCoalescing,
-                surfaceKind: terminalSurface.ioMode == .exec ? .processOwned : .manualIO
-            ).shouldCoalescePixelOnlyResize,
-            // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
-            // would hold it at the pre-drag (larger) size and paint past the
-            // shrinking pane. Re-pins at rest when the interactive flag clears.
-            suppressAssignedGridPin: isWindowLiveResizeActive
-                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
-            caller: caller
-        )
-        return didChange || surfaceSizeChanged
+        return didChange
     }
 
-    @discardableResult
-    fileprivate func pushTargetSurfaceSize(_ size: CGSize) -> Bool {
-        updateSurfaceSize(size: size)
+    @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
+        guard window != nil, !deferredSurfaceSizeRetryQueued else { return false }
+        deferredSurfaceSizeRetryQueued = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.deferredSurfaceSizeRetryQueued = false
+            _ = self.reapplyPaneGeometry()
+        }
+        return true
     }
 
-    fileprivate func beginPortalGeometrySettlement() {
-        deferSurfaceSizeForPortalGeometrySettlement = true
-    }
-
-    fileprivate func finishPortalGeometrySettlement() {
-        guard deferSurfaceSizeForPortalGeometrySettlement else { return }
-        deferSurfaceSizeForPortalGeometrySettlement = false
-        _ = updateSurfaceSize()
+    @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() {
+        guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }
+        deferredSurfaceSizeNonMetalRetryCount = 0
+        _ = reapplyPaneGeometry()
     }
 
 #if DEBUG
     fileprivate func debugPendingSurfaceSize() -> CGSize? { pendingSurfaceSize }
     func debugLastDrawableSizeForTesting() -> CGSize { lastDrawableSize }
     func debugDeferredSurfaceSizeRetryQueuedForTesting() -> Bool { deferredSurfaceSizeRetryQueued }
-    @discardableResult func debugUpdateSurfaceSizeForTesting(_ size: CGSize) -> Bool { updateSurfaceSize(size: size) }
+    @discardableResult func debugUpdateSurfaceSizeForTesting(_ size: CGSize) -> Bool {
+        commitPaneGeometry(size: size, phase: .settled)
+    }
 #endif
 
-    /// Force a full size reconciliation for the current bounds.
-    /// Keep the drawable-size cache intact so redundant refresh paths do not
+    /// Re-applies the current pane size and drawable for refresh paths.
+    /// The drawable-size cache stays intact so redundant refreshes do not
     /// reallocate Metal drawables when the pixel size is unchanged.
     @discardableResult
     func forceRefreshSurface() -> Bool {
-        updateSurfaceSize()
+        reapplyPaneGeometry()
     }
 
     private func nearlyEqual(_ lhs: CGFloat, _ rhs: CGFloat, epsilon: CGFloat = 0.0001) -> Bool {
@@ -5355,7 +5281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard window != nil else { return nil }
         terminalSurface?.attachToViewForInputDemand(self)
-        updateSurfaceSize(size: bounds.size)
+        _ = reapplyPaneGeometry()
         applySurfaceColorScheme(force: true)
         if reassertInputFocus { _ = reassertTerminalFocusForInputIfFirstResponder() }
         return surface
@@ -11406,8 +11332,37 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     var isVisibleInUI: Bool { surfaceView.isVisibleInUI }
-    func beginPortalGeometrySettlement() { surfaceView.beginPortalGeometrySettlement() }
-    func finishPortalGeometrySettlement() { surfaceView.finishPortalGeometrySettlement() }
+
+    /// Whether the window portal owns this view's pane geometry.
+    var paneGeometryIsPortalOwned: Bool { surfaceView.paneGeometryIsPortalOwned }
+
+    /// Hands pane-geometry ownership to the portal, or back to AppKit layout.
+    /// Leaving the portal forgets the committed size; the next presenting
+    /// host commits the next one.
+    func setPaneGeometryPortalOwned(_ owned: Bool) {
+        surfaceView.paneGeometryIsPortalOwned = owned
+        if !owned { surfaceView.terminalSurface?.clearPaneGeometry() }
+    }
+
+    /// Publishes the portal-written frame as the pane geometry.
+    ///
+    /// The portal calls this only for a visible, unhidden entry from a
+    /// settled layout pass or a drag tick.
+    ///
+    /// - Returns: Whether the renderer or PTY size changed.
+    @discardableResult
+    func commitPortalGeometry(phase: TerminalPaneGeometry.Phase) -> Bool {
+        _ = synchronizeGeometryAndContent()
+        let size = surfaceView.frame.size
+        guard size.width > 0, size.height > 0 else { return false }
+        defer { surfaceView.terminalSurface?.rendererPresentationReadinessDidChange() }
+        return surfaceView.commitPaneGeometry(size: size, phase: phase)
+    }
+
+    /// Forgets the committed size when the portal stops presenting this view.
+    func clearPortalGeometry() {
+        surfaceView.terminalSurface?.clearPaneGeometry()
+    }
 
     func setVisibleInUI(_ requestedVisible: Bool) {
         let visible = requestedVisible && (isRightSidebarDockSurface || Workspace.portalRenderingEnabled(for: surfaceView.terminalSurface?.tabId))
@@ -12931,7 +12886,14 @@ final class GhosttySurfaceScrollView: NSView {
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         defer { surfaceView.terminalSurface?.rendererPresentationReadinessDidChange() }
-        return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
+        // Inside a portal the pane geometry is committed by the portal's
+        // settled pass or drag tick; only a view AppKit lays out directly
+        // publishes its inner frame here.
+        guard !surfaceView.paneGeometryIsPortalOwned else { return false }
+        return surfaceView.commitPaneGeometry(
+            size: CGSize(width: width, height: height),
+            phase: (inLiveResize || window?.inLiveResize == true) ? .interactive : .settled
+        )
     }
     private func updateNotificationRingPath() {
         updateOverlayRingPath(
