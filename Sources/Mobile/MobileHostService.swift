@@ -1389,6 +1389,7 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        firstFrameTimeoutNanoseconds: UInt64? = nil,
         idleTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
@@ -1420,6 +1421,8 @@ final class MobileHostService {
         let session = MobileHostConnection(
             id: id,
             transport: transport,
+            firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds
+                ?? MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
             idleTimeoutNanoseconds: idleTimeoutNanoseconds
                 ?? MobileHostConnection.defaultIdleTimeoutNanoseconds,
             independentEventWriter: independentEventWriter,
