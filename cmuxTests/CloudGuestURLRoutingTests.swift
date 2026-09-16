@@ -8,7 +8,35 @@ import Testing
 #endif
 
 @MainActor
+@Suite(.serialized)
 struct CloudGuestURLRoutingTests {
+    @Test func opensInBackgroundWorkspaceWithoutChangingSelectionOrTerminalFocus() throws {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        defer { for workspace in manager.tabs { workspace.teardownAllPanels() } }
+        let selected = try #require(manager.selectedWorkspace)
+        let owner = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false, autoRefreshMetadata: false)
+        let panel = try #require(owner.focusedPanelId)
+        let selectedPanel = selected.focusedPanelId
+        let sourcePane = owner.bonsplitController.focusedPaneId
+        let suite = "guest-url-background-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        let coordinator = TerminalLinkOpenCoordinator(defaults: defaults, containerResolver: { workspace, surface in
+            workspace == owner.id && surface == panel ? owner : nil
+        }, externalOpen: { _ in Issue.record("Expected a browser in the owning workspace"); return false })
+        #expect(coordinator.open(TerminalLinkOpenRequest(rawValue: "https://example.invalid/device", sourceWorkspaceId: owner.id,
+                                                        sourcePanelId: panel, workingDirectory: nil, focus: false)))
+        #expect(owner.panels.values.contains { $0 is BrowserPanel })
+        #expect(!selected.panels.values.contains { $0 is BrowserPanel })
+        #expect(manager.selectedTabId == selected.id)
+        #expect(selected.focusedPanelId == selectedPanel)
+        #expect(owner.focusedPanelId == panel)
+        #expect(owner.bonsplitController.focusedPaneId == sourcePane)
+    }
+
     @Test func guestOpenerUsesTerminalPolicyAndPreservesFocus() throws {
         let suite = "guest-url-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
