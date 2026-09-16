@@ -119,6 +119,32 @@ import Testing
         #expect(scroll.documentVisibleRect.minY < 30)
     }
 
+    @Test func browserDraftsSurvivePageReplacement() {
+        let fixture = Self.makeFixture()
+        let drafts = SettingsPageDrafts()
+        drafts.httpAllowlistLoaded = true
+        drafts.httpAllowlistDraft = "unsaved-http.example"
+        drafts.urlAllowlistLoaded = true
+        drafts.urlAllowlistDraft = "unsaved-url.example"
+        let window = Self.host(
+            SettingsWindowRoot(runtime: fixture.runtime, initialSection: .browser, pageDrafts: drafts),
+            in: fixture
+        )
+        defer { window.close() }
+
+        Self.navigate(to: .account, in: window)
+        Self.navigate(to: .browser, in: window)
+        let editors = Self.textViews(in: window.contentView).map(\.string)
+        #expect(editors.contains("unsaved-http.example"))
+        #expect(editors.contains("unsaved-url.example"))
+    }
+
+    private static func textViews(in view: NSView?) -> [NSTextView] {
+        guard let view else { return [] }
+        return ((view as? NSTextView).map { [$0] } ?? [])
+            + view.subviews.flatMap { textViews(in: $0) }
+    }
+
     private static func scrollViews(in view: NSView?) -> [NSScrollView] {
         guard let view else { return [] }
         return ((view as? NSScrollView).map { [$0] } ?? [])
