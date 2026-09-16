@@ -1,16 +1,22 @@
 import Darwin
 import Foundation
 
-/// Runs one Codex app-server in an isolated process group until either owner disappears.
-struct CodexTeamsAppServerSupervisor {
+/// Keeps a private process group alive only while its launch-time owner exists.
+/// This dedicated helper waits on kernel events, so app crashes cannot skip cleanup.
+struct OwnedProcessSupervisor {
     private static let graceTimerIdentifier: UInt = 1
     /// Genuine shutdown grace deadline, delivered by EVFILT_TIMER rather than polling.
     private static let gracefulTerminationMilliseconds: Int = 1_000
 
     private let executablePath: String
     private let arguments: [String]
+    private let usesParentLifetime: Bool
 
-    init(arguments: [String]) throws {
+    init?(command: String, arguments: [String]) throws {
+        guard command == "__owned-process-supervisor" || command == "__codex-teams-app-server-supervisor" else {
+            return nil
+        }
+        usesParentLifetime = command == "__owned-process-supervisor"
         guard let executablePath = arguments.first, !executablePath.isEmpty else {
             throw CodexTeamsPOSIXSupport.error(operation: "missing target executable", code: EINVAL)
         }
@@ -19,35 +25,42 @@ struct CodexTeamsAppServerSupervisor {
     }
 
     func run() throws -> Int32 {
-        let processIdentifier = try spawnTarget()
+        let ownerPID = usesParentLifetime ? getppid() : nil
+        guard ownerPID.map({ $0 > 1 }) ?? true else { throw POSIXError(.ESRCH) }
         let queue = kqueue()
-        guard queue >= 0 else {
-            Self.forceTerminateAndReap(processIdentifier)
-            throw CodexTeamsPOSIXSupport.error(operation: "create event queue", code: errno)
-        }
+        guard queue >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         defer { close(queue) }
-
+        // Keep the leader waitable so its group ID stays reserved until cleanup.
+        _ = Darwin.signal(SIGCHLD, SIG_DFL)
+        // Install signal ownership before starting the target. A signal to the
+        // helper expires the lease; it must not strand the target by killing us.
+        for signum in [SIGTERM, SIGINT, SIGHUP] {
+            _ = Darwin.signal(signum, SIG_IGN)
+            var event = kevent(ident: UInt(signum), filter: Int16(EVFILT_SIGNAL),
+                              flags: UInt16(EV_ADD | EV_ENABLE), fflags: 0, data: 0, udata: nil)
+            try Self.register(event: &event, queue: queue, operation: "register owner signal")
+        }
+        if let ownerPID {
+            try Self.registerExit(processIdentifier: ownerPID, queue: queue)
+        }
+        let processIdentifier = try spawnTarget()
         do {
-            try Self.registerLifetime(
-                fileDescriptor: STDIN_FILENO,
-                queue: queue
-            )
-            try Self.registerLifetime(
-                fileDescriptor: CodexTeamsPOSIXSupport.watcherLifetimeFileDescriptor,
-                queue: queue
-            )
-            try Self.registerExit(
-                processIdentifier: processIdentifier,
-                queue: queue
-            )
-            guard Darwin.kill(processIdentifier, SIGCONT) == 0 else {
-                throw CodexTeamsPOSIXSupport.error(operation: "resume target", code: errno)
+            if !usesParentLifetime {
+                try Self.registerLifetime(fileDescriptor: STDIN_FILENO, queue: queue)
+                try Self.registerLifetime(
+                    fileDescriptor: CodexTeamsPOSIXSupport.watcherLifetimeFileDescriptor, queue: queue
+                )
             }
-            let rawStatus = try Self.observe(
-                processIdentifier: processIdentifier,
-                queue: queue
-            )
-            return Self.decodedTerminationStatus(rawStatus)
+            try Self.registerExit(processIdentifier: processIdentifier, queue: queue)
+            // If the owner died before registration, never resume the target.
+            // Parentage is kernel-owned and cannot be forged by inherited env.
+            guard ownerPID == nil || getppid() == ownerPID else { throw POSIXError(.ESRCH) }
+            guard Darwin.kill(processIdentifier, SIGCONT) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            return Self.decodedTerminationStatus(try Self.observe(
+                processIdentifier: processIdentifier, queue: queue
+            ))
         } catch {
             Self.forceTerminateAndReap(processIdentifier)
             throw error
@@ -61,7 +74,13 @@ struct CodexTeamsAppServerSupervisor {
             operation: "initialize target file actions"
         )
         defer { posix_spawn_file_actions_destroy(&fileActions) }
-        try CodexTeamsPOSIXSupport.require(
+        if usesParentLifetime {
+            try CodexTeamsPOSIXSupport.require(
+                posix_spawn_file_actions_addinherit_np(&fileActions, STDIN_FILENO),
+                operation: "inherit target stdin"
+            )
+        } else {
+            try CodexTeamsPOSIXSupport.require(
             "/dev/null".withCString {
                 posix_spawn_file_actions_addopen(
                     &fileActions,
@@ -72,7 +91,8 @@ struct CodexTeamsAppServerSupervisor {
                 )
             },
             operation: "redirect target stdin"
-        )
+            )
+        }
         try CodexTeamsPOSIXSupport.require(
             posix_spawn_file_actions_addinherit_np(
                 &fileActions,
@@ -98,6 +118,8 @@ struct CodexTeamsAppServerSupervisor {
             POSIX_SPAWN_CLOEXEC_DEFAULT
                 | POSIX_SPAWN_SETPGROUP
                 | POSIX_SPAWN_START_SUSPENDED
+                | POSIX_SPAWN_SETSIGDEF
+                | POSIX_SPAWN_SETSIGMASK
         )
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setflags(&attributes, flags),
@@ -106,6 +128,18 @@ struct CodexTeamsAppServerSupervisor {
         try CodexTeamsPOSIXSupport.require(
             posix_spawnattr_setpgroup(&attributes, 0),
             operation: "configure target group leader"
+        )
+
+        var defaultSignals = sigset_t()
+        sigemptyset(&defaultSignals)
+        for signum in [SIGTERM, SIGINT, SIGHUP] { sigaddset(&defaultSignals, signum) }
+        var mask = sigset_t()
+        sigemptyset(&mask)
+        try CodexTeamsPOSIXSupport.require(
+            posix_spawnattr_setsigdefault(&attributes, &defaultSignals), operation: "reset target signals"
+        )
+        try CodexTeamsPOSIXSupport.require(
+            posix_spawnattr_setsigmask(&attributes, &mask), operation: "reset target signal mask"
         )
 
         let argv = [executablePath] + arguments
@@ -176,8 +210,10 @@ struct CodexTeamsAppServerSupervisor {
                     _ = Darwin.kill(-processIdentifier, SIGTERM)
                     try registerGraceTimer(queue: queue)
                 }
-            case EVFILT_PROC:
-                exitObserved = true
+            case EVFILT_PROC, EVFILT_SIGNAL:
+                if Int32(event.filter) == EVFILT_PROC, event.ident == UInt(processIdentifier) {
+                    exitObserved = true
+                }
                 if !terminationStarted {
                     terminationStarted = true
                     _ = Darwin.kill(-processIdentifier, SIGTERM)
