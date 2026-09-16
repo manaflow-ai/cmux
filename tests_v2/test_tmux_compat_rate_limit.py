@@ -36,6 +36,7 @@ def main() -> None:
     created = rpc("workspace.create", {"focus": False})
     workspace = created["workspace_id"]
     try:
+        rpc("workspace.select", {"workspace_id": workspace})
         surfaces = rpc("surface.list", {"workspace_id": workspace})["surfaces"]
         surface = surfaces[0]["id"]
         pane = surfaces[0]["pane_id"]

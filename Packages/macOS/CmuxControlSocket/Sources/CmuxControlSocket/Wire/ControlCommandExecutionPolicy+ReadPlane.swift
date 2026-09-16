@@ -21,28 +21,20 @@ extension ControlCommandExecutionPolicy {
         "surface.read_text",
     ]
 
-    /// v1/v2 polling names subject to a per-connection token bucket.
+    /// Expensive diagnostic/content reads subject to a per-connection bucket.
+    ///
+    /// Topology and identity reads also resolve targets for one-shot commands.
+    /// A single tmux display-message/list-panes/split-window can fan out to
+    /// arbitrarily many of those reads as workspace and pane counts grow.
+    /// Charging them as polls can reject a mutation before it is even sent.
+    /// Keep both v1 and v2 resolution reads outside this budget; snapshot
+    /// eligibility above is independent of polling admission.
     public static let pollingMethods: Set<String> = [
         "system.top",
         "system.memory",
         "system.tree",
-        "system.identify",
-        "window.list",
-        "window.current",
-        "window.displays",
-        "workspace.list",
-        "workspace.current",
-        "surface.list",
-        "surface.current",
         "surface.read_text",
         "surface.read_selection",
-        "pane.list",
-        "pane.surfaces",
-        "list_windows",
-        "current_window",
-        "list_workspaces",
-        "current_workspace",
-        "list_surfaces",
         "read_screen",
     ]
 

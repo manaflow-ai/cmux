@@ -5,13 +5,11 @@ public import Dispatch
 /// The limiter never sleeps and never waits for the main actor. It either
 /// admits a request or returns a retry hint, allowing the connection task to
 /// apply backpressure to only the hot client while unrelated clients continue
-/// through the pool. Mutating commands and one-shot probes are always allowed.
+/// through the pool. Mutations, target resolution, and probes are always allowed.
 public actor ControlClientRateLimiter {
     /// Token-bucket tuning values.
     public struct Configuration: Sendable, Equatable {
         /// Number of polling requests admitted immediately for a new client.
-        /// The default covers the current tmux compatibility read fan-out;
-        /// refill still bounds sustained polling.
         public let burst: Int
         /// Nanoseconds required to refill one token.
         public let refillIntervalNanoseconds: UInt64
