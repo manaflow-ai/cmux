@@ -74,23 +74,12 @@ struct NotificationRowSnapshotBoundaryTests {
 
     @Test func workspaceTitleIndexUsesRenamedGroupName() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
-        let childIds = manager.tabs.map(\.id)
+        let anchor = manager.addWorkspace(title: "Member Workspace", autoWelcomeIfNeeded: false)
         let groupId = try #require(
-            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: childIds)
+            manager.createWorkspaceGroup(name: "Original Group", childWorkspaceIds: [anchor.id])
         )
-        let generatedGroup = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let generatedAnchorId = try #require(generatedGroup.liveAnchorWorkspaceId)
-        let generatedAnchor = try #require(manager.tabs.first { $0.id == generatedAnchorId })
-        manager.closeWorkspace(generatedAnchor)
-
-        // A promoted anchor retains its own title. The display-title index must
-        // still use the group name after the group is renamed.
-        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let anchorId = try #require(group.liveAnchorWorkspaceId)
-        let anchor = try #require(manager.tabs.first { $0.id == anchorId })
-        let staleAnchorTitle = anchor.title
+        // Promoting a member retains its title while the index uses the group name.
+        manager.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: anchor.id)
 
         let appDelegate = AppDelegate()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -98,8 +87,7 @@ struct NotificationRowSnapshotBoundaryTests {
 
         manager.renameWorkspaceGroup(groupId: groupId, name: "Renamed Group")
 
-        #expect(anchor.title == staleAnchorTitle)
-        #expect(anchor.title != "Renamed Group")
+        #expect(anchor.title == "Member Workspace")
         #expect(appDelegate.tabTitlesByTabId()[anchor.id] == "Renamed Group")
     }
 

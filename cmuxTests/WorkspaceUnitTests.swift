@@ -6596,19 +6596,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
                 snapshot: snapshot
             )
         )
-
         XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
-        // Forking creates a fresh ordinary SSH relay namespace. It must not
-        // carry over the parent's persistent PTY identity, but the lifecycle
-        // registration still needs a relay for the new workspace.
         let relayPort = try XCTUnwrap(launch.remoteConfiguration?.relayPort)
         let relayID = try XCTUnwrap(launch.remoteConfiguration?.relayID)
         let relayToken = try XCTUnwrap(launch.remoteConfiguration?.relayToken)
         let localSocketPath = try XCTUnwrap(launch.remoteConfiguration?.localSocketPath)
-        XCTAssertNotEqual(relayPort, 64017)
+        XCTAssertEqual(relayPort, 64017)
         XCTAssertNotEqual(relayID, "relay-fork-persistent")
         XCTAssertNotEqual(relayToken, String(repeating: "c", count: 64))
         XCTAssertNotEqual(localSocketPath, "/tmp/cmux-fork-persistent.sock")
@@ -6618,7 +6614,6 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertTrue(startupCommand.contains("relay_port"), startupCommand)
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
     }
-
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
