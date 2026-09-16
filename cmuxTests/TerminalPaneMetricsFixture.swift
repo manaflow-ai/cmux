@@ -20,7 +20,7 @@ final class TerminalPaneMetricsFixture {
     let surface: TerminalSurface
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
 
-    init(backingScale: CGFloat = 1) throws {
+    init(backingScale: CGFloat = 1) async throws {
         let metricsWindow = TerminalPaneMetricsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -34,7 +34,7 @@ final class TerminalPaneMetricsFixture {
             configTemplate: nil, initialCommand: "/bin/cat"
         )
         do {
-            try waitUntil { self.surface.surface != nil }
+            try await waitUntil("runtime creation") { self.surface.surface != nil }
             let content = try #require(window.contentView)
             split.frame = content.bounds
             split.isVertical = true
@@ -51,41 +51,44 @@ final class TerminalPaneMetricsFixture {
         }
     }
 
-    func bind() throws {
+    func bind() async throws {
         TerminalWindowPortalRegistry.bind(
             hostedView: hosted, to: anchor, visibleInUI: true,
             expectedSurfaceId: surface.id,
             expectedGeneration: surface.portalBindingGeneration()
         )
         hosted.setVisibleInUI(true)
-        try settle()
+        try await settle()
     }
 
-    func settle() throws {
-        try waitUntil {
+    func settle() async throws {
+        try await waitUntil("native grid convergence") {
             self.window.contentView?.layoutSubtreeIfNeeded()
             guard let sample = self.surface.rawSizingSample() else { return false }
             let view = self.hosted.surfaceView
+            guard let scroll = self.hosted.subviews.compactMap({ $0 as? NSScrollView }).first else { return false }
             var grid = ghostty_surface_grid_metrics_s()
             guard let runtime = self.surface.surface,
                   ghostty_surface_grid_metrics(runtime, &grid) else { return false }
             return abs(self.hosted.frame.width - self.anchor.frame.width) < 1 &&
+                abs(view.frame.width - scroll.contentView.bounds.width) < 1 &&
+                abs(view.frame.height - scroll.contentView.bounds.height) < 1 &&
                 abs(CGFloat(sample.surfaceWidthPx) - view.bounds.width * self.window.backingScaleFactor) < 2 &&
                 sample.columns == Int(grid.columns) && sample.rows == Int(grid.rows)
         }
     }
 
-    func moveDivider(to x: CGFloat) throws {
+    func moveDivider(to x: CGFloat) async throws {
         split.setPosition(x, ofDividerAt: 0)
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor, syncLayout: false)
-        try settle()
+        try await settle()
     }
 
-    func closeSibling() throws {
+    func closeSibling() async throws {
         sibling.removeFromSuperview()
         split.adjustSubviews()
         TerminalWindowPortalRegistry.synchronizeForAnchor(anchor, syncLayout: false)
-        try settle()
+        try await settle()
     }
 
     func writeRows() throws {
@@ -110,12 +113,14 @@ final class TerminalPaneMetricsFixture {
             .components(separatedBy: "\n")
     }
 
-    func waitUntil(_ predicate: () -> Bool) throws {
+    func waitUntil(_ stage: String = "condition", _ predicate: () -> Bool) async throws {
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while !predicate(), ProcessInfo.processInfo.systemUptime < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+            await withCheckedContinuation { continuation in
+                RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
+            }
         }
-        try #require(predicate(), "Terminal geometry did not converge")
+        try #require(predicate(), "Timed out during \(stage): runtime=\(surface.surface != nil), anchor=\(anchor.frame), hosted=\(hosted.frame), native=\(String(describing: surface.rawSizingSample()))")
     }
 
     func tearDown() {

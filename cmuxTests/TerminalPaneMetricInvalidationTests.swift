@@ -13,13 +13,13 @@ import Testing
 @Suite(.serialized)
 struct TerminalPaneMetricInvalidationTests {
     @Test(arguments: [CGFloat(1), CGFloat(2)])
-    func fontCallbacksUseCurrentLogicalCellSize(backingScale: CGFloat) throws {
-        let fixture = try TerminalPaneMetricsFixture(backingScale: backingScale)
+    func fontCallbacksUseCurrentLogicalCellSize(backingScale: CGFloat) async throws {
+        let fixture = try await TerminalPaneMetricsFixture(backingScale: backingScale)
         defer { fixture.tearDown() }
-        try fixture.bind()
+        try await fixture.bind()
         #expect(fixture.surface.performInternalBindingAction("set_font_size:24"))
         #expect(fixture.surface.performInternalBindingAction("set_font_size:13"))
-        try fixture.waitUntil {
+        try await fixture.waitUntil("logical cell metrics") {
             fixture.hosted.surfaceView.cellSize == fixture.surface.cellSizePoints()
         }
         let sample = try #require(fixture.surface.rawSizingSample())
@@ -27,42 +27,43 @@ struct TerminalPaneMetricInvalidationTests {
         #expect(fixture.hosted.surfaceView.cellSize.height == CGFloat(sample.cellHeightPx) / backingScale)
     }
 
-    @Test func hiddenOutputReflowsThroughDividerDragAndSplitClose() throws {
-        let fixture = try TerminalPaneMetricsFixture()
+    @Test(arguments: [CGFloat(1), CGFloat(2)])
+    func hiddenOutputReflowsThroughDividerDragAndSplitClose(backingScale: CGFloat) async throws {
+        let fixture = try await TerminalPaneMetricsFixture(backingScale: backingScale)
         defer { fixture.tearDown() }
         // The original #12381 path: output arrives before the split is shown.
         try fixture.writeRows()
-        try fixture.bind()
+        try await fixture.bind()
         let originalCell = try #require(fixture.surface.cellSizePoints())
         let originalFont = ghostty_surface_font_size(try #require(fixture.surface.surface))
         for width: CGFloat in [280, 620, 360] {
-            try fixture.moveDivider(to: width)
+            try await fixture.moveDivider(to: width)
             try assertGridAndText(fixture, cell: originalCell, font: originalFont)
         }
-        try fixture.closeSibling()
+        try await fixture.closeSibling()
         try assertGridAndText(fixture, cell: originalCell, font: originalFont)
     }
 
-    @Test func paneGeometryInvalidatesStaleLargerCellMetrics() throws {
-        let fixture = try TerminalPaneMetricsFixture()
+    @Test func paneGeometryInvalidatesStaleLargerCellMetrics() async throws {
+        let fixture = try await TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
-        try fixture.bind()
+        try await fixture.bind()
         let expected = try #require(fixture.surface.cellSizePoints())
         // Simulate a delayed metric notification from the previous layout.
         // Repair must come from each pane geometry boundary, with no window
         // resize, config reload, or font-size mutation.
         for closeSibling in [false, true] {
             fixture.hosted.surfaceView.cellSize = CGSize(width: expected.width * 2, height: expected.height * 2)
-            if closeSibling { try fixture.closeSibling() }
-            else { try fixture.moveDivider(to: 340) }
+            if closeSibling { try await fixture.closeSibling() }
+            else { try await fixture.moveDivider(to: 340) }
             #expect(fixture.hosted.surfaceView.cellSize == expected)
         }
     }
 
-    @Test func sameFrameReconciliationRepairsMetricCache() throws {
-        let fixture = try TerminalPaneMetricsFixture()
+    @Test func sameFrameReconciliationRepairsMetricCache() async throws {
+        let fixture = try await TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
-        try fixture.bind()
+        try await fixture.bind()
         let expected = try #require(fixture.surface.cellSizePoints())
         let frame = fixture.hosted.frame
         fixture.hosted.surfaceView.cellSize = CGSize(width: expected.width * 2, height: expected.height * 2)
@@ -71,24 +72,24 @@ struct TerminalPaneMetricInvalidationTests {
         #expect(fixture.hosted.surfaceView.cellSize == expected)
     }
 
-    @Test func splitCloseRecoversAfterNativeResizeEndCallbackWasLost() throws {
-        let fixture = try TerminalPaneMetricsFixture()
+    @Test func splitCloseRecoversAfterNativeResizeEndCallbackWasLost() async throws {
+        let fixture = try await TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
-        try fixture.bind()
+        try await fixture.bind()
         let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
         portal.isWindowLiveResizeActiveOverrideForTesting = true
         TerminalWindowPortalRegistry.synchronizeForAnchor(fixture.anchor, syncLayout: false)
         #expect(portal.isRendererResizeDeferred)
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         // No window notification: only the surviving pane's layout changes.
-        try fixture.closeSibling()
+        try await fixture.closeSibling()
         #expect(!portal.isRendererResizeDeferred)
     }
 
-    @Test func activeDividerDoesNotFinishWhenNativeWindowResizeIsInactive() throws {
-        let fixture = try TerminalPaneMetricsFixture()
+    @Test func activeDividerDoesNotFinishWhenNativeWindowResizeIsInactive() async throws {
+        let fixture = try await TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
-        try fixture.bind()
+        try await fixture.bind()
         let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: fixture.window)
         defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window) }
@@ -96,7 +97,7 @@ struct TerminalPaneMetricInvalidationTests {
         TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: fixture.window)
         #expect(portal.isRendererResizeDeferred)
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window)
-        try fixture.settle()
+        try await fixture.settle()
         #expect(!portal.isRendererResizeDeferred)
     }
 
@@ -108,6 +109,7 @@ struct TerminalPaneMetricInvalidationTests {
         #expect(Int(grid.columns) == sample.columns)
         #expect(Int(grid.rows) == sample.rows)
         #expect(fixture.surface.cellSizePoints() == cell)
+        #expect(fixture.hosted.surfaceView.cellSize == cell)
         #expect(ghostty_surface_font_size(runtime) == font)
         let rows = try fixture.physicalRows()
         #expect(rows.allSatisfy { $0.count <= sample.columns })
