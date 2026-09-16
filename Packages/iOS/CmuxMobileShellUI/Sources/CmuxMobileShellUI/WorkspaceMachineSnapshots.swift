@@ -1,3 +1,5 @@
+import CmuxMobilePairedMac
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 
@@ -7,6 +9,35 @@ struct WorkspaceMachineSnapshots: Equatable {
     private var representativeIDByMachineID: [String: String]
 
     static let empty = WorkspaceMachineSnapshots(filterMachines: [], macPickerMachines: [])
+
+    /// Fill labels for workspace-owned Mac instances before the paired-Mac
+    /// cache has finished loading. Workspace previews already carry the exact
+    /// instance tag, so this keeps the picker correct during shell startup;
+    /// live presence or the persisted pairing label remains authoritative when
+    /// it is available.
+    static func buildLabelsByID(
+        workspaces: [MobileWorkspacePreview],
+        existing: [String: String]
+    ) -> [String: String] {
+        var labels = existing
+        let channel = MacBuildChannel()
+        for workspace in workspaces {
+            guard let macDeviceID = workspace.macDeviceID,
+                  let instanceTag = workspace.macInstanceTag,
+                  !instanceTag.isEmpty else {
+                continue
+            }
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            if labels[pairingID] == nil,
+               let label = channel.label(bundleID: nil, tag: instanceTag) {
+                labels[pairingID] = label
+            }
+        }
+        return labels
+    }
 
     init(filterMachines: [WorkspaceFilterMachine], macPickerMachines: [WorkspaceFilterMachine]) {
         self.filterMachines = filterMachines

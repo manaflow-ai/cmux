@@ -1358,7 +1358,10 @@ struct WorkspaceShellView: View {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
-        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
+        let buildLabelsByID = WorkspaceMachineSnapshots.buildLabelsByID(
+            workspaces: store.workspaces,
+            existing: store.pairedMacBuildLabelsByEntryID()
+        )
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
