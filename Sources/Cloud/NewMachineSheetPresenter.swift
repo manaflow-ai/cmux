@@ -98,6 +98,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
             memoryUpgradePlanId: memoryUpgradePlanId,
             memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
@@ -153,6 +154,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
                     memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
+                    selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
                         self.finishSelection(selectionID, request: request)

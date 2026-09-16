@@ -1243,7 +1243,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeTask: Task<Void, Never>?
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
-    private var renderGridLivenessLaneRepairAttempts = 0
     var lastTerminalEventAt: Date?
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
@@ -2024,6 +2023,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
+        directoryObservationTask?.cancel()
+        directoryObservationTask = nil
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
@@ -2275,6 +2276,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
+        directoryObservationTask?.cancel()
+        directoryObservationTask = nil
         presenceTask?.cancel()
         presenceTask = nil
         presenceMap = PresenceMap()
@@ -2578,6 +2581,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case networkChange
         case manual
         case presencePush
+        case directoryChanged
         case foreground
         case liveness
         case eventStreamEnded
@@ -2586,7 +2590,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case automaticBackoffExpired
         case connectionMethodChanged
 
-        var reschedulesSecondaryAggregation: Bool { self != .presencePush }
+        var reschedulesSecondaryAggregation: Bool { self != .presencePush && self != .directoryChanged }
 
         /// Stable integer carried in ``DiagnosticEventCode/recoveryStarted``'s
         /// `b` slot so an export names WHY each recovery cycle began. Values
@@ -2596,6 +2600,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .networkChange: 1
             case .manual: 2
             case .presencePush: 3
+            case .directoryChanged: 11
             case .foreground: 4
             case .liveness: 5
             case .eventStreamEnded: 6
@@ -2611,6 +2616,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .networkChange: return "networkChange"
             case .manual: return "manual"
             case .presencePush: return "presencePush"
+            case .directoryChanged: return "directoryChanged"
             case .foreground: return "foreground"
             case .liveness: return "liveness"
             case .eventStreamEnded: return "eventStreamEnded"
@@ -3819,6 +3825,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// snapshot; the device tree then overlays live online/offline state on the
     /// registry rows instead of registry "last seen" staleness guesses.
     public private(set) var presenceMap = PresenceMap()
+    private var directoryObservationTask: Task<Void, Never>?
     private var presenceTask: Task<Void, Never>?
 
     /// Start or stop the presence subscription to match the session: running
@@ -3826,6 +3833,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// on sign-out. Idempotent; called from the `isSignedIn` edge and from
     /// `resumeForegroundRefresh()` for stores constructed already-signed-in.
     func evaluatePresenceSubscription() {
+        if isSignedIn, let discovery = personalIrohDiscovery {
+            if directoryObservationTask == nil {
+                directoryObservationTask = Task { @MainActor [weak self] in
+                    for await _ in discovery.directoryUpdates() {
+                        guard let self, !Task.isCancelled, self.isSignedIn else { return }
+                        await self.loadRegistryDevices()
+                        if self.connectionState == .connected {
+                            self.scheduleSecondaryAggregation(discoverLivePeers: true)
+                        } else {
+                            self.recoverMobileConnection(trigger: .directoryChanged)
+                        }
+                    }
+                }
+            }
+        } else {
+            directoryObservationTask?.cancel()
+            directoryObservationTask = nil
+        }
         if isSignedIn, presence != nil {
             startPresenceSubscription()
         } else {
@@ -11076,6 +11101,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await replaceRemoteClientAwaitingTeardownRegistration(with: nil)
     }
 
+    /// Retire the dead transport synchronously while retaining the Mac identity
+    /// and workspace rows. Recovery owns the visible status; connectionState
+    /// still records real transport availability so streams restart on adoption.
+    func retireRemoteClientForConnectionRecovery() {
+        connectionGeneration = UUID()
+        connectionAttemptGeneration = UUID()
+        cancelRemoteOperationTasks()
+        macConnectionStatus = .reconnecting
+        connectionState = .disconnected
+        rawTerminalInputBuffer.clear()
+        terminalInputRPCPipeline.clear()
+        resumeRawTerminalInputDrainWaiters()
+        if let focused = focusedForegroundConnection,
+           focused.client === remoteClient {
+            removeControlCapability(ifMatching: focused)
+            removeFocusedConnection(ifMatching: focused)
+        }
+        replaceRemoteClient(with: nil)
+    }
+
     /// Retire the current pre-authentication candidate before a newer connect
     /// competes for the same physical route. The registry lease transfers to
     /// teardown before the replacement reaches transport admission.
@@ -11970,7 +12015,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func markMacConnectionReconnecting() {
-        guard connectionState == .connected, remoteClient != nil else {
+        // An active replacement owns the presentation while its transport is
+        // absent. Probes on a usable connection never enter this phase.
+        guard connectionState == .connected
+                || connectionRecoveryOwner.isRedialingOrValidating else {
             macConnectionStatus = .unavailable
             return
         }
@@ -12003,8 +12051,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Applies an availability failure only to the connection that produced it.
-    /// A blocked transport write is definitive and enters the single recovery
-    /// owner; an ordinary response timeout remains scoped to that one RPC.
+    /// Request deadlines remain scoped to their operation. A transport failure
+    /// enters recovery only after checking the native connection state.
     func handleMacAvailabilityFailureIfCurrent(
         after error: any Error,
         expectedClient: MobileCoreRPCClient,
@@ -13402,6 +13450,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         return .rawBytes
                     }
                     terminalOutputTransport = fallback
+                    if fallback != .renderGrid {
+                    }
                     // Preserve learned capabilities during transient status decode failures.
                     scheduleHostIdentityAdoptionIfNeeded(client: client)
                     return fallback
@@ -13480,6 +13530,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return .rawBytes
             }
             terminalOutputTransport = fallback
+            if fallback != .renderGrid {
+            }
             reconcileTerminalLanesForOutputTransport()
             // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
@@ -13967,7 +14019,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
-            recoverDeadConnection(
+            recoverClosedControlSession(
                 trigger: .subscriptionStartFailed,
                 expectedClient: client
             )
@@ -14040,7 +14092,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         renderGridLivenessProbeTask = nil
         renderGridLivenessProbeID = nil
         renderGridLivenessConsecutiveProbeFailures = 0
-        renderGridLivenessLaneRepairAttempts = 0
     }
 
     /// Single ownership point for the liveness clock the watchdog reads.
@@ -14055,7 +14106,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
-        renderGridLivenessLaneRepairAttempts = 0
     }
 
     #if DEBUG
@@ -14182,19 +14232,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // stream stalled. Keep the shared Iroh session, whose other
                 // lanes may still carry terminal input and keepalives, and
                 // restart only the event listener.
-                self.renderGridLivenessLaneRepairAttempts += 1
-                let laneRepairAttempts = self.renderGridLivenessLaneRepairAttempts
-                let escalate = laneRepairAttempts >= 2
-                if escalate {
-                    self.renderGridLivenessLaneRepairAttempts = 0
-                }
                 MobileDebugLog.anchormux(
-                    "sync.liveness event_lane_repair transport_alive attempts=\(laneRepairAttempts) escalate=\(escalate) silentMs=\(silentMs)"
+                    "sync.liveness event_lane_repair transport_alive silentMs=\(silentMs)"
                 )
                 self.resyncTerminalOutput(
-                    reason: escalate ? "liveness_event_lane_escalated" : "liveness_event_lane",
+                    reason: "liveness_event_lane",
                     restartEventStream: true,
-                    recoversConnectionOnSubscriptionFailure: escalate
+                    recoversConnectionOnSubscriptionFailure: false
                 )
                 return
             }
@@ -14206,9 +14250,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             self.diagnosticLog?.record(DiagnosticEvent(.livenessResubscribe, ms: UInt32(clamping: silentMs)))
             mobileShellLog.info("render-grid stream silent for \(silentMs, privacy: .public)ms and subscription probe failed, re-subscribing")
-            // The bounded probe proved this exact client dead. Hand the session
-            // to the single recovery owner instead of rebuilding another listener
-            // on the same stale shell.
+            // Confirm native closure before handing the session to recovery.
             self.recoverDeadConnection(trigger: .liveness, expectedClient: client)
         }
     }

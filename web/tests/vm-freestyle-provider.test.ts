@@ -100,10 +100,9 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("openAttach/openSSH are structurally absent, not throwing stubs", () => {
-    // Capability derivation reads method presence; the gateway maps an absent
-    // method to VmOperationUnsupportedError (501), so a throwing stub would
-    // only turn an honest 501 into a retryable-looking 502.
+  test("legacy attach and public SSH remain unavailable", () => {
+    // SSH is an explicit legacy attach verb. It must not become the default
+    // transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
     expect(provider.openSSH).toBeUndefined();
@@ -203,6 +202,19 @@ describe("Freestyle platform contract", () => {
     ).toEqual({ networkIpv4: "10.16.133.3", networkIpv6: "fd60:1e5e:6720::3" });
     expect(freestyleNetworkAddressMetadata({ vpcs: [] })).toEqual({});
     expect(freestyleNetworkAddressMetadata({ publicIpv6: "2602::1" })).toEqual({});
+  });
+
+  test("network metadata drops malformed provider addresses before publication", () => {
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "fd60:1e5e:6720::3" }],
+      }),
+    ).toEqual({ networkIpv6: "fd60:1e5e:6720::3" });
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "also-not-an-ip" }],
+      }),
+    ).toEqual({});
   });
 
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {

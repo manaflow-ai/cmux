@@ -17,6 +17,7 @@ private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [St
 extension TerminalController {
     struct WorkspaceCreateExecutionPreparation {
         let title: String?
+        let titleSource: Workspace.CustomTitleSource
         let description: String?
         let initialCommand: String?
         let initialInput: String?
@@ -69,6 +70,8 @@ extension TerminalController {
 
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = requestedTitle?.isEmpty == false ? requestedTitle : nil
+        let titleSource: Workspace.CustomTitleSource =
+            v2RawString(params, "title_source") == "auto" ? .auto : .user
         let description = v2RawString(params, "description")
         let groupID = v2UUID(params, "group_id")
         if v2HasNonNullParam(params, "group_id"), groupID == nil {
@@ -167,6 +170,7 @@ extension TerminalController {
 
         return .ready(WorkspaceCreateExecutionPreparation(
             title: title,
+            titleSource: titleSource,
             description: description,
             initialCommand: initialCommand,
             initialInput: initialInput,

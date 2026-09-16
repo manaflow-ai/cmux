@@ -345,7 +345,7 @@ jobs:
     # dogfood always uses the dedicated Blacksmith image. A repository-wide
     # runner override may point at a slower shared builder, which defeats the
     # purpose of the one-architecture path.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -458,7 +458,15 @@ jobs:
             archs="arm64 x86_64"
             only_active="NO"
           fi
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          # The universal Release graph now contains enough whole-module Swift
+          # jobs that the default CPU-sized fan-out can exhaust a Blacksmith
+          # host before xcodebuild prints its final diagnostic. Keep the build
+          # universal, but bound concurrent build tasks to make peak memory a
+          # reproducible property of the workflow. One job is intentional:
+          # multi-job fan-out still lets the Blacksmith host terminate the
+          # whole process group before the wrapper can print its failure footer.
+          ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
+            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -jobs 1 -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -showBuildTimingSummary \

@@ -231,6 +231,7 @@ final class NewMachineModel {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        selectionWindowID: UUID? = nil,
         submit: @escaping Submit
     ) {
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
@@ -265,6 +266,7 @@ final class NewMachineModel {
                 : Self.maxPlanId
         }
         self.submit = submit
+        self.selectionWindowID = selectionWindowID
         self.storedMemoryMb = serverOptions.isEmpty
             ? Self.legacyPlanMachineMemoryMb
             : Self.defaultMemoryMb(planId: plan?.planId, options: allowed)

@@ -4995,9 +4995,8 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
-        if command == "__codex-teams-app-server-supervisor" {
-            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
-            exit(status)
+        if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
@@ -5192,8 +5191,7 @@ struct CMUXCLI {
         // value is always the requested path, so SocketClient reports its
         // normal connection error and errno below.
         var resolvedSocketPath = socketResolution.selectedPath ?? socketPath
-        if socketPathSource == .implicitDefault,
-           let rerouteNotice = socketResolution.rerouteNotice {
+        if socketPathSource == .implicitDefault, !(command == "hooks" && hooksInvocationCanProceedWithoutLiveSocket(commandArgs: commandArgs, environment: processEnv)), let rerouteNotice = socketResolution.rerouteNotice {
             cliWriteStderr(rerouteNotice + "\n")
         }
 
@@ -12770,6 +12768,17 @@ struct CMUXCLI {
 
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
+        if remoteRelayPort != nil {
+            // Relay-controlled input is delivered to the local OpenSSH PTY.
+            // Disable OpenSSH escape commands so a remote caller cannot turn
+            // `surface.send_text`/`send_key` into `~!` local command execution,
+            // suspend the SSH client, or enter its local command line.
+            let resolver = SSHAgentSocketResolver()
+            merged = resolver.removingOptions(named: "EscapeChar", from: merged)
+            merged = resolver.removingOptions(named: "EnableEscapeCommandline", from: merged)
+            merged.append("EscapeChar=none")
+            merged.append("EnableEscapeCommandline=no")
+        }
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
             merged.append("StrictHostKeyChecking=accept-new")
         }
@@ -14194,6 +14203,7 @@ struct CMUXCLI {
         var attempt = 0
         let maxAttempts = 8
         while true {
+            try ensureCloudFeatureEnabledForPty()
             let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
             let startedAt = Date()
             var bridgeError: Error?
@@ -14274,7 +14284,6 @@ struct CMUXCLI {
             attachmentId: endpoint.attachmentId
         )
     }
-
     private func runVMPtyConnect(commandArgs: [String]) throws {
         // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
         // pre-minted config, before any socket gate could refuse it, so it
@@ -14285,6 +14294,7 @@ struct CMUXCLI {
                 defaultValue: "Cloud Machines are disabled by your administrator."
             ))
         }
+        try ensureCloudFeatureEnabledForPty()
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -14307,7 +14317,6 @@ struct CMUXCLI {
         }()
         try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
-
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session")
@@ -21030,7 +21039,6 @@ struct CMUXCLI {
                 }
             }
         }
-
         return RightSidebarCLIArguments(
             positional: positional,
             workspace: workspace,
@@ -21038,7 +21046,6 @@ struct CMUXCLI {
             noFocus: noFocus
         )
     }
-
     private func rightSidebarSocketArguments(from parsed: RightSidebarCLIArguments) throws -> [String] {
         guard let action = parsed.positional.first?.lowercased() else {
             throw CLIError(message: String(localized: "cli.rightSidebar.error.missingCommand", defaultValue: "right-sidebar requires a subcommand"))
@@ -22022,6 +22029,8 @@ struct CMUXCLI {
         if let tty = surface["tty"] as? String, !tty.isEmpty {
             parts.append("tty=\(tty)")
         }
+        if let health = surface["render_health"] as? String,
+           health == "awaiting_frame" || health == "not_rendering" || health == "shell_exited" { parts.append("[\(health)]") }
         if surfaceType.lowercased() == "browser",
            let url = surface["url"] as? String,
            !url.isEmpty {
