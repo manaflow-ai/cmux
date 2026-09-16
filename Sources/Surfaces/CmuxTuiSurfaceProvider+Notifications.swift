@@ -54,7 +54,8 @@ extension CmuxTuiSurfaceProvider {
         }
     }
     func syncNotifications(from state: CloudVMState) {
-        guestURLService?.updateTerminals(guestURLTerminals)
+        updateGuestURLMembership()
+        guestURLService?.recoverOnLinkProgress()
         guard let notificationSync else { return }
         let rows = CloudVMNotificationRow.rows(from: state)
         notificationSync.apply(rows: rows)

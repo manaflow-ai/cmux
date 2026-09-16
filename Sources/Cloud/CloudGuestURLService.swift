@@ -17,6 +17,7 @@ final class CloudGuestURLService {
     private var link: CloudMachineLink?
     private var generation = UUID()
     private var admission = CloudMachineNotificationGate()
+    private var subscription = CloudGuestURLSubscriptionState()
 
     init(machineID: String, executable: URL?, resolve: @escaping (String) -> TerminalLinkOpenRequest?) {
         self.machineID = machineID
@@ -33,16 +34,24 @@ final class CloudGuestURLService {
         self.link = link
         self.socketPath = socketPath
         self.terminals = sorted
-        guard let executable, !sorted.isEmpty, sorted.count <= 256 else { return }
+        start()
+    }
+
+    private func start() {
+        guard let executable, let link, let socketPath, !terminals.isEmpty, terminals.count <= 256 else { return }
         let taskGeneration = generation
         let process = Process()
         process.executableURL = executable
-        process.arguments = arguments(socket: socketPath, request: ["cmd": "url-open-subscribe", "terminal_ids": sorted], stream: true)
+        process.arguments = arguments(socket: socketPath, request: ["cmd": "url-open-subscribe", "terminal_ids": terminals], stream: true)
         process.standardInput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         // Foundation must retain a running Process through its actual exit.
         // Break this deliberate self-retain when SIGTERM/socket EOF completes.
-        process.terminationHandler = { [process] _ in process.terminationHandler = nil }
+        let exit = CloudLinkFirstValue<Int32>()
+        process.terminationHandler = { [process] ended in
+            exit.resolve(ended.terminationStatus)
+            process.terminationHandler = nil
+        }
         let stdout = Pipe()
         process.standardOutput = stdout
         // Reuse the existing nonblocking process pipe reader; at most 16 daemon
@@ -56,7 +65,14 @@ final class CloudGuestURLService {
                 guard let data = line.data(using: .utf8), let request = CloudGuestURLRequest(data: data) else { continue }
                 await self.deliver(request, link: link, socket: socketPath, generation: taskGeneration)
             }
+            guard let status = await exit.result, let self, self.generation == taskGeneration else { return }
+            self.subscription.ended(exitCode: status)
         }
+    }
+
+    func recoverOnLinkProgress() {
+        guard subscription.recoverOnLinkProgress() else { return }
+        start()
     }
 
     func updateTerminals(_ terminals: [String]) {
@@ -65,6 +81,7 @@ final class CloudGuestURLService {
     }
 
     func stop() {
+        subscription = CloudGuestURLSubscriptionState()
         generation = UUID()
         reader?.cancel()
         reader = nil

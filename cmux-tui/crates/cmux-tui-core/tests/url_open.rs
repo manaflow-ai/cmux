@@ -36,9 +36,8 @@ fn url_open_socket_delivery_ack_headless_and_expiration() {
     let terminal = surface.terminal_public_id().unwrap().to_string();
     let other = mux.new_workspace(Some("headless".into()), Some((80, 24))).unwrap();
     let other_terminal = other.terminal_public_id().unwrap().to_string();
-    let socket = std::env::temp_dir()
-        .join(format!("cmux-url-open-{}", std::process::id()))
-        .join("s.sock");
+    let socket =
+        std::env::temp_dir().join(format!("cmux-url-open-{}", std::process::id())).join("s.sock");
     server::serve(mux.clone(), Some(socket.clone())).unwrap();
     let url = "HTTPS://github.com/login/device?state=AbC%2f%2B&code=xyz#fragment";
     let open = || json!({"id": 1, "cmd": "url-open", "terminal_id": terminal, "url": url});
@@ -60,10 +59,8 @@ fn url_open_socket_delivery_ack_headless_and_expiration() {
     assert_eq!(event["event"], "url-open");
     assert_eq!(event["terminal_id"], terminal);
     assert_eq!(event["url"], url);
-    let claimed = rpc(
-        &socket,
-        json!({"id": 1, "cmd": "url-open-claim", "request_id": event["request_id"]}),
-    );
+    let claimed =
+        rpc(&socket, json!({"id": 1, "cmd": "url-open-claim", "request_id": event["request_id"]}));
     assert_eq!(claimed["data"]["claimed"], true);
     let accepted = rpc(
         &socket,
@@ -77,10 +74,8 @@ fn url_open_socket_delivery_ack_headless_and_expiration() {
     send(&mut guest, open());
     let stale = read(&mut frontend);
     assert_eq!(read(&mut guest)["data"]["opened"], false);
-    let claimed = rpc(
-        &socket,
-        json!({"id": 1, "cmd": "url-open-claim", "request_id": stale["request_id"]}),
-    );
+    let claimed =
+        rpc(&socket, json!({"id": 1, "cmd": "url-open-claim", "request_id": stale["request_id"]}));
     assert_eq!(claimed["data"]["claimed"], false);
 
     send(&mut guest, open());

@@ -10,6 +10,34 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudGuestURLRoutingTests {
+    @Test func subscriptionMembershipRevisionIgnoresMetadataAndOtherMachines() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-url-fixture")
+        let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+        catalog.register(provider)
+        await provider.refresh()
+        let projection = SurfaceProjection(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-seeded"),
+                                           workspaceID: UUID(), panelID: UUID())
+        catalog.record(projection)
+        let revision = catalog.projectionVersions[machine]
+        let terminals = catalog.projectedTerminalIDs(on: machine)
+        #expect(terminals == ["term-seeded"])
+        var resources = catalog.snapshot.resources
+        var info = provider.info
+        for index in 0..<100 {
+            resources[0].title = "title-\(index)"
+            info.cpuPercent = Double(index)
+            catalog.replaceResources(resources, on: machine)
+            catalog.updateMachine(info)
+        }
+        catalog.record(SurfaceProjection(resource: SurfaceResourceID(machine: .cloud("other"), kind: .terminal, key: "term-other"),
+                                         workspaceID: UUID(), panelID: UUID()))
+        #expect(catalog.projectionVersions[machine] == revision)
+        catalog.endProjections(panelID: projection.panelID, reason: .replaced)
+        #expect(catalog.projectedTerminalIDs(on: machine).isEmpty)
+        #expect(catalog.projectionVersions[machine] != revision)
+    }
+
     @Test func opensInBackgroundWorkspaceWithoutChangingSelectionOrTerminalFocus() throws {
         _ = NSApplication.shared
         let manager = TabManager()

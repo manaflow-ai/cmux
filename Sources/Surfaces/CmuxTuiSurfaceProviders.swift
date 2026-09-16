@@ -14,6 +14,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// `notification.ack` round trips out. Fed after every accepted state.
     var notificationSync: CloudNotificationSync?
     var guestURLService: CloudGuestURLService?
+    var guestURLProjectionVersion: UInt64?
+    var guestURLTerminalIDs: [String] = []
     /// A local placement (a pane opening, a workspace binding) is a catalog
     /// change, not a daemon state; it re-runs the fold so rows that had no
     /// local target get delivered.
