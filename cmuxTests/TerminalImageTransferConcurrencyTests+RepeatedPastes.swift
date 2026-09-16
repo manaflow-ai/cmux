@@ -16,8 +16,11 @@ extension TerminalImageTransferConcurrencyTests {
         let pasteboard = NSPasteboard(name: .init("cmux-repeated-paste-\(UUID())"))
         pasteboard.clearContents()
         defer { pasteboard.releaseGlobally() }
+        // HTML renders tabs to tab stops. Literal tab fidelity is covered by
+        // the plain-text and RTF cases; the HTML case uses rendered spaces.
+        let separator = format == "html" ? "  " : "\t"
         let text = (0..<256).map {
-            "line \($0): 日本語 café 🧪\tleft  right"
+            "line \($0): 日本語 café 🧪\(separator)left  right"
         }.joined(separator: "\n")
         let image = try #require(Data(base64Encoded:
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8lEAAAAASUVORK5CYII="
