@@ -219,10 +219,13 @@ struct MobileWhatsNewPairingSetupContent: View {
     var body: some View {
         VStack(spacing: layout.headerSpacing) {
             VStack(spacing: 10) {
-                Text(page.title)
-                    .font(layout.titleFont)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                OnboardingBalancedText(
+                    page.title,
+                    role: layout == .regular ? .title : .title2,
+                    alignment: .center,
+                    maximumNumberOfLines: 2,
+                    reservesMaximumLines: true
+                )
 
                 Text(L10n.string(
                     "mobile.pairingOptInUpdate.requirement",
@@ -258,10 +261,9 @@ struct MobileWhatsNewPairingSetupContent: View {
                     .aspectRatio(contentMode: .fit)
             } else {
                 Color.clear
-                    .aspectRatio(642.0 / 95.0, contentMode: .fit)
+                    .aspectRatio(1030.0 / 285.0, contentMode: .fit)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityLabel(L10n.string(
             "mobile.whatsNew.pairing.screenshotLabel",
             defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
