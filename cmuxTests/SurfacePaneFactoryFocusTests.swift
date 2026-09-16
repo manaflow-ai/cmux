@@ -125,6 +125,10 @@ import Testing
     func failedCloudPaneCreationStaysInWorkspaceState() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let sourcePanelID = try #require(workspace.focusedPanelId)

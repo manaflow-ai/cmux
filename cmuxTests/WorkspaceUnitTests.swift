@@ -4957,6 +4957,10 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 return
             }
 
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-feedback-test")
+            appDelegate.setActiveMainWindow(window)
+
             guard let contentView = window.contentView else {
                 XCTFail("Expected content view")
                 return

@@ -5407,7 +5407,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
@@ -5441,7 +5442,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue()
+        drainMainQueue()
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)

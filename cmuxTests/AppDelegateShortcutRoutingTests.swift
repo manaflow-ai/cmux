@@ -8360,9 +8360,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
-    func testTextBoxSubmitSerializesRunsPerSurface() throws {
+    func testTextBoxSubmitSerializesRunsPerSurface() async throws {
 #if DEBUG
-        try withPreservedGeneralPasteboard {
+        try await AppContextSerialGate.withExclusiveAppContext {
+        try await withPreservedGeneralPasteboard {
             TextBoxSubmit.debugResetForTesting()
             defer { TextBoxSubmit.debugResetForTesting() }
             let surface = FakeTextBoxSubmitSurface()
@@ -8389,18 +8390,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            waitFor(timeout: 5.0, until: {
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
                 surface.sentKeys == ["paste_from_clipboard"]
-            })
+            }
             XCTAssertEqual(surface.sentText, [])
             XCTAssertEqual(completions, [])
             XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
 
             surface.completeClipboardRead()
-            waitFor(timeout: 1.0, until: { completions == ["first", "second"] })
+            _ = await AppKitTestEventPump().waitUntil { completions == ["first", "second"] }
 
             XCTAssertEqual(surface.sentText, ["first", "second"])
             XCTAssertEqual(completions, ["first", "second"])
+        }
         }
 #else
         throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
@@ -8449,25 +8451,25 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("second")
             }
 
-            waitFor(timeout: 5.0, until: {
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
                 firstSurface.sentKeys == ["paste_from_clipboard"]
-            })
+            }
             XCTAssertEqual(firstSurface.sentKeys, ["paste_from_clipboard"])
             XCTAssertEqual(secondSurface.sentKeys, [])
             XCTAssertEqual(completions, [])
 
             firstSurface.completeClipboardRead()
-            waitFor(timeout: 1.0, until: {
+            _ = await AppKitTestEventPump().waitUntil {
                 completions == ["first"] &&
                     secondSurface.sentKeys == ["paste_from_clipboard"]
-            })
+            }
 
             XCTAssertEqual(firstSurface.sentText, ["first"])
             XCTAssertEqual(secondSurface.sentText, [])
             XCTAssertEqual(completions, ["first"])
 
             secondSurface.completeClipboardRead()
-            waitFor(timeout: 1.0, until: { completions == ["first", "second"] })
+            _ = await AppKitTestEventPump().waitUntil { completions == ["first", "second"] }
 
             XCTAssertEqual(secondSurface.sentText, ["second"])
             XCTAssertEqual(completions, ["first", "second"])

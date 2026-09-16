@@ -758,7 +758,7 @@ import Testing
         try await pump(60, until: { planViewMismatch(mirror) == nil })
         #expect(
             planViewMismatch(mirror) == nil,
-            "off-plan geometry never re-converged with unchanged inputs: \(planViewMismatch(mirror) ?? "") — the apply terminated off-target and no re-arm edge exists"
+            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) inputsEqual=\(mirror.lastCompletedSizingInputs == mirror.currentSizingInputs())"
         )
         withExtendedLifetime(connection) {}
     }

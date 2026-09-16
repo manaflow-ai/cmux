@@ -290,6 +290,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspace.id, panelId: panelId, in: window
+            )
 
             panel.hostedView.frame = contentView.bounds
             contentView.addSubview(panel.hostedView)
@@ -367,6 +370,9 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspace.id, panelId: panelId, in: window
+            )
 
             panel.hostedView.frame = contentView.bounds
             contentView.addSubview(panel.hostedView)

@@ -97,7 +97,9 @@ struct CloudSidebarNativeDropTests {
         }
         // NSDraggingDestination receives this terminal boundary for a completed
         // drop or Escape, independently of the data source's endedAt forwarding.
-        outline.draggingEnded(info)
+        // Exercise cmux's destination-completion owner without asking AppKit
+        // to end an OS drag session that this synthetic fixture never started.
+        outline.reorderPresentation.ended(info)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragSession == nil)
         #expect(outline.activeNativeDragCoordinator == nil)

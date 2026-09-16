@@ -26,6 +26,7 @@ struct RemoteTmuxNotificationLifecycleTests {
 
     @MainActor
     private final class Harness {
+        let previousNotificationStore: TerminalNotificationStore?
         let windowID: UUID
         let controller: RemoteTmuxController
         let host: RemoteTmuxHost
@@ -37,6 +38,8 @@ struct RemoteTmuxNotificationLifecycleTests {
 
         init(controller: RemoteTmuxController? = nil) throws {
             let appDelegate = try #require(AppDelegate.shared)
+            previousNotificationStore = appDelegate.notificationStore
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             windowID = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             self.controller = controller ?? RemoteTmuxController()
@@ -111,6 +114,7 @@ struct RemoteTmuxNotificationLifecycleTests {
         }
 
         func tearDown() {
+            AppDelegate.shared?.notificationStore = previousNotificationStore
             TerminalNotificationStore.shared.clearAll()
             controller.detach(host: host, sessionName: "notification")
             writer.close()

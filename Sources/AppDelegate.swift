@@ -10191,9 +10191,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && sidebarSelectionState === context.sidebarSelectionState
         if alreadyActive { return true }
 
-        // Retire a stale active route before replacing it with the selected
+        // Retire a stale active route before replacing it with a different
         // context, or workspace creation can no longer find it for cleanup.
-        pruneWindowlessActiveMainWindowContext()
+        // A same-manager key event can arrive while its owner window is being
+        // reindexed (including same-ID duplicate-window notifications); keep
+        // that validated active owner until the event routing decision is
+        // complete instead of pruning it as an unrelated orphan.
+        if context.tabManager !== tabManager {
+            pruneWindowlessActiveMainWindowContext()
+        }
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
             setActiveMainWindow(window)
         } else {

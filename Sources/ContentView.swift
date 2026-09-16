@@ -2330,13 +2330,14 @@ struct ContentView: View {
         let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
         let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
         let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-        if abs(workspacePresentationModeRuntimeCache.titlebarPadding - nextPadding) > 0.5 {
-            DispatchQueue.main.async {
+        // WindowAccessor can call this while SwiftUI is tracking the parent
+        // body. Read the leaf's observable metrics in the deferred update too,
+        // so native measurement does not subscribe ContentView to them.
+        DispatchQueue.main.async {
+            if abs(self.workspacePresentationModeRuntimeCache.titlebarPadding - nextPadding) > 0.5 {
                 self.workspacePresentationModeRuntimeCache.titlebarPadding = nextPadding
             }
-        }
-        if abs(workspacePresentationModeRuntimeCache.hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-            DispatchQueue.main.async {
+            if abs(self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
                 self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop = nextSafeAreaTop
             }
         }
