@@ -27,7 +27,7 @@ enum RemoteLoopbackRuntimeBridge {
           // pages. An about:blank bootstrap has no host yet, so it remains
           // provisionally wrapped until its base URL becomes available.
           if (
-            initialHost &&
+            window.location.protocol !== 'about:' &&
             initialHost !== normalizedAliasHost &&
             !initialHost.endsWith(`.${normalizedAliasHost}`)
           ) {
