@@ -151,6 +151,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousSharedAppDelegate = AppDelegate.shared
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousSharedAppDelegate }
             let previousNotificationStore = appDelegate.notificationStore
             defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
@@ -202,6 +205,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
         try await withIsolatedShortcutSettings {
             let appDelegate = try #require(AppDelegate.shared)
+            let previousSharedAppDelegate = AppDelegate.shared
+            AppDelegate.shared = appDelegate
+            defer { AppDelegate.shared = previousSharedAppDelegate }
             let previousNotificationStore = appDelegate.notificationStore
             defer { appDelegate.notificationStore = previousNotificationStore }
             let windowId = appDelegate.createMainWindow()
