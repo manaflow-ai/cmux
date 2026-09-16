@@ -68,6 +68,8 @@ class Analysis:
     cross_clock_enabled: bool
     warning: str | None
     dropped_stamps_by_side: dict[str, int]
+    queue_depths: list[int]
+    queue_rejections: int
 
 
 def parse_log(text: str, source: str) -> list[Stamp]:
@@ -348,6 +350,21 @@ def analyze(mac_stamps: list[Stamp], ios_stamps: list[Stamp], same_clock: bool) 
     input_pairs = pair_input_batches(ios)
     host_input_pairs = pair_host_inputs(mac)
 
+    # Each duration is measured by the producer on one device. Do not join
+    # queue events by timestamp: concurrent enqueue stamps can arrive out of order.
+    for stage, metric in (("oq.wait", "queue wait"), ("oq.run", "queue work")):
+        for stamp in ios.get(stage, []):
+            elapsed = stamp.integer("us")
+            if elapsed is None or elapsed < 0:
+                continue
+            label = stamp.fields.get("label", "unknown")
+            metrics.setdefault(f"iOS: {metric} ({label})", []).append(elapsed / 1_000.0)
+    queue_depths = [
+        depth for stamp in ios.get("oq.enqueue", [])
+        if (depth := stamp.integer("depth")) is not None and depth >= 0
+    ]
+    queue_rejections = len(ios.get("oq.reject", []))
+
     for sent, settled, _ in input_pairs:
         add_duration(metrics, "Input RTT", sent, settled)
     for event in ios.get("ev.grid", []):
@@ -547,6 +564,8 @@ def analyze(mac_stamps: list[Stamp], ios_stamps: list[Stamp], same_clock: bool) 
         cross_clock_enabled,
         warning,
         dropped_stamps_by_side,
+        queue_depths,
+        queue_rejections,
     )
 
 
@@ -611,6 +630,14 @@ def render_markdown(analysis: Analysis) -> str:
         ])
     if analysis.warning:
         sections.extend([analysis.warning, ""])
+    if analysis.queue_depths or analysis.queue_rejections:
+        depth = summary(analysis.queue_depths)
+        sections.append(
+            f"Output queue: {depth['count']} observed enqueues, "
+            f"maximum pending depth={depth['max']}, "
+            f"observed rejections={analysis.queue_rejections}. "
+            "Depth excludes executing work; zero observed rejections does not prove none occurred."
+        )
     sections.append(markdown_table("Latency summary", analysis.metrics_ms))
     if analysis.cross_clock_enabled:
         sections.extend(["", markdown_table("Same-clock echo decomposition", analysis.echo_hops_ms)])
@@ -768,6 +795,28 @@ LAT ev.grid t=50 s=aaaaaaaa seq=7
     )
     assert not mismatched.cross_clock_enabled
     assert mismatched.warning is not None
+    queue_result = analyze([], parse_log("""
+LAT oq.enqueue t=10 q=a op=0 label=render depth=1
+LAT oq.enqueue t=12 q=b op=0 label=process_output depth=4
+LAT oq.wait t=20 q=a op=0 label=render us=1000
+LAT oq.wait t=21 q=b op=0 label=process_output us=9000
+LAT oq.run t=30 q=b op=0 label=process_output us=2000
+LAT oq.run t=31 q=a op=0 label=render us=3000
+LAT oq.run t=40 q=a op=1 label=render us=-1
+LAT oq.wait t=41 q=a op=2 label=render us=invalid
+LAT oq.enqueue t=42 q=a op=2 label=render depth=invalid
+LAT oq.reject t=43 q=a label=render depth=256
+LAT trace.dropped t=44 n=2 side=ios
+""", "ios"), same_clock=False)
+    assert queue_result.metrics_ms["iOS: queue wait (render)"] == [1.0]
+    assert queue_result.metrics_ms["iOS: queue work (render)"] == [3.0]
+    assert queue_result.metrics_ms["iOS: queue wait (process_output)"] == [9.0]
+    assert queue_result.metrics_ms["iOS: queue work (process_output)"] == [2.0]
+    assert queue_result.queue_depths == [1, 4]
+    assert queue_result.queue_rejections == 1
+    assert "maximum pending depth=4" in render_markdown(queue_result)
+    assert "partial sample" in render_markdown(queue_result)
+    assert not queue_result.cross_clock_enabled
     print("selftest passed")
 
 
@@ -798,6 +847,8 @@ def main() -> int:
                     "dropped_stamps_by_side": analysis.dropped_stamps_by_side,
                     "metrics_ms": analysis.metrics_ms,
                     "echo_hops_ms": analysis.echo_hops_ms,
+                    "queue_depths": analysis.queue_depths,
+                    "queue_rejections": analysis.queue_rejections,
                 },
                 indent=2,
                 sort_keys=True,

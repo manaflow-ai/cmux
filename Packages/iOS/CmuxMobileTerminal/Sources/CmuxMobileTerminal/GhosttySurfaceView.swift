@@ -847,6 +847,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "in.ui",
+                "s=\(self.hostSurfaceID?.prefix(8).lowercased() ?? "unknown") kind=text bytes=\(text.utf8.count)"
+            )
+            #endif
             self.handleUserProducedInput()
             #if DEBUG
             self.lastInputTimestamp = CACurrentMediaTime()
@@ -861,6 +867,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onBackspace = { [weak self] in
             guard let self else { return }
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "in.ui",
+                "s=\(self.hostSurfaceID?.prefix(8).lowercased() ?? "unknown") kind=backspace bytes=1"
+            )
+            #endif
             self.handleUserProducedInput()
             // Send DEL (0x7F) directly to transport as raw byte.
             let data = Data([0x7F])
@@ -869,6 +881,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         inputProxy.onEscapeSequence = { [weak self] data in
             guard let self else { return }
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "in.ui",
+                "s=\(self.hostSurfaceID?.prefix(8).lowercased() ?? "unknown") kind=escape bytes=\(data.count)"
+            )
+            #endif
             self.handleUserProducedInput()
             TerminalInputDebugLog.log("surface.onEscape data=\(TerminalInputDebugLog.dataSummary(data))")
             self.delegate?.ghosttySurfaceView(self, didProduceInput: data)
@@ -3294,7 +3312,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         let pushedRowsCounter = localScrollbackRowsPushed
-        workQueue.async { [weak self] in
+        workQueue.async({ [weak self] in
             // Render-grid frames paint absolute rows of the producer's grid.
             // Verify the local grid matches HERE, on the same serial queue as
             // every `set_size`, so no resize can interleave between the check
@@ -3483,7 +3501,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 #endif
                 completion?(true)
             }
-        }
+        }, label: renderGridContract == nil ? "process_output" : "process_output.render_grid")
     }
 
     private func scrollInitialOutputToBottomIfNeeded() {
@@ -4147,12 +4165,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             lastHeartbeatTime = nowHeartbeat
             let renderLayer = (layer.sublayers ?? []).first(where: { isGhosttyRendererLayer($0) })
             let renderSize = renderLayer?.bounds.size ?? .zero
+            let outputQueueSnapshot = outputQueue.snapshot()
             let sinceOutputMs = lastOutputAppliedTime > 0
                 ? Int((nowHeartbeat - lastOutputAppliedTime) * 1000)
                 : -1
             MobileDebugLog.anchormux(
                 "tick.alive win=\(window != nil) suspended=\(renderingSuspended) "
                 + "renderInFlight=\(renderInFlight) "
+                + "oq=\(outputQueue.traceID) s=\(hostSurfaceID?.prefix(8).lowercased() ?? "unknown") "
+                + "oqPending=\(outputQueueSnapshot.pendingCount) "
+                + "oqRejected=\(outputQueueSnapshot.rejectedCount) "
                 + "needsDraw=\(needsDraw) contents=\(renderLayer?.contents != nil) "
                 + "surf=\(Int(renderSize.width))x\(Int(renderSize.height)) "
                 + "sinceOutput=\(sinceOutputMs)ms"
@@ -4481,7 +4503,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
-        }, priority: submission.kind == .localScroll)
+        }, priority: submission.kind == .localScroll, label: submission.kind == .localScroll ? "render_scroll" : (submission.kind == .verifiedReplay ? "render_replay" : "render"))
         guard accepted else {
             repairRenderAdmissionAfterFailedStart()
             return false

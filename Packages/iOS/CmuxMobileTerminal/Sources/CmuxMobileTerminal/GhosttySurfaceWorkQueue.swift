@@ -1,8 +1,15 @@
 import Foundation
+import CmuxMobileDiagnostics
 
 /// Owns the serial libghostty work queue for one surface generation.
-/// All mutable state is accessed only from `queue`; main-actor code replaces whole instances on recovery.
+/// Pending work is protected by `pendingLock`; surface state is accessed only from `queue`.
+/// Main-actor code replaces whole instances on recovery.
 final class GhosttySurfaceWorkQueue: @unchecked Sendable {
+    struct Snapshot: Sendable, Equatable {
+        let pendingCount: Int
+        let rejectedCount: UInt64
+    }
+
     let queue: DispatchQueue
     private let pendingLock = NSLock()
     private var pendingPriority: [@Sendable () -> Void] = []
@@ -10,10 +17,13 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     private var priorityHead = 0
     private var normalHead = 0
     private var priorityBurst = 0
+    private var rejectedCount: UInt64 = 0
     private static let maximumPriorityBurst = 4
     private static let maximumPendingOperations = 256
     private var isRunning = false
     #if DEBUG
+    let traceID = UUID().uuidString.lowercased()
+    private var traceOperation: UInt64 = 0 // Protected by pendingLock.
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
     var lastAccessibilityTextTime: CFTimeInterval = 0
     /// Accessed only from ``queue``; rate-limits slow-output perf log lines.
@@ -78,34 +88,92 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     @discardableResult
     func async(
         _ work: @escaping @Sendable () -> Void,
-        priority: Bool = false
+        priority: Bool = false,
+        label: String = "normal"
     ) -> Bool {
-        enqueue(work, priority: priority)
+        enqueue(work, priority: priority, label: label)
     }
 
     /// Enqueue latency-sensitive interaction work ahead of queued repaint work.
     /// The same serial worker still executes every Ghostty call, so priority
     /// changes scheduling only and never permits concurrent surface mutation.
     @discardableResult
-    func asyncPriority(_ work: @escaping @Sendable () -> Void) -> Bool {
-        enqueue(work, priority: true)
+    func asyncPriority(
+        _ work: @escaping @Sendable () -> Void,
+        label: String = "priority"
+    ) -> Bool {
+        enqueue(work, priority: true, label: label)
     }
 
-    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) -> Bool {
+    func snapshot() -> Snapshot {
+        pendingLock.lock()
+        defer { pendingLock.unlock() }
+        return Snapshot(
+            pendingCount: pendingPriority.count - priorityHead
+                + pendingNormal.count - normalHead,
+            rejectedCount: rejectedCount
+        )
+    }
+
+    private func enqueue(
+        _ work: @escaping @Sendable () -> Void,
+        priority: Bool,
+        label: String
+    ) -> Bool {
+        #if DEBUG
+        let enqueuedAt = MobileLatencyTrace.captureTime()
+        #endif
         pendingLock.lock()
         let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
         if pendingCount >= Self.maximumPendingOperations {
+            rejectedCount &+= 1
             pendingLock.unlock()
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "oq.reject",
+                "q=\(self.traceID) label=\(label) depth=\(pendingCount)"
+            )
+            #endif
             return false
         }
-        if priority {
-            pendingPriority.append(work)
-        } else {
-            pendingNormal.append(work)
+        var operation = work
+        #if DEBUG
+        let traceID = self.traceID
+        let operationID = traceOperation
+        if let enqueuedAt {
+            traceOperation &+= 1
+            operation = { [work] in
+                MobileLatencyTrace.stampElapsed("oq.wait", since: enqueuedAt) { elapsed in
+                    "q=\(traceID) op=\(operationID) label=\(label) us=\(elapsed)"
+                }
+                let startedAt = MobileLatencyTrace.captureTime()
+                work()
+                MobileLatencyTrace.stampElapsed("oq.run", since: startedAt) { elapsed in
+                    "q=\(traceID) op=\(operationID) label=\(label) us=\(elapsed)"
+                }
+            }
         }
+        #endif
+        if priority {
+            pendingPriority.append(operation)
+        } else {
+            pendingNormal.append(operation)
+        }
+        #if DEBUG
+        let depthAfterEnqueue = pendingCount + 1
+        #endif
         let shouldStart = !isRunning
         if shouldStart { isRunning = true }
         pendingLock.unlock()
+        #if DEBUG
+        if let enqueuedAt {
+            MobileLatencyTrace.stamp(
+                "oq.enqueue",
+                at: enqueuedAt,
+                "q=\(traceID) op=\(operationID) label=\(label) priority=\(priority ? 1 : 0) depth=\(depthAfterEnqueue)"
+            )
+        }
+        #endif
         guard shouldStart else { return true }
         scheduleNext()
         return true
