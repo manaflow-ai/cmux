@@ -7,7 +7,7 @@ import CmuxIrohTransport
 @Suite(.timeLimit(.minutes(1)))
 struct LegacyCompatibilityRegistrationTests {
     @Test(arguments: [false, true])
-    func upgradePublishesOneNightlyAndPreservesStable(alreadyDuplicated: Bool) async throws {
+    func upgradePreservesOtherMacsAndStableWhileRepairingNightly(alreadyDuplicated: Bool) async throws {
         let backend = CompatibilityRegistrationFixture(alreadyDuplicated: alreadyDuplicated)
         let server = try await IrxStaleKeepAliveHTTPServer.start(requestHandler: { backend.handle($0) })
         defer { server.stop() }
@@ -26,10 +26,11 @@ struct LegacyCompatibilityRegistrationTests {
                 journal: IrxJournal(subsystem: "dev.cmux.tests", category: "identity-migration"))
             try await service.start()
             let discovered = try #require(await service.snapshot().discovery)
-            #expect(discovered.bindings.count == 2)
-            let nightly = try #require(discovered.bindings.first { $0.tag == "nightly" })
+            #expect(discovered.bindings.count == 3)
+            let nightly = try #require(discovered.bindings.first { $0.tag == "nightly" && $0.deviceID == backend.physicalID })
             #expect(nightly.deviceID == backend.physicalID)
             #expect(nightly.endpointID.endpointID == backend.v2.endpointIDHex)
+            #expect(discovered.bindings.first { $0.deviceID == backend.otherID }?.endpointID.endpointID == backend.other.endpointIDHex)
             #expect(discovered.bindings.first { $0.tag == "default" }?.endpointID.endpointID == backend.stable.endpointIDHex)
             await service.stop()
         }
@@ -59,7 +60,7 @@ struct LegacyCompatibilityRegistrationTests {
         let restarted = try service()
         try await restarted.start()
         let discovery = try #require(await restarted.snapshot().discovery)
-        #expect(discovery.bindings.filter { $0.tag == "nightly" }.map(\.deviceID) == [backend.physicalID])
+        #expect(discovery.bindings.filter { $0.tag == "nightly" && $0.deviceID != backend.otherID }.map(\.deviceID) == [backend.physicalID])
         #expect(backend.physicalNightlyEndpoint == backend.v2.endpointIDHex)
         #expect(backend.revokedDeviceIDs == [backend.v2.deviceID])
         await restarted.stop()
@@ -93,11 +94,13 @@ struct LegacyCompatibilityRegistrationTests {
 /// follow the account directory's device + namespace + tag uniqueness rule.
 private final class CompatibilityRegistrationFixture: @unchecked Sendable {
     let physicalID = "11111111-1111-4111-8111-111111111111"
+    let otherID = "33333333-3333-4333-8333-333333333333"
     let namespace = "mac:com.cmuxterm.app.nightly"
     let v2 = IrxIdentity(privateKeyData: Data(repeating: 2, count: 32),
         deviceID: "22222222-2222-4222-8222-222222222222", appInstanceID: "v2-tuple")
     let old = IrxIdentity(privateKeyData: Data(repeating: 3, count: 32), deviceID: "old", appInstanceID: "old")
     let stable = IrxIdentity(privateKeyData: Data(repeating: 4, count: 32), deviceID: "stable", appInstanceID: "stable")
+    let other = IrxIdentity(privateKeyData: Data(repeating: 5, count: 32), deviceID: "other", appInstanceID: "other")
     private let lock = NSLock()
     private var bindings: [[String: Any]] = []
     private var revoked: [String] = []
@@ -108,7 +111,8 @@ private final class CompatibilityRegistrationFixture: @unchecked Sendable {
         self.rejectRevocation = rejectRevocation
         self.loseRevocationReply = loseRevocationReply
         bindings = [binding(deviceID: physicalID, endpoint: old.endpointIDHex, tag: "nightly"),
-                    binding(deviceID: physicalID, endpoint: stable.endpointIDHex, tag: "default")]
+                    binding(deviceID: physicalID, endpoint: stable.endpointIDHex, tag: "default"),
+                    binding(deviceID: otherID, endpoint: other.endpointIDHex, tag: "nightly")]
         if alreadyDuplicated {
             bindings.append(binding(deviceID: v2.deviceID, endpoint: v2.endpointIDHex, tag: "nightly"))
         }
