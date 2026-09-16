@@ -106,7 +106,7 @@ struct OnboardingBalancedText: UIViewRepresentable {
             .scaledFont(for: baseFont)
         label.textColor = role.color
         label.textAlignment = alignment == .center ? .center : .natural
-        label.accessibilityTraits = role == .title ? .header : .staticText
+        label.accessibilityTraits = role == .body ? .staticText : .header
     }
 
     func sizeThatFits(
