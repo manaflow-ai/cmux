@@ -1,7 +1,4 @@
-import CmuxFoundation
-import Darwin
 import CmuxSentryReporting
-import CmuxTerminal
 import Foundation
 import Sentry
 
@@ -104,48 +101,18 @@ nonisolated func sentryRefreshMemoryContext(reason: String) async {
         includeProcessDetails: false,
         maximumAge: 2
     )
-    let pid = Int(Darwin.getpid())
-    let appProcess = processSnapshot.process(pid: pid)
-    let sampledAt = ISO8601DateFormatter().string(from: processSnapshot.sampledAt)
-    let physicalFootprintBytes = appProcess?.memoryBytes ?? 0
-    let residentBytes = appProcess?.residentBytes ?? 0
-    let virtualBytes = appProcess?.virtualBytes ?? 0
-    let threadCount = appProcess?.threadCount ?? 0
-    let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
-    let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
-    let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
-    let systemMemory = DarwinSystemMemorySnapshot()
-    let aggregate = DarwinMemoryPressureAggregateSampler(
-        snapshotProvider: { processSnapshot },
-        availableMemoryProvider: { systemMemory?.availableBytes }
-    ).sample(at: processSnapshot.sampledAt)
-    let descendants = MemoryResourceDiagnostics(snapshot: processSnapshot, appPID: pid)
-    let descriptors = DarwinFileDescriptorSnapshot()
+    let sample = MemoryResourceSample(processSnapshot: processSnapshot)
     guard !Task.isCancelled else { return }
 
     await MainActor.run {
         guard !Task.isCancelled else { return }
-        let viewCounts = MemoryResourceViewCounts.capture()
+        var payload = sample.payload(
+            views: MemoryResourceViewCounts.capture(),
+            monitor: MemoryPressureMonitor.shared.resourceDiagnosticPayload()
+        )
+        payload["reason"] = reason
         SentrySDK.configureScope { scope in
-            scope.setContext(value: [
-                "reason": reason,
-                "sampled_at": sampledAt,
-                "app": [
-                    "pid": pid,
-                    "physical_footprint_bytes": physicalFootprintBytes,
-                    "resident_bytes": residentBytes,
-                    "virtual_bytes": virtualBytes,
-                    "thread_count": threadCount,
-                    "memory_source": memorySource,
-                    "resident_memory_source": residentMemorySource
-                ],
-                "terminal_surfaces": surfaceSnapshot.payload(),
-                "aggregate": aggregate.privacySafeDiagnosticPayload(),
-                "descendants": descendants.payload(),
-                "system_memory": systemMemory?.payload() as Any? ?? NSNull(),
-                "file_descriptors": descriptors.payload(),
-                "views": viewCounts.payload()
-            ], key: "cmux.memory")
+            scope.setContext(value: payload, key: "cmux.memory")
         }
     }
 }

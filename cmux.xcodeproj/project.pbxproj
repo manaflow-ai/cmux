@@ -2064,6 +2064,7 @@
 		A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */; };
 		7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */; };
 		7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */; };
+		BD18254493B6E2F1A7912915 /* MemoryPressureMonitor+ResourceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89308184C9C87EB4DAF829ED /* MemoryPressureMonitor+ResourceDiagnostics.swift */; };
 		7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */; };
 		7490A0017490A0017490A001 /* MemoryPressureMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */; };
 		126510000000000000000001 /* MemoryPressureNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126510000000000000000002 /* MemoryPressureNotificationTests.swift */; };
@@ -2076,6 +2077,7 @@
 		7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */; };
 		7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */; };
 		245D4C3B2B2DBD1C392C9CAE /* MemoryResourceDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */; };
+		5DDDF128422900EFBE313152 /* MemoryResourceSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06A97A9C910DD851F29E684A /* MemoryResourceSample.swift */; };
 		57A7A46D4F2C181AC80D3BBB /* MemoryResourceViewCounts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */; };
 		1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */; };
 		606500010000000000000001 /* MenuBarOnlyActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */; };
@@ -3208,6 +3210,7 @@
 		A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */; };
 		8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */; };
 		8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */; };
+		CF8062B5358EF8BACDC4B11E /* TerminalController+MemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 465DC70102FF7A836544B98A /* TerminalController+MemoryDiagnostics.swift */; };
 		A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */; };
 		F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000E /* TerminalController+MobileBrowser.swift */; };
 		ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */; };
@@ -5833,6 +5836,7 @@
 		A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureAggregateSampler.swift; sourceTree = "<group>"; };
 		7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintSampling.swift; sourceTree = "<group>"; };
 		7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintThresholds.swift; sourceTree = "<group>"; };
+		89308184C9C87EB4DAF829ED /* MemoryPressureMonitor+ResourceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MemoryPressureMonitor+ResourceDiagnostics.swift"; sourceTree = "<group>"; };
 		7490D0047490D0047490D004 /* MemoryPressureMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureMonitor.swift; sourceTree = "<group>"; };
 		7490A0027490A0027490A002 /* MemoryPressureMonitorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureMonitorTests.swift; sourceTree = "<group>"; };
 		126510000000000000000002 /* MemoryPressureNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPressureNotificationTests.swift; sourceTree = "<group>"; };
@@ -5845,6 +5849,7 @@
 		7490D00B7490D00B7490D00B /* MemoryPressureStateEvaluation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateEvaluation.swift; sourceTree = "<group>"; };
 		7490D00C7490D00C7490D00C /* MemoryPressureStateTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureStateTracker.swift; sourceTree = "<group>"; };
 		ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryResourceDiagnostics.swift; sourceTree = "<group>"; };
+		06A97A9C910DD851F29E684A /* MemoryResourceSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MemoryResourceSample.swift"; sourceTree = "<group>"; };
 		CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryResourceViewCounts.swift; sourceTree = "<group>"; };
 		C7934BB35B66491B1BCA8064 /* MenuBarExtraController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarExtraController.swift; sourceTree = "<group>"; };
 		606500010000000000000002 /* MenuBarOnlyActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarOnlyActivationPolicyTests.swift; sourceTree = "<group>"; };
@@ -6965,6 +6970,7 @@
 		A28B087F000000000000000C /* TerminalController+DiffViewerTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DiffViewerTrust.swift"; sourceTree = "<group>"; };
 		8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+DockControlTopology.swift"; sourceTree = "<group>"; };
 		8672D0048672D0048672D004 /* TerminalController+FeedAcknowledgment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+FeedAcknowledgment.swift"; sourceTree = "<group>"; };
+		465DC70102FF7A836544B98A /* TerminalController+MemoryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MemoryDiagnostics.swift"; sourceTree = "<group>"; };
 		A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileAttachTicket.swift"; sourceTree = "<group>"; };
 		F1100000000000000000000E /* TerminalController+MobileBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileBrowser.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChat.swift"; sourceTree = "<group>"; };
@@ -8494,6 +8500,9 @@
 				A42100010000000000000004 /* MemoryPressureAggregatePolicy.swift */,
 				A42100010000000000000006 /* MemoryPressureAggregateSampler.swift */,
 				CFA37C16A6EFB561E0FB59EB /* MemoryResourceViewCounts.swift */,
+				06A97A9C910DD851F29E684A /* MemoryResourceSample.swift */,
+				89308184C9C87EB4DAF829ED /* MemoryPressureMonitor+ResourceDiagnostics.swift */,
+				465DC70102FF7A836544B98A /* TerminalController+MemoryDiagnostics.swift */,
 				ECCF94F25DD71ABC835B6CF4 /* MemoryResourceDiagnostics.swift */,
 				7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */,
 				7490D0037490D0037490D003 /* MemoryPressureFootprintThresholds.swift */,
@@ -13281,6 +13290,7 @@
 				A42100010000000000000005 /* MemoryPressureAggregateSampler.swift in Sources */,
 				7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */,
 				7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */,
+				BD18254493B6E2F1A7912915 /* MemoryPressureMonitor+ResourceDiagnostics.swift in Sources */,
 				7490C0047490C0047490C004 /* MemoryPressureMonitor.swift in Sources */,
 				7490C0057490C0057490C005 /* MemoryPressureResponder.swift in Sources */,
 				7490C0067490C0067490C006 /* MemoryPressureResponderRegistry.swift in Sources */,
@@ -13291,6 +13301,7 @@
 				7490C00B7490C00B7490C00B /* MemoryPressureStateEvaluation.swift in Sources */,
 				7490C00C7490C00C7490C00C /* MemoryPressureStateTracker.swift in Sources */,
 				245D4C3B2B2DBD1C392C9CAE /* MemoryResourceDiagnostics.swift in Sources */,
+				5DDDF128422900EFBE313152 /* MemoryResourceSample.swift in Sources */,
 				57A7A46D4F2C181AC80D3BBB /* MemoryResourceViewCounts.swift in Sources */,
 					1A8BEE693C9E4C3190CB7F20 /* MenuBarExtraController.swift in Sources */,
 					C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
@@ -14080,6 +14091,7 @@
 				A28B087F000000000000000B /* TerminalController+DiffViewerTrust.swift in Sources */,
 				8777C0018777C0018777C001 /* TerminalController+DockControlTopology.swift in Sources */,
 				8672D0038672D0038672D003 /* TerminalController+FeedAcknowledgment.swift in Sources */,
+				CF8062B5358EF8BACDC4B11E /* TerminalController+MemoryDiagnostics.swift in Sources */,
 				A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */,
 				F2100000000000000000000E /* TerminalController+MobileBrowser.swift in Sources */,
 				ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */,
