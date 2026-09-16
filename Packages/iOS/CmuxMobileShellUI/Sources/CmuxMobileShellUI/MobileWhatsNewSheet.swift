@@ -58,7 +58,26 @@ struct MobileWhatsNewSheet: View {
         })
     }
 
+    @ViewBuilder
+    private var fittedContent: some View {
+        if #available(iOS 18.0, *) {
+            content.presentationSizing(.fitted)
+        } else {
+            content
+        }
+    }
+
     var body: some View {
+        fittedContent
+            .presentationDetents(detents, selection: $selectedDetent)
+            .onChange(of: contentHeight, initial: true) { _, height in
+                resizeSheet(to: height)
+            }
+            .presentationContentInteraction(.scrolls)
+            .presentationDragIndicator(.visible)
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             if pages.count > 1 {
                 TabView(selection: selection) {
@@ -83,13 +102,6 @@ struct MobileWhatsNewSheet: View {
         .frame(idealWidth: 608, maxWidth: 608)
         .background(PlatformPalette.systemBackground)
         .accessibilityIdentifier("MobileWhatsNewSheet")
-        .presentationSizing(.fitted)
-        .presentationDetents(detents, selection: $selectedDetent)
-        .onChange(of: contentHeight, initial: true) { _, height in
-            resizeSheet(to: height)
-        }
-        .presentationContentInteraction(.scrolls)
-        .presentationDragIndicator(.visible)
     }
 
     private func resizeSheet(to height: CGFloat?) {
