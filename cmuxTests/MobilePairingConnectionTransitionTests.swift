@@ -37,6 +37,19 @@ struct MobilePairingConnectionTransitionTests {
         #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
     }
 
+    @Test("Listener and registration failures expose recovery", arguments: [false, true])
+    func v2FailuresDoNotRemainPreparing(running: Bool) {
+        let status = MobileHostServiceStatus(
+            isRunning: running, port: running ? 58465 : nil, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: "Registration is unavailable"
+        )
+        guard case .failed = MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) else {
+            Issue.record("A failed listener or registration must expose the Try Again state")
+            return
+        }
+    }
+
     /// Routes matching ``makeReady()``, so a transition that recomputes the
     /// diagnostics from them reproduces the same `Ready` value.
     private func matchingRoutes() throws -> [CmxAttachRoute] {

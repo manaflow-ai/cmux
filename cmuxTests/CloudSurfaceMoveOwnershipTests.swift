@@ -212,4 +212,38 @@ struct CloudSurfaceMoveOwnershipTests {
             remoteWorkspace: nil, port: nil, url: nil
         )
     }
+
+    @Test("Legacy Cloud ownership survives a move through a local workspace")
+    func legacyCloudTerminalRoundTrip() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+            let panel = try #require(source.newTerminalSurface(inPane: sourcePane, focus: false))
+            source.configureRemoteConnection(WorkspaceRemoteConfiguration(
+                destination: "fixture.invalid", port: 22, identityFile: nil, sshOptions: [],
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil, localSocketPath: nil,
+                managedCloudVMID: "legacy-a", terminalStartupCommand: nil, skipDaemonBootstrap: true
+            ), autoConnect: false)
+            source.trackRemoteTerminalSurface(panel.id)
+            let local = fixture.manager.addWorkspace(title: "Local", select: false)
+            let foreign = fixture.manager.addWorkspace(title: "Cloud B", select: false)
+            foreign.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+            defer { local.teardownAllPanels(); foreign.teardownAllPanels() }
+            #expect(source.machineOwningSurface(panel.id) == .cloud("legacy-a"))
+            #expect(fixture.appDelegate.moveSurface(panelId: panel.id, toWorkspace: local.id, focus: false, focusWindow: false))
+            #expect(local.remoteConfiguration == nil)
+            #expect(local.machineOwningSurface(panel.id) == .cloud("legacy-a"))
+            #expect(!fixture.appDelegate.moveSurface(panelId: panel.id, toWorkspace: foreign.id, focus: false, focusWindow: false))
+            let tab = try #require(local.surfaceIdFromPanelId(panel.id))
+            let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: try #require(local.paneId(forPanelId: panel.id)).id,
+                                           sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
+            let group = SurfaceResourceGroup(title: "Legacy", resources: [LocalSurfaceProvider.resourceID(forTerminalPanel: panel.id)])
+            #expect(source.canPerformPortalPaneDrop(transfer, source: .surfaceResources(group)))
+            #expect(fixture.appDelegate.moveSurface(panelId: panel.id, toWorkspace: source.id, focus: false, focusWindow: false))
+            #expect(source.panels[panel.id] != nil)
+            #expect(local.panels[panel.id] == nil)
+        }
+    }
 }
