@@ -48,7 +48,7 @@ import Testing
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        try await waitForPaneFailure(workspace)
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
@@ -162,25 +162,26 @@ import Testing
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        try await waitForPaneFailure(workspace)
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        #expect(failure.machine == machine)
-        #expect(!failure.errorText.isEmpty)
-        #expect(!failure.errorText.contains("connection refused"))
-        #expect(workspace.cloudPaneCreationFailureStore.canRetry)
+        let reservation = try #require(workspace.cloudPendingCreations.values.first)
+        let failure = try #require(workspace.cloudMaterializationFailures[reservation.panelID])
+        #expect(reservation.machine == machine)
+        #expect(!failure.detail.isEmpty)
+        #expect(!failure.detail.contains("connection refused"))
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        workspace.cloudPaneCreationFailureStore.retry(id: failure.id)
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: reservation.panelID))
         let retryRequest = await requestIterator.next()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        try await waitForPaneFailure(workspace)
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
 
-        let retriedFailure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.closePanel(reservation.panelID, force: true))
+        #expect(workspace.cloudPendingCreations[reservation.panelID] == nil)
+        #expect(!workspace.cloudPaneCreationFailureStore.hasActiveRequests)
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -457,9 +458,12 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
     }
 
-    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
+    private func waitForPaneFailure(_ workspace: Workspace) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while workspace.cloudMaterializationFailures.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(!workspace.cloudMaterializationFailures.isEmpty)
     }
 
     @MainActor
