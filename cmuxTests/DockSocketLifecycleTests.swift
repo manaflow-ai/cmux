@@ -1000,7 +1000,7 @@ struct DockSocketLifecycleTests {
     /// Sets up a single registered main window with that window's Dock created,
     /// and tears everything down (the Dock included, via unregister) on exit.
     @MainActor
-    private func withDockShortcutHarness(
+    func withDockShortcutHarness(
         _ body: @MainActor (
             _ appDelegate: AppDelegate,
             _ manager: TabManager,
