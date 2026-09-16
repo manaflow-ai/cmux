@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "Не удалось подключиться к устройствам. Повторное подключение…"
+      "connectionError": "Не удалось подключиться к устройствам. Повторное подключение…",
+      "selectTeam": "Выберите команду в меню аккаунта, чтобы управлять её устройствами удалённого управления."
     }
   },
   "community": {

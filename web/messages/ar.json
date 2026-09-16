@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "تعذر الاتصال بأجهزتك. جارٍ إعادة الاتصال…"
+      "connectionError": "تعذر الاتصال بأجهزتك. جارٍ إعادة الاتصال…",
+      "selectTeam": "اختر فريقًا من قائمة الحساب لإدارة أجهزة التحكم عن بُعد الخاصة به."
     }
   },
   "community": {

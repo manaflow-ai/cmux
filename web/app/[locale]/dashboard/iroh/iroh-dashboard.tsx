@@ -19,6 +19,7 @@ export function IrohDashboard({ userId }: Props) {
   const scope = useDashboardTeamScope(userId);
   if (scope.status === "loading") return <p className="text-muted">{t("loading")}</p>;
   if (scope.status === "unavailable") return <p role="alert" className="text-muted">{t("unavailable")}</p>;
+  if (scope.selected.personal) return <p className="text-muted">{t("selectTeam")}</p>;
   return <AuthenticatedIrohDashboard key={scope.selected.id} userId={userId} teamId={scope.selected.id} />;
 }
 

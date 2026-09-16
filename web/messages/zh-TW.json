@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "無法連線至您的裝置。正在重新連線…"
+      "connectionError": "無法連線至您的裝置。正在重新連線…",
+      "selectTeam": "從帳戶選單中選擇團隊，以管理該團隊的遠端控制裝置。"
     }
   },
   "community": {

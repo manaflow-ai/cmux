@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "Nie udało się połączyć z urządzeniami. Ponowne łączenie…"
+      "connectionError": "Nie udało się połączyć z urządzeniami. Ponowne łączenie…",
+      "selectTeam": "Wybierz zespół w menu konta, aby zarządzać jego urządzeniami do zdalnego sterowania."
     }
   },
   "community": {

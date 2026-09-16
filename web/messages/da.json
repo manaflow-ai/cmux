@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "Kunne ikke oprette forbindelse til dine enheder. Forbinder igen…"
+      "connectionError": "Kunne ikke oprette forbindelse til dine enheder. Forbinder igen…",
+      "selectTeam": "Vælg et team i kontomenuen for at administrere dets enheder til fjernstyring."
     }
   },
   "community": {

@@ -572,7 +572,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "デバイスに接続できませんでした。再接続しています…"
+      "connectionError": "デバイスに接続できませんでした。再接続しています…",
+      "selectTeam": "アカウントメニューでチームを選択すると、そのチームのリモート操作デバイスを管理できます。"
     }
   },
   "vault": {

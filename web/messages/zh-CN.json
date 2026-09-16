@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "无法连接到您的设备。正在重新连接…"
+      "connectionError": "无法连接到您的设备。正在重新连接…",
+      "selectTeam": "从账户菜单中选择一个团队，以管理其远程控制设备。"
     }
   },
   "community": {

@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "ไม่สามารถเชื่อมต่อกับอุปกรณ์ของคุณได้ กำลังเชื่อมต่อใหม่…"
+      "connectionError": "ไม่สามารถเชื่อมต่อกับอุปกรณ์ของคุณได้ กำลังเชื่อมต่อใหม่…",
+      "selectTeam": "เลือกทีมจากเมนูบัญชีเพื่อจัดการอุปกรณ์ควบคุมระยะไกลของทีม"
     }
   },
   "community": {

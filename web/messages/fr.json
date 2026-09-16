@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "Impossible de se connecter à vos appareils. Reconnexion…"
+      "connectionError": "Impossible de se connecter à vos appareils. Reconnexion…",
+      "selectTeam": "Choisissez une équipe dans le menu du compte pour gérer ses appareils de contrôle à distance."
     }
   },
   "community": {

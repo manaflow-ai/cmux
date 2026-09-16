@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "Verbindung zu deinen Geräten fehlgeschlagen. Verbindung wird erneut hergestellt…"
+      "connectionError": "Verbindung zu deinen Geräten fehlgeschlagen. Verbindung wird erneut hergestellt…",
+      "selectTeam": "Wähle im Kontomenü ein Team aus, um dessen Geräte zur Fernsteuerung zu verwalten."
     }
   },
   "community": {

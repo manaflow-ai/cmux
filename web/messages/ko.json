@@ -357,7 +357,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "connectionError": "기기에 연결할 수 없습니다. 다시 연결하는 중…"
+      "connectionError": "기기에 연결할 수 없습니다. 다시 연결하는 중…",
+      "selectTeam": "계정 메뉴에서 팀을 선택하여 해당 팀의 원격 제어 기기를 관리하세요."
     }
   },
   "community": {
