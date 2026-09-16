@@ -3,21 +3,17 @@ import Bonsplit
 import QuartzCore
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private final class PortalBindLayoutCountingView: NSView {
     private(set) var layoutCount = 0
-
     override func layout() {
         layoutCount += 1
         super.layout()
     }
-
     func resetLayoutCount() {
         layoutCount = 0
     }
