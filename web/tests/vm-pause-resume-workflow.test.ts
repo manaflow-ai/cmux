@@ -47,6 +47,7 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";
+  providerStatuses?: Array<"running" | "paused">;
   resumeClaimed?: boolean;
   withPause?: boolean;
   withResume?: boolean;
@@ -90,7 +91,7 @@ function fakes(options: {
         },
         getStatus: (_provider: string, providerVmId: string) => {
           recorded.statusProbes.push(providerVmId);
-          return Effect.succeed(options.providerStatus ?? "running");
+          return Effect.succeed(options.providerStatuses?.shift() ?? options.providerStatus ?? "running");
         },
       }),
   } as unknown as VmProviderGatewayShape;
@@ -145,10 +146,11 @@ describe("pauseVm", () => {
 
 describe("resumeVm", () => {
   test("does not start a paused VM twice when another caller already claimed its resume", async () => {
-    const { recorded, layer } = fakes({ row: machineRow({ status: "paused" }), providerStatus: "paused", resumeClaimed: false });
+    const { recorded, layer } = fakes({ row: machineRow({ status: "paused" }), providerStatuses: ["paused", "running"], resumeClaimed: false });
     const result = await Effect.runPromise(resumeVm({ ...resumeCaller, maxActiveVms: 3 }).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual([]);
+    expect(recorded.events).toEqual([]);
   });
 
   test("wakes a paused team machine through the reservation, records running, and bills the resume", async () => {

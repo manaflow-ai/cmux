@@ -90,6 +90,11 @@ export type VmResizeReservation = {
   readonly operationId: string;
 };
 export type CloudVmStatus = CloudVmRow["status"];
+/** Result of claiming a paused VM for one provider resume operation. */
+export type VmPausedResumeReservation = CloudVmRow & {
+  /** True only for the transaction that changed the row from paused to running. */
+  readonly resumeClaimed: boolean;
+};
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
@@ -368,7 +373,7 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
-  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+  }) => Effect.Effect<VmPausedResumeReservation | null, VmDatabaseError | VmLimitExceededError>;
   /** Reserve a grow-only disk change before provider I/O. Live shape always provides this. */
   readonly reserveVmResize?: (input: {
     readonly id: string;
@@ -2222,7 +2227,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               ),
             )
             .limit(1);
-          if (!current || current.status !== "paused") return current ?? null;
+          if (!current || current.status !== "paused") {
+            return current ? { ...current, resumeClaimed: false } : null;
+          }
 
           const teamScope = accountScopeWhere({
             userId: input.userId,
@@ -2253,7 +2260,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               ),
             )
             .returning();
-          return reserved ?? current;
+          return reserved
+            ? { ...reserved, resumeClaimed: true }
+            : { ...current, resumeClaimed: false };
         });
       },
       catch: (cause) =>

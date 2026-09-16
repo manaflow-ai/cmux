@@ -6503,6 +6503,7 @@ function testWorkflowRepo(input: {
       Effect.succeed({
         ...input.vm,
         status: "running" as const,
+        resumeClaimed: true,
       }),
     reconciliationCandidates: () => Effect.succeed([]),
     markProviderObservedStatus: (update) =>
