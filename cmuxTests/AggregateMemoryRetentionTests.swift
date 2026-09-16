@@ -120,6 +120,10 @@ struct AggregateMemoryRetentionTests {
         let diagnostics = MemoryResourceDiagnostics(snapshot: snapshot, appPID: rootPID)
         #expect(diagnostics.descendantCount == 0)
         #expect(diagnostics.childRSSBytes == 0)
+        let memory = snapshot.memoryDiagnosticPayload(appPID: rootPID)
+        let children = try #require(memory["children"] as? [String: Any])
+        #expect(children["process_count"] as? Int == 0)
+        #expect(children["recursive_rss_bytes"] as? Int64 == 0)
         let sample = DarwinMemoryPressureAggregateSampler(
             processID: rootPID,
             snapshotProvider: { snapshot },
