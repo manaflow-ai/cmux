@@ -1598,6 +1598,23 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
         assert "workflow_call:" not in workflow(name)
 
 
+def test_tui_delivery_is_checked_independently_of_artifact_completion() -> None:
+    delivery = workflow("cmux-tui-release-delivery.yml")
+    triggers = workflow_triggers(delivery)
+    assert triggers["workflow_run"]["workflows"] == ["cmux-tui release binaries"]
+    assert "schedule" in triggers
+    assert "contents: read" in delivery
+    assert "contents: write" not in delivery
+    assert "check_release_delivery.py" in delivery
+    assert "head_sha" not in delivery
+    assert "persist-credentials: false" in delivery
+    build = workflow("cmux-tui-build-package.yml")
+    wheel_smoke = build.split("- name: Smoke verify PyPI wheels", 1)[1].split("- name:", 1)[0]
+    assert "/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json" in wheel_smoke
+    assert 'probe.get("build_identity")' in wheel_smoke
+    assert 'probe.get("distribution_version")' in wheel_smoke
+
+
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
     # family. If the coordinated TUI publish or the nightly lane ever grows a
