@@ -11,14 +11,14 @@ extension PullRequestProbeService {
                 endpoint: "repos/\(repoSlug)/commits/\(sha)/check-runs?filter=latest&per_page=100&page=\(page)",
                 authHeader: authHeader
             )
-            guard let payload = Self.decodeChecksResponse(WorkspacePullRequestCheckRunsResponse.self, response) else {
+            guard let payload = response?.decode(WorkspacePullRequestCheckRunsResponse.self) else {
                 return (Array(checks.values), false)
             }
             for run in payload.checkRuns {
                 let id = "run:\(run.id)"
                 checks[id] = PullRequestCheck(
                     id: id, name: run.name,
-                    status: Self.checkStatus(status: run.status, conclusion: run.conclusion),
+                    status: PullRequestCheckStatus(checkRunStatus: run.status, conclusion: run.conclusion),
                     detailsURL: run.detailsURL.flatMap(URL.init(string:))
                 )
             }
@@ -38,7 +38,7 @@ extension PullRequestProbeService {
                 endpoint: "repos/\(repoSlug)/commits/\(sha)/status?per_page=100&page=\(page)",
                 authHeader: authHeader
             )
-            guard let payload = Self.decodeChecksResponse(WorkspacePullRequestCommitStatuses.self, response) else {
+            guard let payload = response?.decode(WorkspacePullRequestCommitStatuses.self) else {
                 return (Array(checks.values), false)
             }
             for status in payload.statuses {

@@ -252,7 +252,7 @@ struct PullRequestProbeServiceFetchTests {
         ])
         let runs = await makeService().fetchCheckRuns(repoSlug: repoSlug, sha: "abc123", authHeader: "Bearer fixture")
         #expect(runs.complete)
-        #expect(PullRequestProbeService.overallCheckStatus(runs.checks) == .failure)
+        #expect(PullRequestChecksSummary(checks: runs.checks, mergeStatus: .unknown).status == .failure)
         #expect(requestURLStrings().last?.contains("page=2") == true)
     }
 

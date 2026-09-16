@@ -18,4 +18,22 @@ public struct PullRequestChecksSummary: Sendable, Equatable {
         self.checks = checks
         self.mergeStatus = mergeStatus
     }
+
+    /// Aggregates results without treating missing pages or endpoints as passing.
+    /// `complete` is false when any check source could not be fully fetched.
+    public init(checks: [PullRequestCheck], mergeStatus: PullRequestMergeStatus, complete: Bool = true) {
+        let status: PullRequestCheckStatus
+        if checks.contains(where: { $0.status == .failure }) {
+            status = .failure
+        } else if checks.contains(where: { $0.status == .pending }) {
+            status = .pending
+        } else if !complete || checks.contains(where: { $0.status == .unavailable }) {
+            status = .unavailable
+        } else if checks.contains(where: { $0.status == .success }) {
+            status = .success
+        } else {
+            status = .neutral
+        }
+        self.init(status: status, checks: checks, mergeStatus: mergeStatus)
+    }
 }

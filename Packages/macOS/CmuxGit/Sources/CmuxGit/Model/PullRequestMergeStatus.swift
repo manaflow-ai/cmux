@@ -8,4 +8,13 @@ public enum PullRequestMergeStatus: String, Sendable, Equatable {
     case conflict
     /// GitHub has not computed mergeability or the request failed.
     case unknown
+
+    /// Maps GitHub’s nullable mergeability and separate repository-policy result.
+    public init(mergeable: Bool?, mergeableState: String?) {
+        if mergeable == false || mergeableState?.lowercased() == "dirty" { self = .conflict; return }
+        switch mergeableState?.lowercased() {
+        case "blocked", "unstable", "draft", "behind": self = .blocked
+        default: self = mergeable == true ? .ready : .unknown
+        }
+    }
 }
