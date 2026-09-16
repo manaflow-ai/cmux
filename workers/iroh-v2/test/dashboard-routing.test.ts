@@ -13,6 +13,21 @@ const services = {
 };
 
 describe("Dashboard browser bootstrap", () => {
+  test("answers the browser preflight with the approved origin and headers", async () => {
+    const response = await routeDashboard(new Request("https://worker/v2/dashboard/session", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://cmux.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization, content-type",
+      },
+    }), services);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://cmux.com");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST");
+    expect(response.headers.get("access-control-allow-headers")).toBe("authorization, content-type");
+  });
+
   test("allows only the configured origin and returns a scoped ticket", async () => {
     calls.length = 0;
     const requestId = "dashboard-open";
