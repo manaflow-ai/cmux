@@ -828,6 +828,7 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
 enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     case builtIn(CmuxSurfaceTabBarBuiltInAction)
     case command(String)
+    case text(CmuxTextActionPayload)
     case agent(CmuxConfigAgentKind, args: String?)
     case workspaceCommand(String)
     case workspace(CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)
@@ -839,6 +840,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return action.configID
         case .command(let command):
             return "command." + Self.generatedCommandId(for: command)
+        case .text(let payload):
+            return "text." + payload.identifierSlug
         case .agent(let agent, _):
             return agent.commandName
         case .workspaceCommand(let commandName):
@@ -860,6 +863,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return .symbol(action.defaultIcon)
         case .command:
             return .symbol("terminal")
+        case .text:
+            return .symbol("text.cursor")
         case .agent(let agent, _):
             return agent.defaultIcon
         case .workspaceCommand, .workspace:
@@ -876,7 +881,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
         case .agent(let agent, let args):
             let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
-        case .builtIn, .workspaceCommand, .workspace, .actionReference:
+        case .builtIn, .text, .workspaceCommand, .workspace, .actionReference:
             return nil
         }
     }
@@ -884,6 +889,16 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     var workspaceCommandName: String? {
         if case .workspaceCommand(let name) = self {
             return name
+        }
+        return nil
+    }
+
+    /// Literal text payload for `type: "text"` actions. Deliberately not
+    /// exposed through `terminalCommand`: text is pasted, never run as shell
+    /// input, unless the payload asks to submit.
+    var textPayload: CmuxTextActionPayload? {
+        if case .text(let payload) = self {
+            return payload
         }
         return nil
     }
@@ -931,6 +946,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         case restart
         case confirm
         case target
+        case text
+        case submit
     }
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
@@ -1019,7 +1036,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             switch action {
             case .builtIn(let builtIn):
                 return builtIn.bonsplitAction ?? .custom(id)
-            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            case .command, .text, .agent, .workspaceCommand, .workspace, .actionReference:
                 return .custom(id)
             }
         }()
@@ -1134,6 +1151,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
                 let definition = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
                 let restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
                 action = .workspace(definition, restart: restart)
+            case "text":
+                action = .text(try Self.decodeTextPayload(from: container))
             default:
                 throw DecodingError.dataCorruptedError(
                     forKey: .type,
@@ -1241,9 +1260,42 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
+        case .text(let payload):
+            try container.encode("text", forKey: .type)
+            try container.encode(payload.text, forKey: .text)
+            if payload.submit {
+                try container.encode(true, forKey: .submit)
+            }
         case .actionReference(let identifier):
             try container.encode(identifier, forKey: .action)
         }
+    }
+
+    /// Shared `type: "text"` decoding for buttons and action definitions:
+    /// verbatim text (newlines and indentation preserved) minus bidi and
+    /// zero-width controls, blank rejected, `submit` defaulting to false.
+    private static func decodeTextPayload(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CmuxTextActionPayload {
+        guard container.contains(.text) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.text,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "text actions require 'text'"
+                )
+            )
+        }
+        let raw = try container.decode(String.self, forKey: .text)
+        guard let sanitized = CmuxTextActionPayload.sanitizedText(raw) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .text,
+                in: container,
+                debugDescription: "text must not be blank"
+            )
+        }
+        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+        return CmuxTextActionPayload(text: sanitized, submit: submit)
     }
 
     private static func trimmedString(
@@ -1398,7 +1450,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             case .custom(let name):
                 return name
             }
-        case .command:
+        case .command, .text:
             return id
         case .workspaceCommand(let commandName):
             return commandName
@@ -2336,7 +2388,7 @@ final class CmuxConfigStore: ObservableObject {
             do {
                 let resolved = try resolvedSurfaceTabBarButton(button, actions: actions)
                 resolvedButtons.append(resolved.button)
-                guard resolved.button.terminalCommand != nil else { continue }
+                guard resolved.button.terminalCommand != nil || resolved.button.action.textPayload != nil else { continue }
                 if let commandSourcePath = resolved.terminalCommandSourcePath {
                     terminalCommandSourcePaths[resolved.button.id] = commandSourcePath
                 }
@@ -2375,7 +2427,8 @@ final class CmuxConfigStore: ObservableObject {
             )
             return ResolvedSurfaceTabBarButtonEntry(
                 button: resolvedButton,
-                terminalCommandSourcePath: resolvedButton.terminalCommand == nil ? nil : entry.actionSourcePath
+                terminalCommandSourcePath: (resolvedButton.terminalCommand == nil && resolvedButton.action.textPayload == nil)
+                    ? nil : entry.actionSourcePath
             )
         }
 
