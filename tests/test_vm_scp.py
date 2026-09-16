@@ -84,11 +84,22 @@ LogLevel ERROR
         requests = []
         wrong_host_key = False
         short_grant = False
+        idle_connection_closed = threading.Event()
 
         def serve_connection(conn):
             nonlocal short_grant
+            # Match the app's bounded control-socket lifecycle. File transfer
+            # can continue after its endpoint request's connection goes idle.
+            conn.settimeout(2)
             with conn, conn.makefile("rwb") as stream:
-                for line in stream:
+                while True:
+                    try:
+                        line = stream.readline()
+                    except TimeoutError:
+                        idle_connection_closed.set()
+                        return
+                    if not line:
+                        return
                     if line.startswith(b"auth "):
                         stream.write(b"OK\n")
                         stream.flush()
@@ -205,6 +216,9 @@ LogLevel ERROR
                     if watch.poll() is not None:
                         raise AssertionError(watch.communicate())
                     time.sleep(.1)
+                # Wait for the server to retire the endpoint connection, then
+                # make a new edit. The old test edited before the idle timeout.
+                assert idle_connection_closed.wait(timeout=5), "control socket never reached its idle deadline"
                 (tree / "b").write_text("two")
                 stdout, stderr = watch.communicate(timeout=30)
                 assert watch.returncode == 0, stderr
