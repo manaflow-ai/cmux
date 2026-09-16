@@ -17,7 +17,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -25,7 +24,8 @@ KEYCHAIN = "/Library/Keychains/System.keychain"
 
 
 def run(*args, **kwargs):
-    return subprocess.run(args, check=True, capture_output=True, text=True, **kwargs).stdout
+    print(f"Running {args[0]} {args[1]}", flush=True)
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=60, **kwargs).stdout
 
 
 def certificates(directory):
@@ -69,12 +69,12 @@ commonName = supplied
             "-subj", f"/CN={hostname}", "-keyout", str(directory / f"{name}.key"),
             "-out", str(directory / f"{name}.csr"))
         dates = ["-startdate", "20200101000000Z", "-enddate", "20200102000000Z"] if name == "expired" else []
-        run("openssl", "ca", "-batch", "-config", str(config), "-extfile", str(ext),
+        run("openssl", "ca", "-batch", "-notext", "-config", str(config), "-extfile", str(ext),
             "-in", str(directory / f"{name}.csr"), "-out", str(directory / f"{name}.pem"), *dates)
     return subject
 
 
-def build_client(directory):
+def build_client(directory, output):
     pins = json.loads((ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved").read_text())["pins"]
     pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
     (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
@@ -87,10 +87,12 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
     sources = directory / "Sources"
     sources.mkdir()
     shutil.copyfile(Path(__file__).with_name("RelayTLSClient.swift"), sources / "RelayTLSClient.swift")
-    build = subprocess.run(["swift", "build", "--package-path", str(directory)],
-                           capture_output=True, text=True)
+    print(f"Building pinned Iroh {pin['state']['version']}", flush=True)
+    with (output / "build.log").open("w") as log:
+        build = subprocess.run(["swift", "build", "--package-path", str(directory)],
+                               stdout=log, stderr=subprocess.STDOUT, timeout=300)
     if build.returncode:
-        raise RuntimeError(build.stdout + build.stderr)
+        raise RuntimeError((output / "build.log").read_text())
     return directory / ".build/debug/RelayTLSClient", pin
 
 
@@ -154,7 +156,7 @@ def main():
         directory = Path(temp)
         os.chmod(directory, 0o700)
         subject = certificates(directory)
-        client, pin = build_client(directory)
+        client, pin = build_client(directory, args.output)
         root = directory / "root.pem"
         der = subprocess.check_output(["openssl", "x509", "-in", str(root), "-outform", "DER"])
         fingerprint = hashlib.sha1(der).hexdigest().upper()
