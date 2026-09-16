@@ -1507,6 +1507,88 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 mod tests {
     use super::*;
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn file_marker_ownership_requires_explicit_inheritance() {
+        use std::io::Read as _;
+        use std::os::unix::net::UnixStream;
+
+        struct ForkChild(libc::pid_t);
+        impl Drop for ForkChild {
+            fn drop(&mut self) {
+                // SAFETY: this PID remains our unreaped child until waitpid.
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                    while libc::waitpid(self.0, std::ptr::null_mut(), 0) < 0 {
+                        if io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let unrelated = UnixProcessScope::prepare().unwrap();
+        let intended = UnixProcessScope::prepare().unwrap();
+        let (mut ready, signal) = UnixStream::pair().unwrap();
+        ready.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let inherited_fd = intended._marker_fd.as_raw_fd();
+        let signal_fd = signal.as_raw_fd();
+        // SAFETY: the child calls only async-signal-safe syscalls and never
+        // touches Rust state or destructors inherited from concurrent tests.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed: {}", io::Error::last_os_error());
+        if pid == 0 {
+            unsafe {
+                let flags = libc::fcntl(inherited_fd, libc::F_GETFD);
+                let granted = flags >= 0
+                    && libc::fcntl(inherited_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == 0;
+                let byte = u8::from(granted);
+                if libc::write(signal_fd, (&byte as *const u8).cast(), 1) != 1 || !granted {
+                    libc::_exit(1);
+                }
+                loop {
+                    libc::pause();
+                }
+            }
+        }
+        let child = ForkChild(pid);
+        drop(signal);
+        let mut ready_byte = [0];
+        ready.read_exact(&mut ready_byte).unwrap();
+        assert_eq!(ready_byte, [1], "child could not grant marker inheritance");
+        let identity = process_identity(pid as u32).unwrap();
+        let scopes = [&unrelated, &intended].map(|scope| ScopeRegistration {
+            marker: scope.marker.clone(),
+            file_marker: scope.file_marker,
+            // This scan tests descriptor ownership alone, with no root lineage
+            // or marker environment entry able to claim the forked process.
+            root: ProcessIdentity { pid: u32::MAX, started: 0 },
+            tracked: scope.tracked.clone(),
+            track_before_finalization: true,
+            final_scan_gate: None,
+        });
+        let mut cursor = ProcessScanCursor::default();
+        let mut matches = HashSet::new();
+        loop {
+            let scan = scan_registered_processes(&scopes, cursor);
+            matches.extend(scan.matches);
+            let Some(next) = scan.next else { break };
+            cursor = next;
+        }
+        assert!(matches.contains(&(1, identity)), "explicitly inherited marker lost ownership");
+        assert!(
+            !matches.contains(&(0, identity)),
+            "a close-on-exec marker claimed an unrelated pre-exec fork"
+        );
+        for (scope, identity) in matches {
+            record_tracked_process(&scopes[scope], identity);
+        }
+        assert!(scope_known_identities(&scopes[0]).is_empty());
+        assert!(scope_known_identities(&scopes[1]).contains(&identity));
+        drop(child);
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_process_identity_uses_start_time_after_a_parenthesized_name() {
