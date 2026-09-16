@@ -43,6 +43,23 @@ struct CloudMachineResourcePresentationTests {
         #expect(result.disk.percent == nil)
     }
 
+    @Test func loadingAndStaleSamplesKeepTheirStateVisible() {
+        let loading = CloudMachineResourcePresentation(availability: .loading)
+        #expect(loading.availability == .loading)
+        #expect(loading.cpu.value == "…")
+        #expect(loading.cpu.detail.contains("Loading"))
+
+        let stale = CloudMachineResourcePresentation(
+            availability: .stale, cpuPercent: 83,
+            memoryUsedMb: 2048, memoryTotalMb: 4096,
+            diskUsedMb: 3072, diskTotalMb: 4096
+        )
+        #expect(stale.availability == .stale)
+        #expect(stale.cpu.percent == nil)
+        #expect(stale.cpu.value == "—")
+        #expect(stale.disk.detail.contains("Stale"))
+    }
+
     @Test(arguments: [Double.nan, .infinity, -.infinity, -1, 101, .greatestFiniteMagnitude])
     func malformedCPUIsUnavailableWithoutTrapping(cpu: Double) {
         let result = CloudMachineResourcePresentation(availability: .awake, cpuPercent: cpu)
