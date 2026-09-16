@@ -72,5 +72,24 @@ struct MobileIrohSoakRunnerTests {
         // Release the deliberately uncooperative operation after the deadline wins.
         suspended?.resume(returning: probe)
     }
+
+    @Test func finalTransactionAlsoHasADeadline() async {
+        let runner = MobileIrohSoakRunner(
+            profile: .basic, durationSeconds: 0, minimumCycles: 1,
+            operationTimeout: .milliseconds(20)
+        )
+        var suspended: CheckedContinuation<MobileIrohReleaseGateProbeResult, Never>?
+        await #expect(throws: MobileIrohSoakRunner.Failure.cycleTooSlow) {
+            try await runner.run(marker: "test", connection: { 1 }, probe: { marker in
+                if marker.hasSuffix("FINAL") {
+                    return await withCheckedContinuation { suspended = $0 }
+                }
+                return probe
+            }, stress: { _, _ in [] })
+        }
+        #expect(runner.evidence.completedCycles == 1)
+        #expect(runner.evidence.currentOperation == "final_terminal_round_trip")
+        suspended?.resume(returning: probe)
+    }
 }
 #endif

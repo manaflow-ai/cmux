@@ -129,7 +129,9 @@ final class MobileIrohSoakRunner {
             }
             guard await connection() == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
-                evidence.currentOperation = "usage_step_\(cycle % 4)"
+                evidence.currentOperation = cycle % 120 == 119 ? "forced_reconnect" : [
+                    "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
+                ][cycle % 4]
                 for operation in try await stress(cycle, cycleMarker) {
                     try Task.checkCancellation()
                     evidence.operationCounts[operation, default: 0] += 1
