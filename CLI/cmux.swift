@@ -4076,13 +4076,17 @@ final class SocketClient {
             let message = (error["message"] as? String) ?? "Unknown v2 error"
             let action = error["action"] as? String
             let data = error["data"] as? [String: Any]
+            let requestID = data?["request_id"] as? String
+            let traceID = data?["trace_id"] as? String
             throw CLIError(
                 message: formatV2Error(
                     code: code,
                     message: message,
                     action: action,
                     reason: error["reason"] as? String,
-                    details: safeV2Details(error["details"])
+                    details: safeV2Details(error["details"]),
+                    requestID: requestID,
+                    traceID: traceID
                 ),
                 v2Code: error["code"] as? String,
                 isStructuredProtocolResponse: true,
@@ -4100,7 +4104,9 @@ final class SocketClient {
         message: String,
         action: String? = nil,
         reason: String? = nil,
-        details: String? = nil
+        details: String? = nil,
+        requestID: String? = nil,
+        traceID: String? = nil
     ) -> String {
         let header: String
         if code == "vm_error" {
@@ -4119,6 +4125,12 @@ final class SocketClient {
         }
         if let details = trimmedNonEmptyV2Text(details) {
             sections.append("Details:\n\(indentV2ErrorLines(details))")
+        }
+        if let requestID = trimmedNonEmptyV2Text(requestID) {
+            sections.append("Request ID: \(requestID)")
+        }
+        if let traceID = trimmedNonEmptyV2Text(traceID) {
+            sections.append("Axiom trace: \(traceID)")
         }
         return sections.joined(separator: "\n\n")
     }

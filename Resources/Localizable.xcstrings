@@ -234611,6 +234611,20 @@
         }
       }
     },
+    "cloudVM.error.requestId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request ID: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエスト ID: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请求 ID：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Anfrage-ID: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "ID de requête : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معرّف الطلب: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "ID de solicitud: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請求 ID：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "요청 ID: %@" } }
+      }
+    },
     "cloudVM.error.reference": {
       "extractionState": "manual",
       "localizations": {

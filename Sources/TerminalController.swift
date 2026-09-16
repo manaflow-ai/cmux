@@ -4328,8 +4328,16 @@ class TerminalController {
         }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
-        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
+        let ui = object?["ui"] as? [String: Any]
+        if let traceID = (object?["traceId"] as? String ?? ui?["traceId"] as? String), !traceID.isEmpty {
             payload["trace_id"] = traceID
+        }
+        if let requestID = (
+            object?["requestId"] as? String
+                ?? object?["clientRequestId"] as? String
+                ?? ui?["requestId"] as? String
+        ), !requestID.isEmpty {
+            payload["request_id"] = requestID
         }
         return payload
     }

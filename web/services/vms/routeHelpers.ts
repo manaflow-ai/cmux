@@ -38,6 +38,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { withVmErrorReference } from "./errorReference";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -281,7 +282,7 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
   // the exact Axiom trace, PostHog row and Sentry event. Safe to expose (random
   // 128-bit id, no meaning outside our telemetry).
   const traceId = activeTraceIds()?.traceId;
-  const payload = {
+  const payload = withVmErrorReference({
     ...(input.extra ?? {}),
     ...(input.details ? { details: {
       ...input.details,
@@ -306,7 +307,7 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
     reason: input.reason ?? input.message,
     action: input.action,
     ...(traceId ? { traceId } : {}),
-  };
+  });
   const headers: Record<string, string> = {};
   if (retryAfterSeconds !== undefined) {
     headers["retry-after"] = String(retryAfterSeconds);

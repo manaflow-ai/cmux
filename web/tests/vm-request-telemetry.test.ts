@@ -192,7 +192,9 @@ describe("vm error payloads", () => {
       message: "boom",
       action: "retry",
     });
-    const payload = await response.json() as { traceId?: string; ui: { traceId?: string } };
+    const payload = await response.json() as { requestId?: string; traceId?: string; ui: { requestId?: string; traceId?: string } };
+    expect(payload.requestId).toBe("req-1");
+    expect(payload.ui.requestId).toBe("req-1");
     expect(payload.traceId).toBeUndefined();
     expect(payload.ui.traceId).toBeUndefined();
   });

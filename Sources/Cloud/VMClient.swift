@@ -147,6 +147,13 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append("Details:")
         lines.append(contentsOf: details.map { "  \($0)" })
     }
+    let requestId = cloudVMString(object["requestId"])
+        ?? cloudVMString(object["clientRequestId"])
+        ?? cloudVMString(ui?["requestId"])
+    if let requestId {
+        lines.append("")
+        lines.append(cloudVMRequestIDLine(requestId: requestId))
+    }
     if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
         // The support reference. Operators open the exact server trace,
         // PostHog row and Sentry event from this one id.
@@ -154,6 +161,13 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append(cloudVMReferenceLine(traceId: traceId))
     }
     return lines.joined(separator: "\n")
+}
+
+func cloudVMRequestIDLine(requestId: String) -> String {
+    String(
+        format: String(localized: "cloudVM.error.requestId", defaultValue: "Request ID: %@"),
+        requestId
+    )
 }
 
 func cloudVMReferenceLine(traceId: String) -> String {
