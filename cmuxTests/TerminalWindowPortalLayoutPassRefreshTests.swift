@@ -19,6 +19,7 @@ private final class LayoutSyncingAnchorView: NSView {
     }
 }
 
+extension TerminalWindowPortalLifecycleTests {
     /// A geometry sync that runs inside an AppKit layout pass must not force a
     /// synchronous surface redraw. displayIfNeeded there reaches ghostty's
     /// Metal drawFrame while the window's transaction is still open, and
