@@ -1431,9 +1431,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return nil
     }
     private func deliverNotification(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> Bool {
+        // URL requests share the notification admission budget. A guest can
+        // otherwise create an unbounded number of browser panes.
+        guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         if let url = row.openURL { return openGuestURL(url, target: target) }
         guard let store = AppDelegate.shared?.notificationStore else { return false }
-        guard CloudNotificationSyncHub.shared.admit(row, machineID: machineID) else { return true }
         let terminalTitle = row.terminalID.flatMap { cloudState?.lookupIndex.terminal(id: $0)?.title } ?? ""
         let machineName = summary.preferredName
         let subtitle: String
