@@ -639,7 +639,7 @@ struct PostHogAnalyticsPropertiesTests {
         let list = try #require(properties["$exception_list"] as? [[String: Any]])
         let entry = try #require(list.first)
         #expect(entry["type"] as? String == "EXC_BAD_ACCESS")
-        #expect(entry["value"] as? String == "KERN_INVALID_ADDRESS at 0x0000000000000000")
+        #expect(entry["value"] as? String == "Previous launch crashed")
         let mechanism = try #require(entry["mechanism"] as? [String: Any])
         #expect(mechanism["handled"] as? Bool == false)
         #expect(mechanism["type"] as? String == "mach")
@@ -681,20 +681,28 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(PostHogAnalytics.sanitizedExceptionToken("   ") == nil)
         #expect(PostHogAnalytics.sanitizedExceptionToken(nil) == nil)
 
-        let scrubbed = PostHogAnalytics.scrubbedCrashValue(
-            "Crash at /Users/lawrence/Library/cmux reported by lawrence@cmux.com"
-        )
-        #expect(scrubbed?.contains("/Users") == false)
-        #expect(scrubbed?.contains("lawrence@cmux.com") == false)
-        #expect(scrubbed?.contains("[path]") == true)
-        #expect(scrubbed?.contains("[email]") == true)
+    }
 
-        let whitespacePath = PostHogAnalytics.scrubbedCrashValue(
-            "Crash at /Users/Jane Doe/Library/Application Support/cmux"
+    @Test(arguments: [
+        "Crash at /Users/Jane Doe/Private Project.swift",
+        "Opening /tmp/Customer Contract.pdf failed",
+        "password=hunter2 token=private-token alice@example.com",
+        "Server returned confidential customer content",
+    ])
+    func crashExceptionDoesNotTransmitRawReason(reason: String) throws {
+        let reported = GhosttyCrashReportMetadata.ReportedException(
+            type: "EXC_CRASH",
+            value: reason,
+            mechanismType: "signal",
+            appVersion: "0.64.22",
+            appBuild: "6422",
+            appNamespace: "com.cmuxterm.app"
         )
-        #expect(whitespacePath == "Crash at [path]")
-        #expect(PostHogAnalytics.scrubbedCrashValue("") == nil)
-        #expect(PostHogAnalytics.scrubbedCrashValue(nil) == nil)
+        let properties = PostHogAnalytics.crashExceptionProperties(reported: reported, infoDictionary: [:])
+        let entry = try #require((properties["$exception_list"] as? [[String: Any]])?.first)
+        #expect(entry["value"] as? String == "Previous launch crashed")
+        let serialized = String(decoding: try JSONSerialization.data(withJSONObject: properties), as: UTF8.self)
+        #expect(!serialized.contains(reason))
     }
 
     @Test
