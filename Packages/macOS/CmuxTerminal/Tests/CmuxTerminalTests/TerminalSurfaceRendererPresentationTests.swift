@@ -4,25 +4,18 @@ import GhosttyKit
 import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
-
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
 private func beginRendererRealizedTracking(_ surface: UnsafeMutableRawPointer)
-
 @_silgen_name("cmux_test_ghostty_renderer_realized_reset")
 private func resetRendererRealizedTracking()
-
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_count")
 private func rendererRealizedCallCount() -> UInt32
-
 @_silgen_name("cmux_test_ghostty_renderer_rebuild_call_count")
 private func rendererRebuildCallCount() -> UInt32
-
 @_silgen_name("cmux_test_ghostty_renderer_realized_call_value")
 private func rendererRealizedCallValue(_ index: UInt32) -> Bool
-
 @_silgen_name("cmux_test_ghostty_renderer_realized_set_result")
 private func setRendererRealizedResult(_ result: Bool)
-
 @_silgen_name("cmux_test_ghostty_renderer_release_was_occluded")
 private func rendererReleaseWasOccluded() -> Bool
 
