@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
@@ -90,6 +91,8 @@ export default function CoderouterOverviewPage(props: PageProps) {
 }
 
 async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Authorization and tracing run per request, below the cached page shell.
+  await connection();
   // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
