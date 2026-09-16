@@ -149,11 +149,22 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
                 eventType: .leftMouseDown
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [.fileURL],
                 eventType: .cursorUpdate
-            )
+            ),
+            "A stale Finder file URL must not capture ordinary browser hover"
+        )
+
+        XCTAssertTrue(
+            BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .cursorUpdate,
+                hasActiveDropDrag: true,
+                hasLiveFileDropPayload: true
+            ),
+            "An active Finder drag may keep the pane drop target during hover"
         )
 
         let externalPayloads: [[NSPasteboard.PasteboardType]] = [
@@ -174,11 +185,12 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             )
         }
 
-        XCTAssertTrue(
+        XCTAssertFalse(
             BrowserPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [.fileURL, .png],
                 eventType: .cursorUpdate
-            )
+            ),
+            "Mixed stale file payloads must not capture ordinary browser hover"
         )
     }
 
