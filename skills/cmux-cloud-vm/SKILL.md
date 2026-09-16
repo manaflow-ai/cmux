@@ -468,3 +468,8 @@ Mac client; older combinations safely use the printable fallback.
 接続されていない場合、旧バージョンの場合、配信失敗やタイムアウトの場合は
 URL を表示して正常終了します。Chrome、`agent-browser`、CUA の `DISPLAY=:1`
 での動作は変わりません。URL は通知として保存されず、再接続時にも再実行されません。
+
+HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundled
+`xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
+HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
+Chrome の直接起動は変更しません。

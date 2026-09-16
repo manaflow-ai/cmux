@@ -532,3 +532,8 @@ cmux-tui daemon with the matching Mac client.
 端末からのブラウザー認証はイメージの再作成ではなく、プロバイダーの作成・
 修復処理で導入します。接続先の Mac が受信できない場合は URL を表示して
 正常終了します。ゲストデスクトップの Chrome/CDP/CUA には影響しません。
+
+HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundled
+`xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
+HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
+Chrome の直接起動は変更しません。
