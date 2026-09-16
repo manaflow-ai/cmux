@@ -3187,6 +3187,7 @@ class TerminalController {
             "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
+            "vm.billing_checkout",
             "vm.list",
             "vm.diagnostics",
             "vm.publication_list",
@@ -5277,7 +5278,7 @@ class TerminalController {
                         code: "unavailable",
                         message: String(
                             localized: "cli.workspaceAction.tailscalePairingUnavailable",
-                            defaultValue: "Tailscale Pairing is unavailable"
+                            defaultValue: "Mobile Pairing is unavailable"
                         ),
                         data: nil
                     )

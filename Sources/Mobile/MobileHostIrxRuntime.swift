@@ -60,7 +60,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var wakeTask: Task<Void, Never>?
     private var shutdownTask: Task<Void, Never>?
     private var activeScope: AuthenticatedTeamScope?
-    private var signingOutScope: AuthenticatedTeamScope? // Session/team generations make a fresh same-account sign-in a different scope.
+    private var signingOutScope: AuthenticatedTeamScope?
     private var wantsHost = true
     private var requiresTransition = false
     private var generationToken = UUID()
@@ -349,7 +349,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     identityGeneration: device.identityGeneration,
                     appVersion: device.metadata.appVersion,
                     releaseTrack: Self.hostReleaseTrack),
-                identity: LegacyCompatibilityService.compatibilityIdentity(from: identity),
+                identity: LegacyCompatibilityService.compatibilityIdentity(
+                    from: identity, deviceID: MobileHostIdentity.deviceID()),
+                previousDeviceID: LegacyCompatibilityService.compatibilityIdentity(from: identity).deviceID,
                 accessTokenPair: { [weak auth] in
                     guard let auth else { return nil }
                     guard await auth.isAuthenticatedTeamScopeCurrent(scope) else { return nil }
@@ -801,6 +803,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
+            hostDeviceID: legacyCurrent?.current?.entries[peer.endpointIDHex] != nil
+                ? MobileHostIdentity.deviceID() : nil,
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             // Admission has already authenticated this bounded pooled peer.

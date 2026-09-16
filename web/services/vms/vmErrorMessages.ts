@@ -119,6 +119,29 @@ export async function vmRequiresProCopy(
   };
 }
 
+export async function vmMemoryErrorCopy(
+  kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
+  locale: Locale,
+  values: Record<string, string | number> = {},
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  return { title: kind === "memoryPlan" ? t("title", values) : t("message", values),
+    message: t("message", values), action: t("action", values) };
+}
+
+/** Localized copy for the Go plan's hard limits. */
+export async function vmGoLimitCopy(
+  kind: "saved" | "active" | "hours" | "shape",
+  locale: Locale,
+): Promise<{ readonly message: string; readonly action: string }> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.goLimit",
+  }) as unknown as (key: string) => string;
+  return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
+}
+
 /** Copy returned when an account's shared Cloud VM resource pool is full. */
 function localeFromPath(value: string): Locale | null {
   try {
