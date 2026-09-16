@@ -9,14 +9,18 @@ struct TerminalGeometryDiagnostics {
         workspaceID: UUID?,
         transition: TerminalWorkContext.Transition
     ) -> TerminalWorkContext {
-        guard let workspaceID, let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else {
+        guard let workspaceID,
+              let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceID)?.workspacesById[workspaceID] else {
             return .init(transition: transition)
         }
+        // Per-surface layout must not enumerate every workspace in the window.
+        // The existing ownership index and Dictionary.count keep this snapshot
+        // independent of the number of other workspaces and panels.
         return .init(
             transition: transition,
-            population: .window,
-            workspaceCount: manager.tabs.count,
-            surfaceCount: manager.tabs.reduce(0) { $0 + $1.panels.count }
+            population: .workspace,
+            workspaceCount: 1,
+            surfaceCount: workspace.panels.count
         )
     }
 

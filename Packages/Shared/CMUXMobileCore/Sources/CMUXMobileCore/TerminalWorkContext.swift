@@ -16,6 +16,8 @@ public struct TerminalWorkContext: Sendable, Codable, Equatable {
 
     /// The population described by the counts, independent of user identity.
     public enum Population: String, Sendable, Codable {
+        /// The originating workspace and the surfaces it currently owns.
+        case workspace
         /// All workspaces and surfaces in the owning Mac window.
         case window
         /// The terminal surfaces bound to one window portal.

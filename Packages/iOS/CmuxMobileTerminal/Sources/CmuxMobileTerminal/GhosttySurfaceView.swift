@@ -5170,7 +5170,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 completion?(true)
             }
         }
-        if !accepted { queued?.end(); completion?(false) }
+        if !accepted { queued?.end(); completion?(false) } // Rejection never retains or executes the closure.
     }
 
     /// Apply an off-main geometry pass on the main actor: only UIKit layer /
