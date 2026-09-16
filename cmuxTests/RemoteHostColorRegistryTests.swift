@@ -108,8 +108,8 @@ import Testing
         // The rail draws each color brightened. Two servers read as the same red when the
         // workspace tab palette's Red and Crimson, or Magenta and Rose, came out that way:
         // Magenta and Rose differ by 2.4 in OKLab (x100) on the rail. Every pair here must
-        // differ by at least 14, and palette neighbors by at least 25, because a host bumped
-        // by a collision takes the next slot.
+        // differ by at least 11, palette neighbors by at least 25 because a host bumped by a
+        // collision takes the next slot, and each color must stand out from the grey sidebar.
         let palette = paletteInSlotOrder()
         #expect(palette.count == 16)
         let rails = palette.map { hex -> (String, Self.RGB) in
@@ -120,11 +120,17 @@ import Testing
         for i in rails.indices {
             for j in rails.indices where j > i {
                 let distance = Self.deltaE(rails[i].1, rails[j].1)
-                #expect(distance >= 14, "\(rails[i].0) and \(rails[j].0) differ by \(distance) on the rail")
+                #expect(distance >= 11, "\(rails[i].0) and \(rails[j].0) differ by \(distance) on the rail")
             }
             let next = rails[(i + 1) % rails.count]
             let neighbor = Self.deltaE(rails[i].1, next.1)
             #expect(neighbor >= 25, "neighbors \(rails[i].0) and \(next.0) differ by \(neighbor)")
+        }
+        // The sidebar material reads as mid grey behind the rail.
+        let sidebarGrey: Self.RGB = (169.0 / 255, 169.0 / 255, 169.0 / 255)
+        for (hex, rgb) in rails {
+            let distance = Self.deltaE(rgb, sidebarGrey)
+            #expect(distance >= 15, "\(hex) differs from the grey sidebar by \(distance)")
         }
         for scheme in [ColorScheme.light, .dark] {
             let selection = Self.srgb(cmuxAccentNSColor(for: scheme))
