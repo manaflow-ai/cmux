@@ -146,12 +146,14 @@ where
 {
     let mut args: Vec<String> = argv.into_iter().map(Into::into).collect();
     let _ = args.first().cloned().map(|_| args.remove(0));
+    let machine = args.iter().enumerate().any(|(i, a)| {
+        a == "--json"
+            || a == "--output=json"
+            || (a == "--output" && args.get(i + 1).is_some_and(|v| v == "json" || v == "jsonl"))
+    });
     match dispatch(&mut args) {
         Ok(code) => code,
         Err(e) => {
-            let machine = args
-                .iter()
-                .any(|a| a == "--json" || a == "--output=json" || a == "--output");
             if machine {
                 println!("{}", e.envelope());
             } else {
