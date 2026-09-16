@@ -6,6 +6,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
+  /^  build-nightly-app:/ { in_build_app=1; next }
+  in_build_app && /^  [a-zA-Z0-9_-]+:/ { in_build_app=0 }
+  in_build_app && /timeout-minutes: 60/ { saw_build_app_timeout=1 }
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
   in_build && /^      - name:/ { in_build=0 }
   in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
@@ -13,6 +16,16 @@ if ! awk '
   END { exit !(saw_wrapper && saw_bounded_jobs) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly Release builds must bound xcodebuild concurrency and retain failure diagnostics"
+  exit 1
+fi
+
+if ! awk '
+  /^  build-nightly-app:/ { in_build=1; next }
+  in_build && /^  [a-zA-Z0-9_-]+:/ { exit }
+  in_build && /timeout-minutes: 60/ { found=1 }
+  END { exit !found }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: build-nightly-app must allow the measured universal Release compile 60 minutes"
   exit 1
 fi
 
@@ -86,6 +99,9 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
+  /^  build-nightly-app:/ { in_build_app=1; next }
+  in_build_app && /^  [a-zA-Z0-9_-]+:/ { in_build_app=0 }
+  in_build_app && /timeout-minutes: 60/ { saw_build_app_timeout=1 }
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 45/ { saw_cold_build_timeout=1 }
@@ -101,9 +117,9 @@ if ! awk '
   in_refresh && /if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
   in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   in_refresh && /-quiet/ { saw_quiet=1 }
-  END { exit !(saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
+  END { exit !(saw_build_app_timeout && saw_cold_build_timeout && saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_restore_id && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must allow 45 minutes for a cold cache build and use the matching runner, Xcode, and visible timing output"
+  echo "FAIL: nightly Release and scheduled cold-cache builds must have explicit bounded timeouts and use the matching runner, Xcode, and visible timing output"
   exit 1
 fi
 
