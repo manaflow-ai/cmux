@@ -29,6 +29,8 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let capturePostHog: @Sendable (String, [String: Any]) -> Void
     private let flushPostHog: @Sendable () -> Void
+    private let environment: [String: String]
+    private let telemetryEnabled: @Sendable () -> Bool
 
     private var didStart: Bool
     private var activeCheckTimer: Timer?
@@ -41,7 +43,9 @@ final class PostHogAnalytics: @unchecked Sendable {
         capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void = { event, properties in
             PostHogSDK.shared.capture(event, properties: properties)
         },
-        flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() }
+        flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() },
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
     ) {
         self.workQueue = workQueue
         self.didStart = didStart
@@ -49,6 +53,8 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.now = now
         self.capturePostHog = capturePostHog
         self.flushPostHog = flushPostHog
+        self.environment = environment
+        self.telemetryEnabled = telemetryEnabled
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
@@ -61,7 +67,9 @@ final class PostHogAnalytics: @unchecked Sendable {
         userDefaults: UserDefaults,
         now: @escaping @Sendable () -> Date,
         capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void,
-        flushPostHog: @escaping @Sendable () -> Void
+        flushPostHog: @escaping @Sendable () -> Void,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
     ) -> PostHogAnalytics {
         PostHogAnalytics(
             workQueue: workQueue,
@@ -69,16 +77,18 @@ final class PostHogAnalytics: @unchecked Sendable {
             userDefaults: userDefaults,
             now: now,
             capturePostHog: capturePostHog,
-            flushPostHog: flushPostHog
+            flushPostHog: flushPostHog,
+            environment: environment,
+            telemetryEnabled: telemetryEnabled
         )
     }
 #endif
 
     private var isEnabled: Bool {
-        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
+        guard telemetryEnabled() else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
-        return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"
+        return environment["CMUX_POSTHOG_ENABLE"] == "1"
 #else
         return !apiKey.isEmpty && apiKey != "REPLACE_WITH_POSTHOG_PUBLIC_KEY"
 #endif

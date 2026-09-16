@@ -812,6 +812,42 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
+    func captureCrashExceptionSkipsUnderXCTestEvenWhenTelemetryIsEnabled() throws {
+        let suiteName = "cmux.posthog.crash.xctest.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let crashURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-capture-xctest-\(UUID().uuidString).ghosttycrash")
+        defer { try? FileManager.default.removeItem(at: crashURL) }
+        try Data("not an envelope".utf8).write(to: crashURL)
+
+        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.xctest.analytics")
+        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.xctest.capture")
+        var capturedEvents: [String] = []
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: workQueue,
+            didStart: false,
+            userDefaults: defaults,
+            now: { Date(timeIntervalSince1970: 2_000) },
+            capturePostHog: { event, _ in
+                capturedQueue.sync { capturedEvents.append(event) }
+            },
+            flushPostHog: {},
+            environment: ["CMUX_TEST_PROCESS": "1", "CMUX_POSTHOG_ENABLE": "1"],
+            telemetryEnabled: { true }
+        )
+
+        analytics.captureCrashException(pendingCrash: GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashURL,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        ))
+        workQueue.sync {}
+
+        #expect(capturedQueue.sync { capturedEvents }.isEmpty)
+        #expect(defaults.object(forKey: "posthog.lastReportedCrashAt") == nil)
+    }
+
+    @Test
     func captureCrashExceptionSkipsWhenTelemetryNeverStarted() throws {
         let suiteName = "cmux.posthog.crash.disabled.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
