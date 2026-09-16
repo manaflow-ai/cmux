@@ -125883,6 +125883,65 @@
         }
       }
     },
+    "surfaceDrop.cloudMachineMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن أن تحتوي مساحات عمل Cloud إلا على الطرفيات والمتصفحات والشاشات التابعة لجهاز Cloud الخاص بها. افتح مساحة عمل محلية وانقل التقسيمات إليها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Arbeitsbereiche können nur Terminals, Browser und Displays ihres eigenen Cloud-Rechners enthalten. Öffnen Sie einen lokalen Arbeitsbereich und verschieben Sie die Splits dorthin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo Cloud solo pueden contener terminales, navegadores y pantallas de su propia máquina Cloud. Abre un espacio de trabajo local y mueve allí las divisiones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail Cloud ne peuvent contenir que les terminaux, navigateurs et écrans de leur propre machine Cloud. Ouvrez un espace de travail local et déplacez-y les splits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ワークスペースには、同じ Cloud マシンのターミナル、ブラウザ、ディスプレイのみを追加できます。ローカルワークスペースを開いて、スプリットをそこへ移動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 작업 공간에는 동일한 Cloud 머신의 터미널, 브라우저 및 디스플레이만 포함할 수 있습니다. 로컬 작업 공간을 열고 스플릿을 그곳으로 이동하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作区只能包含来自同一台 Cloud 机器的终端、浏览器和显示器。打开本地工作区，然后将这些分屏移到那里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 工作區只能包含來自同一台 Cloud 機器的終端機、瀏覽器和顯示器。開啟本機工作區，然後將這些分割畫面移到那裡。"
+          }
+        }
+      }
+    },
     "surfaceCatalog.error.ambiguousRemotePlacement": {
       "extractionState": "manual",
       "localizations": {

@@ -4621,7 +4621,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
 #if DEBUG
-    private func debugElapsedMs(since start: TimeInterval) -> String {
+    func debugElapsedMs(since start: TimeInterval) -> String {
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         return String(format: "%.2f", ms)
     }
@@ -10860,6 +10860,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard let sourcePanel = panels[panelId] else { return nil }
+        let surfaceMachine = machineOwningSurface(panelId)
         surfaceTransferringPanelIds.insert(panelId)
         defer { surfaceTransferringPanelIds.remove(panelId) }
         if let terminalPanel = sourcePanel as? TerminalPanel {
@@ -10899,6 +10900,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         var detached = splitLayout.takeDetachedTransfer(tabId)
+        detached?.surfaceMachine = surfaceMachine
+        detached?.origin = .workspace(id)
         if detached == nil {
             (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -10931,7 +10934,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focus: Bool = true,
         focusIntent: PanelFocusIntent? = nil
     ) -> UUID? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager, acceptsDetachedSurface(detached) else { return nil }
 #if DEBUG
         let attachStart = ProcessInfo.processInfo.systemUptime
         cmuxDebugLog(
@@ -11048,6 +11051,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         bindSurface(newTabId, toPanelId: detached.panelId)
+        detached.panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         panels[detached.panelId] = detached.panel
         if let restoredPanelTitleBoundary = detached.restoredPanelTitleBoundary {
             restoredPanelTitleBoundariesByPanelId[detached.panelId] = restoredPanelTitleBoundary
@@ -13103,63 +13107,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return nil
     }
 
-    func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
-        if let handled = performRegisteredPaneTransferDrop(request) {
-            return handled
-        }
-
-        guard let app = AppDelegate.shared else { return false }
-#if DEBUG
-        let dropStart = ProcessInfo.processInfo.systemUptime
-#endif
-
-        let targetPane: PaneID
-        let targetIndex: Int?
-        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
-#if DEBUG
-        let destinationLabel: String
-#endif
-
-        switch request.destination {
-        case .insert(let paneId, let index):
-            targetPane = paneId
-            targetIndex = index
-            splitTarget = nil
-#if DEBUG
-            destinationLabel = "insert pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil")"
-#endif
-        case .split(let paneId, let orientation, let insertFirst):
-            targetPane = paneId
-            targetIndex = nil
-            splitTarget = (orientation, insertFirst)
-#if DEBUG
-            destinationLabel = "split pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) insertFirst=\(insertFirst ? 1 : 0)"
-#endif
-        }
-
-        #if DEBUG
-        cmuxDebugLog(
-            "split.externalDrop.begin ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "sourcePane=\(request.sourcePaneId.id.uuidString.prefix(5)) destination=\(destinationLabel)"
-        )
-        #endif
-        let moved = app.moveBonsplitTab(
-            tabId: request.tabId.uuid,
-            toWorkspace: id,
-            targetPane: targetPane,
-            targetIndex: targetIndex,
-            splitTarget: splitTarget,
-            focus: true,
-            focusWindow: true
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "split.externalDrop.end ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "moved=\(moved ? 1 : 0) elapsedMs=\(debugElapsedMs(since: dropStart))"
-        )
-#endif
-        return moved
-    }
 
 }
 
