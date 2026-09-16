@@ -205,7 +205,7 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   # values, so we mirror the current environment exactly. Never inject an empty
   # value for an unset var (that would defeat a `${VAR:-default}` downstream).
   # HOME is set explicitly to the console user's home.
-  forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP \
+  forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS \
     CMUX_DERIVED_DATA_PATH CMUX_TAG CMUX_SKIP_ZIG_BUILD \
     CMUX_UNIT_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \

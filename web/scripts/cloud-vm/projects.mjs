@@ -118,6 +118,12 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Paid count policy is code-owned; aggregate resource pools were removed.
+  "CMUX_VM_PAID_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS",
+  "CMUX_VM_PLAN_FOUNDERS_MAX_ACTIVE_VMS",
+  "CMUX_VM_SHARED_CPU_LIMIT_ENABLED",
   // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
   // their keys visible to the audit until operators remove them from Vercel.
   "BL_API_KEY",

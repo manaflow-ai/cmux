@@ -13,7 +13,10 @@ import {
   type AuthedUser,
 } from "../vms/auth";
 import { resolveTeam } from "../subrouter/routeHelpers";
-import { authenticateRouteToken } from "./repository";
+import {
+  authenticateCoderouterCredential,
+  routeTokenFromRequest,
+} from "./routeTokenAuth";
 import { recordCoderouterIdentity } from "./requestTelemetry";
 
 export type CodeRouterRequestContext = {
@@ -32,15 +35,15 @@ export async function resolveCoderouterUsageTeam(
   | { readonly ok: true; readonly teamId: string; readonly stackUserId: string }
   | { readonly ok: false; readonly response: Response }
 > {
-  const authorization = request.headers.get("authorization");
-  const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
-  if (token?.startsWith("crt_")) {
-    const routed = await authenticateRouteToken(token);
+  const token = routeTokenFromRequest(request);
+  if (token?.startsWith("crt_") || token?.startsWith("crk_")) {
+    const routed = await authenticateCoderouterCredential(token);
     if (routed) {
       recordCoderouterIdentity({
         teamId: routed.teamId,
         stackUserId: routed.stackUserId,
         vmId: routed.vmId ?? null,
+        ...(routed.apiKeyId ? { apiKeyId: routed.apiKeyId } : {}),
       });
       return { ok: true, teamId: routed.teamId, stackUserId: routed.stackUserId };
     }
@@ -85,7 +88,7 @@ export async function resolveCodeRouterRequestContext(
     // Browser-authenticated control-plane requests do not have a route token,
     // so record the resolved Stack identity and team together for the
     // PostHog trace.
-    recordCoderouterIdentity({ teamId: team.teamId, stackUserId: user.id, vmId: null });
+    recordCoderouterIdentity({ teamId: team.teamId, stackUserId: user.id, vmId: null }, "control_plane");
 
     // Parse native tokens so malformed mixed auth never falls through as a
     // browser-cookie request. Verification above remains authoritative.

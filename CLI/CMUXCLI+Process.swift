@@ -16,7 +16,7 @@ func currentCLINoSIGPIPEValue(for fd: Int32) -> Int32? {
 }
 
 private func setCLINoSIGPIPE(_ enabled: Bool, for fd: Int32) {
-    _ = fcntl(fd, F_SETNOSIGPIPE, enabled ? 1 : 0)
+    CLIWriteDescriptor(fileDescriptor: fd).setPipeNoSIGPIPE(enabled)
 }
 
 func configureCLIWriteFDNoSIGPIPE(_ fd: Int32) {
@@ -157,9 +157,10 @@ private func cliWriteNeedsStdioDispositionLock(_ fd: Int32) -> Bool {
 func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDisposition) -> Bool {
     guard !data.isEmpty else { return true }
     let fd = handle.fileDescriptor
+    let descriptor = CLIWriteDescriptor(fileDescriptor: fd)
     let needsStdioDispositionLock = cliWriteNeedsStdioDispositionLock(fd)
     if !needsStdioDispositionLock {
-        configureCLIWriteFDNoSIGPIPE(fd)
+        descriptor.setPipeNoSIGPIPE(true)
     }
 
     return data.withUnsafeBytes { rawBuffer in
@@ -173,12 +174,12 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
             let errorCode: Int32
             if needsStdioDispositionLock {
                 cliStdioDispositionLock.lock()
-                configureCLIWriteFDNoSIGPIPE(fd)
-                written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                descriptor.setPipeNoSIGPIPE(true)
+                written = descriptor.write(baseAddress.advanced(by: offset), count: rawBuffer.count - offset)
                 errorCode = written < 0 ? errno : 0
                 cliStdioDispositionLock.unlock()
             } else {
-                written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                written = descriptor.write(baseAddress.advanced(by: offset), count: rawBuffer.count - offset)
                 errorCode = written < 0 ? errno : 0
             }
 
@@ -198,7 +199,7 @@ func cliWrite(_ data: Data, to handle: FileHandle, onBrokenPipe: CLIBrokenPipeDi
                     return false
                 }
                 continue
-            case EPIPE:
+            case EPIPE, EBADF, ECONNRESET:
                 switch onBrokenPipe {
                 case .exit(let code):
                     Darwin._exit(code)

@@ -1,26 +1,11 @@
 /**
- * The plan machine and the plan-wide Cloud VM resource policy. Every paid
- * plan gets up to PAID_MAX_ACTIVE_VMS_DEFAULT machines. Machine size options
- * are defined in `entitlements.ts`; the default is the 8 GB / 32 GB tier.
- *
- * The count allowance and the resource pool are separate limits. Postgres
- * records each machine's reservation, and the VM repository checks the live
- * claims while holding the billing-team lock. CPU and memory are shared
- * ceilings, so every live claim adds to the pool. A provider image can be
- * overprovisioned to the nearest baked shape; that physical shape is not extra
- * plan capacity. Keeping the
- * policy here gives pricing tests, workflows, and provider sizing one source of
- * truth.
- *
- * This module stays dependency-free so provider drivers can size a machine
- * without pulling the billing graph into their module.
+ * Paid plans include 50 independent machines per seat. CPU, memory, and disk
+ * describe each machine; there is no aggregate resource quota. This module is
+ * dependency-free so provider sizing does not import the billing graph.
  */
 export const PAID_MAX_ACTIVE_VMS_DEFAULT = 50;
 export const PLAN_MACHINE_MEMORY_MB = 8192;
 export const VM_MEMORY_MB_PER_VCPU = 4096;
-export const PLAN_SHARED_VCPU = 5;
-export const PLAN_SHARED_MEMORY_MB = 20 * 1024;
-export const PLAN_SHARED_DISK_MB = 200 * 1024;
 
 /** New machines start with this disk. Freestyle resizes disks grow-only. */
 export const VM_DISK_MB_DEFAULT = 32768;
@@ -35,7 +20,7 @@ export type VmResourceReservation = {
   readonly diskMb: number;
 };
 
-export type VmSharedResourceName = keyof VmResourceReservation;
+export type VmResourceName = keyof VmResourceReservation;
 
 /**
  * Bounds for provider-reported machine dimensions. CPU and memory match the
@@ -47,11 +32,11 @@ export const VM_PROVIDER_RESOURCE_BOUNDS = {
   vcpus: { min: 1, max: 32 },
   memoryMb: { min: 4 * 1024, max: 64 * 1024 },
   diskMb: { min: 16 * 1024, max: VM_DISK_MB_MAX },
-} as const satisfies Record<VmSharedResourceName, { min: number; max: number }>;
+} as const satisfies Record<VmResourceName, { min: number; max: number }>;
 
 /** Read one provider dimension only when it is a supported machine shape. */
 export function vmProviderResourceSize(
-  resource: VmSharedResourceName,
+  resource: VmResourceName,
   value: unknown,
 ): number | null {
   const bounds = VM_PROVIDER_RESOURCE_BOUNDS[resource];
@@ -67,21 +52,15 @@ export type VmImageResourceShape = {
   readonly storageMb: number;
 };
 
-export const PLAN_SHARED_RESOURCE_CAPACITY: VmResourceReservation = {
-  vcpus: PLAN_SHARED_VCPU,
-  memoryMb: PLAN_SHARED_MEMORY_MB,
-  diskMb: PLAN_SHARED_DISK_MB,
-};
-
-/** The reservation used for rows written before resource metadata existed. */
+/** Historical default shape for legacy rows, not a quota on new machines. */
 export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
-  vcpus: PLAN_SHARED_VCPU,
-  memoryMb: PLAN_SHARED_MEMORY_MB,
+  vcpus: 5,
+  memoryMb: 20 * 1024,
   diskMb: VM_DISK_MB_DEFAULT,
 };
 
 export const VM_RESOURCE_RESERVATION_METADATA_KEY = "cmuxResourceReservation";
-/** Internal marker for a resize that still holds conservative disk headroom.
+/** Internal marker for a resize whose provider call is still pending.
  * The reservation remains valid while this marker is present, so reconciliation
  * cannot lower the claim during the provider call.
  */
@@ -106,9 +85,7 @@ export function vcpusForMemoryMb(memoryMb: number): number {
 }
 
 /**
- * The provider shape represented by a create reservation. Callers that enforce
- * the paid shared pool intentionally omit `imageSize` and reserve the logical
- * plan profile because a baked image may be larger than that entitlement.
+ * The provider shape represented by a machine reservation.
  */
 export function vmResourceReservationForCreate(input: {
   readonly memoryMb?: number;
@@ -123,8 +100,7 @@ export function vmResourceReservationForCreate(input: {
       diskMb: input.imageSize.storageMb,
     });
     // A resolver can provide both the caller's requested memory and the baked
-    // image selected to satisfy it. CPU and memory stay logical entitlement
-    // claims. The provider grows a small baked image to the documented starting
+    // image selected to satisfy it. CPU and memory retain the requested machine dimensions. The provider grows a small baked image to the documented starting
     // disk, or the operator override, so the reservation must include the
     // effective provider disk size.
     if (input.memoryMb !== undefined) {
@@ -145,54 +121,6 @@ export function vmResourceReservationForCreate(input: {
     memoryMb,
     diskMb: vmDiskMb(input.env),
   });
-}
-
-/**
- * Team plans multiply both the VM allowance and its shared pool by paid seat.
- * Operator limits below one base allowance still keep the base pool, while a
- * larger allowance gets one pool per 50-machine block.
- */
-export function sharedResourceCapacityForMaxActiveVms(
-  maxActiveVms: number | null | undefined,
-): VmResourceReservation {
-  const blocks = maxActiveVms !== null && maxActiveVms !== undefined && maxActiveVms > 0
-    ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
-    : 1;
-  return {
-    vcpus: PLAN_SHARED_VCPU * blocks,
-    memoryMb: PLAN_SHARED_MEMORY_MB * blocks,
-    diskMb: PLAN_SHARED_DISK_MB * blocks,
-  };
-}
-
-/** Return the first resource for which a shared claim would exceed the pool. */
-export function firstExceededSharedResource(input: {
-  readonly used: VmResourceReservation;
-  readonly requested: VmResourceReservation;
-  readonly capacity: VmResourceReservation;
-}): {
-  readonly resource: VmSharedResourceName;
-  readonly used: number;
-  readonly requested: number;
-  readonly limit: number;
-} | null {
-  for (const resource of ["vcpus", "memoryMb", "diskMb"] as const) {
-    const used = input.used[resource];
-    const requested = input.requested[resource];
-    const limit = input.capacity[resource];
-    const projected = sharedResourceUsage(resource, used, requested);
-    if (projected > limit) return { resource, used, requested, limit };
-  }
-  return null;
-}
-
-/** Every resource claim adds to the account-wide shared pool. */
-export function sharedResourceUsage(
-  resource: VmSharedResourceName,
-  used: number,
-  requested: number,
-): number {
-  return used + requested;
 }
 
 export type VmResourceResizePending = {

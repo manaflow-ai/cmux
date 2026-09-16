@@ -13,6 +13,7 @@
 // the AWS event stream back to SSE. Usage is read from a bounded head and
 // tail of the response only.
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   type RouteTokenAuthResult,
   type RouteTokenIdentity,
@@ -30,6 +31,7 @@ import {
   recordRouteEvent,
   recordUsageEvent,
 } from "./usageLedger";
+import { usageOriginFromHeaders } from "./usageOrigin";
 import { observeClaudeUsage, type ClaudeUsage } from "./claudeUsage";
 import {
   currentCoderouterRequestId,
@@ -139,7 +141,7 @@ type ClaudeProxyRuntime = {
 };
 
 const defaultDependencies: ClaudeProxyDependencies = {
-  authenticate: (request) => authenticateRequestRouteToken(request),
+  authenticate: (request) => authenticateRequestRouteToken(request, authenticateCoderouterCredential),
   select: selectClaudeUpstream,
   cooldown: markClaudeAccountCooldown,
   touchUsed: touchClaudeAccountUsed,
@@ -251,6 +253,7 @@ export function createClaudeMessagesProxy(
         status: response.status,
         durationMs: Math.round(performance.now() - health.startedAt),
         streamed,
+        ...usageOriginFromHeaders(request.headers),
       });
     });
     return new Response(observed, { status: response.status, headers: response.headers });
@@ -1049,6 +1052,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "claude",
     agent,
@@ -1074,6 +1078,8 @@ function captureModelUsage(
     readonly status: number;
     readonly durationMs?: number;
     readonly streamed?: boolean;
+    readonly workspaceId?: string | null;
+    readonly surfaceId?: string | null;
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
@@ -1083,12 +1089,15 @@ function captureModelUsage(
     requestId: ledger.requestId,
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
+    apiKeyId: identity.apiKeyId,
     vmId: identity.vmId,
     provider: "claude",
     upstreamKind: upstream.kind,
     upstreamAccountId: upstream.accountId,
     agent: ledger.agent,
     model: usage.model,
+    workspaceId: ledger.workspaceId,
+    surfaceId: ledger.surfaceId,
     inputTokens,
     cachedInputTokens: usage.cacheReadInputTokens,
     outputTokens: usage.outputTokens,

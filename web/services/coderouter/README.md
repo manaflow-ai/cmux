@@ -1,6 +1,28 @@
 # coderouter
 
-Hosted model router for cmux Cloud VMs and the `cr` CLI. The data plane serves the OpenAI Responses API (`/v1/responses`, `/v1/models`), the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` for Anthropic clients) and the OpenCode provider proxy (`/api/coderouter/opencode/*`), authenticating each request with a route token (`routeTokenAuth.ts`) and forwarding it to one of the team's provider accounts with failover (`codexProxy.ts`, `claudeProxy.ts`, `opencodeProxy.ts`). The control plane under `/api/coderouter/*` manages accounts, sessions and usage.
+Hosted model router for cmux Cloud VMs, the `cr` CLI, and direct API clients. The data plane serves the OpenAI Responses API (`/v1/responses`, `/v1/models`), the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` for Anthropic clients) and the OpenCode provider proxy (`/api/coderouter/opencode/*`). Requests authenticate with a VM or CLI route token, or a long-lived `crk_` API key, then forward to one of the team's provider accounts with failover (`codexProxy.ts`, `claudeProxy.ts`, `opencodeProxy.ts`). The control plane under `/api/coderouter/*` manages accounts, sessions, API keys and usage.
+
+API keys are created through `POST /api/coderouter/api-keys` with a signed-in
+team member who has `manageAccounts` permission, and the plaintext key is
+returned once. `GET` lists only safe
+metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key, while
+`DELETE /api/coderouter/api-keys/self` lets the key holder revoke its own key.
+Every model and route ledger row stores the key's opaque UUID, so usage can be
+aggregated per key without storing the secret. The `last_used_at` value in the
+control plane is display metadata and is written at most once per minute per
+key. The ClickHouse usage ledger remains exact for every request.
+Failures in this best-effort metadata write are rate-limited operational
+events, so a database problem is visible without creating one alert per
+request.
+
+API key authentication uses an indexed, read-only hash lookup on the request hot path.
+Revocation updates one key row by primary key and does not take a process-wide
+lock. PostgreSQL row locks are held only for the affected update. Account
+deletion uses one short, team-scoped transaction advisory lock to serialize the
+last-account check with concurrent account creation or deletion; it is never
+taken by model requests. The auth span records `route_token`, `api_key`, or
+`control_plane`. The route and usage ledger rows carry the opaque API-key UUID for joins. No key
+secret is logged or sent to telemetry.
 
 ## Telemetry
 

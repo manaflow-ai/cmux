@@ -1159,10 +1159,19 @@ impl StartupMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalInputMessages {
+    pub too_large: &'static str,
+    pub unavailable: &'static str,
+    pub confirmation_unsupported: &'static str,
+    pub delivery_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
     pub local_server: LocalServerMessages,
+    pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
@@ -1205,6 +1214,12 @@ static ENGLISH: Catalog = Catalog {
         server_not_verified: "cmux could not verify which session owns this socket; no shutdown command is shown",
         saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
+    },
+    terminal_input: TerminalInputMessages {
+        too_large: "Terminal input is too large. Send less input at once.",
+        unavailable: "Terminal input is temporarily unavailable. Try again shortly.",
+        confirmation_unsupported: "Input delivery confirmation is unavailable for this terminal. Update cmux, start a new terminal session, and retry.",
+        delivery_failed: "Terminal input could not be delivered. Check that the terminal is available.",
     },
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
@@ -1483,12 +1498,15 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --daemon FINGERPRINT  --carrier
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
+  --carrier dials ws routes with carrier authentication (no enrollment, no
+    invitation); only a daemon whose listener is trusted accepts it, such as a
+    cmux Cloud machine reached over the owner's private network.
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -1882,6 +1900,12 @@ static JAPANESE: Catalog = Catalog {
         saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
+    terminal_input: TerminalInputMessages {
+        too_large: "端末への入力が大きすぎます。一度に送る入力を減らしてください。",
+        unavailable: "現在、端末への入力を受け付けられません。しばらくしてから再試行してください。",
+        confirmation_unsupported: "この端末では入力の送信完了を確認できません。cmux を更新し、新しい端末セッションを開始してから、もう一度お試しください。",
+        delivery_failed: "端末に入力を送信できませんでした。端末が利用可能か確認してください。",
+    },
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
@@ -2159,12 +2183,15 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 ID とセッション:
-  --invite-file パス|-  --daemon フィンガープリント
+  --invite-file パス|-  --daemon フィンガープリント  --carrier
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
+  --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
+    信頼済みリスナーを持つデーモンだけが受け入れます（例: 所有者のプライベート
+    ネットワーク経由で到達する cmux Cloud マシン）。
 
 トランスポート:
   --lanes auto|single|isolated  --connect-timeout-seconds 秒数

@@ -247,7 +247,9 @@ extension SurfaceCatalog {
         let projectedResourceIDs = Set(projections.map(\.resource))
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
-        where candidate.id.isForwardedPort && !refreshedIDs.contains(candidate.id) {
+        where candidate.id.isForwardedPort
+            && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
+            && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
             guard wasAddedDuringRefresh || remainsProjected else { continue }
@@ -283,7 +285,10 @@ extension CmuxTuiSurfaceProvider {
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
-                .filter { $0.id.isForwardedPort }
+                .filter {
+                    $0.id.isForwardedPort
+                        && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
+                }
                 .map { ($0.id, $0) }
         )
         guard let scannedPorts else {

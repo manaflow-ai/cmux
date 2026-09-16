@@ -1,188 +1,6 @@
 import Foundation
 import Observation
 
-/// Remote rename requests are process-wide because one daemon workspace or tab can be
-/// projected into more than one local window. Keeping the lane here prevents two window
-/// owners from sending the same remote identity out of order.
-@MainActor
-final class CloudRenameCoordinator {
-    struct Key: Hashable, Sendable {
-        enum Scope: String, Hashable, Sendable {
-            case workspace
-            case tab
-            case terminal
-        }
-
-        let machine: SurfaceMachineID
-        let scope: Scope
-        let remoteID: String
-
-        static func workspace(machine: SurfaceMachineID, id: String) -> Self {
-            Self(machine: machine, scope: .workspace, remoteID: id)
-        }
-
-        static func tab(machine: SurfaceMachineID, id: String) -> Self {
-            Self(machine: machine, scope: .tab, remoteID: id)
-        }
-
-        static func terminal(machine: SurfaceMachineID, id: String) -> Self {
-            Self(machine: machine, scope: .terminal, remoteID: id)
-        }
-    }
-
-    private struct Entry {
-        let generation: UInt64
-        let task: Task<Void, Error>
-    }
-
-    private struct PendingName {
-        let generation: UInt64
-        let value: String
-    }
-
-    /// The daemon cursor is global to one machine, so all remote rename writes
-    /// share one lane. Identity keys remain separate for optimistic projection
-    /// reconciliation.
-    private var entries: [SurfaceMachineID: Entry] = [:]
-    private var pendingNames: [Key: PendingName] = [:]
-    private var nextGeneration: UInt64 = 0
-
-    func pendingName(for key: Key) -> String? {
-        pendingNames[key]?.value
-    }
-
-    /// Serializes every remote rename for one machine across every local window and
-    /// retains the newest optimistic name for each identity. A failed operation can
-    /// compensate its own local view; an older completion cannot clear a newer intent
-    /// or queue tail.
-    @discardableResult
-    func enqueue(
-        key: Key,
-        pendingName: String,
-        operation: @escaping @MainActor () async throws -> Void
-    ) -> Task<Void, Error> {
-        let lane = key.machine
-        nextGeneration &+= 1
-        let generation = nextGeneration
-        let pendingGeneration = generation
-        let previous = entries[lane]?.task
-        pendingNames[key] = PendingName(generation: pendingGeneration, value: pendingName)
-        let task = Task { @MainActor [weak self] in
-            defer { self?.finish(key: key, lane: lane, generation: generation, pendingGeneration: pendingGeneration) }
-            if let previous {
-                // A failed or cancelled rename must not strand later edits.
-                _ = try? await previous.value
-            }
-            try Task.checkCancellation()
-            try await operation()
-        }
-        entries[lane] = Entry(generation: generation, task: task)
-        return task
-    }
-
-    private func finish(key: Key, lane: SurfaceMachineID, generation: UInt64, pendingGeneration: UInt64) {
-        if pendingNames[key]?.generation == pendingGeneration {
-            pendingNames[key] = nil
-        }
-        guard entries[lane]?.generation == generation else { return }
-        entries[lane] = nil
-    }
-}
-
-/// A provider owns the resources of one machine and knows how to put one on screen.
-/// Providers push resource changes into the catalog (`catalog.replaceResources`) and the
-/// catalog asks them to materialize a projection. They never track projections themselves.
-@MainActor
-protocol SurfaceProvider: AnyObject {
-    var machine: SurfaceMachineID { get }
-    var info: SurfaceMachineInfo { get }
-    /// Whether this provider can materialize a machine port as a browser preview.
-    /// Providers with a direct private-network URL may report true even when no
-    /// control-plane `openPort` call is needed.
-    var supportsPortPreviews: Bool { get }
-    /// Re-sync from the source of truth (machine list, link snapshot, local panels).
-    func refresh() async
-    /// Re-sync this provider, optionally bypassing provider-side caches. The
-    /// default preserves the legacy provider contract; cloud providers use the
-    /// force bit for an explicit `--refresh` request.
-    func refresh(force: Bool) async
-    /// Create the pane that shows `resource` at `destination` and return the panel it created
-    /// (or reused). The catalog records the projection.
-    func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
-    /// Same operation with an exact remote placement. A terminal can appear in several
-    /// daemon tabs, so callers that came from a workspace pointer pass that tab here.
-    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
-    /// Create a new terminal on this machine (remote providers create it in the cmux-tui
-    /// session; the local provider spawns a shell) and return its resource.
-    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
-    /// Called when a pane projecting one of this provider's resources goes away. Remote
-    /// providers do nothing (the resource lives on); the local provider drops the resource.
-    func projectionDidEnd(_ projection: SurfaceProjection)
-    /// End a terminal on this machine (the process and its remote tab). Providers that
-    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
-    func closeTerminal(_ id: SurfaceResourceID) async throws
-    /// Create a new, empty workspace on this machine, directly (not as a side effect of
-    /// creating a terminal). Providers without remote workspaces refuse.
-    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
-    /// Close a workspace view on this machine. Its terminals detach into the pool
-    /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
-    /// close each terminal first.
-    func closeRemoteWorkspace(id: String) async throws
-    /// Rename a remote workspace.
-    func renameRemoteWorkspace(id: String, name: String) async throws
-    /// Rename one remote tab placement. Tab names are placement-local even when several
-    /// tabs point at the same terminal.
-    func renameRemoteTab(id: String, name: String) async throws
-    /// Compatibility operation that explicitly renames every tab placement of a terminal.
-    /// New UI paths must use `renameRemoteTab` when they have a placement reference.
-    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws
-    /// Close a projection's pane: a materialization that lost a race with an existing
-    /// projection, or a URL-backed pane whose machine was unregistered. The default
-    /// implementation handles providers that use the shared pane factory; providers may
-    /// also clear provider-specific bookkeeping. Return true when the provider preserved
-    /// the projection, as the local provider does for a moved pane.
-    @discardableResult
-    func discardMaterialization(_ projection: SurfaceProjection) -> Bool
-}
-
-extension SurfaceProvider {
-    /// Legacy providers predate the capability bit and are assumed to support
-    /// previews until their concrete implementation says otherwise.
-    var supportsPortPreviews: Bool { true }
-
-    func refresh(force: Bool) async {
-        await refresh()
-    }
-
-    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        try await materialize(resource, at: destination, focus: focus)
-    }
-
-    func closeTerminal(_ id: SurfaceResourceID) async throws {
-        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
-    }
-    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
-        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
-    }
-    func closeRemoteWorkspace(id: String) async throws {
-        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
-    }
-    func renameRemoteWorkspace(id: String, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
-    }
-    func renameRemoteTab(id: String, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("renaming tabs on \(machine)")
-    }
-    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
-        throw SurfaceCatalogError.unsupported("renaming terminals on \(machine)")
-    }
-    @discardableResult
-    func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
-        SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-        return false
-    }
-}
-
 /// The single owner of surface identities and projections on this Mac.
 ///
 /// Rules that hold by construction:
@@ -204,7 +22,7 @@ final class SurfaceCatalog {
         var machine: SurfaceMachineID { resource.machine }
     }
 
-    static let shared = SurfaceCatalog()
+    static let shared = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: .standard))
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
     /// provider ignores task cancellation. The deadline starts only after the last caller
@@ -221,26 +39,34 @@ final class SurfaceCatalog {
 
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
-    private(set) var projections: Set<SurfaceProjection> = []
+    private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
+    private var cloudProjectionIndex = Set<CloudProjectionKey>()
+    private var cloudProjectionIndexDirty = true
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
-    private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
+    private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
 
-    /// The last accepted, revisioned graph for each cloud machine. Resource rows
-    /// are derived from this state by the provider; keeping it here makes the
-    /// complete state available to socket and agent callers without another cache.
-    private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
+    /// Accepted revisioned graphs shared by providers, socket, and agent callers.
     /// Whether each retained graph was observed on a live link. This is separate
     /// from `CloudVMState` because freshness is local observation metadata, not
     /// part of the daemon document or its cursor.
+    private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
-    /// The process-wide ordering owner for remote rename intents. A remote identity can
-    /// have projections in several local windows, so this cannot live in a TabManager.
+    /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
+    let sidebarOrganization: CloudSidebarOrganizationStore
+    @ObservationIgnored
+    lazy var sidebarNotifications = CloudSidebarNotificationCoordinator { [weak self] machine, resources in
+        self?.flushSidebarNotifications(on: machine, resources: resources)
+    }
+    let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
+    /// Keeps a mirrored local workspace's panes and its machine workspace's tabs in step.
     private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
+    private(set) var cloudPlacementCoordinator: CloudPlacementCoordinator
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [MaterializationKey: SurfaceProjectionMaterialization] = [:]
@@ -257,9 +83,8 @@ final class SurfaceCatalog {
     private let abandonedMaterializationTimeout: Duration
     private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
-    /// Panels whose projection was recorded from a restored session before the provider
-    /// re-synced; resolved into `projections` once the resource shows up.
-    private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
+    private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
+    private var pendingRestoredProjections = SurfaceProjectionRestoreStore()
 
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
@@ -270,7 +95,10 @@ final class SurfaceCatalog {
         completedMaterializationRetention: Duration = SurfaceCatalog.defaultCompletedMaterializationRetention,
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock(),
-        cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService()
+        cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService(),
+        cloudPlacementCoordinator: CloudPlacementCoordinator? = nil,
+        sidebarOrganization: CloudSidebarOrganizationStore? = nil,
+        cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator? = nil
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -281,13 +109,31 @@ final class SurfaceCatalog {
         self.completedMaterializationRetention = completedMaterializationRetention
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
+        self.sidebarOrganization = sidebarOrganization ?? CloudSidebarOrganizationStore()
         self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
+        self.cloudPlacementCoordinator = cloudPlacementCoordinator ?? CloudPlacementCoordinator()
+        self.cloudWorkspaceProjectionCoordinator = cloudWorkspaceProjectionCoordinator ?? CloudWorkspaceProjectionCoordinator(
+            environment: .init(workspaces: cloudWorkspaceRenameService.environment)
+        )
     }
 
     /// Installs the app-owned cloud rename service once the composition root can provide
     /// workspace and tab-manager lookups. The catalog retains ownership after install.
     func installCloudWorkspaceRenameService(_ service: CloudWorkspaceRenameService) {
         cloudWorkspaceRenameService = service
+        cloudWorkspaceProjectionCoordinator.environment = .init(workspaces: service.environment)
+        cloudPlacementCoordinator = CloudPlacementCoordinator(
+            binding: { service.environment.workspace($0)?.cloudVMBinding },
+            workspaceExists: { [weak self] machine, remoteWorkspaceID in
+                guard let self, let state = self.cloudStates[machine],
+                      (self.cloudStateObservations[machine] ?? .current).freshness == .current,
+                      state.cursor != nil, state.document.containsCollection("workspaces") else { return nil }
+                return state.workspaceIDs.contains(remoteWorkspaceID)
+            },
+            reportFailure: { projection, error in
+                service.environment.workspace(projection.workspaceID)?.presentCloudPlacementFailure(error, machine: projection.resource.machine)
+            }
+        )
     }
 
     /// Reconciles a local workspace binding from its exact cloud projections.
@@ -296,68 +142,14 @@ final class SurfaceCatalog {
             localWorkspaceID: localWorkspaceID,
             catalog: self
         )
-    }
-
-    /// Propagates a local workspace title through the catalog's ordered remote lane.
-    func propagateCloudWorkspaceRename(
-        workspace: Workspace,
-        localTitle: String?,
-        previousCustomTitle: String?
-    ) {
-        cloudWorkspaceRenameService.propagate(
-            workspace: workspace,
-            localTitle: localTitle,
-            previousCustomTitle: previousCustomTitle,
-            catalog: self
-        )
-    }
-
-    /// Propagates a local pane title through the exact remote tab placement.
-    func propagateCloudTerminalRename(
-        workspace: Workspace,
-        panelID: UUID,
-        resource: SurfaceResource,
-        name: String,
-        previousCustomTitle: String?
-    ) {
-        cloudWorkspaceRenameService.propagateTerminalRename(
-            workspace: workspace,
-            panelID: panelID,
-            resource: resource,
-            name: name,
-            previousCustomTitle: previousCustomTitle,
-            catalog: self
-        )
-    }
-
-    /// Applies an accepted daemon snapshot to all local projections with exact IDs.
-    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
-        cloudWorkspaceRenameService.reconcileRemoteState(
-            machine: machine,
-            state: state,
-            catalog: self
-        )
-    }
-
-    /// Persists the machine and remote workspace identity behind a local workspace.
-    func bindCloudWorkspace(
-        localWorkspaceID: UUID,
-        machine: SurfaceMachineID,
-        remoteWorkspaceID: String?,
-        generatedTitle: String? = nil
-    ) {
-        cloudWorkspaceRenameService.bind(
-            localWorkspaceID: localWorkspaceID,
-            machine: machine,
-            remoteWorkspaceID: remoteWorkspaceID,
-            generatedTitle: generatedTitle
-        )
+        requestCloudWorkspaceProjection(localWorkspaceID)
     }
 
     // MARK: Providers
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
                 cancelInFlightProject(key, error: SurfaceCatalogError.unknownResource(key.resource))
@@ -365,6 +157,9 @@ final class SurfaceCatalog {
         }
         providers[provider.machine] = provider
         machines[provider.machine] = machineInfoPreservingCanonicalCloudState(provider.info)
+        if cloudStates[provider.machine] != nil {
+            cloudWorkspaceProjectionCoordinator.request(machine: provider.machine, catalog: self)
+        }
         notifyChange()
     }
 
@@ -397,8 +192,9 @@ final class SurfaceCatalog {
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
-        let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
-        for record in pending { pendingRestoredProjections[record] = nil }
+        pendingRestoredProjections.remove(machine: machine)
+        cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
+        cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
@@ -457,25 +253,11 @@ final class SurfaceCatalog {
     /// tree, socket, CLI, and local projection paths one ordering and pending-intent
     /// policy.
     func renameRemoteWorkspace(on machine: SurfaceMachineID, id: String, name: String) async throws {
-        guard let provider = providers[machine] else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let key = CloudRenameCoordinator.Key.workspace(machine: machine, id: id)
-        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            try await provider.renameRemoteWorkspace(id: id, name: name)
-        }
-        try await task.value
+        try await enqueueRemoteWorkspaceRename(on: machine, id: id, name: name).value
     }
 
     func renameRemoteTab(on machine: SurfaceMachineID, id: String, name: String) async throws {
-        guard let provider = providers[machine] else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let key = CloudRenameCoordinator.Key.tab(machine: machine, id: id)
-        let task = cloudRenameCoordinator.enqueue(key: key, pendingName: name) {
-            try await provider.renameRemoteTab(id: id, name: name)
-        }
-        try await task.value
+        try await enqueueRemoteTabRename(on: machine, id: id, name: name).value
     }
 
     func renameTerminal(on machine: SurfaceMachineID, id: SurfaceResourceID, name: String) async throws {
@@ -775,10 +557,13 @@ final class SurfaceCatalog {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
         }
         var seen = Set(canonical.map(\.id))
-        // A create response can expose a new empty workspace before the next
-        // journal snapshot. Keep such genuinely new rows, but never retain an
-        // incoming row whose id the accepted graph removed.
-        let pending = (info.remoteWorkspaces ?? []).filter { seen.insert($0.id).inserted }
+        // Only resource overlays attest to a creation ahead of the graph.
+        // A machine summary has no mutation receipt and may contain deleted rows.
+        let pending = (resourceIDsByMachine[info.id] ?? [])
+            .compactMap { resources[$0] }
+            .flatMap(\.remoteWorkspaces)
+            .filter { seen.insert($0.id).inserted }
+            .sorted { ($0.index, $0.id) < ($1.index, $1.id) }
         adjusted.remoteWorkspaces = canonical + pending
         return adjusted
     }
@@ -794,7 +579,9 @@ final class SurfaceCatalog {
     /// Desktop row uses this so "open this workspace's screen" never teleports to a
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        let scope = beginProjectionMutation(for: [id])
+        defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
         // Resolve the opaque tab id against the current graph before any async
         // provider work. A stale view must fail, never silently attach to a
@@ -830,6 +617,13 @@ final class SurfaceCatalog {
         }) {
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
+            if resource.kind != .terminal,
+               let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,
+               let browser = SurfacePaneFactory.browserPanel(panelID: resolved.panelID, in: resolved.workspaceID),
+               (browser.cloudAccess.model == nil || browser.cloudAccess.model?.phase == .closed),
+               let raw = resource.url, let url = URL(string: raw) {
+                provider.configureBrowser(browser, url: url)
+            }
             if focus { focusProjection?(resolved) }
             return (resolved, true)
         }
@@ -849,7 +643,8 @@ final class SurfaceCatalog {
                     provider: provider,
                     destination: destination,
                     focus: focus,
-                    waiterID: waiterID
+                    waiterID: waiterID,
+                    adopting: reservation
                 )
             } onCancel: { [weak self] in
                 guard let self else { return }
@@ -866,8 +661,13 @@ final class SurfaceCatalog {
             )
         }
 
-        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus)
+        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
+        guard !Task.isCancelled, providers[id.machine] === provider else {
+            provider.discardMaterialization(projection)
+            throw CancellationError()
+        }
         record(projection)
+        cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         return (projection, false)
     }
 
@@ -879,7 +679,8 @@ final class SurfaceCatalog {
         provider: any SurfaceProvider,
         destination: SurfaceDestination,
         focus: Bool,
-        waiterID: UUID
+        waiterID: UUID,
+        adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> SurfaceProjectionMaterialization.Result {
         try await withCheckedThrowingContinuation { continuation in
             guard !Task.isCancelled else {
@@ -915,7 +716,7 @@ final class SurfaceCatalog {
             trackMaterialization(token, for: provider)
             let task = Task { @MainActor [weak self] in
                 do {
-                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus)
+                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))
@@ -1023,13 +824,15 @@ final class SurfaceCatalog {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unknownResource(id)
         }
-        guard projections.contains(result.projection) else {
+        guard let projection = self.projection(forPanel: result.projection.panelID),
+              projection.resource == id, projection.workspaceID == result.projection.workspaceID else {
             cancelCompletedMaterialization(key, waiterID: waiterID)
             throw SurfaceCatalogError.unavailable(id, reason: "projection closed while opening")
         }
         acknowledgeMaterialization(key, waiterID: waiterID)
-        if result.reused, focus { focusProjection?(result.projection) }
-        return result
+        if !result.reused { cloudPlacementCoordinator.projectionDidMove(projection, catalog: self) }
+        if result.reused, focus { focusProjection?(projection) }
+        return (projection, result.reused)
     }
 
     private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
@@ -1253,12 +1056,46 @@ final class SurfaceCatalog {
         }
     }
 
-    /// Record a pane that shows a resource (materialized by a provider, or adopted from an
-    /// existing pane such as a local terminal the app created on its own).
+    /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
-        insertSupersedingLocalPlaceholder(projection)
+        pendingRestoredProjections.remove(panelID: projection.panelID)
+        insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
+        reconcileCloudProjection(projection)
+        if let resource = resources[projection.resource], !resource.machine.isLocal,
+           resource.kind == .terminal,
+           let workspace = cloudWorkspaceRenameService.environment.workspace(projection.workspaceID) {
+            workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
+        }
         notifyChange()
+    }
+
+    /// A restored placeholder yields to its native pane without authoring a layout edit.
+    /// Keep the exact saved view, or the receipt of a backing tab just created for it.
+    func replaceProjection(
+        _ previous: SurfaceProjection,
+        withPanel panelID: UUID,
+        in workspaceID: UUID,
+        remotePlacement: SurfaceRemotePlacement?
+    ) {
+        let views = resources[previous.resource]?.remoteViews
+        let exactView = views?.first { $0.tabID == previous.remoteTabID }
+        // A dead saved ID cannot describe the rematerialized terminal. A unique
+        // live view is unambiguous; several live views must remain unresolved.
+        let view = exactView ?? (views?.count == 1 ? views?.first : nil)
+        let savedWorkspace = views == nil ? previous.remoteWorkspaceID : nil
+        let savedTab = views == nil ? previous.remoteTabID : nil
+        if let remotePlacement {
+            cloudPlacementCoordinator.confirmPlacement(remotePlacement, on: previous.resource.machine)
+        }
+        endProjections(panelID: previous.panelID, reason: .replaced)
+        record(SurfaceProjection(
+            resource: previous.resource,
+            workspaceID: workspaceID,
+            panelID: panelID,
+            remoteWorkspaceID: remotePlacement?.workspaceID ?? view?.workspace.id ?? savedWorkspace,
+            remoteTabID: remotePlacement?.tabID ?? view?.tabID ?? savedTab
+        ))
     }
 
     /// Fills a legacy projection's missing remote coordinates, or replaces a
@@ -1296,27 +1133,81 @@ final class SurfaceCatalog {
         projections.insert(projection)
     }
 
-    /// A pane went away (closed, or its workspace closed). Remote resources live on.
-    func endProjections(panelID: UUID) {
+    /// Carries a transition owner's intent through the synchronous panel-map observer.
+    /// Nested scopes restore the previous reason, and rejected closes leave no marker.
+    func withProjectionEndReason<Result>(
+        for panelIDs: [UUID],
+        reason: SurfaceProjectionEndReason,
+        perform operation: () throws -> Result
+    ) rethrows -> Result {
+        let previous = panelIDs.map { ($0, projectionEndReasons[$0]) }
+        for panelID in panelIDs { projectionEndReasons[panelID] = reason }
+        defer {
+            for (panelID, reason) in previous { projectionEndReasons[panelID] = reason }
+        }
+        return try operation()
+    }
+
+    /// A pane went away. Remote resources live on; a pane closed on purpose inside a
+    /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
+    func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
+        let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
-        guard !ended.isEmpty else { return }
+        guard !ended.isEmpty || removedPending else { return }
         projections.subtract(ended)
         for projection in ended {
+            cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
             providers[projection.resource.machine]?.projectionDidEnd(projection)
         }
         notifyChange()
     }
 
-    /// A pane moved to another workspace (tab transfer / drag between windows).
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
-        let moved = projections.filter { $0.panelID == panelID }
-        guard !moved.isEmpty else { return }
+        let movedPending = pendingRestoredProjections.move(panelID: panelID, to: workspaceID)
+        if movedPending { cloudProjectionIndexDirty = true }
+        let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
+        guard !moved.isEmpty || movedPending else { return }
         projections.subtract(moved)
         for var projection in moved {
             projection.workspaceID = workspaceID
+            projection = cloudPlacementCoordinator.projectionInCurrentWorkspace(projection)
             projections.insert(projection)
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
+        for projection in projections where projection.panelID == panelID {
+            cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
+        }
+        notifyChange()
+    }
+
+    /// Applies one accepted graph's coordinate changes in O(changed projections).
+    func reconcileRemotePlacements(_ replacements: [SurfaceProjection: SurfaceProjection]) {
+        guard !replacements.isEmpty else { return }
+        for (previous, updated) in replacements where projections.contains(previous) {
+            projections.remove(previous)
+            projections.insert(updated)
+        }
+        notifyChange()
+    }
+
+    /// Updates every view of an exact tab together; a late result cannot replace a
+    /// different resource that has since taken over the same local panel.
+    func setRemotePlacement(for source: SurfaceProjection, placement: SurfaceRemotePlacement) {
+        setRemotePlacement(for: source, workspaceID: placement.workspaceID, tabID: placement.tabID)
+    }
+
+    func setRemotePlacement(for source: SurfaceProjection, workspaceID: String?, tabID: String?) {
+        let matching = projections.filter {
+            $0.resource == source.resource && ($0.panelID == source.panelID
+                || (tabID != nil && $0.remoteTabID == tabID))
+        }
+        for var projection in matching {
+            projections.remove(projection)
+            projection.remoteWorkspaceID = workspaceID
+            projection.remoteTabID = tabID
+            projections.insert(projection)
+        }
         notifyChange()
     }
 
@@ -1367,12 +1258,29 @@ final class SurfaceCatalog {
         projections.first { $0.panelID == panelID }
     }
 
+    /// Returns whether the panel is backed by a non-local resource projection.
+    func hasCloudProjection(panelID: UUID, workspaceID: UUID) -> Bool {
+        if cloudProjectionIndexDirty {
+            cloudProjectionIndex = Set(projections.filter { !$0.resource.machine.isLocal }.map {
+                CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
+            })
+            cloudProjectionIndex.formUnion(pendingRestoredProjections.projections.compactMap {
+                $0.resource.machine.isLocal ? nil : CloudProjectionKey(panelID: $0.panelID, workspaceID: $0.workspaceID)
+            })
+            cloudProjectionIndexDirty = false
+        }
+        return cloudProjectionIndex.contains(CloudProjectionKey(panelID: panelID, workspaceID: workspaceID))
+    }
+
     func resource(forPanel panelID: UUID) -> SurfaceResource? {
         projection(forPanel: panelID).flatMap { resources[$0.resource] }
     }
 
-    // MARK: Restore
+    func machineInfo(for machine: SurfaceMachineID) -> SurfaceMachineInfo? {
+        machines[machine]
+    }
 
+    // MARK: Restore
     /// Records persisted projections for panes the session restore recreated. The projection
     /// becomes live as soon as the provider reports the resource again (a cloud terminal
     /// after the link reconnects); local resources are re-registered by the local provider
@@ -1380,6 +1288,7 @@ final class SurfaceCatalog {
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
         for record in records {
             if resources[record.resource] != nil {
+                pendingRestoredProjections.remove(panelID: record.panelID)
                 insertSupersedingLocalPlaceholder(SurfaceProjection(
                     resource: record.resource,
                     workspaceID: workspaceID,
@@ -1388,7 +1297,8 @@ final class SurfaceCatalog {
                     remoteTabID: record.remoteTabID
                 ))
             } else {
-                pendingRestoredProjections[record] = workspaceID
+                pendingRestoredProjections.stage(record, workspaceID: workspaceID)
+                cloudProjectionIndexDirty = true
             }
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
@@ -1396,7 +1306,7 @@ final class SurfaceCatalog {
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
-        projections
+        var records = projections
             .filter { $0.workspaceID == workspaceID }
             .map {
                 SurfaceProjectionRecord(
@@ -1406,7 +1316,8 @@ final class SurfaceCatalog {
                     remoteTabID: $0.remoteTabID
                 )
             }
-            .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        pendingRestoredProjections.mergeRecords(into: &records, for: workspaceID)
+        return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
     /// Cloud machine IDs referenced by restored panes that are waiting for a
@@ -1414,7 +1325,7 @@ final class SurfaceCatalog {
     /// stale-machine reconciliation so a deleted ID cannot attach old panes
     /// when a different machine later receives the same ID.
     var pendingRestoredMachineIDs: Set<String> {
-        Set(pendingRestoredProjections.keys.compactMap { $0.resource.machine.cloudMachineID })
+        Set(pendingRestoredProjections.machineIDs.compactMap { $0.cloudMachineID })
     }
 
     /// Returns whether at least one resource is currently published for a machine.
@@ -1435,17 +1346,14 @@ final class SurfaceCatalog {
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {
         var resolvedWorkspaceIDs = Set<UUID>()
-        for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
-            guard resources[record.resource] != nil else { continue }
-            insertSupersedingLocalPlaceholder(SurfaceProjection(
-                resource: record.resource,
-                workspaceID: workspaceID,
-                panelID: record.panelID,
-                remoteWorkspaceID: record.remoteWorkspaceID,
-                remoteTabID: record.remoteTabID
-            ))
-            pendingRestoredProjections[record] = nil
-            resolvedWorkspaceIDs.insert(workspaceID)
+        let resolved = pendingRestoredProjections.takeResolvable(
+            machine: machine,
+            availableResources: Set(resources.keys)
+        )
+        for projection in resolved {
+            insertSupersedingLocalPlaceholder(projection)
+            resolvedWorkspaceIDs.insert(projection.workspaceID)
+            cloudProjectionIndexDirty = true
         }
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
@@ -1459,13 +1367,7 @@ final class SurfaceCatalog {
             if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        let orderedResources = resources.values.sorted { lhs, rhs in
-            if lhs.machine != rhs.machine { return lhs.machine.rawValue < rhs.machine.rawValue }
-            if lhs.kind != rhs.kind { return lhs.kind.rawValue < rhs.kind.rawValue }
-            let li = lhs.remoteWorkspace?.index ?? -1, ri = rhs.remoteWorkspace?.index ?? -1
-            if li != ri { return li < ri }
-            return lhs.id.key < rhs.id.key
-        }
+        let orderedResources = resources.values.sorted { $0.catalogPrecedes($1) }
         return SurfaceCatalogSnapshot(
             machines: orderedMachines,
             resources: orderedResources,

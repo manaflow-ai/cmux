@@ -20,16 +20,18 @@ import Security
 ///   (0600), with one key and config for each tunnel role.
 ///
 /// The terminal role runs inside the bundled cmux-tui process and needs no
-/// system route or privilege. The browser role uses ``CloudTunnelBackend``:
+/// system route or privilege; Ports and Desktop panes ride the same hub on a
+/// loopback forward. The browser role is the explicit system-wide VPN
+/// (`cmux vpn up`) and uses ``CloudTunnelBackend``:
 ///
 /// - **NetworkExtension** — the app-managed path. When release signing
 ///   carries `com.apple.developer.networking.networkextension` and the bundled
 ///   `cmuxTunnel.systemextension`, ``CloudTunnelCoordinator`` saves the
-///   completed config as a macOS VPN configuration and starts it on demand
-///   when the user opens a Cloud browser: no sudo, no command-line tunnel, and
-///   no Homebrew. That tunnel reports liveness through `NEVPNStatus`.
-/// Builds without that signed capability fail closed for browser access. They
-/// never start a privileged command-line fallback.
+///   completed config as a macOS VPN configuration and starts it when asked:
+///   no sudo, no command-line tunnel, and no Homebrew. That tunnel reports
+///   liveness through `NEVPNStatus`.
+/// Builds without that signed capability fail closed for the system-wide
+/// route. They never start a privileged command-line fallback.
 struct VMTunnelManager: Sendable {
     enum Purpose: String, Sendable {
         case terminal

@@ -4,7 +4,7 @@ import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 
 type SelectInput = {
   teamId: string;
-  provider: string;
+  provider: string | readonly string[];
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
   signal?: AbortSignal;
@@ -53,6 +53,7 @@ const proxy = createCodexResponsesProxy({
     return next
       ? {
         id: next.id,
+        provider: "codex" as const,
         vaultRevision: 1,
         credentialExpiresAt: null,
         sticky: next.sticky,
@@ -113,7 +114,8 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs).toHaveLength(1);
     expect(selectInputs[0]?.sessionKey).toBe("session-abc");
     expect(selectInputs[0]?.teamId).toBe("team-1");
-    expect(selectInputs[0]?.provider).toBe("codex");
+    // The Responses surface pools Codex sign-ins with OpenAI and OpenRouter keys.
+    expect(selectInputs[0]?.provider).toEqual(["codex", "openai-apikey", "openrouter-apikey"]);
   });
 
   test("selects without a session key when the header is missing", async () => {
@@ -163,7 +165,7 @@ describe("codex responses proxy session routing", () => {
       select: async () => {
         const id = `acct-${selected.length + 1}`;
         selected.push(id);
-        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
       },
       credential: async ({ accountId }) => ({
         provider: "codex" as const,
@@ -227,7 +229,7 @@ describe("codex responses proxy session routing", () => {
         stackUserId: "stack-user-1",
         vmId: null,
       }),
-      select: async () => ({ id: "acct-1", vaultRevision: 1, credentialExpiresAt: null, sticky: false }),
+      select: async () => ({ id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false }),
       credential: async (input) => {
         credentialSignal = (input as typeof input & { signal?: AbortSignal }).signal;
         return await new Promise<never>(() => undefined);
@@ -264,7 +266,7 @@ describe("codex responses proxy session routing", () => {
       select: async () => {
         const id = `acct-${selected.length + 1}`;
         selected.push(id);
-        return { id, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
       },
       credential: async ({ accountId }) => ({
         provider: "codex" as const,
@@ -329,7 +331,7 @@ describe("codex models proxy outcomes", () => {
       select: async () => {
         if (selected) return null;
         selected = true;
-        return { id: "acct-1", vaultRevision: 1, credentialExpiresAt: null };
+        return { id: "acct-1", provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null };
       },
       credential: async () => ({
         provider: "codex" as const,

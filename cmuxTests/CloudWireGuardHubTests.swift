@@ -112,6 +112,15 @@ struct CloudWireGuardHubTests {
         }
     }
 
+    actor AttemptCounter {
+        private(set) var value = 0
+
+        func next() -> Int {
+            value += 1
+            return value
+        }
+    }
+
     /// Sleeps park until the test releases them, so idle stops and restart backoffs run
     /// exactly when the test says the clock has reached them.
     actor SleepGate {
@@ -209,6 +218,40 @@ struct CloudWireGuardHubTests {
         #expect(status.running)
         #expect(status.leases == 2)
         #expect(!status.pinnedByExternalClient)
+    }
+
+    @Test
+    func prewarmHoldsAClaimUntilTheFleetIsEmpty() async throws {
+        let h = makeHarness()
+        let ready = try await h.hub.prewarm()
+        #expect(ready.socketPath == h.socketPath)
+        #expect(h.spawner.count == 1)
+        #expect(await h.hub.status().leases == 1)
+
+        _ = try await h.hub.prewarm()
+        #expect(h.spawner.count == 1)
+        await h.hub.releasePrewarm()
+        await waitForPendingSleeps(h.gate, count: 1)
+        #expect(await h.hub.status().leases == 0)
+    }
+
+    @Test
+    func prewarmRetriesATransientStartupFailure() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(readiness: { _ in
+            if await attempts.next() == 1 {
+                throw CloudWireGuardHub.HubError.notReady("transient startup")
+            }
+        })
+        let task = Task { try await h.hub.prewarm() }
+        await waitForSpawnCount(h.spawner, count: 1)
+        await waitForPendingSleeps(h.gate, count: 1)
+        await h.gate.elapse()
+        await waitForSpawnCount(h.spawner, count: 2)
+        let ready = try await task.value
+        #expect(ready.socketPath == h.socketPath)
+        #expect(await attempts.value == 2)
+        #expect(await h.hub.status().leases == 1)
     }
 
     @Test
