@@ -880,6 +880,18 @@ export const cloudVmSessions = pgTable(
   ],
 );
 
+// Billing runtime records are transactional lifecycle state, not analytics.
+export const cloudVmRuntimeIntervals = pgTable("cloud_vm_runtime_intervals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  vmId: uuid("vm_id").notNull().references(() => cloudVms.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+}, (table) => [
+  index("cloud_vm_runtime_user_started_idx").on(table.userId, table.startedAt),
+  uniqueIndex("cloud_vm_runtime_open_vm_unique").on(table.vmId).where(sql`${table.endedAt} is null`),
+]);
+
 export const cloudVmUsageEvents = pgTable(
   "cloud_vm_usage_events",
   {
