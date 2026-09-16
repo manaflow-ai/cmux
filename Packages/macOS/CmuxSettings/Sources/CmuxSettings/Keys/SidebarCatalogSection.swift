@@ -15,6 +15,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         vertical || explicit
     }
 
+    /// The Cloud button in the left sidebar footer. Right-clicking the button
+    /// offers Hide, which writes `false` here; Settings > Sidebar brings it back.
+    public let showCloudButton = DefaultsKey<Bool>(
+        id: "sidebar.showCloudButton",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowCloudButton"
+    )
+
     public let hideAllDetails = DefaultsKey<Bool>(
         id: "sidebar.hideAllDetails",
         defaultValue: false,

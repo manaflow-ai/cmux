@@ -17,6 +17,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// Whether This Mac leads the tree, and whether its every sidebar workspace is a row
+    /// (the Cloud tab) or only those with a terminal.
+    var includesLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+    var includesEmptyLocalWorkspaces: Bool = false
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
@@ -65,7 +69,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pendingCreates: pendingCreates,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            includeLocalMachine: includesLocalMachine,
+            includeEmptyLocalWorkspaces: includesEmptyLocalWorkspaces
         ))
     }
     // MARK: - Coordinator

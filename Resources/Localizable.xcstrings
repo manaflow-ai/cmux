@@ -301913,6 +301913,40 @@
         }
       }
     },
+    "settings.app.showCloudButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cloud Button in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにクラウドボタンを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showCloudButton.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the Cloud button in the sidebar footer. It opens the Cloud tab, and its right-click menu can hide it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー下部にクラウドボタンを表示します。クリックでクラウドタブを開き、右クリックメニューから非表示にできます。"
+          }
+        }
+      }
+    },
     "settings.app.showNotificationMessage": {
       "extractionState": "manual",
       "localizations": {
@@ -356401,6 +356435,23 @@
         }
       }
     },
+    "settings.search.alias.setting.app.show-cloud-button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showCloudButton cloud button footer machines hide show"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showCloudButton クラウド ボタン フッター マシン 非表示 表示"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.app.wrap-workspace-titles": {
       "extractionState": "manual",
       "localizations": {
@@ -395812,6 +395863,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 上的雲端工作區"
+          }
+        }
+      }
+    },
+    "sidebar.cloud.hideButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Cloud Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドボタンを非表示"
           }
         }
       }

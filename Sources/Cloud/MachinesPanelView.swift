@@ -178,7 +178,7 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog) {
+        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog, includeLocalMachine: true) {
             emptyState
         } else {
             machinesList
@@ -454,6 +454,8 @@ struct MachinesPanelView: View {
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
+            includesLocalMachine: true,
+            includesEmptyLocalWorkspaces: true,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
