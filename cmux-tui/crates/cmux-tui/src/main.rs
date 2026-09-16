@@ -2502,7 +2502,7 @@ fn start_detached_owner_session(
     let owner_term = args
         .term
         .clone()
-        .unwrap_or_else(cmux_tui_core::platform::default_child_term);
+        .unwrap_or_else(cmux_tui_core::default_child_term);
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),
