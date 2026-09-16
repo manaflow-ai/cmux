@@ -184,6 +184,27 @@ struct CloudSurfaceMoveOwnershipTests {
         #expect(SurfaceOwnershipPolicy(cloudMachine: .cloud("a")).rejection(for: catalog.machineOwningPanel(panelID)) == nil)
     }
 
+    @Test("A Dock sharing the target workspace ID is not a rollback into that workspace")
+    func dockOriginCannotBypassFinalAttachGuard() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let workspace = fixture.workspace
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+            let dock = workspace.requiredDockSplitForTesting
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let targetPane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let panelID = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
+            let targetPanels = Set(workspace.panels.keys)
+            let transfer = try #require(dock.detachSurface(panelId: panelID))
+            #expect(transfer.sourceWorkspaceId == workspace.id)
+            #expect(transfer.origin == .dock(workspace.id))
+            #expect(workspace.attachDetachedSurface(transfer, inPane: targetPane, focus: false) == nil)
+            #expect(Set(workspace.panels.keys) == targetPanels)
+            #expect(dock.attachDetachedSurface(transfer, inPane: dockPane, focus: false) == panelID)
+        }
+    }
+
     private func resource(machine: String, kind: SurfaceResourceKind) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: .cloud(machine), kind: kind, key: UUID().uuidString),

@@ -285,6 +285,7 @@ extension DockSplitStore {
             panelId: panelId,
             panel: panel,
             surfaceMachine: surfaceMachine,
+            origin: .dock(workspaceId),
             title: titleMetadata.title,
             icon: icon,
             iconImageData: iconImageData,

@@ -28,6 +28,7 @@ extension Workspace {
         let panelId: UUID
         let panel: any Panel
         var surfaceMachine: SurfaceMachineID? = nil
+        var origin: SurfaceTransferOrigin? = nil
         let title: String
         let icon: String?
         let iconImageData: Data?
@@ -90,6 +91,7 @@ extension Workspace {
                 panelId: panelId,
                 panel: panel,
                 surfaceMachine: surfaceMachine,
+                origin: origin,
                 title: title,
                 icon: icon,
                 iconImageData: iconImageData,

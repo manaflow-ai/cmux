@@ -3098,6 +3098,7 @@
 		DE0A507C430CF37E256D7E29 /* SurfaceSocketCommands+VMFileDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FB8309C25B29D6CEE17BD64 /* SurfaceSocketCommands+VMFileDelivery.swift */; };
 		6F8CE4B13D081CF9C5C370B3 /* SurfaceSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */; };
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
+		9F002187F6364A9486A11818 /* SurfaceTransferOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0CD79814B2F48938BC881A7 /* SurfaceTransferOrigin.swift */; };
 		BA741B057707470F9D617D61 /* SurfaceTransferRejection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
 		F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000F /* SyntheticKeyEventFactory.swift */; };
@@ -6880,6 +6881,7 @@
 		278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceSocketCommands.swift; sourceTree = "<group>"; };
 		E107EF903AAF714086F52BC4 /* SurfaceSocketCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSocketCommandTests.swift; sourceTree = "<group>"; };
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
+		C0CD79814B2F48938BC881A7 /* SurfaceTransferOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTransferOrigin.swift; sourceTree = "<group>"; };
 		45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTransferRejection.swift; sourceTree = "<group>"; };
 		9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTestingAssertions.swift; sourceTree = "<group>"; };
 		F1100000000000000000000F /* SyntheticKeyEventFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticKeyEventFactory.swift; sourceTree = "<group>"; };
@@ -8106,6 +8108,7 @@
 				45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */,
 				D65E70E1AE6E42F890ADD7EF /* SurfaceResourcePlacement.swift */,
 				B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */,
+				C0CD79814B2F48938BC881A7 /* SurfaceTransferOrigin.swift */,
 				E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */,
 				B3F302DCC7D244E48146BA1F /* SurfaceCatalog+Ownership.swift */,
 				4A8A18F1C9A2400897AD6699 /* DockSplitStore+SurfaceOwnership.swift */,
@@ -14061,6 +14064,7 @@
 				DE0A507C430CF37E256D7E29 /* SurfaceSocketCommands+VMFileDelivery.swift in Sources */,
 				6F8CE4B13D081CF9C5C370B3 /* SurfaceSocketCommands.swift in Sources */,
 				C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */,
+				9F002187F6364A9486A11818 /* SurfaceTransferOrigin.swift in Sources */,
 				BA741B057707470F9D617D61 /* SurfaceTransferRejection.swift in Sources */,
 				F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */,
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,

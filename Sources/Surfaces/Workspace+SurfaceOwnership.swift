@@ -61,7 +61,7 @@ extension Workspace {
     func acceptsDetachedSurface(_ transfer: DetachedSurfaceTransfer) -> Bool {
         // A failed transfer must be able to restore the exact source, including
         // pre-existing mixed workspaces created before ownership was enforced.
-        if transfer.sourceWorkspaceId == id { return true }
+        if transfer.origin == .workspace(id) { return true }
         let machine = transfer.surfaceMachine
             ?? SurfaceCatalog.shared.machineOwningPanel(transfer.panelId)
             ?? transfer.remoteRelayNamespaceConfiguration?.managedCloudVMID.map(SurfaceMachineID.cloud)
