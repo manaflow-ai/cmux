@@ -2,13 +2,19 @@ import Darwin
 import Foundation
 
 /// Host VM measurements. Available memory is an estimate, not macOS pressure.
-struct DarwinSystemMemorySnapshot: Equatable, Sendable {
-    let freeBytes: UInt64
-    let availableBytes: UInt64
-    let compressorBytes: UInt64
-    let compressedLogicalBytes: UInt64
+public struct DarwinSystemMemorySnapshot: Equatable, Sendable {
+    /// Free pages expressed in host-page bytes.
+    public let freeBytes: UInt64
+    /// Free, inactive and speculative pages; an estimate of reclaimable memory.
+    public let availableBytes: UInt64
+    /// Physical memory occupied by compressed pages.
+    public let compressorBytes: UInt64
+    /// Logical size of the pages stored in the compressor.
+    public let compressedLogicalBytes: UInt64
 
-    static func capture() -> Self? {
+    /// Reads a full host VM snapshot and releases the temporary host port right.
+    /// - Returns: Current counters, or `nil` when host statistics are unavailable.
+    public static func capture() -> Self? {
         var statistics = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(
             MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
@@ -35,7 +41,9 @@ struct DarwinSystemMemorySnapshot: Equatable, Sendable {
         )
     }
 
-    func payload() -> [String: Any] {
+    /// Returns numeric diagnostic fields and fixed measurement-source labels.
+    /// - Returns: A JSON-compatible dictionary containing no process identity.
+    public func payload() -> [String: Any] {
         [
             "source": "host_statistics64.HOST_VM_INFO64",
             "available_source": "free+inactive+speculative",

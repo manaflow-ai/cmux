@@ -1,14 +1,30 @@
-import Darwin
+public import Darwin
 
 /// Keeps enumeration failures visible instead of silently dropping tree edges.
-struct CmuxTopBSDProcessListing {
-    let processes: [proc_bsdinfo]
-    let isComplete: Bool
-    let missingProcessCount: Int
+///
+/// ```swift
+/// let listing = DarwinProcessListing.capture()
+/// if listing.isComplete { /* build an index from listing.processes */ }
+/// ```
+public struct DarwinProcessListing: Sendable {
+    /// Unique readable process topology records, including public sysctl fallbacks.
+    public let processes: [proc_bsdinfo]
+    /// Whether enumeration finished without truncation or unreadable topology.
+    public let isComplete: Bool
+    /// Listed PIDs whose topology could not be read; excludes unknown truncated rows.
+    public let missingProcessCount: Int
+
+    /// Captures current process topology with at most three PID-buffer attempts.
+    ///
+    /// - Returns: The available records and explicit enumeration completeness.
+    /// Run outside a UI actor; detailed memory measurements are a separate operation.
+    public static func capture() -> Self {
+        capture(listPIDs: proc_listallpids, readProcess: readBSDInfo)
+    }
 
     static func capture(
-        listPIDs: (UnsafeMutableRawPointer?, Int32) -> Int32 = proc_listallpids,
-        readProcess: (pid_t) -> proc_bsdinfo? = readBSDInfo
+        listPIDs: (UnsafeMutableRawPointer?, Int32) -> Int32,
+        readProcess: (pid_t) -> proc_bsdinfo?
     ) -> Self {
         let initialCount = Int(listPIDs(nil, 0))
         guard initialCount > 0 else {

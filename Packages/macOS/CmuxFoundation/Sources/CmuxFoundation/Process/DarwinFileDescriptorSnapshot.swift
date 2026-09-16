@@ -1,13 +1,19 @@
-import Darwin
+public import Darwin
 import Foundation
 
 /// Separates allocated FD-table slots from the live descriptors enumerated by libproc.
-struct DarwinFileDescriptorSnapshot: Sendable {
-    let tableCapacity: Int?
-    let typeCounts: [String: Int]
-    let isComplete: Bool
+public struct DarwinFileDescriptorSnapshot: Sendable {
+    /// Allocated FD-table slots, which can remain large after descriptors close.
+    public let tableCapacity: Int?
+    /// Counts by fixed libproc type label; paths and descriptor numbers are excluded.
+    public let typeCounts: [String: Int]
+    /// Whether all live descriptors fit in the final read buffer.
+    public let isComplete: Bool
 
-    static func capture(processID: pid_t = getpid()) -> Self {
+    /// Samples allocated table slots and enumerates current descriptors.
+    /// - Parameter processID: Process to inspect; defaults to the caller.
+    /// - Returns: Counts with explicit completeness after at most three reads.
+    public static func capture(processID: pid_t = getpid()) -> Self {
         var info = proc_bsdinfo()
         let infoSize = MemoryLayout<proc_bsdinfo>.stride
         let tableCapacity = proc_pidinfo(
@@ -39,7 +45,9 @@ struct DarwinFileDescriptorSnapshot: Sendable {
         return Self(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: false)
     }
 
-    func payload() -> [String: Any] {
+    /// Returns sanitized counts, keeping capacity distinct from actual open count.
+    /// - Returns: JSON-compatible diagnostics; incomplete open counts are `null`.
+    public func payload() -> [String: Any] {
         let sampledCount = typeCounts.values.reduce(0, +)
         return [
             "table_capacity": tableCapacity as Any? ?? NSNull(),

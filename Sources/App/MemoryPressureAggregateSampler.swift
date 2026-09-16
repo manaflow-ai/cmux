@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -75,10 +76,7 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
         }
 
         let snapshot = snapshotProvider()
-        let descendantPIDs = snapshot.descendantPIDs(
-            rootPID: processID,
-            includeRoot: true
-        )
+        let descendantPIDs = snapshot.expandedPIDs(rootPIDs: [processID])
         var processFootprints: [MemoryPressureAggregateProcessFootprint] = []
         processFootprints.reserveCapacity(descendantPIDs.count)
         var missingProcessCount = snapshot.enumerationMissingProcessCount

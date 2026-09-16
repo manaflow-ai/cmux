@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -8,7 +9,7 @@ extension CmuxTopProcessSnapshot {
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true
     ) -> CmuxTopProcessSnapshot {
-        let listing = CmuxTopBSDProcessListing.capture()
+        let listing = DarwinProcessListing.capture()
         return CmuxTopProcessSnapshot(
             processes: processRecords(
                 from: listing.processes,
@@ -25,7 +26,7 @@ extension CmuxTopProcessSnapshot {
 
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
         processRecords(
-            from: CmuxTopBSDProcessListing.capture().processes,
+            from: DarwinProcessListing.capture().processes,
             includeProcessDetails: includeProcessDetails,
             includeCMUXScope: includeCMUXScope
         )

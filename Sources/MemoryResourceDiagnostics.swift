@@ -14,21 +14,24 @@ struct MemoryResourceDiagnostics: Sendable {
     let workspaceRSSBytesByRank: [Int64]
 
     init(snapshot: CmuxTopProcessSnapshot, appPID: Int) {
-        let pids = snapshot.descendantPIDs(rootPID: appPID, includeRoot: false)
-        let summary = snapshot.summary(for: pids)
-        childRSSBytes = summary.residentBytes
-        childAccountedBytes = summary.memoryBytes
-        footprintFallbackCount = summary.memorySourceFallbackPIDs.count
-        descendantCount = summary.processCount
-        missingMemoryCount = summary.missingPIDs.count + summary.unavailableMemoryPIDs.count
-        missingRSSCount = summary.missingPIDs.count + summary.unavailableResidentMemoryPIDs.count
+        let pids = snapshot.expandedPIDs(rootPIDs: [appPID]).subtracting([appPID])
         enumerationComplete = snapshot.enumerationIsComplete && snapshot.process(pid: appPID) != nil
         enumerationMissingCount = snapshot.enumerationMissingProcessCount
 
         var families: [String: Int64] = [:]
         var workspaces: [UUID: Int64] = [:]
+        var rss: Int64 = 0
+        var accounted: Int64 = 0
+        var footprintFallbacks = 0
+        var missingMemory = 0
+        var missingRSS = 0
         for pid in pids {
             guard let process = snapshot.process(pid: pid) else { continue }
+            rss = CmuxTopProcessSnapshot.clampedAdd(rss, max(0, process.residentBytes))
+            accounted = CmuxTopProcessSnapshot.clampedAdd(accounted, max(0, process.memoryBytes))
+            if process.memorySource == .residentSize { footprintFallbacks += 1 }
+            if process.memorySource == .unavailable { missingMemory += 1 }
+            if process.residentMemorySource == .unavailable { missingRSS += 1 }
             let family = Self.family(process.name)
             families[family] = CmuxTopProcessSnapshot.clampedAdd(
                 families[family, default: 0], max(0, process.residentBytes)
@@ -39,8 +42,22 @@ struct MemoryResourceDiagnostics: Sendable {
                 )
             }
         }
+        childRSSBytes = rss
+        childAccountedBytes = accounted
+        footprintFallbackCount = footprintFallbacks
+        descendantCount = pids.count
+        missingMemoryCount = missingMemory
+        missingRSSCount = missingRSS
         familyRSSBytes = families
-        workspaceRSSBytesByRank = Array(workspaces.values.sorted(by: >).prefix(5))
+        // At most five retained values: O(workspaces) time and constant ranking space.
+        var leaders: [Int64] = []
+        for value in workspaces.values {
+            let index = leaders.firstIndex(where: { value > $0 }) ?? leaders.count
+            guard index < 5 else { continue }
+            leaders.insert(value, at: index)
+            if leaders.count > 5 { leaders.removeLast() }
+        }
+        workspaceRSSBytesByRank = leaders
     }
 
     func payload() -> [String: Any] {

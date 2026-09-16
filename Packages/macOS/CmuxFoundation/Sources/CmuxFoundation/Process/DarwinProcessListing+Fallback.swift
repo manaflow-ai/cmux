@@ -1,6 +1,6 @@
 import Darwin
 
-extension CmuxTopBSDProcessListing {
+extension DarwinProcessListing {
     /// Reads only the public topology and generation fields needed by the index.
     static func fallbackBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]

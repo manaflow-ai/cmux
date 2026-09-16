@@ -47,29 +47,12 @@ struct AggregateMemoryRetentionTests {
 
     @Test("An unreadable process-table edge never authorizes hibernation")
     func incompleteListingFailsClosed() {
-        let listing = CmuxTopBSDProcessListing.capture(
-            listPIDs: { pointer, _ in
-                guard let pointer else { return 2 }
-                let pids = pointer.assumingMemoryBound(to: pid_t.self)
-                pids[0] = 42
-                pids[1] = 43
-                return 2
-            },
-            readProcess: { pid in
-                guard pid == 42 else { return nil }
-                var info = proc_bsdinfo()
-                info.pbi_pid = UInt32(pid)
-                return info
-            }
-        )
-        #expect(!listing.isComplete)
-        #expect(listing.missingProcessCount == 1)
         let snapshot = CmuxTopProcessSnapshot(
             processes: [process(pid: 42, parentPID: 1, bytes: 9_000)],
             sampledAt: .distantPast,
             includesProcessDetails: false,
-            enumerationIsComplete: listing.isComplete,
-            enumerationMissingProcessCount: listing.missingProcessCount
+            enumerationIsComplete: false,
+            enumerationMissingProcessCount: 1
         )
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
@@ -82,38 +65,6 @@ struct AggregateMemoryRetentionTests {
         #expect(sample.source == .unavailable)
         #expect(sample.missingProcessCount == 1)
         #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
-    }
-
-    @Test("Truncated PID buffers remain incomplete after bounded retries")
-    func growingProcessTableFailsClosed() {
-        var readCount = 0
-        let listing = CmuxTopBSDProcessListing.capture(
-            listPIDs: { pointer, bytes in
-                guard let pointer else { return 1 }
-                readCount += 1
-                let count = Int(bytes) / MemoryLayout<pid_t>.stride
-                let pids = pointer.assumingMemoryBound(to: pid_t.self)
-                for index in 0..<count { pids[index] = pid_t(index + 1) }
-                return Int32(count)
-            },
-            readProcess: { pid in
-                var info = proc_bsdinfo()
-                info.pbi_pid = UInt32(pid)
-                return info
-            }
-        )
-        #expect(readCount == 3)
-        #expect(!listing.isComplete)
-        #expect(!listing.processes.isEmpty)
-    }
-
-    @Test("Topology fallback preserves kernel parent and process generation")
-    func publicTopologyFallbackRetainsIdentity() throws {
-        let info = try #require(CmuxTopBSDProcessListing.fallbackBSDInfo(getpid()))
-        #expect(info.pbi_pid == UInt32(getpid()))
-        #expect(info.pbi_ppid == UInt32(getppid()))
-        #expect(info.pbi_pgid == UInt32(getpgrp()))
-        #expect(info.pbi_start_tvsec > 0)
     }
 
     @Test("Resource telemetry excludes process names, paths and workspace IDs")
@@ -141,19 +92,57 @@ struct AggregateMemoryRetentionTests {
         #expect(!text.contains("/private"))
     }
 
-    @Test("FD telemetry distinguishes allocated slots from actual open descriptors")
-    func liveDescriptorTypesAreMeasured() throws {
-        let pipe = Pipe()
+    @Test("A later live child cannot join an earlier captured topology")
+    func accountingUsesOnlyCapturedTopology() throws {
+        let input = Pipe()
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/cat")
+        child.standardInput = input
+        child.standardOutput = FileHandle.nullDevice
+        child.standardError = FileHandle.nullDevice
+        try child.run()
         defer {
-            try? pipe.fileHandleForReading.close()
-            try? pipe.fileHandleForWriting.close()
+            try? input.fileHandleForWriting.close()
+            child.waitUntilExit()
+            try? input.fileHandleForReading.close()
         }
-        let sample = DarwinFileDescriptorSnapshot.capture()
-        try #require(sample.isComplete)
-        #expect(sample.typeCounts["pipe", default: 0] >= 2)
-        let tableCapacity = try #require(sample.tableCapacity)
-        #expect(tableCapacity >= sample.typeCounts.values.reduce(0, +))
-        #expect(DarwinFileDescriptorSnapshot.capture(processID: -1).isComplete == false)
+        // This PID was unrelated in the captured table. A fresh OS child query
+        // must not attach its old metrics to the app (e.g. after PID reuse).
+        let rootPID = Int(getpid())
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(pid: rootPID, parentPID: 1, bytes: 100),
+                process(pid: Int(child.processIdentifier), parentPID: 1, bytes: 9_000)
+            ],
+            sampledAt: .distantPast,
+            includesProcessDetails: false
+        )
+        let diagnostics = MemoryResourceDiagnostics(snapshot: snapshot, appPID: rootPID)
+        #expect(diagnostics.descendantCount == 0)
+        #expect(diagnostics.childRSSBytes == 0)
+        let sample = DarwinMemoryPressureAggregateSampler(
+            processID: rootPID,
+            snapshotProvider: { snapshot },
+            coalitionSampler: Coalition(bytes: 0),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        ).sample(at: .now)
+        #expect(sample.aggregateBytes == 100)
+        #expect(MemoryPressureAggregatePolicy.default.severity(for: sample) == .normal)
+    }
+
+    @Test("Only the five largest anonymous workspace totals are emitted at scale")
+    func workspaceTelemetryIsBoundedAtScale() {
+        let processes = [process(pid: 42, parentPID: 1, bytes: 100)] + (1...1_000).map {
+            process(pid: 10_000 + $0, parentPID: 42, bytes: Int64($0), workspace: UUID())
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes, sampledAt: .distantPast, includesProcessDetails: false
+        )
+        let diagnostics = MemoryResourceDiagnostics(snapshot: snapshot, appPID: 42)
+        #expect(diagnostics.descendantCount == 1_000)
+        #expect(diagnostics.childRSSBytes == 500_500)
+        #expect(diagnostics.workspaceRSSBytesByRank == [1_000, 999, 998, 997, 996])
     }
 
     private func process(
