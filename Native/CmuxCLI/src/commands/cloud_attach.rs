@@ -391,6 +391,58 @@ fn tab(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
 fn open(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
     let p = positional(args);
     let resource = p.first().ok_or_else(|| crate::CliError::usage(usage()))?;
+    if p.len() == 1 {
+        if let Some(machine) = resource.strip_suffix(":desktop") {
+            let mut params = json!({"id": machine});
+            if let Some(w) = option(args, "--workspace") {
+                params["workspace_id"] = json!(w);
+            }
+            let value = ctx.rpc("vm.desktop_open", params)?;
+            return emit(
+                ctx,
+                &value,
+                Some(format!(
+                    "OK desktop={} surface={}",
+                    machine,
+                    text(&value, "surface_id")
+                )),
+            )
+            .map(|_| Some(0));
+        }
+        if let Some((machine, raw_port)) = resource.split_once(":port/") {
+            let port = raw_port
+                .parse::<u16>()
+                .map_err(|_| crate::CliError::usage("vm open: port must be 1..65535"))?;
+            let value = if has(args, "--print") {
+                ctx.rpc("vm.open_port", json!({"id":machine,"port":port}))?
+            } else {
+                let mut params = json!({"id":machine,"port":port});
+                if let Some(w) = option(args, "--workspace") {
+                    params["workspace_id"] = json!(w);
+                }
+                ctx.rpc("vm.port_open", params)?
+            };
+            return emit(
+                ctx,
+                &value,
+                Some(format!(
+                    "{}:{}\n  {}",
+                    machine,
+                    port,
+                    value
+                        .get("url")
+                        .or_else(|| value.get("open_url"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                )),
+            )
+            .map(|_| Some(0));
+        }
+        // `vm open <machine>` is an alias for `vm shell <machine>`.
+        if !resource.contains('/') && !resource.contains(':') {
+            return shell(ctx, args);
+        }
+    }
     // `vm open <machine> <port>` is the legacy spelling for the port resource.
     if p.len() == 2 {
         let port = p[1]

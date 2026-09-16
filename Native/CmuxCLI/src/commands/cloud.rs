@@ -124,12 +124,14 @@ fn parse_size_mb(raw: &str) -> Result<i64> {
         .trim_end_matches('g');
     let gib: i64 = n
         .parse()
-        .map_err(|_| CliError::usage("size must be 4g, 8g, 16g, 24g, 32g, or 64g"))?;
+        .map_err(|_| CliError::usage("size must be a memory preset or MB"))?;
     if [4, 8, 16, 24, 32, 64].contains(&gib) {
         Ok(gib * 1024)
+    } else if gib >= 512 && !x.contains('g') {
+        Ok(gib)
     } else {
         Err(CliError::usage(
-            "size must be 4g, 8g, 16g, 24g, 32g, or 64g",
+            "size must be 4g, 8g, 16g, 24g, 32g, 64g, or memory in MB",
         ))
     }
 }
@@ -605,7 +607,7 @@ fn run_domains(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
             let r = ctx.rpc("vm.publication_list", json!({}))?;
             if ctx.json {
                 ctx.emit(
-                    json!({"publications":r.get("publications").cloned().unwrap_or(json!([]))}),
+                    &json!({"publications":r.get("publications").cloned().unwrap_or(json!([]))}),
                 )?;
             } else {
                 for x in r
@@ -684,7 +686,7 @@ fn domain_publish(ctx: &Context, a: &[String]) -> Result<()> {
             "--yes" => yes = true,
             x if !x.starts_with('-') && vm.is_none() => vm = Some(x.to_string()),
             x if !x.starts_with('-') && port.is_none() => {
-                port = Some(x.parse().map_err(|_| CliError::usage(DOMAIN_USAGE))?)
+                port = Some(x.parse::<i32>().map_err(|_| CliError::usage(DOMAIN_USAGE))?)
             }
             _ => return Err(CliError::usage(DOMAIN_USAGE)),
         };
@@ -781,7 +783,7 @@ fn run_vpn(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
                     if r.get("backend").and_then(Value::as_str) == Some("network-extension") {
                         strv(&r, "tunnel_state", "off")
                     } else {
-                        "unavailable in this build"
+                        "unavailable in this build".to_string()
                     }
                 ))?;
             }

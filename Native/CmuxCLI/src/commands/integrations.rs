@@ -540,7 +540,7 @@ fn write_change(
     } else {
         ctx.print(format!(
             "{} hooks {} at {}",
-            a.display(),
+            a.display,
             if remove { "removed" } else { "installed" },
             path.display()
         ))?;
@@ -562,7 +562,10 @@ fn json_hooks(old: &str, a: &Agent, remove: bool, anti: bool) -> Result<String> 
     let obj = root
         .as_object_mut()
         .ok_or_else(|| CliError::new("invalid_json", "hook config must be an object"))?;
-    let hooks = obj.entry("hooks").or_insert_with(|| json!({}));
+    // Work on a detached value so the root object can be updated with metadata
+    // (`version`, Kiro fields, Antigravity group) without overlapping mutable
+    // borrows of its `hooks` entry.
+    let mut hooks = obj.remove("hooks").unwrap_or_else(|| json!({}));
     let hm = hooks
         .as_object_mut()
         .ok_or_else(|| CliError::new("invalid_hooks", "hooks must be an object"))?;
@@ -592,19 +595,21 @@ fn json_hooks(old: &str, a: &Agent, remove: bool, anti: bool) -> Result<String> 
         for (k, v) in events {
             hm.insert(k, v);
         }
-        if matches!(a.format, Format::Flat) {
-            obj.insert("version".into(), json!(1));
-        }
-        if matches!(a.format, Format::Kiro) {
-            obj.entry("name").or_insert(json!("cmux"));
-            obj.entry("description").or_insert(json!(
-                "CMUX notification and Feed bridge hooks for Kiro CLI."
-            ));
-            obj.entry("tools").or_insert(json!(["*"]));
-        }
     }
+    drop(hm);
+    if !remove && matches!(a.format, Format::Flat) {
+        obj.insert("version".into(), json!(1));
+    }
+    if !remove && matches!(a.format, Format::Kiro) {
+        obj.entry("name").or_insert(json!("cmux"));
+        obj.entry("description").or_insert(json!(
+            "CMUX notification and Feed bridge hooks for Kiro CLI."
+        ));
+        obj.entry("tools").or_insert(json!(["*"]));
+    }
+    let hooks_clone = hooks.clone();
+    obj.insert("hooks".into(), hooks);
     if anti && !remove {
-        let hooks_clone = hooks.clone();
         obj.insert("cmux".into(), hooks_clone);
     }
     serde_json::to_string_pretty(&root).map_err(|e| CliError::new("json", e.to_string()))

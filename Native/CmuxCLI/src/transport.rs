@@ -11,9 +11,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
+use std::os::unix::io::FromRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -114,8 +115,39 @@ fn connect(path: &str, timeout: Duration) -> Result<WireStream> {
     if metadata.uid() != unsafe { libc::getuid() } {
         return Err(CliError::new("socket_ownership_conflict", "Socket is not owned by the current user, refusing to connect"));
     }
-    let stream = UnixStream::connect(path).map_err(|e| CliError::new("connect", format!("Failed to connect to socket at {path}: {e}")))?;
+    let stream = connect_unix(path, timeout)?;
     Ok(WireStream::Unix(stream))
+}
+
+fn connect_unix(path: &str, timeout: Duration) -> Result<UnixStream> {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 104 { return Err(CliError::new("socket_path", "Unix socket path is too long")); }
+    let fd = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+    if fd < 0 { return Err(CliError::new("connect", std::io::Error::last_os_error().to_string())); }
+    let fail = |message: String| { unsafe { libc::close(fd); } Err(CliError::new("connect", message)) };
+    let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if original_flags < 0 { return fail(std::io::Error::last_os_error().to_string()); }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 { return fail(std::io::Error::last_os_error().to_string()); }
+    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
+    for (index, byte) in bytes.iter().enumerate() { address.sun_path[index] = *byte as libc::c_char; }
+    let address_len = (std::mem::size_of::<libc::sa_family_t>() + bytes.len() + 1) as libc::socklen_t;
+    let result = unsafe { libc::connect(fd, &address as *const _ as *const libc::sockaddr, address_len) };
+    if result < 0 && !matches!(std::io::Error::last_os_error().raw_os_error(), Some(code) if code == libc::EINPROGRESS || code == libc::EALREADY || code == libc::EAGAIN || code == libc::EWOULDBLOCK) {
+        return fail(format!("Failed to connect to socket at {path}: {}", std::io::Error::last_os_error()));
+    }
+    if result < 0 {
+        let mut pollfd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let millis = timeout.as_millis().min(i32::MAX as u128) as libc::c_int;
+        let ready = unsafe { libc::poll(&mut pollfd, 1, millis) };
+        if ready <= 0 { return fail(if ready == 0 { "Socket connection timed out".into() } else { std::io::Error::last_os_error().to_string() }); }
+        let mut socket_error: libc::c_int = 0; let mut error_len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+        if unsafe { libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_ERROR, &mut socket_error as *mut _ as *mut libc::c_void, &mut error_len) } < 0 || socket_error != 0 {
+            return fail(format!("Failed to connect to socket at {path}: {}", std::io::Error::from_raw_os_error(if socket_error == 0 { libc::ECONNREFUSED } else { socket_error })));
+        }
+    }
+    unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags); }
+    Ok(unsafe { UnixStream::from_raw_fd(fd) })
 }
 
 enum WireStream { Unix(UnixStream), Tcp(TcpStream) }

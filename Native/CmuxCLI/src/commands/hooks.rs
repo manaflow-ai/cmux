@@ -310,6 +310,11 @@ fn classify_feed(source: &str, event: &str, tool: &str) -> (String, bool) {
         event.as_str(),
         "permissionrequest" | "permission_request" | "on_tool_permission" | "pre_approval_request"
     ) {
+        // Codex owns the approval UI.  Its PermissionRequest hook is a
+        // native-prompt notification, not a second blocking cmux decision.
+        if source == "codex" || source == "hermes-agent" {
+            return ("PreToolUse".into(), false);
+        }
         return (
             if tool == "ExitPlanMode" || tool == "AskUserQuestion" {
                 tool.to_string()
@@ -460,5 +465,25 @@ mod tests {
         let compact = bounded_payload(&raw, 128);
         assert!(compact.contains("session_id"));
         assert!(compact.as_bytes().len() < raw.as_bytes().len());
+    }
+
+    #[test]
+    fn feed_unknown_events_fail_neutral() {
+        assert_eq!(
+            classify_feed("future-agent", "new_event", "Bash"),
+            ("PreToolUse".into(), false)
+        );
+        assert_eq!(
+            classify_feed("claude", "PermissionRequest", "Bash"),
+            ("PermissionRequest".into(), true)
+        );
+        assert_eq!(
+            classify_feed("claude", "PermissionRequest", "AskUserQuestion"),
+            ("AskUserQuestion".into(), true)
+        );
+        assert_eq!(
+            classify_feed("codex", "PermissionRequest", "Bash"),
+            ("PreToolUse".into(), false)
+        );
     }
 }

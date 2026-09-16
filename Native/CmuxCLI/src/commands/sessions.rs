@@ -11,11 +11,9 @@ use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
-use std::io::Read;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i32>> {
     match command {
@@ -266,8 +264,8 @@ fn sessions_list(ctx: &Context, raw: &[String]) -> Result<()> {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
-                string(a.1.as_object().unwrap(), &["session_id"])
-                    .cmp(&string(b.1.as_object().unwrap(), &["session_id"]))
+                string(a.1, &["session_id"])
+                    .cmp(&string(b.1, &["session_id"]))
             })
     });
     let total = entries.len();
@@ -406,7 +404,7 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             .unwrap_or_else(|| "/bin/sh".into());
         let mut command = Command::new(shell);
         command
-            .args(["-lc", command_text])
+            .args(["-lc", &command_text])
             .env_clear()
             .envs(&environment);
         if let Some(cwd) = cwd.as_deref().filter(|v| Path::new(v).is_dir()) {
@@ -627,11 +625,7 @@ fn build_fork_argv(kind: &str, id: Option<&str>, obj: &Map<String, Value>) -> Op
     let id = id?;
     let launch = launch_args(obj)?;
     let exe = launch.first()?.clone();
-    let preserved = launch
-        .into_iter()
-        .skip(1)
-        .filter(|v| v != "--resume" && v != "--fork-session")
-        .collect::<Vec<_>>();
+    let preserved = preserved_launch_tail(&launch[1..]);
     match kind {
         "claude" => Some(
             [
@@ -651,6 +645,34 @@ fn build_fork_argv(kind: &str, id: Option<&str>, obj: &Map<String, Value>) -> Op
         "pi" | "omp" => Some([vec![exe, "--fork".into(), id.into()], preserved].concat()),
         _ => None,
     }
+}
+
+/// Remove identity-bearing continuation options from a captured launch. The
+/// old `--resume <id>` pair must not be replayed after we substitute a new id.
+fn preserved_launch_tail(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--fork-session" {
+            i += 1;
+            continue;
+        }
+        if arg == "--resume" || arg == "-r" || arg == "--resume-id" {
+            i += 1;
+            if i < args.len() {
+                i += 1;
+            }
+            continue;
+        }
+        if arg.starts_with("--resume=") || arg.starts_with("--resume-id=") {
+            i += 1;
+            continue;
+        }
+        out.push(arg.clone());
+        i += 1;
+    }
+    out
 }
 fn resolve_executable(exe: &str, path: &str) -> String {
     if exe.contains('/') {
@@ -695,13 +717,28 @@ fn iso8601(seconds: f64) -> String {
     if seconds <= 0.0 {
         return "".into();
     }
-    let unix = seconds as u64;
-    let (secs, nanos) = (unix, ((seconds - fract(seconds)) * 1e9) as u32);
-    let _ = (secs, nanos);
-    format!("{seconds:.3}")
-}
-fn fract(v: f64) -> f64 {
-    v.fract()
+    // Howard Hinnant's civil-from-days conversion, kept inline to avoid
+    // pulling a date crate into the embedded CLI. Swift uses fractional
+    // ISO-8601 output, so retain milliseconds here.
+    let millis = (seconds * 1000.0).round() as i64;
+    let whole = millis.div_euclid(1000);
+    let ms = millis.rem_euclid(1000);
+    let days = whole.div_euclid(86_400);
+    let day_seconds = whole.rem_euclid(86_400);
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }).div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe.div_euclid(1_460) + doe.div_euclid(36_524) - doe.div_euclid(146_096)).div_euclid(365);
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe.div_euclid(4) - yoe.div_euclid(100));
+    let mp = (5 * doy + 2).div_euclid(153);
+    let d = doy - (153 * mp + 2).div_euclid(5) + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    let hour = day_seconds.div_euclid(3_600);
+    let minute = day_seconds.rem_euclid(3_600).div_euclid(60);
+    let second = day_seconds.rem_euclid(60);
+    format!("{year:04}-{m:02}-{d:02}T{hour:02}:{minute:02}:{second:02}.{ms:03}Z")
 }
 fn render_line(v: &Map<String, Value>) -> String {
     let agent = string(v, &["agent"]).unwrap_or_else(|| "unknown".into());
@@ -714,4 +751,67 @@ fn render_line(v: &Map<String, Value>) -> String {
 }
 fn sessions_usage() -> &'static str {
     "Usage: cmux sessions list [options]\n\nPrint saved agent session records from ~/.cmuxterm/*-hook-sessions.json.\nOptions: --agent --session --workspace --surface --cwd --state-dir --codex-home --limit --all --json"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selector_accepts_surface_after_positionals() {
+        let parsed = parse_selector(
+            &[
+                "claude".into(),
+                "sid".into(),
+                "--surface".into(),
+                "surface:1".into(),
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(parsed.kind.as_deref(), Some("claude"));
+        assert_eq!(parsed.checkpoint.as_deref(), Some("sid"));
+        assert_eq!(parsed.surface.as_deref(), Some("surface:1"));
+    }
+
+    #[test]
+    fn selector_surface_only_uses_current_target() {
+        let parsed = parse_selector(&["--surface".into()], true).unwrap();
+        assert!(parsed.kind.is_none());
+        assert!(parsed.checkpoint.is_none());
+        assert!(parsed.surface.is_none());
+    }
+
+    #[test]
+    fn fork_argv_preserves_launch_tail() {
+        let record = serde_json::from_value::<Value>(json!({
+            "launch_command": {"arguments": ["claude", "--model", "sonnet", "--resume", "old"]}
+        }))
+        .unwrap();
+        let argv = build_fork_argv("claude", Some("new"), record.as_object().unwrap()).unwrap();
+        assert_eq!(
+            argv,
+            vec![
+                "claude",
+                "--resume",
+                "new",
+                "--fork-session",
+                "--model",
+                "sonnet"
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_command_only_records_are_supported() {
+        let object = serde_json::Map::from_iter([(
+            String::from("legacy_command"),
+            json!("exec agent --resume sid"),
+        )]);
+        assert_eq!(
+            legacy_command(&object, false).as_deref(),
+            Some("exec agent --resume sid")
+        );
+        assert!(legacy_command(&object, true).is_none());
+    }
 }

@@ -467,20 +467,40 @@ fn debug_terminals(ctx: &Context, args: &[String]) -> Result<()> {
             .unwrap_or_default();
         lines.push(format!("[{i}] {surface}{title}"));
         lines.push(format!(
-            "    mapped={} tree={} window={} workspace={} pane={}",
+            "    mapped={} tree={} window={} workspace={} pane={} bonsplitTab={} ctx={}",
             dbg(&item, "mapped"),
             dbg(&item, "tree_visible"),
-            dbgstr(&item, "window_ref"),
-            dbgstr(&item, "workspace_ref"),
-            dbgstr(&item, "pane_ref")
+            dbgstr2(&item, "window_ref", "window_id"),
+            dbgstr2(&item, "workspace_ref", "workspace_id"),
+            dbgstr2(&item, "pane_ref", "pane_id"),
+            dbgstr(&item, "bonsplit_tab_id"),
+            dbgstr(&item, "surface_context")
         ));
         lines.push(format!(
-            "    runtime={} focused={} selected={} tty={} cwd={}",
-            dbg(&item, "runtime_surface_ready"),
-            dbg(&item, "surface_focused"),
-            dbg(&item, "surface_selected_in_pane"),
-            dbgstr(&item, "tty"),
-            dbgstr(&item, "current_directory")
+            "    runtime={} focused={} selected={} pinned={} terminal={} hosted={} ghostty={} portal={}#{} teardown={}",
+            dbg(&item, "runtime_surface_ready"), dbg(&item, "surface_focused"), dbg(&item, "surface_selected_in_pane"),
+            dbg(&item, "surface_pinned"), dbgstr(&item, "terminal_object_ptr"), dbgstr(&item, "hosted_view_ptr"),
+            dbgstr(&item, "ghostty_surface_ptr"), dbgstr(&item, "portal_binding_state"), dbgstr(&item, "portal_binding_generation"), dbgstr(&item, "teardown_requested_reason")
+        ));
+        lines.push(format!(
+    "    tty={} cwd={} branch={} ports={} visible={} inWindow={} superview={} hidden={} ancestorHidden={} firstResponder={} windowNum={}",
+            dbgstr(&item, "tty"), dbgstr2(&item, "current_directory", "requested_working_directory"), dbgstr(&item, "git_branch"),
+            dbg(&item, "listening_ports"), dbg(&item, "hosted_view_visible_in_ui"), dbg(&item, "hosted_view_in_window"),
+            dbg(&item, "hosted_view_has_superview"), dbg(&item, "hosted_view_hidden_or_ancestor_hidden"), dbg(&item, "surface_view_first_responder"),
+            dbgstr(&item, "window_number")
+        ));
+        lines.push(format!(
+            "    created={} runtimeCreated={} lastWorkspace={} initialCommand={} portalHost={}/win={}",
+            dbgstr(&item, "surface_age_seconds"), dbgstr(&item, "runtime_surface_age_seconds"), dbgstr2(&item, "last_known_workspace_ref", "last_known_workspace_id"),
+            dbgstr(&item, "initial_command"), dbgstr(&item, "portal_host_id"), dbg(&item, "portal_host_in_window")
+        ));
+        lines.push(format!(
+            "    window=title={} class={} controller={} delegate={} chain={}",
+            dbgstr(&item, "window_title"),
+            dbgstr(&item, "window_class"),
+            dbgstr(&item, "window_controller_class"),
+            dbgstr(&item, "window_delegate_class"),
+            dbg(&item, "hosted_view_superview_chain")
         ));
     }
     ctx.print(lines.join("\n"))
@@ -492,7 +512,18 @@ fn dbg(v: &Value, k: &str) -> String {
         .unwrap_or_else(|| "nil".into())
 }
 fn dbgstr(v: &Value, k: &str) -> String {
-    v.get(k).and_then(Value::as_str).unwrap_or("nil").into()
+    v.get(k)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            v.get(k)
+                .map(|x| x.to_string())
+                .unwrap_or_else(|| "nil".into())
+        })
+}
+fn dbgstr2(v: &Value, first: &str, second: &str) -> String {
+    let x = dbgstr(v, first);
+    if x != "nil" { x } else { dbgstr(v, second) }
 }
 
 fn caller_context() -> Option<Value> {
@@ -576,7 +607,7 @@ fn render_top_tree(ctx: &Context, payload: &Value) -> Result<()> {
         lines.push(format!(
             "{}  window {}",
             resource(w.get("resources")),
-            handle(w)
+            handle(&w)
         ));
         for ws in w
             .get("workspaces")
@@ -608,7 +639,7 @@ fn render_top_tsv(ctx: &Context, payload: &Value) -> Result<()> {
             num(&r, "cpu_percent"),
             num(&r, "memory_bytes"),
             num(&r, "process_count"),
-            handle(w)
+            handle(&w)
         ));
     }
     ctx.print(lines.join("\n"))
@@ -680,6 +711,27 @@ fn memory(ctx: &Context, args: &[String]) -> Result<()> {
     }
     render_memory(ctx, &payload)
 }
+fn format_bytes(v: Option<&Value>) -> String {
+    let n = v.and_then(Value::as_u64).unwrap_or(0) as f64;
+    if n < 1024.0 {
+        return format!("{} B", n as u64);
+    }
+    let units = ["KiB", "MiB", "GiB", "TiB"];
+    let mut x = n;
+    let mut i = 0usize;
+    while x >= 1024.0 && i < units.len() {
+        x /= 1024.0;
+        i += 1;
+    }
+    if x >= 100.0 {
+        format!("{:.0} {}", x, units[i - 1])
+    } else if x >= 10.0 {
+        format!("{:.1} {}", x, units[i - 1])
+    } else {
+        format!("{:.2} {}", x, units[i - 1])
+    }
+}
+
 fn render_memory(ctx: &Context, p: &Value) -> Result<()> {
     let d = p.get("memory_diagnostic").and_then(Value::as_object);
     let Some(d) = d else {
@@ -708,24 +760,17 @@ fn render_memory(ctx: &Context, p: &Value) -> Result<()> {
     ));
     l.push(format!(
         "  footprint {}",
-        app.and_then(|x| x.get("physical_footprint_bytes"))
-            .map(|x| x.to_string())
-            .unwrap_or("?".into())
+        format_bytes(app.and_then(|x| x.get("physical_footprint_bytes")))
     ));
     l.push(format!(
         "  rss       {}",
-        app.and_then(|x| x.get("resident_bytes"))
-            .map(|x| x.to_string())
-            .unwrap_or("?".into())
+        format_bytes(app.and_then(|x| x.get("resident_bytes")))
     ));
     l.push(String::new());
     l.push("CHILD PROCESSES".into());
     l.push(format!(
         "  recursive RSS {} across {} processes",
-        child
-            .and_then(|x| x.get("recursive_rss_bytes"))
-            .map(|x| x.to_string())
-            .unwrap_or("?".into()),
+        format_bytes(child.and_then(|x| x.get("recursive_rss_bytes"))),
         child
             .and_then(|x| x.get("process_count"))
             .map(|x| x.to_string())

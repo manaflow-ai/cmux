@@ -6,23 +6,15 @@
 //! Rust and Swift entry points observable-equivalent and avoids a generic RPC passthrough.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use base64::Engine;
 use serde_json::{Map, Value, json};
 
 use crate::{Context, Result};
 
 fn usage(message: impl Into<String>) -> crate::CliError {
     crate::CliError::usage(message.into())
-}
-
-fn obj(entries: impl IntoIterator<Item = (&'static str, Value)>) -> Value {
-    Value::Object(
-        entries
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect(),
-    )
 }
 
 fn non_flags(args: &[String]) -> Vec<String> {
@@ -81,7 +73,7 @@ fn surface(ctx: &Context, raw: Option<&str>, command: &str) -> Result<String> {
 
 fn print_payload(ctx: &Context, payload: &Value, fallback: &str) -> Result<()> {
     if ctx.json {
-        ctx.emit(payload.clone())
+        ctx.emit(payload)
     } else {
         ctx.print(fallback)?;
         if let Some(s) = payload.get("post_action_snapshot").and_then(Value::as_str) {
@@ -103,6 +95,43 @@ fn text_value(v: &Value) -> String {
             serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
         }
     }
+}
+
+fn browser_log_text(value: Option<&Value>, empty: &str) -> String {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return empty.into();
+    };
+    if items.is_empty() {
+        return empty.into();
+    }
+    items
+        .iter()
+        .map(|item| {
+            if let Value::Object(m) = item {
+                let level = m
+                    .get("level")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("log");
+                if let Some(text) = m
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    return format!("[{level}] {text}");
+                }
+                if let Some(message) = m
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    return format!("[error] {message}");
+                }
+            }
+            text_value(item)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn bool_value(v: Option<&Value>) -> bool {
@@ -191,7 +220,7 @@ fn download(ctx: &Context, surface_raw: Option<&str>, mut args: Vec<String>) -> 
         }
         let out = ctx.rpc("browser.download.list", Value::Object(p))?;
         if ctx.json {
-            return ctx.emit(out);
+            return ctx.emit(&out);
         }
         let list = out.get("downloads").and_then(Value::as_array);
         if list.is_none_or(|x| x.is_empty()) {
@@ -403,7 +432,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
         };
         let out = ctx.rpc(method, params)?;
         if ctx.json {
-            ctx.emit(out)?
+            ctx.emit(&out)?
         } else if verb == "list" {
             if let Some(ps) = out.get("profiles").and_then(Value::as_array) {
                 for p in ps {
@@ -561,7 +590,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
         "url" | "get-url" => {
             let out = ctx.rpc("browser.url.get", json!({"surface_id":sid()?}))?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(out.get("url").and_then(Value::as_str).unwrap_or(""))?;
             }
@@ -572,7 +601,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
         "is-webview-focused" | "is_webview_focused" => {
             let out = ctx.rpc("browser.is_webview_focused", json!({"surface_id":sid()?}))?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(if bool_value(out.get("focused")) {
                     "true"
@@ -609,7 +638,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             }
             let out = ctx.rpc("browser.snapshot", p)?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(
                     out.get("snapshot")
@@ -629,7 +658,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
                 json!({"surface_id":id,"script":script.trim()}),
             )?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(
                     out.get("value")
@@ -690,11 +719,11 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             let method = match sub.as_str() {
                 "scrollintoview" | "scrollinto" | "scroll-into-view" => "browser.scroll_into_view",
                 x => {
-                    return automation(
+                    automation(
                         ctx,
                         &format!("browser.{x}"),
                         json!({"surface_id":id,"selector":selector,"snapshot_after":flag(&mut args,&["--snapshot-after"])}),
-                    );
+                    ).map(|_| Some(0));
                 }
             };
             automation(
@@ -798,22 +827,37 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
                     .get("png_base64")
                     .and_then(Value::as_str)
                     .ok_or_else(|| usage("browser screenshot missing image data"))?;
-                let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                    .map_err(|_| usage("browser screenshot returned invalid image data"))?;
+                let bytes =
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                        .map_err(|_| usage("browser screenshot returned invalid image data"))?;
                 if let Some(parent) = destination.parent() {
                     fs::create_dir_all(parent)?;
                 }
                 fs::write(&destination, bytes)?;
                 if let Value::Object(ref mut m) = out {
-                    m.insert("path".into(), Value::String(destination.to_string_lossy().into_owned()));
-                    m.insert("url".into(), Value::String(format!("file://{}", destination.to_string_lossy())));
+                    m.insert(
+                        "path".into(),
+                        Value::String(destination.to_string_lossy().into_owned()),
+                    );
+                    m.insert(
+                        "url".into(),
+                        Value::String(format!("file://{}", destination.to_string_lossy())),
+                    );
                     m.remove("png_base64");
                 }
-                if ctx.json { ctx.emit(out)? } else { ctx.print(format!("OK {path}"))?; }
+                if ctx.json {
+                    ctx.emit(&out)?
+                } else {
+                    ctx.print(format!("OK {path}"))?;
+                }
             } else if ctx.json {
-                ctx.emit(out)?;
+                ctx.emit(&out)?;
             } else {
-                let location = out.get("url").or_else(|| out.get("path")).and_then(Value::as_str).unwrap_or("OK");
+                let location = out
+                    .get("url")
+                    .or_else(|| out.get("path"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("OK");
                 ctx.print(format!("OK {location}"))?;
             }
         }
@@ -852,7 +896,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             }
             let out = ctx.rpc(method, p)?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(
                     out.get("value")
@@ -880,7 +924,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             };
             let out = ctx.rpc(method, json!({"surface_id":id,"selector":selector}))?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
                 ctx.print(&text_value(out.get("value").unwrap_or(&Value::Bool(false))))?;
             }
@@ -1321,13 +1365,17 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             };
             let out = ctx.rpc(method, p)?;
             if ctx.json {
-                ctx.emit(out)?
+                ctx.emit(&out)?
             } else {
-                ctx.print(if sub == "console" {
-                    "No console entries"
-                } else {
-                    "No browser errors"
-                })?;
+                let key = if sub == "console" { "entries" } else { "errors" };
+                ctx.print(browser_log_text(
+                    out.get(key),
+                    if sub == "console" {
+                        "No console entries"
+                    } else {
+                        "No browser errors"
+                    },
+                ))?;
             }
         }
         "highlight" => {

@@ -193,6 +193,13 @@ fn ws(c: &Context, s: &str, a: &[String]) -> Result<Option<i32>> {
                 "cycle" => "workspace.status.cycle",
                 _ => "workspace.status.get",
             };
+            if sub == "set" {
+                if let Some(v) = pos(a).get(1) {
+                    p.insert("status".into(), json!(v));
+                } else {
+                    return Err(CliError::usage("workspace status set requires a status"));
+                }
+            }
             call(c, m, p, "workspace")
         }
         "reconnect" | "disconnect" => {
@@ -419,6 +426,11 @@ fn surface(c: &Context, s: &str, a: &[String]) -> Result<Option<i32>> {
 }
 fn todo(c: &Context, a: &[String]) -> Result<Option<i32>> {
     let s = pos(a).first().cloned().unwrap_or_else(|| "list".into());
+    let rest = a
+        .iter()
+        .position(|x| x == &s)
+        .map(|i| &a[i + 1..])
+        .unwrap_or(a);
     let m = match s.as_str() {
         "list" | "ls" => "workspace.todo.list",
         "add" => "workspace.todo.add",
@@ -433,17 +445,79 @@ fn todo(c: &Context, a: &[String]) -> Result<Option<i32>> {
     };
     let mut p = Map::new();
     ids(c, a, &mut p, true, false, false)?;
-    for (n, k) in [
-        ("--text", "text"),
-        ("--title", "title"),
-        ("--id", "item_id"),
-        ("--state", "state"),
-        ("--index", "index"),
-        ("--to", "to_index"),
-    ] {
-        if let Some(v) = opt(a, n) {
-            p.insert(k.into(), json!(v));
+    if matches!(
+        s.as_str(),
+        "check" | "uncheck" | "start" | "edit" | "rm" | "remove" | "move"
+    ) {
+        let selector = pos(rest)
+            .first()
+            .cloned()
+            .ok_or_else(|| CliError::usage(format!("todo {s} requires an item index or id")))?;
+        if let Ok(n) = selector.parse::<usize>() {
+            if n == 0 {
+                return Err(CliError::usage("todo item indexes are 1-based"));
+            }
+            p.insert("index".into(), json!(n - 1));
+        } else {
+            p.insert("id".into(), json!(selector));
         }
+    }
+    if matches!(s.as_str(), "check" | "uncheck" | "start") {
+        p.insert(
+            "state".into(),
+            json!(match s.as_str() {
+                "check" => "completed",
+                "start" => "in-progress",
+                _ => "pending",
+            }),
+        );
+    }
+    if s == "add" {
+        let text = opt(rest, "--text")
+            .or_else(|| {
+                let x = pos(rest);
+                if x.is_empty() {
+                    None
+                } else {
+                    Some(x.join(" "))
+                }
+            })
+            .ok_or_else(|| CliError::usage("todo add requires text"))?;
+        p.insert("text".into(), json!(text));
+        if let Some(v) = opt(rest, "--state") {
+            p.insert("state".into(), json!(v));
+        }
+        if let Some(v) = opt(rest, "--origin") {
+            p.insert("origin".into(), json!(v));
+        }
+    }
+    if s == "edit" {
+        let x = pos(rest);
+        if x.len() < 2 {
+            return Err(CliError::usage("todo edit requires an item and text"));
+        }
+        p.insert("text".into(), json!(x[1..].join(" ")));
+    }
+    if s == "move" {
+        let x = pos(rest);
+        if x.len() < 2 {
+            return Err(CliError::usage("todo move requires item and destination"));
+        }
+        let n = x[1]
+            .parse::<usize>()
+            .map_err(|_| CliError::usage("todo move destination must be an integer"))?;
+        if n == 0 {
+            return Err(CliError::usage("todo move destination is 1-based"));
+        }
+        p.insert("to_index".into(), json!(n - 1));
+    }
+    if s == "set" {
+        let raw = pos(rest)
+            .first()
+            .cloned()
+            .ok_or_else(|| CliError::usage("todo set requires JSON items"))?;
+        let items: Value = serde_json::from_str(&raw)?;
+        p.insert("items".into(), items);
     }
     call(c, m, p, "workspace")
 }
@@ -486,6 +560,80 @@ pub fn run(c: &Context, cmd: &str, a: &[String]) -> Result<Option<i32>> {
             let mut p = Map::new();
             ids(c, a, &mut p, true, false, false)?;
             call(c, "workspace.move_to_window", p, "workspace")
+        }
+        "reorder-workspace" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, true, false, false)?;
+            for (n, k) in [
+                ("--before", "before_workspace_id"),
+                ("--after", "after_workspace_id"),
+            ] {
+                if let Some(v) = opt(a, n) {
+                    p.insert(k.into(), json!(v));
+                }
+            }
+            if let Some(v) = opt(a, "--index") {
+                p.insert(
+                    "index".into(),
+                    json!(
+                        v.parse::<i64>()
+                            .map_err(|_| CliError::usage("--index must be an integer"))?
+                    ),
+                );
+            }
+            call(c, "workspace.reorder", p, "workspace")
+        }
+        "reorder-workspaces" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, false, false, false)?;
+            let values = opt(a, "--workspace-ids")
+                .or_else(|| opt(a, "--workspaces"))
+                .unwrap_or_default();
+            p.insert(
+                "workspace_ids".into(),
+                json!(
+                    values
+                        .split(',')
+                        .filter(|x| !x.is_empty())
+                        .collect::<Vec<_>>()
+                ),
+            );
+            call(c, "workspace.reorder_many", p, "workspace")
+        }
+        "workspace-action" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, true, false, false)?;
+            if let Some(v) = pos(a).first() {
+                p.insert("action".into(), json!(v));
+            }
+            call(c, "workspace.action", p, "workspace")
+        }
+        "tab-action" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, true, false, true)?;
+            if let Some(v) = pos(a).first() {
+                p.insert("action".into(), json!(v));
+            }
+            call(c, "tab.action", p, "surface")
+        }
+        "move-tab-to-new-workspace" | "detach-tab" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, true, false, true)?;
+            p.insert("action".into(), json!("move-to-new-workspace"));
+            call(c, "tab.action", p, "workspace")
+        }
+        "rename-tab" => {
+            let mut p = Map::new();
+            ids(c, a, &mut p, true, false, true)?;
+            p.insert(
+                "title".into(),
+                json!(
+                    opt(a, "--title")
+                        .or_else(|| pos(a).first().cloned())
+                        .unwrap_or_default()
+                ),
+            );
+            call(c, "tab.rename", p, "surface")
         }
         "list-panes" => pane(c, "list", a),
         "list-pane-surfaces" => pane(c, "surfaces", a),

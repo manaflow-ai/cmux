@@ -209,30 +209,33 @@ fn vm_run(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     if command_args.is_empty() {
         return Err(usage("Usage: cmux vm run [options] -- <command...>"));
     }
-    let id = if let Some(id) = machine {
-        id
-    } else {
-        let mut params = Map::new();
-        params.insert("force_new".into(), json!(new_machine));
-        let route = ctx.rpc("vm.route", Value::Object(params))?;
-        route
-            .get("machine")
-            .or_else(|| route.get("id"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| CliError::new("route_failed", "vm route returned no machine"))?
-            .to_owned()
-    };
-    if sync {
+    let id = machine.unwrap_or_else(|| select_machine(ctx, new_machine).unwrap_or_default());
+    if id.is_empty() {
         return Err(CliError::new(
-            "unsupported",
-            "--sync requires the native transfer path; use cmux vm push before vm run",
+            "route_failed",
+            "no usable cloud machine was returned",
         ));
     }
-    let command = command_args
-        .iter()
-        .map(|s| shell_quote(s))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let mut prefix = String::new();
+    if sync {
+        let cwd = std::env::current_dir().map_err(io_err)?;
+        let name = cwd.file_name().and_then(|s| s.to_str()).unwrap_or("app");
+        let remote = format!("work/{}", name);
+        vm_push(
+            ctx,
+            &[id.clone(), cwd.display().to_string(), remote.clone()],
+        )?;
+        prefix = format!("cd {} && ", shell_quote(&remote));
+    }
+    let command = format!(
+        "{}{}",
+        prefix,
+        command_args
+            .iter()
+            .map(|s| shell_quote(s))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
     let response = ctx.rpc(
         "vm.exec",
         json!({"id": id, "command": command, "timeout_ms": timeout * 1000}),
@@ -267,7 +270,20 @@ fn vm_route(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     if take_flag(&mut args, "--new") {
         params.insert("force_new".into(), json!(true));
     }
-    let value = ctx.rpc("vm.route", Value::Object(params))?;
+    let value = if params
+        .get("force_new")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        let created = ctx.rpc(
+            "vm.create",
+            json!({"kind":"base","idempotency_key":uuid::Uuid::new_v4().to_string()}),
+        )?;
+        json!({"machine":created.get("id").cloned().unwrap_or(Value::Null),"created":true,"reason":"provisioned"})
+    } else {
+        select_machine(ctx, false)
+            .map(|id| json!({"machine":id,"created":false,"reason":"first ready machine"}))?
+    };
     if ctx.json {
         ctx.emit(&value)?;
     } else {
@@ -276,9 +292,40 @@ fn vm_route(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
             .or_else(|| value.get("id"))
             .and_then(Value::as_str)
             .unwrap_or("(would provision)");
-        ctx.print(&format!("{}\n", id))?;
+        ctx.print(id)?;
     }
     Ok(Some(0))
+}
+
+fn select_machine(ctx: &Context, force_new: bool) -> Result<String> {
+    if !force_new {
+        let list = ctx.rpc("vm.list", json!({}))?;
+        if let Some(vms) = list.get("vms").and_then(Value::as_array) {
+            if let Some(id) = vms.iter().find_map(|v| {
+                let status = v
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if ["running", "ready", "standby", "paused"].contains(&status.as_str()) {
+                    v.get("id").and_then(Value::as_str).map(str::to_owned)
+                } else {
+                    None
+                }
+            }) {
+                return Ok(id);
+            }
+        }
+    }
+    let created = ctx.rpc(
+        "vm.create",
+        json!({"kind":"base","idempotency_key":uuid::Uuid::new_v4().to_string()}),
+    )?;
+    created
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| CliError::new("route_failed", "vm.create returned no machine id"))
 }
 
 fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
@@ -300,13 +347,7 @@ fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     if tail.is_empty() {
         return Err(usage("vm agent requires a prompt or agent arguments"));
     }
-    let id = machine.unwrap_or_else(|| "".to_string());
-    if id.is_empty() {
-        return Err(CliError::new(
-            "unsupported",
-            "vm agent routing is handled by cmux until vm.route exposes agent targets",
-        ));
-    }
+    let id = match machine { Some(id) => id, None => select_machine(ctx, false)? };
     let command = format!(
         "{} {}",
         agent,
@@ -435,7 +476,7 @@ fn vm_push(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     fs::write(temp.join("known_hosts"), format!("cmux-scp {}\n", host_key)).map_err(io_err)?;
     let target = format!("{}@{}:{}", user, host, remote);
     let opts = ssh_opts(&temp, port, &key);
-    let mut child = Command::new("/usr/bin/scp")
+    let child = Command::new("/usr/bin/scp")
         .args(&opts)
         .arg(&local)
         .arg(target)
@@ -781,4 +822,29 @@ fn ssh_opts(dir: &Path, port: u64, key: &Path) -> Vec<String> {
         "-p".into(),
         port.to_string(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_quote_handles_spaces_and_quotes() {
+        assert_eq!(shell_quote("a b"), "'a b'");
+        assert_eq!(shell_quote("a'b"), "'a'\\''b'");
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn dotenv_parser_accepts_comments_export_and_empty_values() {
+        let parsed = parse_env("# comment\nexport TOKEN=abc\nEMPTY=\n").unwrap();
+        assert_eq!(parsed[0], json!({"key":"TOKEN","value":"abc"}));
+        assert_eq!(parsed[1], json!({"key":"EMPTY","value":""}));
+    }
+
+    #[test]
+    fn assignment_rejects_invalid_keys_and_newlines() {
+        assert!(parse_assignment("bad-key=value").is_err());
+        assert!(parse_assignment("OK=multi\nline").is_err());
+    }
 }
