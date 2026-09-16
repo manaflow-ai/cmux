@@ -2,11 +2,20 @@ import XCTest
 import Foundation
 import CoreGraphics
 import ImageIO
+import AppKit
 
 /// Uses the macOS pointer path, with page state exposed through accessibility.
 /// No browser.hover or JavaScript event dispatch can satisfy these assertions.
 final class BrowserNativeHoverUITests: XCTestCase {
     func testNativeHoverEntersLeavesAndReentersBrowserContent() throws {
+        try assertNativeHover(staleFileDrag: false)
+    }
+
+    func testNativeHoverAfterFinishedFileDrag() throws {
+        try assertNativeHover(staleFileDrag: true)
+    }
+
+    private func assertNativeHover(staleFileDrag: Bool) throws {
         continueAfterFailure = false
         let environment = ProcessInfo.processInfo.environment
         let app: XCUIApplication
@@ -60,17 +69,26 @@ final class BrowserNativeHoverUITests: XCTestCase {
         let active = webView.staticTexts["Native hover active"].firstMatch
         let idle = webView.staticTexts["Native hover idle"].firstMatch
 
+        // Finder leaves file URLs on the drag pasteboard after its native
+        // session ends. Reproduce that state without an active mouse drag.
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        defer { dragPasteboard.clearContents() }
+
         blank.hover()
         XCTAssertTrue(idle.waitForExistence(timeout: 5))
         capture(app.windows.firstMatch, name: "native-hover-before")
+        if staleFileDrag {
+            XCTAssertTrue(dragPasteboard.writeObjects([URL(fileURLWithPath: #filePath) as NSURL]))
+        }
         for attempt in 1...2 {
             target.hover()
             let didEnter = active.waitForExistence(timeout: 5)
-            let screenshot = browserHost.screenshot()
+            let screenshot = window.screenshot()
             capture(app.windows.firstMatch, name: "native-hover-enter-\(attempt)")
             XCTAssertTrue(didEnter, "Native pointer/mouse enter and CSS :hover must all activate")
             XCTAssertTrue(
-                hasPaintedHoverMarkers(screenshot, viewportWidth: browserHost.frame.width),
+                hasPaintedHoverMarkers(screenshot, viewportWidth: window.frame.width),
                 "The screenshot must contain the CSS hover highlight and the complete popover"
             )
             blank.hover()
@@ -90,6 +108,7 @@ final class BrowserNativeHoverUITests: XCTestCase {
     private func hasPaintedHoverMarkers(_ screenshot: XCUIScreenshot, viewportWidth: CGFloat) -> Bool {
         guard let source = CGImageSourceCreateWithData(screenshot.pngRepresentation as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               viewportWidth > 0 else { return false }
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let decoded = pixels.withUnsafeMutableBytes { buffer -> Bool in
@@ -99,7 +118,7 @@ final class BrowserNativeHoverUITests: XCTestCase {
                 height: image.height,
                 bitsPerComponent: 8,
                 bytesPerRow: image.width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
+                space: colorSpace,
                 bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
             ) else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
@@ -113,10 +132,12 @@ final class BrowserNativeHoverUITests: XCTestCase {
             if r > 220 && g < 80 && b > 220 { magenta += 1 }
             if r < 80 && g > 220 && b < 80 { green += 1 }
         }
-        // Require most of each fixture marker, including on Retina displays,
-        // so a clipped fragment cannot pass as a complete popover.
+        // Require most of the popover, including on Retina displays, so a
+        // clipped fragment cannot pass. It overlaps the trigger's top 16px,
+        // leaving 26px of the green CSS hover highlight visible. Button text
+        // and XCUITest's pointer visualization cover part of that highlight.
         let scale = CGFloat(image.width) / viewportWidth
         return CGFloat(magenta) > 144 * 64 * scale * scale * 0.85 &&
-            CGFloat(green) > 112 * 42 * scale * scale * 0.7
+            CGFloat(green) > 112 * 26 * scale * scale * 0.5
     }
 }
