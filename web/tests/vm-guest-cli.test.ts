@@ -70,6 +70,9 @@ exit 91
     expect(install).toContain("/etc/skel/.bashrc");
     expect(install).toContain("/root/.bashrc");
     expect(install).toContain("/home/cmux/.bashrc");
+    expect(install).toContain("/etc/zsh/zprofile");
+    expect(install).toContain("/etc/fish/config.fish");
+    expect(install).toContain("set -gx BROWSER");
   });
 
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
