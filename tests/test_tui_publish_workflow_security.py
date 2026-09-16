@@ -1648,6 +1648,18 @@ def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None
     assert "npm audit --audit-level=high" in shared
 
 
+def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    publisher = workflow("tui-publish-npm.yml")
+    assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
+    platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
+    assert "cmux-tui-win32-x64" not in platform_block
+    assert "packages+=(cmux-tui-win32-x64)" in publisher
+
+
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
     # family. If the coordinated TUI publish or the nightly lane ever grows a
