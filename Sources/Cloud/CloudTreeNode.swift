@@ -555,6 +555,7 @@ enum CloudTreeNodeBuilder {
         now: Date = .now
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
+        let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
@@ -586,6 +587,7 @@ enum CloudTreeNodeBuilder {
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
+                    resourceNodeBuilder: resourceNodeBuilder,
                     now: now
                 )
             ))
@@ -612,6 +614,7 @@ enum CloudTreeNodeBuilder {
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
+                    resourceNodeBuilder: resourceNodeBuilder,
                     now: now
                 )
             ))
@@ -684,10 +687,7 @@ enum CloudTreeNodeBuilder {
 
     static func nodeID(browsersGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/browsers" }
     static func nodeID(portsGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ports" }
-    static func nodeID(resourcesPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/resources" }
-    static func nodeID(resource machine: SurfaceMachineID, metric: CloudTreeMachineResourceMetric) -> String { "machine:\(machine.rawValue)/resources/\(metric.rawValue)" }
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
-
     // MARK: This Mac
 
     private static func localMachineNode(
@@ -788,6 +788,7 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex,
+        resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder,
         now: Date
     ) -> [CloudTreeNode] {
         var children: [CloudTreeNode] = []
@@ -867,10 +868,9 @@ enum CloudTreeNodeBuilder {
         } else {
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting))
         }
-        children.append(resourcesGroupNode(machine: machine, snapshot: machineSnapshot, now: now))
+        children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
         return children
     }
-
     /// Builds every nonempty Cloud workspace from its actual layout members.
     /// Empty daemon records remain available to lookup and persistence.
     private static func workspacesGroupNode(

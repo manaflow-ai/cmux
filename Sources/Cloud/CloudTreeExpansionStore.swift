@@ -41,6 +41,7 @@ final class CloudTreeExpansionStore {
             let key = node.machine.rawValue
             if expanded { collapsedMachineIDs.remove(key) } else { collapsedMachineIDs.insert(key) }
             defaults.set(Array(collapsedMachineIDs).sorted(), forKey: Self.collapsedMachinesKey)
+            return
         } else if expanded {
             collapsedNodeIDs.remove(node.id)
             if !node.kind.isExpandedByDefault { expandedNodeIDs.insert(node.id) }
@@ -48,8 +49,8 @@ final class CloudTreeExpansionStore {
             expandedNodeIDs.remove(node.id)
             if node.kind.isExpandedByDefault { collapsedNodeIDs.insert(node.id) }
         }
-        defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
-        defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
+        defaults.set(Array(collapsedNodeIDs), forKey: Self.collapsedNodesKey)
+        defaults.set(Array(expandedNodeIDs), forKey: Self.expandedNodesKey)
     }
 
     /// Drops expansion entries for rows that no longer exist after a catalog
@@ -84,8 +85,8 @@ final class CloudTreeExpansionStore {
             || collapsedNodeIDs != previousCollapsed
             || expandedNodeIDs != previousExpanded else { return }
         defaults.set(Array(collapsedMachineIDs).sorted(), forKey: Self.collapsedMachinesKey)
-        defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
-        defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
+        defaults.set(Array(collapsedNodeIDs), forKey: Self.collapsedNodesKey)
+        defaults.set(Array(expandedNodeIDs), forKey: Self.expandedNodesKey)
     }
 
     /// A refresh may publish an empty or partial tree; three absent passes

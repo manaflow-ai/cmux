@@ -13,23 +13,31 @@ extension CloudTreeNode.Kind {
     }
 }
 
-extension CloudTreeNodeBuilder {
-    /// Builds the final Resources section for every Cloud machine.
-    static func resourcesGroupNode(
+/// Builds the final Resources section for one Cloud machine.
+struct CloudTreeMachineResourceNodeBuilder {
+    func groupNode(
         machine: SurfaceMachineID,
         snapshot: MachineSnapshot,
         now: Date
     ) -> CloudTreeNode {
         let section = CloudTreeMachineResourceSection(machine: snapshot, now: now)
         return CloudTreeNode(
-            id: nodeID(resourcesPool: machine),
+            id: groupID(machine: machine),
             kind: .resourcesPool(machine: machine, count: section.rows.count),
             children: section.rows.map { row in
                 CloudTreeNode(
-                    id: nodeID(resource: machine, metric: row.metric),
+                    id: rowID(machine: machine, metric: row.metric),
                     kind: .resource(machine: machine, row: row)
                 )
             }
         )
+    }
+
+    func groupID(machine: SurfaceMachineID) -> String {
+        "machine:\(machine.rawValue)/resources"
+    }
+
+    func rowID(machine: SurfaceMachineID, metric: CloudTreeMachineResourceMetric) -> String {
+        "machine:\(machine.rawValue)/resources/\(metric.rawValue)"
     }
 }
