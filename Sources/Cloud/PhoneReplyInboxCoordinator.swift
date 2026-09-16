@@ -142,6 +142,8 @@ final class PhoneReplyInboxCoordinator {
             )
             guard case let .success(decrypted) = decryptOutcome else {
                 switch decryptOutcome {
+                case .success:
+                    break
                 case .permanentFailure:
                     decryptFailureCounts.removeValue(forKey: reply.replyId)
                     ackIds.append(reply.replyId)
