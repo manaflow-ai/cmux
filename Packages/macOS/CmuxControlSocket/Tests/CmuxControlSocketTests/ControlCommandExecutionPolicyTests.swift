@@ -239,7 +239,7 @@ struct ControlCommandExecutionPolicyTests {
             "clear_agent_pid",
             "log", "clear_log", "list_log", "set_progress", "clear_progress",
             "report_git_branch", "clear_git_branch",
-            "report_pr", "report_review", "clear_pr", "report_pr_action",
+            "report_pr", "report_review", "clear_pr", "report_workspace_pr", "clear_workspace_pr", "report_pr_action",
             "report_ports", "clear_ports",
             "report_pwd", "report_shell_state", "report_tty", "ports_kick",
         ] {
@@ -348,7 +348,7 @@ struct ControlCommandExecutionPolicyTests {
             "clear_agent_pid",
             "log", "clear_log", "list_log", "set_progress", "clear_progress",
             "report_git_branch", "clear_git_branch",
-            "report_pr", "report_review", "clear_pr", "report_pr_action",
+            "report_pr", "report_review", "clear_pr", "report_workspace_pr", "clear_workspace_pr", "report_pr_action",
             "report_ports", "clear_ports",
             "report_pwd", "report_shell_state", "report_tty", "ports_kick",
         ]

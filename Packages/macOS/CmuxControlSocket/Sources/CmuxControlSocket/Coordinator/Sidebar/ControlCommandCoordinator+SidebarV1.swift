@@ -111,6 +111,8 @@ extension ControlCommandCoordinator {
         case "clear_git_branch": return sidebarClearGitBranch(args, context: context)
         case "report_pr", "report_review": return sidebarReportPullRequest(args, context: context)
         case "clear_pr": return sidebarClearPullRequest(args, context: context)
+        case "report_workspace_pr": return sidebarReportWorkspacePullRequest(args, context: context)
+        case "clear_workspace_pr": return sidebarClearWorkspacePullRequest(args, context: context)
         case "report_pr_action": return sidebarReportPullRequestAction(args, context: context)
         case "report_ports": return sidebarReportPorts(args, context: context)
         case "clear_ports": return sidebarClearPorts(args, context: context)

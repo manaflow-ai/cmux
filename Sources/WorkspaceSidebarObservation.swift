@@ -216,6 +216,7 @@ private struct SidebarObservationState: Equatable {
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
+    let manualPullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -322,7 +323,7 @@ extension Workspace {
             sidebarMetadata.panelGitBranchesPublisher,
             sidebarMetadata.pullRequestPublisher,
             sidebarMetadata.panelPullRequestsPublisher
-        )
+        ).combineLatest(sidebarMetadata.manualPullRequestPublisher)
         let remoteFields = Publishers.CombineLatest4(
             $remoteConfiguration,
             $remoteConnectionState,
@@ -356,10 +357,11 @@ extension Workspace {
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
                     progress: metadataFields.3,
-                    gitBranch: gitFields.0,
-                    panelGitBranches: gitFields.1,
-                    pullRequest: gitFields.2,
-                    panelPullRequests: gitFields.3,
+                    gitBranch: gitFields.0.0,
+                    panelGitBranches: gitFields.0.1,
+                    pullRequest: gitFields.0.2,
+                    manualPullRequest: gitFields.1,
+                    panelPullRequests: gitFields.0.3,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,
                     remoteConnectionDetail: remoteFields.2,

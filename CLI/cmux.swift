@@ -4864,38 +4864,6 @@ struct CMUXCLI {
         }
     }
 
-    private static func shouldFocusWindowBeforeDispatch(command: String, commandArgs: [String]) -> Bool {
-        let normalizedCommand = command.lowercased()
-        // `window` repositions a window (e.g. `window display`); it must not
-        // pre-focus, or it would steal macOS focus before moving the window.
-        if normalizedCommand == "window" {
-            return false
-        }
-        if normalizedCommand == "surface-resume" {
-            return false
-        }
-        if normalizedCommand == "restore" || normalizedCommand == "fork" {
-            return false
-        }
-        if normalizedCommand == "local-tmux" || normalizedCommand == "tmux" {
-            // The local-tmux command owns its explicit --focus decision; do
-            // not activate a window as a side effect of global --window parsing.
-            return false
-        }
-        if normalizedCommand == "read-screen" || normalizedCommand == "read-selection" {
-            return false
-        }
-        if normalizedCommand == "rpc",
-           commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                == "surface.read_selection" {
-            return false
-        }
-        if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
-            return false
-        }
-        return true
-    }
-
     private func localizedCoderouterAliases() -> String {
         let defaultValue = "coderouter|cr [coderouter-args...]                 (aliases for the CodeRouter CLI; offers to install it when missing)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
@@ -7925,6 +7893,14 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
             print(response)
+
+        case "pr":
+            try runPullRequestCommand(
+                commandArgs: commandArgs,
+                client: client,
+                windowOverride: windowId,
+                jsonOutput: jsonOutput
+            )
 
         case "right-sidebar":
             try forwardRightSidebarCommand(
@@ -20302,6 +20278,8 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "pr":
+            return Self.pullRequestUsage
         case "right-sidebar":
             return String(localized: "cli.rightSidebar.usage", defaultValue: """
             Usage: cmux right-sidebar <command> [flags]
@@ -41336,6 +41314,7 @@ export default CMUXSessionRestore;
           hooks <agent> <install|uninstall|event> [options; opencode supports --project]
           hooks feed --source <agent> [--event <event>]
           ping
+          pr <url|number> [flags] | pr clear [flags]
           iroh-diag
           version
           \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)"))

@@ -190,6 +190,24 @@ public protocol ControlSidebarContext: AnyObject {
     /// values).
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool
 
+    /// Returns an app-bundle-localized error for an invalid handoff or missing workspace.
+    nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String
+
+    /// Replaces the workspace-owned pull request attached by an explicit CLI
+    /// handoff. This state is independent of panel polling metadata.
+    func controlSidebarAttachManualPullRequest(
+        tabArg: String?,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) -> Bool
+
+    /// Clears the workspace-owned pull request attached by an explicit CLI
+    /// handoff.
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool
+
     /// Enqueues the `report_pr` panel pull-request update.
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,

@@ -118,7 +118,7 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
-    private func runIdentify(
+    func runIdentify(
         arguments: [String],
         callerWorkspaceId: String?
     ) throws -> ([[String: Any]], ProcessRunResult) {
@@ -174,7 +174,7 @@ struct CLICallerWorkspaceDefaultTests {
     /// returns the recorded JSON-RPC requests plus the process result. The mock answers
     /// `workspace.current` with `focusedWorkspaceId` so that, pre-fix, the command would
     /// visibly retarget there. Pass `callerWorkspaceId: nil` to omit `CMUX_WORKSPACE_ID`.
-    private func runMarkNotificationRead(
+    func runMarkNotificationRead(
         workspaceArgument: String,
         focusedWorkspaceId: String,
         callerWorkspaceId: String?
@@ -222,7 +222,7 @@ struct CLICallerWorkspaceDefaultTests {
         return (try state.requestObjects(), result)
     }
 
-    private func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
+    func cliEnvironment(socketPath: String, callerWorkspaceId: String?) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
@@ -239,18 +239,18 @@ struct CLICallerWorkspaceDefaultTests {
         return environment
     }
 
-    private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
-    private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
-    private static let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
-    private static let otherWorkspaceId = "44444444-4444-4444-4444-444444444444"
+    static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
+    static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
+    static let focusedWorkspaceId = "99999999-9999-9999-9999-999999999999"
+    static let otherWorkspaceId = "44444444-4444-4444-4444-444444444444"
 
-    private final class CLICallerWorkspaceDefaultBundleToken {}
+    final class CLICallerWorkspaceDefaultBundleToken {}
 
     // Records socket callbacks from background threads; `lock` guards both arrays.
-    private final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var requestLines: [String] = []
-        private var errors: [String] = []
+    final class ServerState: @unchecked Sendable {
+        let lock = NSLock()
+        var requestLines: [String] = []
+        var errors: [String] = []
 
         func record(_ line: String) {
             lock.lock()
@@ -270,6 +270,12 @@ struct CLICallerWorkspaceDefaultTests {
             return errors
         }
 
+        func linesSnapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return requestLines
+        }
+
         func requestObjects() throws -> [[String: Any]] {
             lock.lock()
             let lines = requestLines
@@ -280,25 +286,25 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
         let timedOut: Bool
     }
 
-    private static func bundledCLIPath() throws -> String {
+    static func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CLICallerWorkspaceDefaultBundleToken.self)
     }
 
-    private static func makeSocketPath(_ name: String) -> String {
+    static func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
     }
 
-    private static func bindUnixSocket(at path: String) throws -> Int32 {
+    static func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -340,7 +346,7 @@ struct CLICallerWorkspaceDefaultTests {
         return fd
     }
 
-    private static func startMockServer(
+    static func startMockServer(
         listenerFD: Int32,
         state: ServerState,
         handler: @escaping @Sendable (String) -> String
@@ -366,7 +372,7 @@ struct CLICallerWorkspaceDefaultTests {
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -379,7 +385,7 @@ struct CLICallerWorkspaceDefaultTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+    static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
             ok: false,
@@ -387,22 +393,24 @@ struct CLICallerWorkspaceDefaultTests {
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }
 
-    private static func runProcess(
+    static func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        directory: URL? = nil
     ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.currentDirectoryURL = directory
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
