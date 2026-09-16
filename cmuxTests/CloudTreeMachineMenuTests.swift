@@ -230,6 +230,25 @@ struct CloudTreeMachineMenuTests {
         #expect(executions == 1)
     }
 
+    @Test("expired machines still allow local pinning")
+    func expiredMachineCanBePinned() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "expired-pin-\(UUID().uuidString)")!),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        coordinator.apply(nodes: [Self.machineNode(expired: true)])
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: menu)
+        #expect(recorder.pinChanges.count == 1)
+        #expect(recorder.pinChanges.first?.0 == Self.machineID)
+        #expect(recorder.pinChanges.first?.1 == true)
+    }
+
     /// The same catalog lookup the outline uses for its items, so the
     /// expectation holds in every locale.
     private static func title(_ key: StaticString, _ defaultValue: String.LocalizationValue, _ arguments: CVarArg...) -> String {
@@ -247,7 +266,7 @@ struct CloudTreeMachineMenuTests {
     /// A ready Base machine on a paid plan with every provider verb, an
     /// address to copy, and a disk reading: the reading is a stat, never an
     /// affordance.
-    private static func machineNode() -> CloudTreeNode {
+    private static func machineNode(expired: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
             provider: "freestyle",
@@ -257,6 +276,7 @@ struct CloudTreeMachineMenuTests {
             createdAt: nil,
             label: "Big Machine"
         )
+        if expired { machine.freeAccess = .expired }
         machine.privateAddress = "10.99.0.7"
         machine.stats = VMStats(
             state: .awake,

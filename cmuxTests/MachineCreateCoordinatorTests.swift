@@ -538,7 +538,7 @@ struct MachineCreateCoordinatorTests {
     }
 }
 
-/// The Machines panel mirrors the coordinator: pending rows above the fleet,
+/// The Machines panel mirrors the coordinator: pending rows below the fleet,
 /// a completion re-reads the fleet, and a created-but-unopened machine's
 /// reason lands in the control bar.
 @MainActor
@@ -631,7 +631,7 @@ struct MachinesPanelPendingCreateTests {
 
         // The fleet list returned the named machine: its stand-in is gone; an
         // older machine that happens to share the label is not it.
-        #expect(rows(machines: [older], pending: [named]) == ["pending-machine:\(named.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [older], pending: [named]) == ["machine:old-hare", "pending-machine:\(named.id.uuidString)"])
         #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", "machine:vm-e0382b"])
         // The catalog registered it (the CLI is opening it) before the fleet
         // list caught up: the catalog row is the machine's row.
@@ -641,19 +641,19 @@ struct MachinesPanelPendingCreateTests {
         )
         #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["machine:vm-e0382b"])
         // An unnamed create is the machine that appeared after it started.
-        #expect(rows(machines: [older], pending: [unnamed]) == ["pending-machine:\(unnamed.id.uuidString)", "machine:old-hare"])
+        #expect(rows(machines: [older], pending: [unnamed]) == ["machine:old-hare", "pending-machine:\(unnamed.id.uuidString)"])
         #expect(rows(machines: [anonymous], pending: [unnamed]) == ["machine:calm-petrel"])
         // A failed create keeps its row so it can be retried or dismissed.
         var failed = named
         failed.phase = .failed(output: "Error: quota")
-        #expect(rows(machines: [created], pending: [failed]) == ["pending-machine:\(failed.id.uuidString)", "machine:vm-e0382b"])
+        #expect(rows(machines: [created], pending: [failed]) == ["machine:vm-e0382b", "pending-machine:\(failed.id.uuidString)"])
 
         // A pending operation without its emitted machine id cannot safely be
         // matched by a label or timestamp, especially with concurrent creates.
         let uncorrelated = MachineCreateOperation(
             id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started
         )
-        #expect(rows(machines: [created], pending: [uncorrelated]).first?.hasPrefix("pending-machine:") == true)
+        #expect(rows(machines: [created], pending: [uncorrelated]).last?.hasPrefix("pending-machine:") == true)
 
         // Two concurrent unnamed creates must not both disappear when one
         // newly observed machine has no matching authoritative id.
@@ -664,7 +664,7 @@ struct MachinesPanelPendingCreateTests {
         #expect(concurrentRows.filter { $0.hasPrefix("pending-machine:") }.count == 2)
     }
 
-    @Test func treeShowsPendingRowsFirstAndIsNotEmptyWhileOneRuns() {
+    @Test func treeAppendsPendingRowsAndIsNotEmptyWhileOneRuns() {
         let running = MachineCreateOperation(
             id: UUID(),
             request: MachineCreateCoordinatorTests.newMachineRequest(name: "ci"),
@@ -693,16 +693,16 @@ struct MachinesPanelPendingCreateTests {
             localWorkspaces: []
         )
         #expect(nodes.map(\.id) == [
+            "machine:noble-wren",
             "pending-machine:\(running.id.uuidString)",
             "pending-machine:\(failed.id.uuidString)",
-            "machine:noble-wren",
         ])
-        #expect(nodes[0].isExpandable == false)
-        #expect(nodes[0].isDragSource == false)
-        #expect(nodes[0].isMachineRow)
-        #expect(nodes[0].searchableTitle == "ci")
-        #expect(nodes[1].searchableTitle == "Base")
-        if case .pendingMachine(let operation) = nodes[1].kind {
+        #expect(nodes[1].isExpandable == false)
+        #expect(nodes[1].isDragSource == false)
+        #expect(nodes[1].isMachineRow)
+        #expect(nodes[1].searchableTitle == "ci")
+        #expect(nodes[2].searchableTitle == "Base")
+        if case .pendingMachine(let operation) = nodes[2].kind {
             #expect(operation.statusLabel == "Couldn't set up Base")
         } else {
             Issue.record("expected a pending machine row")
