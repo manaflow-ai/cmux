@@ -10,6 +10,7 @@ enum CloudDiagnosticReport {
     static func operationText(_ operation: CloudOperationSnapshot) -> String {
         var lines = [operation.operation.label, operation.reference,
                      "started=\(operation.startedAt.ISO8601Format()) outcome=\(operation.outcome?.rawValue ?? "running")"]
+        if let duration = operation.durationMs { lines.append("total_duration_ms=\(duration)") }
         if let failure = operation.failure { lines.append("\(failure.label) (\(failure.rawValue))") }
         lines.append(contentsOf: operation.steps.map { stepText($0) })
         return lines.joined(separator: "\n")

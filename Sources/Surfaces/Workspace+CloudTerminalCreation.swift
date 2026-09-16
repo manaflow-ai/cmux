@@ -230,6 +230,11 @@ extension Workspace {
     ) {
         let catalog = SurfaceCatalog.shared
         let store = cloudPaneCreationFailureStore
+        // Shortcut-created Cloud terminals were previously invisible to the
+        // operation recorder, so a slow Cmd+D/Cmd+T had no attributable timing.
+        // Create one logical operation here and let CloudOperationContext flow
+        // through the coordinator task into the remote command and projection.
+        let operation = AppDelegate.shared?.cloudOperations?.begin(.terminal)
         let project: CloudTerminalCreationCoordinator.Project = { [weak self, reservation] created in
             guard let self, !self.isRetiredFromOwningTabManager,
                   self.cloudPendingCreations[reservation.panelID] === reservation else {
@@ -239,36 +244,48 @@ extension Workspace {
             defer { onFinish() }
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
-            let result = try await catalog.project(
-                created.id,
-                into: destination,
-                focus: false,
-                reuseExisting: true,
-                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
-                adopting: reservation
-            )
+            let result = try await CloudOperationContext.phase(.materialize) {
+                try await catalog.project(
+                    created.id,
+                    into: destination,
+                    focus: false,
+                    reuseExisting: true,
+                    remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
+                    adopting: reservation
+                )
+            }
             self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: result.projection.panelID)
             return result
         }
         reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
         reservation.cancel = { [weak store] in store?.cancel(requestID: requestID) }
-        store.run(
-            machine: reservation.machine,
-            requestID: requestID,
-            create: create,
-            project: project,
-            onStart: { [weak self, reservation] in
-                onStart()
-                self?.restartReservedCloudTerminalPane(reservation)
-            },
-            onFinish: onFinish,
-            inlineFailure: { [weak self, reservation] error in
-                self?.failReservedCloudTerminalPane(reservation, error: error)
-            },
-            discardProjection: { projection in
-                catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-            }
-        )
+        let run = {
+            store.run(
+                machine: reservation.machine,
+                requestID: requestID,
+                create: create,
+                project: project,
+                onStart: { [weak self, reservation] in
+                    onStart()
+                    self?.restartReservedCloudTerminalPane(reservation)
+                },
+                onFinish: {
+                    onFinish()
+                    if let operation { Task { await operation.recorder.finish(operation) } }
+                },
+                inlineFailure: { [weak self, reservation] error in
+                    self?.failReservedCloudTerminalPane(reservation, error: error)
+                },
+                discardProjection: { projection in
+                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
+                }
+            )
+        }
+        if let operation {
+            CloudOperationContext.$current.withValue(operation) { run() }
+        } else {
+            run()
+        }
     }
 
     /// Removes a pane a split created that never received a tab.

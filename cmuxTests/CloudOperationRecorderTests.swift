@@ -45,6 +45,7 @@ struct CloudOperationRecorderTests {
         let root = recorder.begin(.open)
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).count == 1)
         await recorder.finish(root)
+        #expect(recorder.operations.first?.durationMs != nil)
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
         let failed = recorder.begin(.connect)
         await recorder.finish(failed, error: CloudDiagnosticFailure.network)
@@ -85,6 +86,7 @@ struct CloudOperationRecorderTests {
         #expect(report.contains("45"))
         #expect(report.contains("server"))
         #expect(report.contains(root.traceID))
+        #expect(report.contains("total_duration_ms="))
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
     }
 
