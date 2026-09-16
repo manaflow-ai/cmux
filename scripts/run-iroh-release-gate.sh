@@ -8,6 +8,7 @@ Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expir
        [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
        [--soak-profile <basic|stress>]
+       [--credentials-file <agent-profile-env>]
        [--production [--stack-env-file <secure-path>]]
 
 Automatic, relay-only, and relay-expiry build a tagged Mac app plus an isolated iOS Simulator
@@ -37,6 +38,7 @@ BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
 SOAK_PROFILE=""
 REPORT_TIMEOUT=480
+DOGFOOD_CREDENTIALS_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +53,7 @@ while [[ $# -gt 0 ]]; do
     --report-output) REPORT_OUTPUT="${2:-}"; shift 2 ;;
     --print-plan) PRINT_PLAN=1; shift ;;
     --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
+    --credentials-file) DOGFOOD_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -129,6 +132,10 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/iroh-release-gate-targets.sh
 source "$SCRIPT_DIR/lib/iroh-release-gate-targets.sh"
 cmux_attach_validate_dev_tag "$TAG"
+if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  [[ "$PRODUCTION" -eq 0 ]] || { echo "error: --credentials-file is for staging only" >&2; exit 2; }
+  cmux_dev_secrets_validate_file "$DOGFOOD_CREDENTIALS_FILE"
+fi
 
 ACTIVE_BUILD_WRAPPER_PID=""
 
@@ -638,10 +645,15 @@ fi
 # tag is uniquely owned by this driver, and the exact executable is now absent,
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
+MAC_AUTH_ARGS=()
+if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_load --profile agent --credentials-file "$DOGFOOD_CREDENTIALS_FILE" >/dev/null
+  MAC_AUTH_ARGS=(0 agent "$DOGFOOD_CREDENTIALS_FILE" "$CMUX_DEV_AUTH_ACCOUNT")
+fi
 CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
 CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
-cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
+cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device ${MAC_AUTH_ARGS[@]+"${MAC_AUTH_ARGS[@]}"}
 
 # Wait for the app's atomic report-write signal. Python owns the simulator
 # notifyutil child so its timeout is bounded without polling the filesystem.
@@ -677,6 +689,8 @@ MOBILE_LAUNCH_ARGS=(
 )
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
+elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  MOBILE_LAUNCH_ARGS+=(--credentials-file "$DOGFOOD_CREDENTIALS_FILE")
 fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
