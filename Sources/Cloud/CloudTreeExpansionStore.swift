@@ -57,9 +57,15 @@ final class CloudTreeExpansionStore {
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let nodeIDs = Set(flattened.filter { !$0.isMachineRow }.map(\.id))
         let machineIDs = Set(flattened.filter(\.isMachineRow).map { $0.machine.rawValue })
+        let previousMachines = collapsedMachineIDs
+        let previousCollapsed = collapsedNodeIDs
+        let previousExpanded = expandedNodeIDs
         collapsedNodeIDs.formIntersection(nodeIDs)
         expandedNodeIDs.formIntersection(nodeIDs)
         collapsedMachineIDs.formIntersection(machineIDs)
+        guard collapsedMachineIDs != previousMachines
+            || collapsedNodeIDs != previousCollapsed
+            || expandedNodeIDs != previousExpanded else { return }
         defaults.set(Array(collapsedMachineIDs).sorted(), forKey: Self.collapsedMachinesKey)
         defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
         defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
