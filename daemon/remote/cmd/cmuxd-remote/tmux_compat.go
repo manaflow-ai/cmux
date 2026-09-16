@@ -1361,9 +1361,14 @@ func withLockedTmuxCompatStoreIfChanged(mutate func(*tmuxCompatStore) (bool, err
 	defer directory.file.Close()
 	lockFile, err := directory.open(
 		directory.lockName,
-		unix.O_CREAT|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+		unix.O_CREAT|unix.O_EXCL|unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW,
 		0600,
 	)
+	// Concurrent non-exclusive creation can return ENOENT on macOS. Elect
+	// one creator, then open the persistent lock without following symlinks.
+	if err == unix.EEXIST {
+		lockFile, err = directory.open(directory.lockName, unix.O_RDWR|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	}
 	if err != nil {
 		return err
 	}
