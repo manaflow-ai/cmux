@@ -145,6 +145,54 @@ struct AggregateMemoryRetentionTests {
         #expect(diagnostics.workspaceRSSBytesByRank == [1_000, 999, 998, 997, 996])
     }
 
+    @Test("Hibernation requires complete topology even when the known group is exclusive")
+    func hibernationRejectsIncompleteTopology() {
+        let agent = CmuxTopProcessInfo(
+            pid: 42, parentPID: 1, name: "fixture", path: nil,
+            ttyDevice: 0x123, cmuxWorkspaceID: nil, cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil, processGroupID: 42, terminalProcessGroupID: 42,
+            cpuPercent: 0, residentBytes: 100, virtualBytes: 100, threadCount: 1
+        )
+        for (complete, missing) in [(true, 0), (false, 0), (true, 1)] {
+            let snapshot = CmuxTopProcessSnapshot(
+                processes: [agent], sampledAt: .now, includesProcessDetails: false,
+                enumerationIsComplete: complete, enumerationMissingProcessCount: missing
+            )
+            let scope = snapshot.agentHibernationProcessScope(panelProcessIDs: [42], agentProcessIDs: [42])
+            if complete && missing == 0 {
+                #expect(!scope.containsUnrelatedProcess)
+                #expect(scope.terminationProcessIDs == [42])
+            } else {
+                #expect(scope.containsUnrelatedProcess)
+                #expect(scope.terminationProcessIDs.isEmpty)
+            }
+        }
+    }
+
+    @Test("Detected IDs alone do not constitute an authorized hibernation scope")
+    func missingHibernationScopeFailsClosed() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let key = RestorableAgentSessionIndex.PanelKey(workspaceId: UUID(), panelId: UUID())
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode, sessionId: "retention-fixture", workingDirectory: home.path
+        )
+        let identity = AgentPIDProcessIdentity(pid: 42, startSeconds: 1, startMicroseconds: 0)
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path, fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [key: (snapshot, 1, [42], [42], .explicit)],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .present },
+            processIdentityProvider: { _ in identity }
+        )
+        let entry = try #require(index.exactEntry(workspaceId: key.workspaceId, panelId: key.panelId))
+        #expect(entry.containsUnrelatedProcess)
+        #expect(entry.terminationProcessIDs.isEmpty)
+        #expect(!entry.processSafetyAllowsScheduledHibernation)
+    }
+
     private func process(
         pid: Int, parentPID: Int, bytes: Int64,
         name: String = "fixture", workspace: UUID? = nil
