@@ -37,17 +37,71 @@ final class MobileIrohSoakRunner {
     private let durationSeconds: Int
     private let minimumCycles: Int
     private let interval: Duration
+    private let operationTimeout: Duration
+    private var operationDeadline = ContinuousClock.now
 
-    init(profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil, interval: Duration? = nil) {
+    init(
+        profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
+        interval: Duration? = nil, operationTimeout: Duration = .seconds(30)
+    ) {
         self.profile = profile
         self.durationSeconds = durationSeconds ?? profile.seconds
         self.minimumCycles = minimumCycles ?? profile.minimumCycles
         self.interval = interval ?? profile.interval
+        self.operationTimeout = operationTimeout
         evidence = Evidence(profile: profile, requestedDurationSeconds: durationSeconds ?? profile.seconds)
     }
 
     func run(
         clock: some Clock<Duration> = ContinuousClock(),
+        marker: String,
+        connection: @escaping @MainActor () async -> UInt64?,
+        probe: @escaping @MainActor (String) async throws -> MobileIrohReleaseGateProbeResult,
+        stress: @escaping @MainActor (Int, String) async throws -> [String]
+    ) async throws -> MobileIrohReleaseGateProbeResult {
+        let started = ContinuousClock.now
+        operationDeadline = started.advanced(by: operationTimeout)
+        // A task group would wait for an uncooperative terminal stream to finish.
+        // Own both tasks explicitly, as the outer release gate does, so the report
+        // can be written and the isolated app terminated even when a stream hangs.
+        let results = AsyncStream<Result<MobileIrohReleaseGateProbeResult, Error>> { continuation in
+            let work = Task { @MainActor in
+                do {
+                    continuation.yield(.success(try await self.runWorkload(
+                        clock: clock, marker: marker, connection: connection, probe: probe, stress: stress
+                    )))
+                } catch {
+                    continuation.yield(.failure(error))
+                }
+                continuation.finish()
+            }
+            let deadline = Task { @MainActor in
+                do {
+                    while !Task.isCancelled {
+                        let observed = self.operationDeadline
+                        try await Task.sleep(until: observed, clock: .continuous)
+                        guard observed == self.operationDeadline else { continue }
+                        self.evidence.elapsedSeconds = Self.seconds(started.duration(to: .now))
+                        self.evidence.maximumCycleSeconds = max(
+                            self.evidence.maximumCycleSeconds, Self.seconds(self.operationTimeout)
+                        )
+                        continuation.yield(.failure(Failure.cycleTooSlow))
+                        continuation.finish()
+                        return
+                    }
+                } catch { /* The operation completed or the parent was cancelled. */ }
+            }
+            continuation.onTermination = { _ in
+                work.cancel()
+                deadline.cancel()
+            }
+        }
+        for await result in results { return try result.get() }
+        throw CancellationError()
+    }
+
+    private func runWorkload(
+        clock: some Clock<Duration>,
         marker: String,
         connection: () async -> UInt64?,
         probe: (String) async throws -> MobileIrohReleaseGateProbeResult,
@@ -61,12 +115,14 @@ final class MobileIrohSoakRunner {
         repeat {
             try Task.checkCancellation()
             let cycleStarted = clock.now
+            operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
             evidence.currentOperation = "connection_continuity"
             guard await connection() == expectedConnection else { throw Failure.connectionChanged }
             let cycle = evidence.completedCycles
             let cycleMarker = "\(marker)_\(cycle)"
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
             last = try await probe(cycleMarker)
+            try Task.checkCancellation()
             for operation in ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
                               "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"] {
                 evidence.operationCounts[operation, default: 0] += 1
@@ -75,6 +131,7 @@ final class MobileIrohSoakRunner {
             if profile == .stress {
                 evidence.currentOperation = "usage_step_\(cycle % 4)"
                 for operation in try await stress(cycle, cycleMarker) {
+                    try Task.checkCancellation()
                     evidence.operationCounts[operation, default: 0] += 1
                 }
                 if cycle % 120 == 119 {
@@ -95,8 +152,10 @@ final class MobileIrohSoakRunner {
         } while clock.now < deadline
         // A final transaction proves the terminal is still live at the end of the window.
         evidence.currentOperation = "final_terminal_round_trip"
+        operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
         guard await connection() == expectedConnection else { throw Failure.connectionChanged }
         last = try await probe("\(marker)_FINAL")
+        try Task.checkCancellation()
         guard await connection() == expectedConnection else { throw Failure.connectionChanged }
         evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
         guard evidence.completedCycles >= minimumCycles, let last else {
