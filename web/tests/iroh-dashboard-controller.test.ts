@@ -106,4 +106,42 @@ describe("IROH Dashboard v2 controller", () => {
   test("rejects an unapproved worker origin before creating a socket", () => {
     expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
   });
+
+  test("retries a failed initial socket and loads the directory", async () => {
+    globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const directories: unknown[] = [];
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: () => {} });
+    try {
+      const pending = controller.start();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      FakeSocket.instances[0]!.onerror?.();
+      await pending;
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      expect(FakeSocket.instances).toHaveLength(2);
+      const replacement = FakeSocket.instances[1]!;
+      replacement.open();
+      const request = JSON.parse(replacement.sent[0]!);
+      replacement.message({ schemaId: "dashboard.directory.v1", requestId: request.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: false, managedDeviceIds: [] } });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(directories).toHaveLength(1);
+    } finally { await controller.stop(); }
+  });
+
+  test("stopping while authentication is pending never opens a stale team socket", async () => {
+    let resolveToken!: (value: string) => void;
+    const token = new Promise<string>(resolve => { resolveToken = resolve; });
+    globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "old-team", getStackToken: () => token, onDirectory: () => {}, onError: () => {} });
+    const pending = controller.start();
+    await controller.stop();
+    resolveToken("s");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    // Unblock a buggy implementation too, so a failed assertion leaves no timers.
+    FakeSocket.instances[0]?.open();
+    await pending;
+    await controller.stop();
+    expect(FakeSocket.instances).toHaveLength(0);
+  });
 });
