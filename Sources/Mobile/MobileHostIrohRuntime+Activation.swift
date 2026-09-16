@@ -6,10 +6,11 @@ import Foundation
 @MainActor
 extension MobileHostIrohRuntime {
     func activate(accountID: String, revision: UInt64) async throws {
-        // `DisableIrohNetworking` (MDM): no endpoint, no relay traffic, no
-        // route publication. Checked before any state is mutated so a profile
-        // pushed mid-session stops the next activation attempt outright.
-        guard ManagedIrohNetworkingPolicy.isEnabled else {
+        // The explicit pairing setting and managed policy both gate endpoint
+        // creation, relay traffic, and route publication. Check them before
+        // any activation state is mutated.
+        guard MobileHostService.isListeningEnabled,
+              ManagedIrohNetworkingPolicy.isEnabled else {
             throw CmxIrohHostRuntimeError.inactive
         }
         beginIrohRouteActivation(revision: revision)
@@ -87,10 +88,10 @@ extension MobileHostIrohRuntime {
             tag: tag,
             endpointID: derivedEndpointID,
             identityGeneration: identity.generation,
-            // Under a managed remote-control disable the runtime should never
-            // activate at all; reporting pairingEnabled=false is defense in
-            // depth so the trust broker also refuses to mint pair grants.
-            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
+            // The broker must receive the same explicit opt-in as the local
+            // lifecycle, with managed remote-control policy as a second gate.
+            pairingEnabled: MobileHostService.isListeningEnabled
+                && MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities
         )
         let cachedHostPolicy: CmxIrohCachedHostPolicy?
@@ -266,10 +267,10 @@ extension MobileHostIrohRuntime {
             tag: tag,
             displayName: MobileHostIdentity.instanceDisplayName(),
             identity: identity,
-            // Under a managed remote-control disable the runtime should never
-            // activate at all; reporting pairingEnabled=false is defense in
-            // depth so the trust broker also refuses to mint pair grants.
-            pairingEnabled: MobileRemoteControlPolicy.isEnabled,
+            // The broker must receive the same explicit opt-in as the local
+            // lifecycle, with managed remote-control policy as a second gate.
+            pairingEnabled: MobileHostService.isListeningEnabled
+                && MobileRemoteControlPolicy.isEnabled,
             capabilities: Self.capabilities,
             bindPolicy: .preferred(
                 try CmxIrohBindAddress(
@@ -516,6 +517,7 @@ extension MobileHostIrohRuntime {
         guard revision == lifecycleRevision,
               !Task.isCancelled,
               !signOutIntentActive,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               observedAccountID == accountID else {
             // The succeeding reconcile owns this runtime. Retaining it lets a
@@ -587,7 +589,8 @@ extension MobileHostIrohRuntime {
         tag: String,
         revision: UInt64
     ) {
-        guard revision == lifecycleRevision else { return }
+        guard revision == lifecycleRevision,
+              MobileHostService.isListeningEnabled else { return }
         lastKnownBindingID = binding.bindingID
         lastKnownAccountID = accountID
         lastKnownTag = tag
@@ -603,7 +606,8 @@ extension MobileHostIrohRuntime {
     /// Starts a new availability generation. Persisted broker identity is not
     /// a dialable route until the matching endpoint reports active.
     func beginIrohRouteActivation(revision: UInt64) {
-        guard revision == lifecycleRevision else { return }
+        guard revision == lifecycleRevision,
+              MobileHostService.isListeningEnabled else { return }
         pendingIrohRouteBinding = nil
         routePublicationPhase = .starting(revision: revision)
         MobileHostService.shared.updateIrohRoute(identity: nil)
@@ -614,7 +618,8 @@ extension MobileHostIrohRuntime {
         pathHints: [CmxIrohPathHint],
         revision: UInt64
     ) {
-        guard revision == lifecycleRevision else { return }
+        guard revision == lifecycleRevision,
+              MobileHostService.isListeningEnabled else { return }
         pendingIrohRouteBinding = (
             revision: revision,
             binding: binding,
@@ -627,6 +632,7 @@ extension MobileHostIrohRuntime {
     @discardableResult
     func publishIrohRouteIfActive(revision: UInt64) -> Bool {
         guard revision == lifecycleRevision,
+              MobileHostService.isListeningEnabled,
               let pendingIrohRouteBinding,
               pendingIrohRouteBinding.revision == revision else { return false }
         self.pendingIrohRouteBinding = nil
@@ -653,6 +659,7 @@ extension MobileHostIrohRuntime {
         revision: UInt64
     ) -> Bool {
         revision == lifecycleRevision
+            && MobileHostService.isListeningEnabled
             && !signOutIntentActive
             && desiredActive
             && observedAccountID == accountID

@@ -456,7 +456,7 @@ public extension AuthCoordinator {
 }
 
 extension AuthCoordinator {
-    private var publishedAuthenticatedSessionIdentity:
+    var publishedAuthenticatedSessionIdentity:
         AuthenticatedSessionIdentity? {
         guard isAuthenticated,
               !isCapturingSignOutCredentials,
@@ -473,5 +473,6 @@ extension AuthCoordinator {
         for continuation in authenticatedSessionIdentityContinuations.values {
             continuation.yield(identity)
         }
+        publishAuthenticatedTeamScope()
     }
 }

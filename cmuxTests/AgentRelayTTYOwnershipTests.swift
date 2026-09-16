@@ -318,11 +318,33 @@ extension AgentNotificationRegressionTests {
         )
         let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
 
+        // Isolate each invalid selector. Dictionary iteration does not define
+        // which error wins when both the workspace and surface are foreign.
         assertTTYReportRejected(coordinator.handle(ControlRequest(
             id: .string("spoofed-owner"),
             method: "surface.report_tty",
             params: [
                 "workspace_id": .string(fixture.destination.id.uuidString),
+                "surface_id": .string(fixture.panelId.uuidString),
+                "tty_name": .string("pts/30"),
+                "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
+                "terminal_lifecycle_id": .string(
+                    sourceTerminal.surface.terminalLifecycleId.uuidString
+                ),
+                "attempt_id": .string(sourceAttemptID.uuidString),
+            ]
+        )), expectedCode: "remote_relay_workspace_denied")
+        #expect(
+            !fixture.source.surfaceRegistry.runtimeReportedTTYSurfaceIDs
+                .contains(fixture.panelId)
+        )
+
+        assertTTYReportRejected(coordinator.handle(ControlRequest(
+            id: .string("spoofed-surface"),
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": .string(fixture.source.id.uuidString),
                 "surface_id": .string(destinationPanelID.uuidString),
                 "tty_name": .string("pts/30"),
                 "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
@@ -332,7 +354,7 @@ extension AgentNotificationRegressionTests {
                 ),
                 "attempt_id": .string(destinationAttemptID.uuidString),
             ]
-        )), expectedCode: "remote_relay_workspace_denied")
+        )), expectedCode: "remote_relay_surface_denied")
         #expect(
             !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
                 .contains(destinationPanelID)

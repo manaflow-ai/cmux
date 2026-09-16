@@ -11,6 +11,9 @@ public import Foundation
 /// session, so the transport retires that exact session before closing the
 /// complete QUIC connection. Session ownership belongs to
 /// ``IrxPeerEngine``.
+///
+/// Each transport binds to at most one admitted session. Native closure makes
+/// that transport terminal; the RPC owner creates a new transport to recover.
 public actor IrxControlByteTransport: CmxByteTransport {
     /// Factory for an admitted connection and its control lane.
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
@@ -113,7 +116,15 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
         guard !isClosed else { throw IrxConnectionError.closed(nil) }
-        if let pair, await !pair.0.isConnectionClosed() {
+        if let pair {
+            let connectionIsClosed = await pair.0.isConnectionClosed()
+            guard !isClosed else { throw IrxConnectionError.closed(nil) }
+            if connectionIsClosed {
+                // Reads and writes may still be unwinding on this pair. Keep
+                // their eventual close tied to this RPC generation's session.
+                await close()
+                throw IrxConnectionError.closed(nil)
+            }
             return pair
         }
         if let connectInFlight {

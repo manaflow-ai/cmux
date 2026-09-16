@@ -4,8 +4,9 @@
     "description": "Return to your terminal to finish setup."
   },
   "guestCLI": {
-    "topologyHelp": "Arrange this machine without restarting its terminals:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nUse IDs from cmux tree. Indices start at zero. A tab label belongs to one placement;\nterminal rename labels every current placement (no process is restarted).\nUse tab move for a terminal with several views so only the selected placement moves.\nFor a peer: cmux vm <workspace|pane|tab|terminal> <verb> <machine> ...\nSelector-first daemon syntax remains supported. Layout apply creates a new/empty\nworkspace; use move/swap/resize to rearrange an occupied one. These commands change\nthe daemon layout. On the Mac, open it with cmux vm workspace open <machine> <ws>.",
+    "topologyHelp": "Arrange this machine without restarting its terminals:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux workspace <selector> close [--json]\n  cmux workspace close --workspace <selector> [--focus false] [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nUse IDs from cmux tree. Indices start at zero. A tab label belongs to one placement;\nterminal rename labels every current placement (no process is restarted).\nUse tab move for a terminal with several views so only the selected placement moves.\nFor a peer: cmux vm <workspace|pane|tab|terminal> <verb> <machine> ...\nSelector-first daemon syntax remains supported. Layout apply creates a new/empty\nworkspace; use move/swap/resize to rearrange an occupied one. These commands change\nthe daemon layout. On the Mac, open it with cmux vm workspace open <machine> <ws>.\nClose accepts --focus false for compatibility, without an additional focus action.\n--focus true is unsupported. Revision and idempotency options pass through to the daemon.",
     "topologyUsage": "Invalid topology arguments. Run cmux workspace help for workspace, pane, tab, and terminal naming and layout commands.",
+    "topologyCloseFocus": "workspace close accepts --focus false only; use workspace focus <id> for an explicit focus action.",
     "topologyRenameTarget": "Cannot rename terminal %s: no exact terminal placements or versioned snapshot. Run cmux tree and use a terminal ID.",
     "topologyRenamePartial": "Terminal %s rename stopped after %s placement(s). Earlier changes remain; inspect cmux tree before retrying.",
     "topologyRenameReceipt": "Terminal %s returned an invalid or changed-generation rename receipt. Some labels may have changed; inspect cmux tree before retrying.",
@@ -294,7 +295,8 @@
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "title": "dashboard",
@@ -552,6 +554,24 @@
         "join": "Join iOS TestFlight",
         "leave": "Leave TestFlight"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "vault": {
@@ -1812,6 +1832,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: AI agents for Mac automation",
+      "metaDescription": "Let Claude Code and Codex control your Mac with cmux Computer Use. Automate native apps with screenshots, accessibility, clicks, typing, and keyboard input.",
+      "docsMetaTitle": "Computer Use setup and agent tools",
+      "docsMetaDescription": "Set up cmux Computer Use on macOS. Learn permissions, Claude Code and Codex tools, app targeting, session controls, skills, and troubleshooting.",
+      "tagline": "Let Claude Code and Codex control your Mac.",
+      "intro": "Give AI coding agents access to native Mac apps. Read app interfaces, take screenshots, click controls, and type text with cmux Computer Use.",
+      "imageAlt": "cmux Computer Use setup with Accessibility and Screenshots permission controls",
+      "caption": "Computer Use permissions are managed by a separate helper, so your terminal sessions stay open during onboarding.",
+      "featuresTitle": "Control native Mac apps",
+      "featureInspect": "Inspect app interfaces with accessibility trees and screenshots.",
+      "featureAct": "Click, type, scroll, drag, and use keyboard shortcuts in macOS apps.",
+      "featureReview": "Follow the agent’s visible cursor, inspect the result, and return to its calling terminal.",
+      "agentsTitle": "Your coding agents in cmux",
+      "agentsBody": "Run {agents} and other command-line agents in cmux.",
+      "supportTitle": "Supported agents",
+      "supportBody": "Native Computer Use tools attach automatically to Claude Code and Codex sessions launched inside cmux. Other agents can run in the terminal, but do not yet receive this automatic Mac-control integration.",
+      "setupTitle": "Get started",
+      "step1": "Install and open cmux for Mac. In Settings → Computer Use, enable Computer Use.",
+      "step2": "Use the permission controls to grant Accessibility and Screen Recording to cmux Computer Use in System Settings. If the helper is missing from the list, add or drag its app tile into the permission pane.",
+      "step3": "Start a new Claude Code or Codex session inside cmux. Ask it to use Computer Use and name the app and task. The tools connect automatically; no manual MCP configuration is required.",
+      "permissionsTitle": "Permissions and setup",
+      "permissionsBody": "Accessibility allows the helper to read and interact with app interfaces. Screen Recording allows it to capture screenshots. Grant both permissions to cmux Computer Use. Opening cmux or starting an agent does not grant access or open setup automatically.",
+      "tahoeBody": "On macOS Tahoe, approve the additional screen-capture confirmation during setup. Wait until cmux shows both permissions as granted before retrying the task.",
+      "promptTitle": "Try it with Calculator",
+      "prompt": "Use cmux Computer Use to open Calculator, click 100 + 105, and show me the result.",
+      "workflowBody": "Inspect the target first, act on controls from that snapshot, then inspect again to verify the result. Element indexes belong to the current snapshot; refresh them after navigation or layout changes. A successful click acknowledgement alone does not prove the task finished.",
+      "toolsTitle": "Agent tools",
+      "toolsBody": "cmux-cua is the bundled MCP server, which gives agents structured tools for native app control. These are tool names, not shell commands. The exact arguments depend on the agent profile; use the schemas attached to the session.",
+      "codexBody": "Codex uses get_app_state with an app name or bundle identifier to receive a screenshot and accessibility tree. Act on a current element_index or screenshot coordinates, then call get_app_state again. Its tool set is:",
+      "claudeBody": "Claude Code uses list_apps and list_windows to find a target, then get_window_state with its pid and window_id. Prefer element tokens or fresh indexes. The native profile also supports perform_actions for a group of actions that does not invalidate later targets.",
+      "controlTitle": "Follow and stop Computer Use",
+      "controlBody": "The Computer Use menu-bar item shows the active agent. Focus Computer Use follows the app it is driving; Focus Calling Terminal returns to the originating terminal. Returning to the terminal does not stop automation. Use the menu’s stop action to stop the driving session.",
+      "disableBody": "Turn off Computer Use in Settings to disable it. To exclude the tools from a new agent launch, set CMUX_COMPUTER_USE_MCP_DISABLED=1 before launching that agent.",
+      "skillTitle": "Skills",
+      "skillBody": "The cmux-cua skill explains the inspection and action workflow. It is optional and does not grant macOS permissions. Use your agent’s skill installer for a persistent installation; cmux does not install global skills by default.",
+      "skillLink": "Read the cmux-cua skill",
+      "browserTitle": "Native apps and browser automation",
+      "browserBody": "Computer Use operates native Mac windows through screenshots and accessibility. For cmux browser panes, use cmux browser commands for DOM snapshots, selectors, forms, and JavaScript. A browser surface reference is different from a native app element index.",
+      "browserLink": "Browser automation reference",
+      "troubleTitle": "Troubleshooting",
+      "missingTitle": "The agent has no Computer Use tools",
+      "missingBody": "Enable Computer Use in cmux Settings and start a fresh Claude Code or Codex session inside cmux. Existing sessions may retain their original tool configuration. Check that Computer Use is not disabled by an environment variable or a managed policy.",
+      "blockedTitle": "Setup is incomplete, clicks fail, or screenshots are blank",
+      "blockedBody": "Reopen Settings → Computer Use and finish both permission steps, including any extra capture confirmation. Retry after setup completes. If the helper needs to restart, your terminal sessions can remain open.",
+      "targetTitle": "The wrong window is targeted or a click is blocked",
+      "targetBody": "Inspect the app again and select a fresh element from its current state. If another window covers the target, reveal the intended window and inspect again before retrying. Do not reuse stale coordinates or element indexes.",
+      "productLink": "cmux Computer Use overview",
+    "copyTitle": "Copy a Computer Use prompt",
+    "copyPrompt": "Copy prompt",
+    "copiedPrompt": "Copied",
+    "installPrompt": "Use the $cmux-cua skill for this task. If it is unavailable, install it with your normal skill installer. If permissions are missing, ask me to open cmux Settings → Computer Use. Inspect before acting and verify after each change.\n\nTask: [describe the task here]"
+    },
     "base": {
       "title": "Base",
       "metaTitle": "Base cloud workspace",
@@ -3084,6 +3158,7 @@
       "envSocket": "Path to the cmux control socket for the shim to connect to"
     },
     "navItems": {
+      "computerUse": "Computer Use",
       "gettingStarted": "Getting Started",
       "tui": "cmux TUI",
       "concepts": "Concepts",
@@ -5532,6 +5607,7 @@
     "email": "Email",
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
-    "personalAccount": "personal account"
+    "personalAccount": "personal account",
+    "switchAccountButton": "Use a different account"
   }
 }
