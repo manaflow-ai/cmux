@@ -854,7 +854,7 @@ extension MobileShellComposite {
         }
     }
 
-    private func verifyTerminalRoundTrip(
+    func verifyTerminalRoundTrip(
         surfaceID: String,
         marker: String
     ) async throws {

@@ -7,6 +7,7 @@ Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expir
        [--staging-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
+       [--soak-profile <basic|stress>]
        [--production [--stack-env-file <secure-path>]]
 
 Automatic, relay-only, and relay-expiry build a tagged Mac app plus an isolated iOS Simulator
@@ -34,6 +35,8 @@ PRODUCTION=0
 STACK_ENV_FILE=""
 BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
+SOAK_PROFILE=""
+REPORT_TIMEOUT=480
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     --keep-simulator) KEEP_SIMULATOR=1; shift ;;
     --report-output) REPORT_OUTPUT="${2:-}"; shift 2 ;;
     --print-plan) PRINT_PLAN=1; shift ;;
+    --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -85,6 +89,18 @@ case "$MODE" in
   private-path) RAW_MODE=""; GATE_SCENARIO="standard"; GATE_PLAN="host-private-path-transport" ;;
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
+
+if [[ -n "$SOAK_PROFILE" ]]; then
+  [[ "$MODE" == automatic || "$MODE" == relay-only ]] || {
+    echo "error: soak requires automatic or relay-only mode" >&2; exit 2;
+  }
+  case "$SOAK_PROFILE" in
+    basic) REPORT_TIMEOUT=840 ;;
+    stress) REPORT_TIMEOUT=3840 ;;
+    *) echo "error: invalid soak profile" >&2; exit 2 ;;
+  esac
+  GATE_SCENARIO=standard
+fi
 
 if [[ "$PRODUCTION" -eq 1 && "$GATE_PLAN" == "host-private-path-transport" ]]; then
   echo "error: private-path proves the host transport contract and has no production environment" >&2
@@ -631,6 +647,7 @@ cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
 # notifyutil child so its timeout is bounded without polling the filesystem.
 SIMULATOR_ID="$SIMULATOR_ID" \
 REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
+REPORT_TIMEOUT="$REPORT_TIMEOUT" \
 /usr/bin/python3 <<'PY' &
 import os
 import subprocess
@@ -643,7 +660,7 @@ try:
         ],
         check=True,
         stdout=subprocess.DEVNULL,
-        timeout=480,
+        timeout=int(os.environ["REPORT_TIMEOUT"]),
     )
 except subprocess.TimeoutExpired:
     raise SystemExit("Iroh release gate report signal timed out")
@@ -664,6 +681,7 @@ fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
+CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
   2>&1 | sed -E \
@@ -685,6 +703,7 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
+  xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
   # The host owns admission and stream lifetime, so an iOS-only report cannot
@@ -699,7 +718,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   fi
 fi
 
-REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
+REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" EXPECTED_SOAK="$SOAK_PROFILE" /usr/bin/python3 <<'PY'
 import json
 import os
 
@@ -734,6 +753,7 @@ allowed_keys = {
     "failure",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
+    "soak",
 }
 allowed_paths = {
     "automatic": {"direct", "private_network", "managed_relay", "custom_relay"},
@@ -752,6 +772,29 @@ required_true = (
     "artifactScanCountVerified",
 )
 problems = []
+soak_profile = os.environ["EXPECTED_SOAK"]
+if soak_profile:
+    soak = report.get("soak") or {}
+    duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+        problems.append("soak profile or plan version mismatch")
+    if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
+        problems.append("soak did not complete its full observation window")
+    if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
+        problems.append("soak workload incomplete")
+    required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
+                           "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
+    if soak_profile == "stress":
+        required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
+                                "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
+                                "terminal_after_restore", "forced_reconnect", "terminal_after_reconnect"]
+    counts = soak.get("operationCounts", {})
+    for operation in required_operations:
+        minimum = cycles if operation in required_operations[:8] else cycles // 4
+        if operation in ("forced_reconnect", "terminal_after_reconnect"):
+            minimum = cycles // 120
+        if counts.get(operation, 0) < minimum:
+            problems.append("insufficient operation coverage: " + operation)
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
