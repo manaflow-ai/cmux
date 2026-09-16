@@ -30,7 +30,7 @@ if [ "$suite_list_status" -ne 0 ]; then
     exit "$suite_list_status"
   fi
 fi
-suite_list="$(printf '%s\n' "$suite_list_output" | sed -nE 's/^[^.]+\.([^/]+)\/.*$/\1/p' | sort -u)"
+suite_list="$(printf '%s\n' "$suite_list_output" | sed -nE 's/^[^.]+\.([A-Za-z_][A-Za-z0-9_]*)\/.*$/\1/p' | sort -u)"
 
 if [ -z "$suite_list" ]; then
   echo "no test suites discovered for $package_path" >&2

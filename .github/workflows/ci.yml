@@ -1959,7 +1959,7 @@ jobs:
             CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxTerminal)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
-            CmuxTerminal|CmuxTerminalCore)
+            CmuxTerminalCore)
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
