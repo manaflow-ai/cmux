@@ -317,7 +317,7 @@ struct CloudTreeMachineResourcesTests {
         store.setExpanded(false, node: workspaces)
         #expect(store.isExpanded(resources))
         #expect(!store.isExpanded(workspaces))
-        store.reconcile(nodes: [])
+        for _ in 0..<3 { store.reconcile(nodes: []) }
         let reloaded = CloudTreeExpansionStore(defaults: defaults)
         #expect(reloaded.isExpanded(workspaces), "removed dynamic rows do not leave stale collapsed state")
     }

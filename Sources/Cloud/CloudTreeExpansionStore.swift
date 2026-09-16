@@ -15,6 +15,7 @@ final class CloudTreeExpansionStore {
     private var collapsedMachineIDs: Set<String>
     private var collapsedNodeIDs: Set<String>
     private var expandedNodeIDs: Set<String>
+    private var missingNodePasses: [String: Int] = [:]
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -60,9 +61,25 @@ final class CloudTreeExpansionStore {
         let previousMachines = collapsedMachineIDs
         let previousCollapsed = collapsedNodeIDs
         let previousExpanded = expandedNodeIDs
-        collapsedNodeIDs.formIntersection(nodeIDs)
-        expandedNodeIDs.formIntersection(nodeIDs)
-        collapsedMachineIDs.formIntersection(machineIDs)
+        let trackedIDs = collapsedMachineIDs.union(collapsedNodeIDs).union(expandedNodeIDs)
+        let presentIDs = machineIDs.union(nodeIDs)
+        var removedIDs: Set<String> = []
+        for id in trackedIDs {
+            guard !presentIDs.contains(id) else {
+                missingNodePasses.removeValue(forKey: id)
+                continue
+            }
+            let passes = min((missingNodePasses[id] ?? 0) + 1, Self.missingNodePassThreshold)
+            if passes == Self.missingNodePassThreshold {
+                removedIDs.insert(id)
+                missingNodePasses.removeValue(forKey: id)
+            } else {
+                missingNodePasses[id] = passes
+            }
+        }
+        collapsedMachineIDs.subtract(removedIDs)
+        collapsedNodeIDs.subtract(removedIDs)
+        expandedNodeIDs.subtract(removedIDs)
         guard collapsedMachineIDs != previousMachines
             || collapsedNodeIDs != previousCollapsed
             || expandedNodeIDs != previousExpanded else { return }
@@ -70,4 +87,8 @@ final class CloudTreeExpansionStore {
         defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
         defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
     }
+
+    /// A refresh may publish an empty or partial tree; three absent passes
+    /// distinguish that transient state from a confirmed deletion.
+    private static let missingNodePassThreshold = 3
 }
