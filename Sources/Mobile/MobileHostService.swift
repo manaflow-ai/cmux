@@ -2076,7 +2076,7 @@ extension MobileHostService {
 
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
-    private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+    fileprivate static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     fileprivate static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     /// Bounded deadline for one control-lane event write. A peer that accepted
     /// the connection but stopped reading (TCP zero-window, QUIC flow-control
