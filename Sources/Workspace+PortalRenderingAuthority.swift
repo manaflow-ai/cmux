@@ -1,6 +1,14 @@
 import Foundation
 
 extension Workspace {
+#if DEBUG
+    /// Test seam: portal lifecycle tests host surfaces that belong to no
+    /// workspace, which the app authority reports as hidden. A test installs
+    /// its own authority so the portal exercises visible entries.
+    @MainActor
+    static var portalRenderingAuthorityOverrideForTesting: ((UUID?) -> Bool)?
+#endif
+
     /// Returns the authoritative portal-rendering state for a workspace id.
     ///
     /// Portal registries can outlive the SwiftUI representable that created an
@@ -9,13 +17,6 @@ extension Workspace {
     /// app delegate is limited to isolated registry tests, where no workspace
     /// lifecycle exists to authorize or deny a portal.
     @MainActor
-#if DEBUG
-    /// Test seam: portal lifecycle tests host surfaces that belong to no
-    /// workspace, which the app authority reports as hidden. A test installs
-    /// its own authority so the portal exercises visible entries.
-    static var portalRenderingAuthorityOverrideForTesting: ((UUID?) -> Bool)?
-#endif
-
     static func portalRenderingEnabled(for workspaceID: UUID?) -> Bool {
 #if DEBUG
         if let override = portalRenderingAuthorityOverrideForTesting { return override(workspaceID) }
