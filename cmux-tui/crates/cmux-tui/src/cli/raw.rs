@@ -48,8 +48,8 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
     #[cfg(unix)]
-    if plan.stream {
-        super::wire::arm_signal_interrupt(stream.as_ref());
+    if plan.stream && !super::wire::arm_signal_interrupt(stream.as_ref()) {
+        return 3;
     }
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader

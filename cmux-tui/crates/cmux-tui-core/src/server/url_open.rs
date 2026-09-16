@@ -211,7 +211,7 @@ mod tests {
         assert!(broker.claim(&id));
         assert!(!broker.claim(&id));
         assert!(broker.complete(&id, true));
-        assert_eq!(receiver.recv().unwrap(), true);
+        assert!(receiver.recv().unwrap());
         assert!(!broker.claim(&id));
     }
 
