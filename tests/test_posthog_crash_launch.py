@@ -36,6 +36,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     events = queue.Queue()
     batches = []
+    collector_contacted = threading.Event()
 
     class Collector(http.server.BaseHTTPRequestHandler):
         def do_POST(self):
@@ -43,6 +44,7 @@ def main():
             if self.headers.get("Content-Encoding") == "gzip":
                 body = gzip.decompress(body)
             payload = json.loads(body)
+            collector_contacted.set()
             batches.append({"path": self.path, "payload": payload})
             for event in payload.get("batch", []):
                 if event.get("event") == "$exception":
@@ -53,6 +55,7 @@ def main():
             self.wfile.write(b'{"status":1,"featureFlags":{},"errorsWhileComputingFlags":false}')
 
         def do_GET(self):
+            collector_contacted.set()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -153,6 +156,11 @@ def main():
                 raise AssertionError(f"Unexpected exception for {label}: {unexpected}")
 
         try:
+            # Prove the built app accepts the loopback SDK host before creating
+            # synthetic crash data. Older builds fail without uploading fixtures.
+            launch("collector-preflight")
+            assert collector_contacted.wait(timeout=45), "App did not contact the loopback collector"
+            stop()
             fixture("first", "0.64.22")
             launch("first")
             captured = [receive("0.64.22")]
