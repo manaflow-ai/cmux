@@ -47,9 +47,8 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
   }
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
-      <div className="min-w-0 flex-1">
-        <Menu.Root>
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <Menu.Root>
           <Menu.Trigger
             className="flex w-full min-w-0 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
             aria-label={t("label")}
@@ -78,6 +77,10 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                     <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                   ) : null}
                 </div>
+                <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
+                  <SettingsIcon />
+                  <span>{t("settings")}</span>
+                </Menu.Item>
                 <Menu.Item
                   className={menuItemClass}
                   closeOnClick={false}
@@ -131,15 +134,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
               </Menu.Popup>
             </Menu.Positioner>
           </Menu.Portal>
-        </Menu.Root>
-      </div>
-      <Link
-        href="/dashboard/team"
-        aria-label={t("settings")}
-        className="inline-flex size-8 shrink-0 items-center justify-center text-muted outline-none hover:bg-code-bg hover:text-foreground focus-visible:bg-code-bg"
-      >
-        <SettingsIcon />
-      </Link>
+      </Menu.Root>
     </div>
   );
 }
