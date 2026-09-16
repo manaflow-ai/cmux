@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Deterministically sort the high-churn sections of cmux.xcodeproj/project.pbxproj.
+Validate object identities and sort high-churn sections of project.pbxproj.
+
+Object IDs must be unique across the objects dictionary. Duplicate definitions
+silently replace each other in Xcode, and sorting can change which one wins.
+Reject them before normalizing or checking the project.
 
 What we sort:
   - Every entry inside PBXBuildFile and PBXFileReference (Xcode picks
@@ -31,6 +35,10 @@ from pathlib import Path
 DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
 
 ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
+OPENSTEP_TOKEN_RE = re.compile(
+    r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|[{}=;(),]|[^\s{}=;(),"]+',
+    re.DOTALL,
+)
 
 # Sections we sort flat. Every entry is a single line of the form
 #   <UUID> /* <label> */ = { ... };
@@ -48,6 +56,45 @@ BUILD_PHASE_SECTIONS = (
     "PBXFrameworksBuildPhase",
     "PBXCopyFilesBuildPhase",
 )
+
+
+def validate_object_ids(text: str) -> None:
+    """Reject repeated keys in the global objects dictionary, not references.
+
+    Track dictionary nesting in the token stream so quoted build scripts,
+    comments, and nested TargetAttributes keys cannot masquerade as objects.
+    IDs are not restricted to 24 hex characters: older and hand-edited projects
+    use shorter IDs, including the collision that broke nightly in #12736.
+    """
+    dictionaries: list[str | None] = []
+    previous: list[str] = []
+    definitions: dict[str, int] = {}
+    duplicates: list[str] = []
+    line = 1
+    end = 0
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        line += text[end:match.start()].count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if token.startswith(("/*", "//")):
+            continue
+        if token == "{":
+            key = previous[-2].strip('"') if len(previous) == 2 and previous[-1] == "=" else None
+            if dictionaries == [None, "objects"] and key is not None:
+                if key in definitions:
+                    duplicates.append(
+                        f"duplicate object ID {key} (lines {definitions[key]} and {token_line})"
+                    )
+                else:
+                    definitions[key] = token_line
+            dictionaries.append(key)
+        elif token == "}" and dictionaries:
+            dictionaries.pop()
+        previous = (previous + [token])[-2:]
+    if duplicates:
+        raise ValueError("; ".join(duplicates))
 
 
 def entry_sort_key(line: str) -> tuple[str, str]:
@@ -111,6 +158,7 @@ def sort_build_phase_files(lines: list[str], section: str) -> list[str]:
 
 
 def normalize(text: str) -> str:
+    validate_object_ids(text)
     lines = text.splitlines(keepends=True)
     for section in FLAT_SECTIONS:
         lines = sort_flat_section(lines, section)
@@ -129,7 +177,11 @@ def main(argv: list[str]) -> int:
         return 2
 
     original = path.read_text()
-    normalized = normalize(original)
+    try:
+        normalized = normalize(original)
+    except ValueError as error:
+        print(f"error: {path}: {error}", file=sys.stderr)
+        return 1
 
     if check_only:
         if original != normalized:

@@ -2,6 +2,7 @@
 # CI guard for cmux.xcodeproj/project.pbxproj.
 # Fails when:
 #   - objectVersion drifts from the pinned value (Xcode major leak)
+#   - object IDs collide (Xcode silently replaces one definition with another)
 #   - the file is not normalized (someone bypassed the pre-commit hook)
 set -euo pipefail
 
