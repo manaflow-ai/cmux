@@ -88,6 +88,8 @@ jobs:
       package_pypi: true
       include_windows: true
       attest_packages: true
+      # Match stable native packages; the Cloudflare Worker deploys separately.
+      build_cloudflare_relay: false
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}

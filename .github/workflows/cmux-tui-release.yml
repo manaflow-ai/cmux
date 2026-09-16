@@ -87,6 +87,9 @@ jobs:
       package_pypi: true
       include_windows: true
       attest_packages: true
+      # The Cloudflare Worker is deployed separately and is not shipped in
+      # these native packages. Keep its tests in its own verification lane.
+      build_cloudflare_relay: false
 
   dispatch-publishers:
     name: dispatch verified artifacts to registries
