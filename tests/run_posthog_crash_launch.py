@@ -15,6 +15,8 @@ import plistlib
 import queue
 import re
 import signal
+import select
+import time
 import subprocess
 import tempfile
 import threading
@@ -116,6 +118,25 @@ def main():
             envelope = b'{}\n' + json.dumps({"type": "event", "length": len(payload)}).encode()
             (crash_dir / f"{name}.ghosttycrash").write_bytes(envelope + b'\n' + payload + b'\n')
 
+        def wait_for(predicate, description, directory):
+            descriptor = os.open(directory, os.O_RDONLY)
+            changes = select.kqueue()
+            try:
+                changes.control([select.kevent(descriptor, filter=select.KQ_FILTER_VNODE,
+                                               flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                               fflags=select.KQ_NOTE_WRITE)], 0, 0)
+                deadline = time.monotonic() + 60
+                while not predicate():
+                    assert process.poll() is None, f"App exited before {description} completed"
+                    remaining = deadline - time.monotonic()
+                    assert remaining > 0, f"Timed out waiting for {description}"
+                    # cfprefsd can acknowledge a write before persisting it, so
+                    # bound IPC checks even when no filesystem event fires.
+                    changes.control(None, 1, min(remaining, 1))
+            finally:
+                changes.close()
+                os.close(descriptor)
+
         def stop():
             nonlocal process, log
             if process is not None:
@@ -147,6 +168,10 @@ def main():
             nonlocal process, log
             subprocess.run(["defaults", "write", bundle_id, "sendAnonymousTelemetry", "-bool",
                             "true" if enabled else "false"], check=True)
+            # Force every launch to revisit the artifact. Otherwise the crash
+            # notification's marker can hide a broken analytics dedupe gate.
+            for key in ["ghosttyCrashBreadcrumb.lastShownCrashAt", "ghosttyCrashBreadcrumb.lastCleanExitAt"]:
+                subprocess.run(["defaults", "delete", bundle_id, key], capture_output=True)
             log_path = args.output.resolve() / f"{label}.log"
             log = log_path.open("wb")
             # LaunchServices places the app in the logged-in desktop session;
@@ -158,6 +183,9 @@ def main():
                         "CMUXTERM_REPO_ROOT"]:
                 command.extend(["--env", f"{key}={env[key]}"])
             process = subprocess.Popen(command, cwd=root, env=env, stdout=log, stderr=log)
+            # Wait for the launched process, not just the asynchronous `open`
+            # request, so a failed assertion cannot race launch and leak an app.
+            wait_for(socket_path.exists, "debug socket", socket_path.parent)
 
         def receive(version, native=False):
             event = events.get(timeout=60)
@@ -177,9 +205,19 @@ def main():
             assert process.poll() is None, "App exited during capture"
             return event
 
+        def wait_for_crash_scan():
+            # markShown is written only after AppDelegate has awaited its
+            # pending-crash scan and scheduled the analytics capture path.
+            def completed():
+                return subprocess.run(["defaults", "read", bundle_id,
+                                       "ghosttyCrashBreadcrumb.lastShownCrashAt"],
+                                      capture_output=True).returncode == 0
+            wait_for(completed, "crash scan", Path.home() / "Library/Preferences")
+
         def assert_quiet(label):
-            # A negative assertion needs an observation window. The local SDK
-            # collector flushes each event immediately (flushAt=1).
+            wait_for_crash_scan()
+            # After proven scan completion, allow asynchronous SDK HTTP delivery
+            # within a bounded negative assertion. flushAt=1 disables batching.
             try:
                 unexpected = events.get(timeout=8)
             except queue.Empty:
