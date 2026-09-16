@@ -27,6 +27,7 @@ extension Workspace {
         let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
+        var surfaceMachine: SurfaceMachineID? = nil
         let title: String
         let icon: String?
         let iconImageData: Data?
@@ -88,6 +89,7 @@ extension Workspace {
                 sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
+                surfaceMachine: surfaceMachine,
                 title: title,
                 icon: icon,
                 iconImageData: iconImageData,

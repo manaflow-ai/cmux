@@ -135,6 +135,8 @@ extension SurfaceCatalog {
         reuseExisting: Bool,
         reuseInWorkspace: UUID? = nil
     ) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
+        try validateOwnership(of: [id], at: destination)
         guard case .cloud = machine, (1...65_535).contains(port) else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.port.invalidMachine", defaultValue: "Ports can only be opened on a cloud machine.")
@@ -147,7 +149,6 @@ extension SurfaceCatalog {
             throw SurfaceCatalogError.unsupported(Self.portPreviewUnavailableMessage(machineID: machine.rawValue))
         }
 
-        let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
         let directURL = provider.info.privateAddress.map {
             CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
         }
