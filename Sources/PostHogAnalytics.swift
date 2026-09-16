@@ -85,6 +85,11 @@ final class PostHogAnalytics: @unchecked Sendable {
 #endif
 
     private var isEnabled: Bool {
+        // XCTest hosts can inherit the production PostHog configuration. Keep
+        // test launches from initializing the SDK or sending crash telemetry.
+        guard !MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment) else {
+            return false
+        }
         guard telemetryEnabled() else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
