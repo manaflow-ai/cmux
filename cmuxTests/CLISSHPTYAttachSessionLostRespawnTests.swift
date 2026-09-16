@@ -257,7 +257,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(raw: line)
             }
             let params = payload["params"] as? [String: Any] ?? [:]
-            if method != "workspace.remote.pty_attach_end" {
+            if method == "workspace.remote.pty_bridge" || method == "workspace.remote.pty_sessions" {
                 XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
             }
             switch method {
@@ -348,7 +348,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 return self.malformedRequestResponse(raw: line)
             }
             let params = payload["params"] as? [String: Any] ?? [:]
-            if method != "workspace.remote.pty_attach_end" {
+            if method == "workspace.remote.pty_bridge" || method == "workspace.remote.pty_sessions" {
                 XCTAssertEqual(params["lifecycle_id"] as? String, lifecycleId)
             }
             switch method {
