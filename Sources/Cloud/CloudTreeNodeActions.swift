@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
@@ -419,6 +418,7 @@ struct CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         name: String?,
         focus: Bool,
+        preferredTabManager: TabManager? = nil,
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
@@ -456,7 +456,7 @@ struct CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .appOptimistic
+            host: .appOptimisticPinned(to: preferredTabManager)
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,

@@ -1,13 +1,16 @@
 import CmuxFoundation
 import SwiftUI
-
 enum CloudTreeRowGrid {
-    /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
+    /// Shared horizontal contract for the AppKit disclosure frame and hosted row content.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 4
+    static let disclosureGap: CGFloat = 6
+    /// Fixed leading accessory columns. Pinning never moves the icon/title column.
+    static let attentionSlot: CGFloat = 10
+    static let pinSlot: CGFloat = 14
+    static let accessoryGap: CGFloat = 4
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
-    static let dotGap: CGFloat = 8
+    static let dotGap: CGFloat = 6
     /// Space between a title and its dim detail text.
     static let detailGap: CGFloat = 6
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
@@ -16,7 +19,6 @@ enum CloudTreeRowGrid {
     static let trailingPadding: CGFloat = CloudTreeLayoutMetrics().referenceInset
     static let machineLineSpacing: CGFloat = 1
 }
-
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
     static let terminal = Color.indigo
@@ -24,11 +26,9 @@ enum CloudTreeIconPalette {
     static let browser = Color.orange
     static let machine = Color.accentColor
 }
-
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
-
     private static func nonEmptyTrimmed(_ value: String?) -> String? {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

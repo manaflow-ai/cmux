@@ -2,24 +2,20 @@ import CmuxCloudMachines
 import AppKit
 import CmuxSettings
 import SwiftUI
-
 enum CloudVMPanelAuthState: Equatable {
     case checking
     case signedOut
     case signedIn
-
     static func resolve(isAuthenticated: Bool, isWorkingOnAuth: Bool) -> Self {
         if isAuthenticated { return .signedIn }
         if isWorkingOnAuth { return .checking }
         return .signedOut
     }
-
     /// Whether a native Cloud VM operation may start in this state.
     var allowsAuthenticatedOperation: Bool {
         self == .signedIn
     }
 }
-
 struct MachinesPanelView: View {
     @StateObject private var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
@@ -28,29 +24,25 @@ struct MachinesPanelView: View {
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
-
-
-    init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
+    init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(defaultMachineStore: defaultMachineStore))
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(machinePinStore: CloudMachinePinStore(defaults: .standard, scopeProvider: {
+                guard let flow = AppDelegate.shared?.auth?.accountFlow,
+                      let userID = flow.currentIdentity?.id,
+                      !userID.isEmpty else { return nil }
+                return "user:\(userID)|team:\(flow.selectedTeamID ?? "personal")"
+            })))
     }
-
-    init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
-        self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
-    }
-
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
-
     private var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             isWorkingOnAuth: accountFlow?.isCompletingSignIn == true
         )
     }
-
     var body: some View {
         VStack(spacing: 0) {
             switch authState {
@@ -65,9 +57,15 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+            viewModel.machinePinStore?.refreshScope()
         }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
+        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+            viewModel.machinePinStore?.refreshScope()
+            viewModel.refresh()
+        }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            viewModel.machinePinStore?.refreshScope()
+            viewModel.refresh()
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -77,7 +75,6 @@ struct MachinesPanelView: View {
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
-
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
@@ -96,7 +93,6 @@ struct MachinesPanelView: View {
             viewModel.resetForAuthTransition()
         }
     }
-
     private var controlBar: some View {
         HStack(spacing: 6) {
             Group {
@@ -433,8 +429,8 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
+        machineActions.setPinned = { [weak viewModel] id, pinned in
+            viewModel?.setMachinePinned(pinned, id: id)
         }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
@@ -457,8 +453,12 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
+            selection: AppDelegate.shared?.cloudTreeSelection(for: tabManager) ?? .empty,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            onSelectionChange: { [weak tabManager] selection in
+                AppDelegate.shared?.setCloudTreeSelection(selection, in: tabManager)
+            }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -728,8 +728,8 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
-    /// Persist the machine used by Cmd+Y.
-    var setDefault: @MainActor (String) -> Void = { _ in }
+    /// Toggles the explicit pin state for a machine.
+    var setPinned: @MainActor (String, Bool) -> Void = { _, _ in }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 

@@ -1,7 +1,6 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
-
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
 /// (cmux-tui on a machine, or the local workspace that projects a terminal), a
@@ -68,11 +67,11 @@ final class CloudTreeNode: NSObject {
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
-    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
         self.children = children
-        self.explicitDragGroup = dragGroup
+        self.explicitDragGroup = dragGroup; self.isPinned = isPinned
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -577,7 +576,8 @@ enum CloudTreeNodeBuilder {
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex
-                )
+                ),
+                isPinned: machine.isPinned
             ))
         }
         // Machines the catalog knows but the fleet list has not returned yet (or

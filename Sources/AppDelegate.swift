@@ -621,6 +621,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        /// The Machines tree selection and machine context owned by this window.
+        var cloudTreeSelection = CloudTreeSelection.empty
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -8452,11 +8454,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "newWorkspace"
     ) -> Bool {
-        performNewWorkspaceCreationAction(
-            initialSurface: .terminal,
-            preferredTabManager: preferredTabManager,
-            event: event,
-            debugSource: debugSource
+        return performNewWorkspaceSelectionAwareAction(
+            tabManager: preferredTabManager, event: event, debugSource: debugSource
         )
     }
 
@@ -8626,7 +8625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func performNewWorkspaceCreationAction(
+    func performNewWorkspaceCreationAction(
         initialSurface: NewWorkspaceInitialSurface,
         preferredTabManager: TabManager?,
         event: NSEvent?,
@@ -15180,7 +15179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudWorkspaceOnDefaultMachineAction(
+            return performNewCloudWorkspaceFromSelectionAction(
                 preferredWindow: mainWindowForShortcutEvent(event),
                 debugSource: "shortcut.cmdY"
             )
@@ -17649,7 +17648,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .newCloudWorkspace:
-                let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
+                let didStart = performNewCloudWorkspaceFromSelectionAction(
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.newCloudWorkspace",
                     destination: destination

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
@@ -15,6 +16,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var pendingCreates: [MachineCreateOperation] = []
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
+    var selection = CloudTreeSelection.empty; var onSelectionChange: @MainActor (CloudTreeSelection) -> Void = { _ in }
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
@@ -44,6 +46,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
+            selection: selection, onSelectionChange: onSelectionChange,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -59,6 +62,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.selection = selection; context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -81,7 +85,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
-        private var selectedNodeID: String?
+        var selection: CloudTreeSelection
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -101,17 +105,20 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+        var onSelectionChange: @MainActor (CloudTreeSelection) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
+            selection: CloudTreeSelection = .empty, onSelectionChange: @escaping @MainActor (CloudTreeSelection) -> Void = { _ in },
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
+            self.selection = selection; self.onSelectionChange = onSelectionChange
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -222,12 +229,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             outlineView.indentationPerLevel = style.indentPerLevel
             reloadDataAndRestoreState(in: outlineView)
         }
-
         /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
         }
-
         /// Applies a snapshot immediately after a destination accepted a drop.
         /// AppKit's source session may send `endedAt` later, but the destination
         /// is complete and the user should see the new order now.
@@ -235,7 +240,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             deferredNodes = nil
             apply(nodes: nodes, allowDuringNativeDrag: true)
         }
-
         private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
             if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
@@ -275,8 +279,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 restoreExpansion(in: outlineView)
                 restoreSelection(in: outlineView)
             }
+            publishSelectedMachineSelection()
         }
-
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
@@ -314,7 +318,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func restoreSelection(in outlineView: NSOutlineView) {
-            guard let selectedNodeID else { return }
+            guard let selectedNodeID = selection.nodeID else { return }
             for row in 0..<outlineView.numberOfRows {
                 if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -328,7 +332,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             isUpdatingProgrammatically = false
         }
         // MARK: NSOutlineViewDataSource
-
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
             guard let node = item as? CloudTreeNode else { return nodes.count }
             return node.children.count
@@ -368,9 +371,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isUpdatingProgrammatically, let outlineView else { return }
-            selectedNodeID = outlineView.selectedRow >= 0
-                ? (outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode)?.id
-                : nil
+            let node = outlineView.selectedRow >= 0 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode : nil
+            let next = CloudTreeSelection(nodeID: node?.id, machine: machineSelection(for: node)); selection = next; onSelectionChange(next)
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
@@ -775,15 +777,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if machine.freeAccess == .expired {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
-                if machine.isDefault {
-                    let defaultItem = item(String(localized: "machines.menu.defaultMachine", defaultValue: "Default Machine")) { }
-                    defaultItem.isEnabled = false
-                    items.append(defaultItem)
-                } else {
-                    items.append(item(String(localized: "machines.menu.setDefaultMachine", defaultValue: "Set as Default Machine")) {
-                        actions.setDefault(id)
-                    })
-                }
+                items.append(item(
+                    machine.isPinned
+                        ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
+                        : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
+                ) {
+                    actions.setPinned(id, !machine.isPinned)
+                })
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
                 items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {

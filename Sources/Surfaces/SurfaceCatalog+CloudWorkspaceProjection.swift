@@ -63,3 +63,20 @@ extension SurfaceCatalog {
     }
 
 }
+
+extension SurfaceCatalog.NewWorkspaceHost {
+    /// Interactive Cloud projection pinned to the window that initiated creation.
+    @MainActor
+    static func appOptimisticPinned(to preferredTabManager: TabManager?) -> Self {
+        var host = Self.appOptimistic
+        guard let preferredTabManager else { return host }
+        host.create = { [weak preferredTabManager] title in
+            guard let preferredTabManager,
+                  let workspace = preferredTabManager.addWorkspaceIfActive(title: title, select: true) else {
+                throw SurfacePaneFactory.FactoryError.workspaceNotFound(UUID())
+            }
+            return (workspace.id, workspace.focusedPanelId)
+        }
+        return host
+    }
+}

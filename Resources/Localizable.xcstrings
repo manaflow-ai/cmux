@@ -1889,6 +1889,48 @@
         }
       }
     },
+    "cloudWorkspace.creation.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn’t create Cloud workspace"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Cloud-Arbeitsbereich konnte nicht erstellt werden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Impossible de créer l’espace de travail Cloud"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إنشاء مساحة عمل Cloud"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo crear el espacio de trabajo de Cloud"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法建立 Cloud 工作區"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法创建 Cloud 工作区"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 워크스페이스를 생성할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloudワークスペースを作成できません"}}
+      }
+    },
+    "cloudWorkspace.creation.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The workspace could not be created on %@. %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Arbeitsbereich konnte auf %@ nicht erstellt werden. %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’espace de travail n’a pas pu être créé sur %@. %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذر إنشاء مساحة العمل على %@. %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No se pudo crear el espacio de trabajo en %@. %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法在 %@ 上建立工作區。%@"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "无法在 %@ 上创建工作区。%@"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@에서 워크스페이스를 생성할 수 없습니다. %@"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@でワークスペースを作成できませんでした。%@"}}
+      }
+    },
+    "cloudWorkspace.creation.failed.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The selected Cloud machine is unavailable."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die ausgewählte Cloud-Maschine ist nicht verfügbar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La machine Cloud sélectionnée est indisponible."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جهاز Cloud المحدد غير متاح."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La máquina de Cloud seleccionada no está disponible."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "所選的 Cloud 機器無法使用。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "所选 Cloud 机器不可用。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "선택한 Cloud 머신을 사용할 수 없습니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "選択したCloudマシンは利用できません。"}}
+      }
+    },
     "cloudTree.menu.pin": {
       "extractionState": "manual",
       "localizations": {
@@ -235762,6 +235804,34 @@
             "value": "“%@” 이름 바꾸기"
           }
         }
+      }
+    },
+    "machines.row.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pin Machine"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Maschine anheften"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Épingler la machine"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تثبيت الجهاز"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Fijar máquina"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "釘選機器"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "固定机器"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "머신 고정"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンをピン留め"}}
+      }
+    },
+    "machines.row.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Unpin Machine"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Maschine lösen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Désépingler la machine"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء تثبيت الجهاز"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desfijar máquina"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消釘選機器"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消固定机器"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "머신 고정 해제"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンのピン留めを解除"}}
       }
     },
     "machines.row.delete": {
@@ -522657,506 +522727,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Нова хмарна машина"
-          }
-        }
-      }
-    },
-    "machines.menu.defaultMachine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default Machine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトマシン"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaschine"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machine par défaut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina predeterminada"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macchina predefinita"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본 머신"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預設機器"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина по умолчанию"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الجهاز الافتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podrazumijevana mašina"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskine"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ាស៊ីនលំនាំដើម"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maszyna domyślna"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsayılan makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина за замовчуванням"
-          }
-        }
-      }
-    },
-    "machines.menu.setDefaultMachine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set as Default Machine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトマシンに設定"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Als Standardmaschine festlegen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Définir comme machine par défaut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Establecer como máquina predeterminada"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Imposta come macchina predefinita"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본 머신으로 설정"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "设为默认机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "設為預設機器"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Definir como máquina padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сделать машиной по умолчанию"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تعيين كجهاز افتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Postavi kao podrazumijevanu mašinu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indstil som standardmaskine"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "កំណត់ជាម៉ាស៊ីនលំនាំដើម"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Angi som standardmaskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ustaw jako maszynę domyślną"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตั้งเป็นเครื่องเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsayılan makine olarak ayarla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Зробити машиною за замовчуванням"
-          }
-        }
-      }
-    },
-    "machines.row.default.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default machine for New Cloud Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規クラウドワークスペースのデフォルトマシン"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaschine für neuen Cloud-Arbeitsbereich"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machine par défaut du nouvel espace cloud"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina del espacio cloud predeterminado"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macchina predefinita del nuovo spazio cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "새 클라우드 워크스페이스의 기본 머신"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新建云工作区的默认机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新增雲端工作區的預設機器"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina padrão do novo espaço na nuvem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина по умолчанию для нового облачного пространства"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الجهاز الافتراضي لمساحة عمل سحابية جديدة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podrazumijevana mašina za novi radni prostor u oblaku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskine til nyt cloud-arbejdsområde"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ាស៊ីនលំនាំដើមសម្រាប់កន្លែងធ្វើការលើពពកថ្មី"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskin for nytt skyarbeidsområde"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Domyślna maszyna dla nowego obszaru roboczego w chmurze"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องเริ่มต้นสำหรับเวิร์กสเปซคลาวด์ใหม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yeni bulut çalışma alanı için varsayılan makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина за замовчуванням для нового хмарного робочого простору"
-          }
-        }
-      }
-    },
-    "machines.row.default.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default machine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デフォルトマシン"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaschine"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Machine par défaut"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina predeterminada"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Macchina predefinita"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "기본 머신"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "默认机器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "預設機器"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Máquina padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина по умолчанию"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الجهاز الافتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podrazumijevana mašina"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskine"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ម៉ាស៊ីនលំនាំដើម"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standardmaskin"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maszyna domyślna"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เครื่องเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Varsayılan makine"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Машина за замовчуванням"
           }
         }
       }

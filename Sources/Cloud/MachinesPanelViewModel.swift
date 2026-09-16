@@ -1,11 +1,9 @@
 import CmuxCloudMachines
 import Foundation
 import SwiftUI
-
 extension Notification.Name {
     static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
 }
-
 /// One machine row's immutable render state. Rows below the lazy-list boundary
 /// receive only these snapshots plus a closure bundle (snapshot-boundary rule).
 struct MachineSnapshot: Equatable, Identifiable {
@@ -18,7 +16,6 @@ struct MachineSnapshot: Equatable, Identifiable {
         /// Anything the backend reports that isn't a healthy machine.
         case attention(String)
     }
-
     /// Where a machine stands in the free plan's access window. The backend is
     /// the enforcement point (402 on access verbs); this mirrors it so the row
     /// can show the countdown and route a locked machine to the upgrade flow
@@ -31,7 +28,6 @@ struct MachineSnapshot: Equatable, Identifiable {
         /// Past the window: preserved but locked until the plan is upgraded.
         case expired
     }
-
     let id: String
     let provider: String
     let image: String
@@ -55,9 +51,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
-    /// True when this is the machine used by the quick cloud-workspace shortcut.
-    var isDefault: Bool = false
-
+    /// True when the user explicitly pinned this machine in the Cloud tree.
+    var isPinned: Bool = false
     /// The label when set, else the generated name, else the machine id.
     var displayName: String {
         if let label, !label.isEmpty { return label }
@@ -240,14 +235,15 @@ final class MachinesPanelViewModel: ObservableObject {
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
 
-    func setDefaultMachine(id: String) {
+    func setMachinePinned(_ pinned: Bool, id: String) {
         guard machines.contains(where: { $0.id == id }) else { return }
-        defaultMachineStore?.machineID = id
+        machinePinStore?.setPinned(pinned, machineID: id)
         machines = machines.map { machine in
             var next = machine
-            next.isDefault = machine.id == id
+            next.isPinned = machine.id == id ? pinned : machine.isPinned
             return next
         }
+        machines = orderedMachines(machines)
     }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
@@ -293,10 +289,10 @@ final class MachinesPanelViewModel: ObservableObject {
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
 
-    let defaultMachineStore: DefaultCloudMachineStore?
+    let machinePinStore: CloudMachinePinStore?
 
-    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil) {
-        self.defaultMachineStore = defaultMachineStore
+    init(createCoordinator: MachineCreateCoordinator? = nil, machinePinStore: CloudMachinePinStore? = nil) {
+        self.machinePinStore = machinePinStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
@@ -660,15 +656,13 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
-            let defaultMachineID = defaultMachineStore?.resolveMachineID(
-                from: snapshots.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.isDesktop) },
-                isComplete: true
-            )
+            machinePinStore?.reconcile(machineIDs: snapshots.map(\.id))
             snapshots = snapshots.map { snapshot in
                 var next = snapshot
-                next.isDefault = snapshot.id == defaultMachineID
+                next.isPinned = machinePinStore?.isPinned(snapshot.id) == true
                 return next
             }
+            snapshots = orderedMachines(snapshots)
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
@@ -701,5 +695,11 @@ final class MachinesPanelViewModel: ObservableObject {
         }
         isLoading = false
         hasLoadedOnce = true
+    }
+
+    private func orderedMachines(_ snapshots: [MachineSnapshot]) -> [MachineSnapshot] {
+        guard let machinePinStore else { return snapshots }
+        let byID = Dictionary(snapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return machinePinStore.orderedMachineIDs(snapshots.map(\.id)).compactMap { byID[$0] }
     }
 }
