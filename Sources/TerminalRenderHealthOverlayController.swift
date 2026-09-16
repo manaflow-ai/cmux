@@ -8,14 +8,17 @@ final class TerminalRenderHealthOverlayController {
     private weak var surface: TerminalSurface?
     private var overlay: TerminalRenderHealthOverlayView?
     private var latestFrame: NSRect?
+    private var subscriptionID = UUID()
 
     func attach(host: NSView, surface: TerminalSurface) {
         self.host = host
         self.surface?.setRenderHealthChangeHandler(nil)
         self.surface = surface
-        surface.setRenderHealthChangeHandler { [weak self, weak surface] health in
-            Task { @MainActor [weak self, weak surface] in
-                guard let self, let surface, self.surface === surface else { return }
+        let subscriptionID = UUID()
+        self.subscriptionID = subscriptionID
+        surface.setRenderHealthChangeHandler { [weak self] health in
+            Task { @MainActor [weak self] in
+                guard let self, self.subscriptionID == subscriptionID, self.surface != nil else { return }
                 self.apply(health)
             }
         }

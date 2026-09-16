@@ -8813,15 +8813,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ) ?? false
             return routed ? .routedToRemote : .failed
         }
-        // A split next to a pane projecting a cloud resource creates the terminal ON
-        // that machine and projects it back (Workspace+CloudPaneRouting). Only plain
-        // requests route: an explicit command or input, cwd, PTY session, or restore
-        // scaffold is local-terminal by construction (including attach panes whose
-        // initialCommand is the attach argv).
-        if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
-           remotePTYSessionID == nil, workingDirectory == nil,
-           !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus) {
+        // User commands inherit execution ownership; only explicit local context
+        // (including provider materialization) bypasses the Cloud route.
+        if !suppressWorkspaceRemoteStartupCommand,
+           routeCloudPaneTerminalSplit(from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus,
+               options: CloudTerminalLaunchOptions(command: initialCommand, workingDirectory: workingDirectory,
+                   input: initialInput, tmuxStartCommand: tmuxStartCommand, remotePTYSessionID: remotePTYSessionID,
+                   environment: startupEnvironment)) {
             return .routedToRemote
         }
         guard let panel = newTerminalSplitLocal(
@@ -9136,15 +9134,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) ?? false
             return routed ? .routedToRemote : .failed
         }
-        // A new tab in a pane whose selected tab projects a cloud resource creates the
-        // terminal ON that machine (Workspace+CloudPaneRouting). Only plain requests
-        // route; an explicit command, cwd, input, restore payload, or PTY session is a
-        // local-terminal request by construction (including the attach panes the routed
-        // create itself materializes, whose initialCommand is the attach argv).
-        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
-           workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
-           restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
-           routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)) {
+        // Restore scaffolds and explicit local materialization remain local.
+        // A user's command/cwd/input never silently changes execution machines.
+        if startupRestoreAgent == nil, restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
+           routeCloudPaneTerminalTab(inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId),
+               options: CloudTerminalLaunchOptions(command: initialCommand, workingDirectory: workingDirectory,
+                   input: initialInput, tmuxStartCommand: tmuxStartCommand, remotePTYSessionID: remotePTYSessionID,
+                   environment: startupEnvironment)) {
             return .routedToRemote
         }
         guard let panel = newTerminalSurfaceLocal(
@@ -11642,6 +11638,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
+        if let pane = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first,
+           routeCloudPaneTerminalTab(inPane: pane, focus: true) {
+            return focusedPanelId.flatMap { terminalPanel(for: $0) }
+        }
         var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
@@ -14377,14 +14377,8 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
-        //
-        // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"
-        // tab in the source pane to avoid leaving it tabless. In cmux, this is undesirable:
-        // it creates a pane with no real surfaces and leaves an "Empty" tab in the tab bar.
-        //
-        // Replace placeholder-only source panes with a real terminal surface, then drop the
-        // placeholder tabs so the UI stays consistent and pane lists don't contain empties.
+        // Drag-to-split leaves a placeholder when moving the source's only tab.
+        // Its replacement inherits the workspace's execution machine.
         if !controller.tabs(inPane: newPane).isEmpty {
             let originalTabs = controller.tabs(inPane: originalPane)
             let hasRealSurface = originalTabs.contains { panelIdFromSurfaceId($0.id) != nil }
@@ -14404,7 +14398,9 @@ extension Workspace: BonsplitDelegate {
                     "action=reusePlaceholder placeholderCount=\(placeholderTabs.count)"
                 )
 #endif
-                if let replacementTab = placeholderTabs.first {
+                if routeCloudPaneTerminalTab(inPane: originalPane, focus: false) {
+                    for placeholder in placeholderTabs { bonsplitController.closeTab(placeholder.id) }
+                } else if let replacementTab = placeholderTabs.first {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
@@ -14477,8 +14473,7 @@ extension Workspace: BonsplitDelegate {
         // Same rule as Cmd+D: a UI split next to a cloud-projected pane continues on that
         // machine (Workspace+CloudPaneRouting). The new pane already exists and is empty;
         // the machine's terminal arrives as its first tab when the projection materializes.
-        if let sourcePanelId,
-           routeCloudPaneUISplit(from: sourcePanelId, into: newPane, orientation: orientation) {
+        if routeCloudPaneUISplit(from: sourcePanelId, into: newPane, orientation: orientation) {
             scheduleTerminalGeometryReconcile()
             return
         }

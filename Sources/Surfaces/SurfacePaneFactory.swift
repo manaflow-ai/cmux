@@ -213,7 +213,7 @@ enum SurfacePaneFactory {
                 initialCommand: initialCommand,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
-                remoteContextRaw: nil,
+                remoteContextRaw: typeRaw == "terminal" ? "local" : nil,
                 startupEnvironment: [:],
                 // Bonsplit appends a new tab to the pane; no pane drop in the app honors
                 // the drop index, so it is not honored here either.
@@ -249,7 +249,7 @@ enum SurfacePaneFactory {
                 initialCommand: initialCommand,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
-                remoteContextRaw: nil,
+                remoteContextRaw: typeRaw == "terminal" ? "local" : nil,
                 startupEnvironment: [:],
                 clientUnsupportedRemoteTmuxOptions: [],
                 requestedFocus: focus,

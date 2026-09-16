@@ -31,6 +31,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private var networkObserver: CloudReadRecoveryObserver?
     private var featureFlagObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
@@ -115,12 +116,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask?.cancel()
     }
 
-    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
-    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
-    nonisolated func terminateWireGuardHubForAppQuit() {
-        wireGuardHub?.terminateForAppQuit()
-    }
-
     /// Live headless links, for the Cloud tunnel's idle policy.
     func connectedCloudLinkCount() async -> Int {
         await links.connectedMachineCount
@@ -164,6 +159,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
+        }
+        networkObserver = CloudReadRecoveryObserver(notificationCenter: notificationCenter) { [weak self] in
+            guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
+            _ = await self.refresh(force: false)
         }
         syncPollingToActivationPolicy()
     }
@@ -463,6 +462,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func accessDidEnd() async {
+        networkObserver = nil
         isRetired = true
         accessEpoch &+= 1
         refreshGeneration &+= 1

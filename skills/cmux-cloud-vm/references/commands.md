@@ -257,7 +257,7 @@ cmux vm pull <id> <remote-path> [local-path] [--json]
 # alias: cmux vm download
 ```
 
-The reverse: file or directory back to local disk (defaults to the remote basename in the current directory). `--json`: `{ok, direction: "pull", vm, remote, local, kind, bytes, sha256, seconds}`.
+Copies a file or directory back to local disk over `vm.exec` using base64 chunks (defaults to the remote basename in the current directory). `--json`: `{ok, direction: "pull", vm, remote, local, kind, bytes, sha256, seconds}`.
 
 ## Execution
 
@@ -648,6 +648,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.desktop_open` | `vm desktop`, `vm open <id>:desktop`, the split beside `vm shell` |
 | `vm.cmux_remote_info`, `vm.link_socket` | the shared machine shell and surface open path |
 | `vm.ssh_info` | provider-specific attach diagnostics surfaced by the app |
+| `vm.scp_info` | private SCP/SFTP endpoint for `vm push`, including watch and sync callers |
 | `vm.attach_info`, `vm.session_attach_info`, `vm.sessions` | legacy websocket/SSH attach transports the open path falls back to on deployments without a cmux-tui daemon (`cmux rpc` reaches them directly) |
 | `vm.tree` | the pre-catalog tree; `vm tree` uses `surface.catalog` |
 | `vm.terminal_open`, `vm.terminal_new` | older terminal verbs; `vm open <m>/<ws>/<term>` and `surface new-terminal` use `surface.project` / `surface.new_terminal` |

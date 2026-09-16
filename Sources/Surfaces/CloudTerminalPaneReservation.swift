@@ -70,6 +70,7 @@ final class CloudTerminalPaneReservation {
     let panelID: UUID
     let machine: SurfaceMachineID
     let inputRelay: CloudOptimisticInputRelay
+    let resolution = CloudTerminalPaneResolution()
     /// When the pane was inserted. Adoption hands the elapsed wait to the
     /// attachment session so the connection card does not restart its grace.
     let startedAt: ContinuousClock.Instant

@@ -224,8 +224,10 @@ extension Workspace {
         if let resource = cloudProjectedResource(forPanel: surfaceId),
            let machineID = resource.id.machine.cloudMachineID,
            let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
+            // Clear an old materialization snapshot before reconnecting so it
+            // cannot mask the new live connection state.
+            clearCloudMaterializationFailure(surfaceID: surfaceId)
             guard let session = provider.manualMirrorSessions[surfaceId] else {
-                clearCloudMaterializationFailure(surfaceID: surfaceId)
                 provider.scheduleRefresh()
                 return true
             }
