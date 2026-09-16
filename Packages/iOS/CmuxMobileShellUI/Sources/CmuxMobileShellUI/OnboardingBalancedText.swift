@@ -7,25 +7,27 @@ import UIKit
 struct OnboardingBalancedText: UIViewRepresentable {
     enum Role: Equatable {
         case title
+        case title2
         case body
 
         var textStyle: UIFont.TextStyle {
             switch self {
             case .title: .largeTitle
+            case .title2: .title2
             case .body: .body
             }
         }
 
         var weight: UIFont.Weight {
             switch self {
-            case .title: .bold
+            case .title, .title2: .bold
             case .body: .regular
             }
         }
 
         var color: UIColor {
             switch self {
-            case .title: .label
+            case .title, .title2: .label
             case .body: .secondaryLabel
             }
         }
@@ -104,7 +106,7 @@ struct OnboardingBalancedText: UIViewRepresentable {
             .scaledFont(for: baseFont)
         label.textColor = role.color
         label.textAlignment = alignment == .center ? .center : .natural
-        label.accessibilityTraits = role == .title ? .header : .staticText
+        label.accessibilityTraits = role == .body ? .staticText : .header
     }
 
     func sizeThatFits(
