@@ -9957,7 +9957,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
-        if pruneWindowlessActiveMainWindowContext() {
+        let eventContext = event.flatMap {
+            mainWindowContext(forShortcutEvent: $0, debugSource: "workspace.creation.prune")
+        }
+        // An addressable duplicate window can fail closed during reindexing;
+        // retain the validated active owner until routing resolves rather than
+        // pruning it merely because its cached AppKit identity is transiently
+        // absent. Windowless app shortcuts still prune as before.
+        if (event == nil || eventContext != nil) && pruneWindowlessActiveMainWindowContext() {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",

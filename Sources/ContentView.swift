@@ -11860,7 +11860,8 @@ struct VerticalTabsSidebar: View, Equatable {
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval,
+            deliverInitialValue: !featureFlags.isAppKitSidebarListEnabled
         ) { workspaceId in
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
