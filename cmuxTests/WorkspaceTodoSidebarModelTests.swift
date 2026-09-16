@@ -360,6 +360,20 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(source.contains(".activeAlways"))
     }
 
+    @Test
+    func checklistRemoveButtonsUseAVisibleXGlyph() throws {
+        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
+        let appKitRow = try Self.sourceText(
+            "Sources/Sidebar/AppKitList/Cells/SidebarRowChecklistItemLine.swift"
+        )
+
+        // The tinted AppKit renderer treats the filled-circle SF Symbol as a
+        // single opaque mask, turning xmark.circle.fill into a solid dot.
+        // Both checklist renderers must use the alpha-only xmark glyph.
+        #expect(popover.contains("systemName: \"xmark\", pointSize: Self.checkboxPointSize - 2"))
+        #expect(appKitRow.contains("systemName: \"xmark\", pointSize: model.scaled(9)"))
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {
