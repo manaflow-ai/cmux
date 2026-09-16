@@ -4037,7 +4037,43 @@
     "mobile.cloud.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Cloud" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウド" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Cloud" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "السحابة" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Nube" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드" } }
+      }
+    },
+    "mobile.cloud.notConfigured.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドを利用できません" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud nicht verfügbar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Cloud indisponible" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "السحابة غير متاحة" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Nube no disponible" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端不可用" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端無法使用" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "클라우드를 사용할 수 없음" } }
+      }
+    },
+    "mobile.cloud.notConfigured.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud is not configured in this build." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このビルドではクラウドが設定されていません。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud ist in diesem Build nicht konfiguriert." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le cloud n’est pas configuré dans cette version." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم يتم إعداد السحابة في هذه النسخة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La nube no está configurada en esta versión." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此版本尚未配置云端。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此版本尚未設定雲端。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 빌드에는 클라우드가 설정되어 있지 않습니다." } }
       }
     },
     "mobile.cloud.tunnel.connecting": {

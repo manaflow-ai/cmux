@@ -64,11 +64,10 @@ struct DeviceTreeView: View {
         NavigationStack {
             List {
                 // Cloud machines sit beside the paired Macs: same "your
-                // computers" mental model, reachable with no Mac paired.
-                // The row renders only when cloud is composed.
-                Section {
-                    CloudEntryRow()
-                    if let cloudSessionController {
+                // computers" mental model, reachable with no Mac paired. Cloud
+                // itself is a primary tab; these rows control picker visibility.
+                if let cloudSessionController, !cloudSessionController.machines.elements.isEmpty {
+                    Section {
                         ForEach(cloudSessionController.machines.elements) { machine in
                             CloudMachineVisibilityRow(
                                 machine: machine,
@@ -145,8 +144,6 @@ struct DeviceTreeView: View {
             }
             .navigationTitle(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
-            // The Cloud flow presents from this stable container, not the row.
-            .cloudFlowPresenter()
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {

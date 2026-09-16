@@ -333,20 +333,8 @@ struct WorkspaceShellView: View {
         )
         #if os(iOS)
         GeometryReader { geometry in
-            Group {
-                if usesCompactStack {
-                    compactScaffold(presentation: presentation)
-                } else {
-                    // Regular-width (iPad): the NavigationSplitView is the one
-                    // navigation hierarchy. Wrapping it in the TabView renders
-                    // the iOS 26 floating tab strip on top of the split
-                    // columns' own toolbars; destinations move into the
-                    // sidebar's bottom bar instead.
-                    workspaceTabContent(
-                        presentation: presentation
-                    )
-                }
-            }
+            primaryScaffold(presentation: presentation)
+            .cloudSessionLifetime()
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -421,9 +409,9 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    /// The compact (iPhone-style) shell: the primary destinations live in the
-    /// system TabView with the transient search tab.
-    private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
+    /// Primary destinations retain their own navigation across tab switches.
+    /// Workspace tabs keep split navigation at regular widths.
+    private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
@@ -436,6 +424,9 @@ struct WorkspaceShellView: View {
                 presentation: presentation
             )
         } notifications: {
+            if !usesCompactStack {
+                workspaceTabContent(presentation: presentation)
+            } else {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
                     store: store,
@@ -468,10 +459,14 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
+            }
+        } cloud: {
+            CloudPrimaryTabView()
         } search: {
             primarySearchTabContent(presentation: presentation)
         }
     }
+
     #endif
 
     #if os(iOS)
@@ -934,15 +929,12 @@ struct WorkspaceShellView: View {
     #endif
 
     #if os(iOS)
-    /// The split (iPad) sidebar column: one destination surface switched by
-    /// the bottom-bar control, the shared root toolbar on top, and the native
-    /// search field scoped to the visible destination. There is no TabView in
-    /// this hierarchy, so no floating tab strip can overlap the column
-    /// toolbars.
+    /// The workspace tab's split sidebar. Top-level destination navigation is
+    /// provided by the system tab bar; this sidebar owns workspace search and
+    /// the Mac picker.
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
-        let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
             case .notifications:
@@ -953,7 +945,7 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
-            case .workspaces, .search:
+            case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
@@ -976,9 +968,6 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             rootToolbarContent
-        }
-        .toolbar {
-            splitSidebarBottomBar(unreadCount: unreadCount)
         }
         // Keep NavigationSplitView's synthesized control out of the toolbar.
         // The shared custom action is owned by this sidebar while open and by
@@ -1530,6 +1519,8 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
+        case .cloud:
+            break
         case .search:
             break
         }
@@ -1542,7 +1533,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -1600,6 +1591,7 @@ struct WorkspaceShellView: View {
         switch tab {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .cloud: .cloud
         case .search: .search
         }
     }

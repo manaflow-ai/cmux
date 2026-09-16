@@ -174,6 +174,7 @@ struct CloudWorkspaceDetailView: View {
         }
         .navigationTitle(workspace.preferredName)
         .navigationBarTitleDisplayMode(.inline)
+        .mobileToolbarVisibility(.hidden, for: .tabBar)
         .task(id: controller.tunnel) {
             if connection == nil { connection = controller.connection(for: machine) }
         }

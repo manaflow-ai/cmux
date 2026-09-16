@@ -4,6 +4,21 @@ import Testing
 @testable import CmuxMobileWorkspace
 
 @Suite struct MobileRootAuthGateTests {
+    @Test func cloudKeepsPrimaryNavigationAvailableWithoutAPairedMac() {
+        #expect(MobileRootAuthGate.shellSurface(
+            connectionState: .disconnected,
+            showRestoringStoredMac: false,
+            showDisconnectedNoPairedMacShell: true,
+            supportsCloud: true
+        ) == .workspaceShell(isRestoringStoredMac: false))
+        #expect(MobileRootAuthGate.shellSurface(
+            connectionState: .connected,
+            showRestoringStoredMac: false,
+            showDisconnectedNoPairedMacShell: false,
+            supportsCloud: true
+        ) == .workspaceShell(isRestoringStoredMac: false))
+    }
+
     @Test func allowsAttachTicketAuthenticationWithoutStackAuth() throws {
         #expect(MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: false,

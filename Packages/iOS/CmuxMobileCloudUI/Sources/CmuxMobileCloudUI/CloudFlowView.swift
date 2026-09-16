@@ -26,21 +26,14 @@ public struct CloudWorkspaceRoute: Hashable, Sendable {
     }
 }
 
-/// The whole Cloud flow in its own navigation stack: section, catalog,
-/// terminal. Presented full screen from ``CloudEntryRow``.
-///
-/// Owning the stack matters for two reasons. The tunnel lifecycle (decision
-/// 5A) is tied to this container's appearance, which is stable across pushes,
-/// whereas a pushed screen's `onDisappear` fires mid-transition. And the
-/// destinations register at this stack's root, so a re-render of the host
-/// list cannot pop them. HIG: Modality (a self-contained task presented full
-/// screen), Navigation bars (a Done button closes the flow).
+/// The Cloud tab's navigation stack: machines, workspaces, and terminals.
+/// The authenticated shell owns the connection lifetime, so changing tabs
+/// preserves both this stack's path and its live connections.
 public struct CloudFlowView: View {
     private let controller: CloudSessionController
     @State private var path = NavigationPath()
     @AppStorage("mobile.cloud.onboarding.completed.v2") private var cloudOnboardingCompleted = false
     @State private var showsCloudOnboarding = false
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
     /// Creates the flow over the app's session controller.
@@ -52,10 +45,6 @@ public struct CloudFlowView: View {
         NavigationStack(path: $path) {
             CloudSectionView(controller: controller)
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(L10n.string("mobile.cloud.done", defaultValue: "Done")) { dismiss() }
-                            .accessibilityIdentifier("CloudDoneButton")
-                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
                             showsCloudOnboarding = true
@@ -73,20 +62,18 @@ public struct CloudFlowView: View {
                     CloudWorkspaceDetailView(machine: route.machine, workspace: route.workspace, controller: controller)
                 }
         }
-        .onAppear { controller.sectionDidAppear() }
         .task { await controller.systemVPN?.refresh() }
         .onAppear {
             if !cloudOnboardingCompleted {
                 showsCloudOnboarding = true
             }
         }
-        .onDisappear { controller.sectionDidDisappear() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                controller.sceneWillEnterForeground()
                 Task { await controller.systemVPN?.refresh() }
-            case .background: controller.sceneDidEnterBackground()
+            case .background:
+                break
             default: break
             }
         }

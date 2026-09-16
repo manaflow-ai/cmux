@@ -18,8 +18,9 @@ struct CloudTerminalScreen: View {
     var body: some View {
         CloudTerminalSurface(model: model)
             .ignoresSafeArea(.container, edges: .bottom)
-            .navigationTitle(terminal.name ?? terminal.id)
-            .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(terminal.name ?? terminal.id)
+        .navigationBarTitleDisplayMode(.inline)
+        .mobileToolbarVisibility(.hidden, for: .tabBar)
             .overlay { statusOverlay }
             .task(id: terminal.id) {
                 // Resolve the connection here, after the push settled, never

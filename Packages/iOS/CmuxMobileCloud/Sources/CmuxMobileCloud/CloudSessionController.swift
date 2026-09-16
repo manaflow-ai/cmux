@@ -1,16 +1,9 @@
 public import Foundation
 public import Observation
 
-/// Owns the phone's cloud tunnel and machine list for as long as the Cloud
-/// section is on screen and the app is in the foreground.
-///
-/// Lifecycle (decision 5A): the tunnel comes up when the Cloud surface
-/// appears, goes down when it disappears or the app backgrounds, and comes
-/// back on foreground while it is still showing. "Showing" is a lease count:
-/// every Cloud screen (section, catalog, terminal) holds one while on screen,
-/// so pushing the catalog over the section does not drop the tunnel when the
-/// section's own `onDisappear` fires. Every transition is a method call from
-/// a view or scene-phase callback; nothing here uses timers.
+/// Owns the phone's Cloud tunnel while an authenticated shell is visible and
+/// the app is in the foreground. The shell holds a visibility lease above
+/// the tabs, so tab changes and navigation pushes keep the connection alive.
 @MainActor
 @Observable
 public final class CloudSessionController {
@@ -32,11 +25,6 @@ public final class CloudSessionController {
     public var sectionIsVisible: Bool { visibleScreenCount > 0 }
     /// Whether the scene is in the foreground.
     public private(set) var isForeground = true
-    /// Whether the full-screen Cloud flow is presented. Set by the entry row,
-    /// read by the presenter hosted on a stable container view, because a
-    /// presentation modifier on a list row does not present reliably.
-    public var isFlowPresented = false
-
     /// Cloud machines selected for the shared Computers/workspace picker.
     /// A fresh install shows every machine. Hidden machine ids are persisted
     /// locally, so newly-created machines remain visible by default.
