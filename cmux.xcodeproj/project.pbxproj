@@ -2121,6 +2121,7 @@
 		C1A071000000000000000001 /* MobileHostIrohAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */; };
 		A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */; };
 		98BCFC448A8549C4B79CF445 /* MobileHostIrohAuthObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC5CA0B4A1F4357A8621245 /* MobileHostIrohAuthObserver.swift */; };
+		8C79571A2212B9578341B01C /* MobileHostIrohAuthState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87169AB71073BB3CB09042B5 /* MobileHostIrohAuthState.swift */; };
 		C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */; };
 		C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */; };
 		C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000027 /* MobileHostIrohRuntime.swift */; };
@@ -5890,6 +5891,7 @@
 		C1A071000000000000000011 /* MobileHostIrohAdmissionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAdmissionTests.swift; sourceTree = "<group>"; };
 		A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohApplicationLaneRouter.swift; sourceTree = "<group>"; };
 		DCC5CA0B4A1F4357A8621245 /* MobileHostIrohAuthObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthObserver.swift; sourceTree = "<group>"; };
+		87169AB71073BB3CB09042B5 /* MobileHostIrohAuthState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohAuthState.swift; sourceTree = "<group>"; };
 		C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Activation.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileHostIrohRuntime+Lifecycle.swift"; sourceTree = "<group>"; };
 		C1B1810000000000000027 /* MobileHostIrohRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrohRuntime.swift; sourceTree = "<group>"; };
@@ -7913,6 +7915,7 @@
 				A17070900000000000000001 /* MobileHostIrohApplicationLaneRouter.swift */,
 				C1B1810000000000000011 /* MobileHostIrxRuntime.swift */,
 				DCC5CA0B4A1F4357A8621245 /* MobileHostIrohAuthObserver.swift */,
+				87169AB71073BB3CB09042B5 /* MobileHostIrohAuthState.swift */,
 				C1B1810000000000000025 /* MobileHostIrohRuntime+Activation.swift */,
 				C1B1810000000000000026 /* MobileHostIrohRuntime+Lifecycle.swift */,
 				C1B1810000000000000027 /* MobileHostIrohRuntime.swift */,
@@ -13328,6 +13331,7 @@
 				B8B056D90000000000000001 /* MobileHostIdentity.swift in Sources */,
 				A17070900000000000000002 /* MobileHostIrohApplicationLaneRouter.swift in Sources */,
 				98BCFC448A8549C4B79CF445 /* MobileHostIrohAuthObserver.swift in Sources */,
+				8C79571A2212B9578341B01C /* MobileHostIrohAuthState.swift in Sources */,
 				C1B1810000000000000005 /* MobileHostIrohRuntime+Activation.swift in Sources */,
 				C1B1810000000000000006 /* MobileHostIrohRuntime+Lifecycle.swift in Sources */,
 				C1B1810000000000000007 /* MobileHostIrohRuntime.swift in Sources */,

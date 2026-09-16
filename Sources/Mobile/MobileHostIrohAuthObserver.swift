@@ -2,10 +2,6 @@ import CmuxAuthRuntime
 import Foundation
 import Observation
 
-struct MobileHostIrohAuthState: Equatable, Sendable {
-    let accountID: String?
-}
-
 @MainActor
 final class MobileHostIrohAuthObserver {
     private weak var auth: AuthCoordinator?
