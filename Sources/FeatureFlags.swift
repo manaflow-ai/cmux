@@ -4,15 +4,6 @@ import Observation
 import PostHog
 import os
 
-struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
-    var id: String { key }
-
-    let key: String
-    let title: String
-    let flagDescription: String
-    let defaultWhenUnavailable: Bool
-}
-
 /// PostHog-backed runtime feature flags for the macOS app (PostHog project
 /// 244066, same public key analytics uses). Values are cached in memory and
 /// refreshed when the SDK reports a flag payload, so gated UI can be toggled
@@ -20,8 +11,9 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable, Sendable {
 ///
 /// Resolution semantics (flags must never break the app):
 /// - A remote value is authoritative when present, so rollout and kill-switch
-///   changes cannot be masked by a stale local override.
-/// - Without a remote value, a local override applies, followed by the explicit
+///   changes cannot be masked by a stale local override. Cloud alone permits
+///   explicit overrides when the injected Nightly/debug capability allows it.
+/// - Without a remote value, a permitted override applies, then the explicit
 ///   per-flag default.
 /// - Until a payload arrives, the last remote value survives restarts. A flag
 ///   that has never loaded keeps its safe default.
@@ -166,6 +158,8 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
     )
 
+    // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
+    //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -288,6 +282,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.cloudMachinesFlag,
         ]
     }()
 
@@ -314,15 +309,12 @@ final class CmuxFeatureFlags {
     var isComputerUseUXEnabled: Bool {
         effectiveValue(for: Self.allFlags[5])
     }
-
     var isSimulatorEnabled: Bool {
         effectiveValue(for: Self.simulatorFlag)
     }
-
     var isWorkspaceTodoControlsEnabled: Bool {
         effectiveValue(for: Self.allFlags[7])
     }
-
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
     }
@@ -358,6 +350,8 @@ final class CmuxFeatureFlags {
     @ObservationIgnored
     private let publishesOffMainSnapshot: Bool
     @ObservationIgnored
+    private let overrideCapability: CmuxFeatureFlagOverrideCapability
+    @ObservationIgnored
     private let defaults: UserDefaults
     @ObservationIgnored
     private let remoteFlagValueProvider: (String) -> Any?
@@ -374,12 +368,14 @@ final class CmuxFeatureFlags {
 
     init(
         defaults: UserDefaults = .standard,
+        overrideCapability: CmuxFeatureFlagOverrideCapability = .init(),
         telemetryEnabled: Bool = TelemetrySettings.enabledForCurrentLaunch,
         remoteFlagValueProvider: @escaping (String) -> Any? = { PostHogSDK.shared.getFeatureFlag($0) },
         remoteFlagLoader: (@Sendable () async -> [String: Bool]?)? = nil,
         publishesOffMainSnapshot: Bool = false
     ) {
         self.defaults = defaults
+        self.overrideCapability = overrideCapability
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.remoteFlagValueProvider = remoteFlagValueProvider
         if let remoteFlagLoader {
@@ -619,7 +615,8 @@ final class CmuxFeatureFlags {
         resolutionsByKey[definition.key] ?? CmuxFeatureFlagResolution(
             remoteValue: remoteValuesByKey[definition.key],
             overrideValue: localOverridesByKey[definition.key],
-            defaultValue: definition.defaultWhenUnavailable
+            defaultValue: definition.defaultWhenUnavailable,
+            overridePolicy: overrideCapability.policy(for: definition)
         )
     }
 
@@ -632,7 +629,7 @@ final class CmuxFeatureFlags {
     }
 
     func setOverride(_ value: Bool?, for definition: CmuxFeatureFlagDefinition) {
-        guard value == nil || remoteValuesByKey[definition.key] == nil else { return }
+        guard value == nil || resolution(for: definition).allowsLocalOverride else { return }
 
         let previousResolutions = resolutionsByKey
         if let value {
@@ -680,7 +677,8 @@ final class CmuxFeatureFlags {
             values[definition.key] = CmuxFeatureFlagResolution(
                 remoteValue: remoteValuesByKey[definition.key],
                 overrideValue: localOverridesByKey[definition.key],
-                defaultValue: definition.defaultWhenUnavailable
+                defaultValue: definition.defaultWhenUnavailable,
+                overridePolicy: overrideCapability.policy(for: definition)
             )
         }
         if publishesOffMainSnapshot {

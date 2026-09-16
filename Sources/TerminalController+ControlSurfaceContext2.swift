@@ -117,6 +117,13 @@ extension TerminalController {
         guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
             return .noFocusedSurface
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: targetSurfaceId
+        ) else {
+            return .requestedSurfaceNotFound(targetSurfaceId)
+        }
 
         if ws.isRemoteTmuxMirror, panelType == .terminal {
             let unsupported = mirrorRoutedUnsupportedOptions(
@@ -255,6 +262,13 @@ extension TerminalController {
         }
         guard ws.terminalPanel(for: surfaceId) != nil else {
             return .surfaceNotTerminal(surfaceId)
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFoundForID(surfaceId)
         }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
@@ -499,6 +513,13 @@ extension TerminalController {
             fallbackWorkspace: ws
         ) else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFound(surfaceId)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

@@ -488,7 +488,9 @@ auto_setup_launch() {
     echo "warning: $MOBILE_DEV_LAUNCH not found/executable; cannot auto-sign-in" >&2
     return 1
   fi
-  "$MOBILE_DEV_LAUNCH" "${args[@]}"
+  local installed_app_path="${APP_PATH:-${device_app_path:-}}"
+  CMUX_INSTALLED_APP_PATH="$installed_app_path" \
+    "$MOBILE_DEV_LAUNCH" "${args[@]}"
 }
 
 # Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),

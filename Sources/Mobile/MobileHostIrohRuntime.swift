@@ -305,6 +305,7 @@ final class MobileHostIrohRuntime {
         guard revision == lifecycleRevision,
               !Task.isCancelled,
               !signOutIntentActive,
+              MobileHostService.isListeningEnabled,
               desiredActive,
               let targetAccountID,
               runtime == nil else { return }
