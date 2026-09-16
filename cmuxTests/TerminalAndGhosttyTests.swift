@@ -4453,7 +4453,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return
         }
 
-        let surfaceView = AuthoritativeScrollbarSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
         surfaceView.cellSize = CGSize(width: 10, height: 10)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
         hostedView.frame = contentView.bounds
@@ -4479,7 +4479,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
 
-        surfaceView.authoritativeScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
 
         guard let cgEvent = CGEvent(
             scrollWheelEvent2Source: nil,
@@ -5491,6 +5491,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     var trackedWindows: [NSWindow] = []
     var trackedPortals: [WindowTerminalPortal] = []
     var trackedSurfaces: [TerminalSurface] = []
+    var testWorkspace: TerminalPortalTestWorkspace?
 
     override func tearDown() {
         // Global flags first: a failed assertion can skip a test's own reset,
@@ -5520,6 +5521,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.close()
         }
         trackedWindows.removeAll()
+        testWorkspace?.tearDown()
+        testWorkspace = nil
 
         // Let queued coalesced portal passes fire as no-ops now rather than
         // inside a later test's layout pass.
@@ -5565,17 +5568,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let portal = WindowTerminalPortal(window: window)
         trackedPortals.append(portal)
         return portal
-    }
-
-    func makeTrackedTerminalSurface() -> TerminalSurface {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        trackedSurfaces.append(surface)
-        return surface
     }
 
     func realizeWindowLayout(_ window: NSWindow) {
@@ -6432,12 +6424,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
         interactionIsActive = false
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertLessThan(
-            surface.debugCurrentPixelSize().width,
-            initialPixelSize.width,
+        XCTAssertTrue(
+            waitUntil(timeout: 2) {
+                surface.debugCurrentPixelSize().width < initialPixelSize.width
+            },
             "Ending the resize interaction should flush the final exact terminal width"
         )
     }

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import Foundation
@@ -26,11 +27,7 @@ final class ConnectivityInvalidationSubscriberCoordinator {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         if defaultsObserver == nil {
-            defaultsObserver = NotificationCenter.default.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard,
-                queue: .main
-            ) { [weak self] _ in
+            defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.evaluate()
                 }
@@ -124,13 +121,9 @@ final class ConnectivityInvalidationSubscriberCoordinator {
                         #if DEBUG
                         cmuxDebugLog("connectivity.frame revision=\(invalidation.revision)")
                         #endif
-                        mobileHostIrohLog.info(
+                        MobileHostDiagnostics.logger.info(
                             "Connectivity revision invalidated; reconciling authoritative routes"
                         )
-                        MobileHostIrohRuntime.shared
-                            .reconcileConnectivityFromServerSignal(
-                                revision: invalidation.revision
-                            )
                         // The phone reply inbox rides this channel: enqueue
                         // re-broadcasts the invalidation frame (revision 1) as
                         // its nudge, so every frame arrival — whatever the

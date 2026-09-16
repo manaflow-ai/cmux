@@ -3,14 +3,19 @@ import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { listAccounts } from "../services/coderouter/repository";
+import { authenticateCoderouterCredential } from "../services/coderouter/routeTokenAuth";
 import {
+  authenticateApiKey,
   authenticateRouteToken,
   bindRouteTokenToVm,
   bindSessionAccount,
   claimAccountForPlacement,
   findSessionAccount,
   issueRouteToken,
+  createApiKey,
+  listApiKeys,
   markAccountCooldown,
+  revokeApiKey,
   revokeRouteTokensForVm,
   selectAccountForSession,
 } from "../services/coderouter/repository";
@@ -35,7 +40,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate coderouter_session_accounts, coderouter_accounts, coderouter_route_tokens cascade`;
+  await sql`truncate coderouter_session_accounts, coderouter_accounts, coderouter_route_tokens, coderouter_api_keys cascade`;
 });
 
 async function insertAccounts(count: number): Promise<string[]> {
@@ -272,6 +277,27 @@ describe("coderouter routing db behavior", () => {
 });
 
 describe("coderouter route token VM binding db behavior", () => {
+  dbTest("API keys authenticate, update last-used metadata, and revoke", async () => {
+    const issued = await createApiKey(TEAM, "user-1", "e2e");
+    expect(issued.key).toMatch(/^crk_[A-Za-z0-9_-]{40,}$/);
+    expect(await authenticateCoderouterCredential(issued.key)).toMatchObject({
+      teamId: TEAM,
+      stackUserId: "user-1",
+      vmId: null,
+      apiKeyId: issued.id,
+    });
+    const used = (await listApiKeys(TEAM)).find((key) => key.id === issued.id);
+    expect(used).toBeDefined();
+    if (!used) throw new Error("issued API key disappeared");
+    expect(used.lastUsedAt).not.toBeNull();
+    expect(await revokeApiKey(TEAM, issued.id)).toBe(true);
+    expect(await authenticateApiKey(issued.key)).toBeNull();
+    const revoked = (await listApiKeys(TEAM)).find((key) => key.id === issued.id);
+    expect(revoked).toBeDefined();
+    if (!revoked) throw new Error("revoked API key disappeared");
+    expect(revoked.revokedAt).not.toBeNull();
+  });
+
   dbTest("a token issued for a VM authenticates with that binding", async () => {
     const { token } = await issueRouteToken(TEAM, "user-1", "vm", { vmId: "vm-1" });
     await expect(authenticateRouteToken(token)).resolves.toEqual({

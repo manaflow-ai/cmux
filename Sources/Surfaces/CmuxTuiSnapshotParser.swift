@@ -135,18 +135,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
         let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
-            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
-            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
-            let name = nonEmptyString(raw["name"])
-            return CloudVMTabState(
-                id: id,
-                paneID: paneID,
-                name: name,
-                index: integer(raw["index"]) ?? index,
-                focused: raw["focused"] as? Bool ?? false,
-                contentKind: contentKind,
-                contentID: contentID
-            )
+            tabState(from: raw, fallbackIndex: index)
         }
         // The public daemon schema puts the relationship on `tabs[].pane_id`.
         // `panes[].tab_ids` is not part of that schema, so reading it would make
@@ -979,7 +968,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             index: integer(value["index"]) ?? fallbackIndex,
             focused: value["focused"] as? Bool ?? false,
             contentKind: contentKind,
-            contentID: contentID
+            contentID: contentID,
+            nameAuthority: CloudTabNameAuthority(snapshot: value)
         )
     }
 

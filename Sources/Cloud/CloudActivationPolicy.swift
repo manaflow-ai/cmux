@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// What Cloud work this app may start on its own, decided from local state.
@@ -11,8 +12,7 @@ import Foundation
 /// NetworkExtension may be used.
 ///
 /// Two different facts are kept apart. "This Mac has used Cloud" (the cached
-/// marker, or a tunnel role enrolled on this Mac) keeps an existing user's
-/// fleet alive across an update. "The account has a machine right now" is
+/// marker, or a tunnel role enrolled on this Mac) preserves prior-use context. "The account has a machine right now" is
 /// only ever the cached marker, which every fleet list refills, sign-out
 /// clears, and a delete resets to unknown; launch-time decisions and status
 /// treat anything but a known machine as "no", while an explicit Cloud use
@@ -27,8 +27,8 @@ import Foundation
 /// the cached machine count and this Mac's tunnel enrollment files, the
 /// browser-role VPN configuration on disk, and ``VMClient`` for resolution.
 struct CloudActivationPolicy: Sendable {
-    /// `Settings › Beta Features › Cloud Machines` is on and no managed
-    /// profile disables Cloud (``CloudMachinesFeature``).
+    /// The remote flag and `Settings › Beta Features › Cloud Machines` are on,
+    /// and no managed profile disables Cloud (``CloudMachinesFeature``).
     let isCloudMachinesEnabled: @Sendable () -> Bool
     /// This Mac has used Cloud before: the cached marker says the account had
     /// a machine, or a tunnel role was enrolled here (which only happens for a
@@ -47,10 +47,12 @@ struct CloudActivationPolicy: Sendable {
     /// use that is about to schedule a start, never at launch or for status.
     let resolveCloudMachine: @Sendable () async -> Bool?
 
-    /// Fleet polling and links may run: the user opted in, or this Mac used
-    /// Cloud before (an update must not strand a fleet the user already has).
+    /// Fleet polling and links may run only while the shared Cloud availability
+    /// policy is enabled. A previous Cloud use must never bypass the remote
+    /// kill switch: disabling it suspends idle Cloud work without deleting the
+    /// saved machine or workspace identities.
     var allowsBackgroundCloudWork: Bool {
-        isCloudMachinesEnabled() || hasUsedCloud()
+        isCloudMachinesEnabled()
     }
 
     /// The launch-time tunnel controller may read NetworkExtension preferences
@@ -58,7 +60,7 @@ struct CloudActivationPolicy: Sendable {
     /// every Mac that never saved a configuration, which is what keeps a fresh
     /// install and an update from 0.64.22 inert.
     var allowsLaunchTimeTunnelAdoption: Bool {
-        isTunnelConfigured()
+        isCloudMachinesEnabled() && isTunnelConfigured()
     }
 
     /// Why a tunnel start is refused as far as local state knows, or nil.
@@ -78,7 +80,9 @@ struct CloudActivationPolicy: Sendable {
     /// real cause (sign in, network) before NetworkExtension is touched.
     func resolvedTunnelStartRefusal() async -> CloudTunnelStartRefusal? {
         guard isCloudMachinesEnabled() else { return .cloudMachinesOff }
-        switch await resolveCloudMachine() {
+        let resolved = await resolveCloudMachine()
+        guard isCloudMachinesEnabled() else { return .cloudMachinesOff }
+        switch resolved {
         case .some(true):
             return nil
         case .some(false):
@@ -103,6 +107,7 @@ struct CloudActivationPolicy: Sendable {
         machineCache: CloudMachineCache = CloudMachineCache(),
         browserTunnel: VMTunnelManager = VMTunnelManager(purpose: .browser),
         terminalTunnel: VMTunnelManager = VMTunnelManager(purpose: .terminal),
+        remoteEnabled: @escaping @Sendable () -> Bool = { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) },
         resolveCloudMachine: @escaping @Sendable () async -> Bool? = { await listedFleetHasMachine() }
     ) -> CloudActivationPolicy {
         // nonisolated(unsafe): UserDefaults is documented thread-safe but not
@@ -110,7 +115,7 @@ struct CloudActivationPolicy: Sendable {
         nonisolated(unsafe) let toggleDefaults = defaults
         return CloudActivationPolicy(
             isCloudMachinesEnabled: {
-                CloudMachinesFeature.offMainIsEnabled(defaults: toggleDefaults)
+                CloudMachinesFeature.isEnabled(defaults: toggleDefaults, policy: ManagedDevicePolicy(), remoteEnabled: remoteEnabled())
             },
             hasUsedCloud: {
                 machineCache.hasAnyMachine == true

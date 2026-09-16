@@ -57,10 +57,10 @@ extension CMUXCLI {
         let response = try RestoreAdmissionRetryPolicy.response(
             onRetry: { attempt in
                 guard attempt == 0 else { return }
-                FileHandle.standardError.write(Data((String(
+                cliWriteStderr(String(
                     localized: "cli.restore.admission.waiting",
                     defaultValue: "restore: waiting for cmux to verify that this agent session is not already running…"
-                ) + "\n").utf8))
+                ) + "\n")
             }
         ) {
             try client.sendV2(

@@ -11,8 +11,7 @@ import Testing
 /// The one launch-time decision for Cloud, as behavior: a Mac that never opted
 /// in and never had a machine is inert (no fleet polling, no tunnel start, no
 /// NetworkExtension preferences read); the Beta Features toggle plus a machine
-/// admits the tunnel; prior Cloud use on this Mac keeps its fleet alive but
-/// never opens the tunnel without the toggle.
+/// admits the tunnel; prior Cloud use never bypasses a disabled remote gate.
 @Suite
 struct CloudActivationPolicyTests {
     private func policy(
@@ -95,11 +94,11 @@ struct CloudActivationPolicyTests {
         #expect(await off.resolvedTunnelStartRefusal() == .cloudMachinesOff)
     }
 
-    @Test("prior Cloud use keeps the fleet alive and lets an inherited tunnel be adopted, but a start still needs the toggle")
+    @Test("prior Cloud use cannot bypass the remote Cloud gate")
     func priorUseWithoutToggle() async {
         let policy = policy(enabled: false, usedCloud: true, machine: nil, configured: true, resolved: true)
-        #expect(policy.allowsBackgroundCloudWork)
-        #expect(policy.allowsLaunchTimeTunnelAdoption)
+        #expect(policy.allowsBackgroundCloudWork == false)
+        #expect(policy.allowsLaunchTimeTunnelAdoption == false)
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
         #expect(await policy.resolvedTunnelStartRefusal() == .cloudMachinesOff)
     }
@@ -159,6 +158,7 @@ struct CloudActivationPolicyTests {
                 machineCache: cache,
                 browserTunnel: browser,
                 terminalTunnel: terminal,
+                remoteEnabled: { true },
                 resolveCloudMachine: { nil }
             )
         }
@@ -189,9 +189,17 @@ struct CloudActivationPolicyTests {
         defer { harness.tearDown() }
         let policy = harness.policy
 
+        #if DEBUG
+        #expect(policy.allowsBackgroundCloudWork)
+        #else
         #expect(policy.allowsBackgroundCloudWork == false)
+        #endif
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
+        #if DEBUG
+        #expect(policy.tunnelStartRefusal() == nil)
+        #else
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
+        #endif
 
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsBackgroundCloudWork)
@@ -240,15 +248,15 @@ struct CloudActivationPolicyTests {
         #expect(policy.hasCloudMachine() == nil)
 
         // The user-space hub enrolled the terminal role (a link to a machine):
-        // this Mac used Cloud, so its fleet keeps polling even with the toggle
-        // off, but it says nothing about the account's machines right now.
+        // this Mac used Cloud, but the remote gate still stops fleet polling
+        // when the integration is disabled.
         _ = try harness.terminal.deviceFingerprint()
         #expect(policy.hasUsedCloud())
         #expect(policy.hasCloudMachine() == nil)
         #expect(policy.tunnelStartRefusal() == nil)
         #expect(policy.allowsBackgroundCloudWork)
         harness.turnCloudMachines(on: false)
-        #expect(policy.allowsBackgroundCloudWork)
+        #expect(policy.allowsBackgroundCloudWork == false)
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
         harness.terminal.removeLocalCredentials()
@@ -261,9 +269,10 @@ struct CloudActivationPolicyTests {
         #expect(policy.hasUsedCloud())
         #expect(policy.tunnelStartRefusal() == nil)
         harness.turnCloudMachines(on: false)
-        // Adoption (cleanup) stays possible; a new start does not.
-        #expect(policy.allowsLaunchTimeTunnelAdoption)
-        #expect(policy.allowsBackgroundCloudWork)
+        // Existing configuration is retained for persistence, but no
+        // launch-time adoption or background work runs while disabled.
+        #expect(policy.allowsLaunchTimeTunnelAdoption == false)
+        #expect(policy.allowsBackgroundCloudWork == false)
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
         harness.browser.removeLocalCredentials()
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
@@ -284,8 +293,8 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud Machines is off by default, on only through the Beta Features toggle, and never on under a managed DisableCloud")
-    func cloudMachinesGateIsTheBetaToggle() throws {
+    @Test("Cloud requires the remote gate and Beta toggle, and never bypasses managed DisableCloud")
+    func cloudMachinesGateRequiresRemoteAndBeta() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -294,14 +303,21 @@ struct CloudActivationPolicyTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         })
 
-        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == false)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
+        #if DEBUG
+        let expectedDefault = true
+        #else
+        let expectedDefault = false
+        #endif
+        #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
 
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged))
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff) == false)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true))
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: managedOff, remoteEnabled: true) == false)
 
         defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged) == false)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: true) == false)
+
     }
 }

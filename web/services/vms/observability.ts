@@ -1,3 +1,4 @@
+import { retainCloudServerError } from "../observability/cloudServerError";
 import { randomUUID } from "node:crypto";
 import { after } from "next/server";
 import { trace, type Span } from "@opentelemetry/api";
@@ -86,6 +87,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
   if (activeSpan) annotateVmErrorSpan(activeSpan, input);
   const context = currentVmRequestContext();
   if (context) context.lastError = input;
+  retainCloudServerError(input, context);
   const diagnostics = input.diagnostics ?? {};
   const provider = stringOrUndefined(diagnostics.provider);
   const operatorFault = isOperatorFaultVmError(input);
@@ -247,7 +249,9 @@ export function captureVmRequestOutcome(
       "cmux.client.name": context.client.name,
       "cmux.client.version": context.client.version,
       "cmux.client.build": context.client.build,
-      "cmux.client.channel": context.client.channel,
+      "cmux.client.channel": normalizedCloudClientChannel(context.client.channel),
+      "cmux.client.revision": context.client.revision,
+      "cmux.operation_id": context.operationId,
       "cmux.client.request_id": context.client.requestId,
       "cmux.client.trace_id": context.client.traceId,
       "cmux.vercel.request_id": context.vercelRequestId,
@@ -567,4 +571,8 @@ export function captureVmProvisionOutcome(
 
 function stringOrUndefined(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function normalizedCloudClientChannel(channel: string | undefined): string | undefined {
+  return channel === "stable" ? "production" : channel;
 }

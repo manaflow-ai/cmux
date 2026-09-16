@@ -33,6 +33,41 @@ extension AppDelegate {
                 self?.applyManagedComputerUsePolicy()
             }
         )
+        cloudFeatureFlagObserver = CloudFeatureAvailabilityObserver(
+            isEnabled: { CloudMachinesFeature.isEnabled },
+            didChange: { [weak self] enabled in self?.applyCloudFeatureFlag(enabled: enabled) }
+        )
+    }
+
+    /// Applies a remote Cloud flag transition at the owning attachment
+    /// boundary. Existing workspace configurations and catalog identities stay
+    /// persisted; only controllers, retries, and transport tasks are stopped.
+    func applyCloudFeatureFlag(enabled: Bool) {
+        if !enabled {
+            MachineCreateCoordinator.shared.cancelAllForAuthTransition(cleanupCreatedMachines: false)
+            CloudVMActionLauncher.shared.cancelAllForAuthTransition()
+            cloudWorkspaceOperationController?.cancelAll()
+            let detail = String(
+                localized: "cloud.feature.disabled",
+                defaultValue: "Cloud Machines are temporarily unavailable."
+            )
+            for manager in allTabManagersForManagedPolicyEnforcement() {
+                for workspace in manager.tabs where workspace.isManagedCloudVMWorkspace {
+                    workspace.disconnectRemoteConnection(
+                        clearConfiguration: false,
+                        disconnectedDetail: detail
+                    )
+                }
+            }
+        } else {
+            for manager in allTabManagersForManagedPolicyEnforcement() {
+                for workspace in manager.tabs where workspace.isManagedCloudVMWorkspace {
+                    guard let configuration = workspace.remoteConfiguration else { continue }
+                    _ = workspace.configureRemoteConnection(configuration, autoConnect: true)
+                }
+            }
+        }
+        CmuxTuiSurfaceProviderRegistry.shared.syncPollingToActivationPolicy()
     }
 
     /// `DisableComputerUse` transitions, both directions: activation stops the

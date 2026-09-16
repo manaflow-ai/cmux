@@ -1,6 +1,34 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
+        !isFeatureSuspended && lifecycleGeneration == generation
+    }
+    /// The generation to capture before detached work that touches panes.
+    var currentLifecycleGeneration: UInt64 { lifecycleGeneration }
+    func isCurrentRefresh(lifecycle: UInt64, refresh: UInt64) -> Bool {
+        !isFeatureSuspended && lifecycleGeneration == lifecycle
+            && refreshGeneration == refresh
+            && isRegisteredInCatalog()
+    }
+
+    /// Suspended work cannot publish through a replacement provider.
+    func isRegisteredInCatalog() -> Bool {
+        guard !isFeatureSuspended, let current = catalog.provider(for: machine) else { return false }
+        return ObjectIdentifier(current) == ObjectIdentifier(self)
+    }
+
+    /// A link acknowledgement can suspend between installing and publishing a graph.
+    /// Only the current graph may update catalog rows or restored local titles.
+    func canPublishCloudState(_ candidate: CloudVMState) -> Bool {
+        guard isRegisteredInCatalog(), candidate.machine == machine,
+              let current = cloudState else { return false }
+        if let cursor = current.cursor {
+            return candidate.cursor == cursor
+        }
+        return candidate == current
+    }
+
     func refresh() async {
         await refreshCurrentGraph(force: false)
     }

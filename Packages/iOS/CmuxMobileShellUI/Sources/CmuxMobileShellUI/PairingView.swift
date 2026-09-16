@@ -464,7 +464,7 @@ struct PairingView: View {
     private func cancelDirectScanner() {
         // The camera is a nested sheet over PairingView. Cancelling it should
         // return to the pairing form so the user can enter a code manually or
-        // try the scanner again, without losing the Tailscale setup context.
+        // try the scanner again, without losing the setup context.
         isShowingScanner = false
     }
 }

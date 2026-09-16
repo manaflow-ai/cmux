@@ -51,13 +51,15 @@ struct CloudLoopbackPortForwardTests {
         /// A unix socket path when the hub listens the way the real one does,
         /// else a loopback TCP port.
         private let unixSocketPath: String?
+        private let serveClient: (@Sendable (NWConnection) async throws -> Void)?
         var endpoint: NWEndpoint {
             if let unixSocketPath { return .unix(path: unixSocketPath) }
             return .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!)
         }
 
-        init(unixSocketPath: String? = nil) throws {
+        init(unixSocketPath: String? = nil, serveClient: (@Sendable (NWConnection) async throws -> Void)? = nil) throws {
             self.unixSocketPath = unixSocketPath
+            self.serveClient = serveClient
             let parameters = NWParameters.tcp
             if let unixSocketPath {
                 parameters.requiredLocalEndpoint = .unix(path: unixSocketPath)
@@ -118,6 +120,11 @@ struct CloudLoopbackPortForwardTests {
                 }
                 try await connection.sendAll(Data([SocksV5Client.version, code, 0x00, SocksV5Client.addressTypeIPv4, 0, 0, 0, 0, 0, 0]))
                 guard code == SocksV5Client.replySucceeded else {
+                    connection.cancel()
+                    return
+                }
+                if let serveClient {
+                    try await serveClient(connection)
                     connection.cancel()
                     return
                 }
@@ -422,13 +429,13 @@ struct CloudLoopbackPortForwardTests {
             return summary
         }
         let addressed = CmuxTuiSurfaceProvider(summary: summary(address: "10.0.0.7"), links: links, catalog: catalog, portForwards: forwarder)
-        let url = try #require(try await addressed.localPortURL(port: 3000))
-        #expect(url.hasPrefix("http://127.0.0.1:"))
-        #expect(try await addressed.portLinkURL(port: 3000) == url, "Copy Link and vm.port_open hand out the pane's loopback URL")
-        #expect(await forwarder.localPort(machineID: "vm-1", port: 3000) != nil)
+        #expect(try await addressed.localPortURL(port: 3000) == nil)
+        #expect(try await addressed.portLinkURL(port: 3000) == "http://10.0.0.7:3000")
+        #expect(await forwarder.count == 0, "Opening or copying a private link must not create a forward")
 
         let unaddressed = CmuxTuiSurfaceProvider(summary: summary(address: nil), links: links, catalog: catalog, portForwards: forwarder)
-        #expect(try await unaddressed.localPortURL(port: 3000) == nil, "no private address means the control-plane preview route, not an error")
+        #expect(try await unaddressed.localPortURL(port: 3000) == nil)
+        await #expect(throws: (any Error).self) { _ = try await unaddressed.portLinkURL(port: 3000) }
         await forwarder.closeAll()
     }
 
@@ -441,9 +448,7 @@ struct CloudLoopbackPortForwardTests {
         summary.capabilities.ports = false
         let provider = CmuxTuiSurfaceProvider(summary: summary, links: links, catalog: catalog)
         #expect(!provider.capabilities.ports)
-        await #expect(throws: (any Error).self) {
-            _ = try await provider.localPortURL(port: 3000)
-        }
+        #expect(try await provider.localPortURL(port: 3000) == nil)
         await #expect(throws: (any Error).self, "no route is an error, never an empty link") {
             _ = try await provider.portLinkURL(port: 3000)
         }

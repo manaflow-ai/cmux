@@ -43,7 +43,7 @@ extension TerminalController {
         case "vm.tunnel_config":
             // Enrolls the browser role and writes its WireGuard config. The
             // Network Extension consumes it through `vm.tunnel_up`.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
                 // Fail closed before startup finishes wiring the coordinator,
                 // exactly like `vm.tunnel_up`: no admission, no enrollment.
                 guard let coordinator = await Self.cloudTunnelCoordinator() else {
@@ -76,14 +76,14 @@ extension TerminalController {
             }
         case "vm.tunnel_status":
             // Read-only: never enrolls, so it is safe for scripts and polling.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
                 await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
         case "vm.tunnel_up":
             // Explicit `cmux vpn up`: start now and pin the tunnel open until
             // `vpn down`. Returns once the outcome is known or the first
             // activation is waiting on the user (see `vm.tunnel_wait`).
-            return v2VmCall(id: id, timeoutSeconds: 120) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 120) {
                 guard let coordinator = await Self.cloudTunnelCoordinator(),
                       coordinator.backend.isNetworkExtension else {
                     throw CloudTunnelError.backendUnavailable(
@@ -104,7 +104,7 @@ extension TerminalController {
                 return await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
         case "vm.tunnel_down":
-            return v2VmCall(id: id, timeoutSeconds: 60) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 60) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     await coordinator.requestDown()
                 }
@@ -116,7 +116,7 @@ extension TerminalController {
             // sleeping and retrying.
             let requested = Self.socketWorkerInt(params["timeout_seconds"]) ?? 300
             let timeoutSeconds = min(max(requested, 1), 900)
-            return v2VmCall(id: id, timeoutSeconds: TimeInterval(timeoutSeconds + 15)) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: TimeInterval(timeoutSeconds + 15)) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     _ = await coordinator.waitForState(timeout: .seconds(timeoutSeconds)) { !$0.isSettling }
                 }
@@ -126,7 +126,7 @@ extension TerminalController {
             // Unenrolls this Mac server-side, deletes the VPN configuration on
             // app-managed builds, stops user-space links, and removes the local
             // config so a later explicit use re-enrolls from scratch.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     try? await coordinator.revoke()
                 }
