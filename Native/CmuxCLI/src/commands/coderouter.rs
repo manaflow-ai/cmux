@@ -693,7 +693,10 @@ fn passthrough(input: &[String]) -> Result<Option<i32>> {
         .next(INSTALL_COMMAND));
     };
     let mut command = Command::new(&executable);
-    command.args(input).env_clear().envs(environment.iter());
+    command
+        .args(input)
+        .env_clear()
+        .envs(environment.iter().map(|(key, value)| (key, value)));
     let error = command.exec();
     Err(CliError::new(
         "coderouter.exec_failed",
@@ -753,7 +756,7 @@ fn bootstrap(environment: &[(String, String)]) -> Result<Option<String>> {
         ])
         .arg(&script)
         .env_clear()
-        .envs(environment.iter());
+        .envs(environment.iter().map(|(key, value)| (key, value)));
     let status = download
         .status()
         .map_err(|error| CliError::new("coderouter.bootstrap_download", error.to_string()))?;
@@ -762,7 +765,10 @@ fn bootstrap(environment: &[(String, String)]) -> Result<Option<String>> {
         return Err(CliError::new("coderouter.bootstrap_download", format!("Could not download the CodeRouter installer (curl exited with status {}). Retry, or install it with:\n  {INSTALL_COMMAND}", status.code().unwrap_or(1))).exit(127));
     }
     let mut installer = Command::new("/bin/sh");
-    installer.arg(&script).env_clear().envs(environment.iter());
+    installer
+        .arg(&script)
+        .env_clear()
+        .envs(environment.iter().map(|(key, value)| (key, value)));
     let status = installer
         .status()
         .map_err(|error| CliError::new("coderouter.bootstrap_install", error.to_string()))?;
