@@ -309,7 +309,10 @@ def check_guide_contract(cli_path: str) -> list[str]:
                 if topic == "cmux":
                     expected.append("agent-browser --headed")
                 if topic == "cloud":
-                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "google-chrome-stable --remote-debugging-port=9222", "cmux cloud dev <machine> --no-open"]
+                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "cmux cloud dev <machine> --no-open"]
+                    # Chrome's debug port need not be its first option.
+                    if not re.search(r"\bgoogle-chrome-stable\b[^\n;&|]*[ \t]--remote-debugging-port=9222(?=[ \t]|$)", plain.stdout):
+                        raise ValueError("guide must launch Chrome with --remote-debugging-port=9222")
                 missing = [needle for needle in expected if needle not in plain.stdout]
                 if missing:
                     raise ValueError(f"guide is missing method details: {missing}")
