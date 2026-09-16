@@ -100,7 +100,6 @@ final class MobileHostIrohRuntime {
     /// Release-safe, bounded host-side connection timeline. Event payloads are
     /// fixed numeric categories, never peer identities, addresses, or tokens.
     let diagnosticLog: DiagnosticLog
-    let authObserver = MobileHostIrohAuthObserver()
     let bindingPersistenceQueue = MobileHostIrohPersistenceQueue()
 
     weak var auth: AuthCoordinator?

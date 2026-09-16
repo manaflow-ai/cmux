@@ -181,19 +181,19 @@ extension MobileHostIrohRuntime {
         authObservationTask = Task { @MainActor [weak self] in
             await auth.awaitBootstrapped()
             guard !Task.isCancelled, let self else { return }
-            let states = self.authObserver.states(for: auth)
+            let states = auth.authenticatedSessionIdentities()
             for await state in states {
                 guard !Task.isCancelled else { return }
                 let previousAccountID = self.observedAccountID
-                self.observedAccountID = state.accountID
+                self.observedAccountID = state?.accountID
                 if self.signOutIntentActive {
-                    if state.accountID == nil {
+                    if state?.accountID == nil {
                         self.releaseSignOutIntentAfterPreparation()
                     }
                     continue
                 }
                 guard Self.shouldReconcileAuthObservation(
-                    accountID: state.accountID,
+                    accountID: state?.accountID,
                     previousAccountID: previousAccountID,
                     activeAccountID: self.activeAccountID,
                     hasRuntime: self.runtime != nil,
@@ -201,14 +201,14 @@ extension MobileHostIrohRuntime {
                     preparedSignOutNeedsPersistence: self.preparedSignOut?.wasPersisted == false
                 ) else { continue }
                 self.scheduleReconcile(
-                    eraseAccountState: (state.accountID == nil
+                    eraseAccountState: (state?.accountID == nil
                         && (previousAccountID != nil
                             || self.activeAccountID != nil
                             || self.runtime != nil))
                         || (previousAccountID != nil
-                            && previousAccountID != state.accountID)
+                            && previousAccountID != state?.accountID)
                         || (self.activeAccountID != nil
-                            && self.activeAccountID != state.accountID)
+                            && self.activeAccountID != state?.accountID)
                         || self.preparedSignOut?.wasPersisted == false
                 )
             }
