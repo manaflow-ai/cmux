@@ -29,6 +29,7 @@ describe("forkVm provider capability", () => {
       id: "00000000-0000-4000-8000-0000000000f0",
       userId: "user-fork-capability",
       billingTeamId: "team-fork-capability",
+      ownerTeamId: "team-fork-capability",
       billingPlanId: "pro",
       provider: "freestyle" as const,
       providerVmId: "provider-vm-fork-source",
