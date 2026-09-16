@@ -210958,40 +210958,6 @@
         }
       }
     },
-    "featureFlags.sidebarCloudButton.description": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows the Cloud button in the sidebar footer that opens the Cloud tab."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウドタブを開くクラウドボタンをサイドバー下部に表示します。"
-          }
-        }
-      }
-    },
-    "featureFlags.sidebarCloudButton.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar Cloud button"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーのクラウドボタン"
-          }
-        }
-      }
-    },
     "featureFlags.sidebarWorkspaceAgentSpinner.description": {
       "extractionState": "manual",
       "localizations": {
