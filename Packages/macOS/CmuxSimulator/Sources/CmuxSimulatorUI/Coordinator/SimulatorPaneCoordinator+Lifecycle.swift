@@ -166,6 +166,13 @@ extension SimulatorPaneCoordinator {
         let selectionGeneration = selectionGeneration
         deviceDiscoveryGeneration &+= 1
         let discoveryGeneration = deviceDiscoveryGeneration
+        isDiscoveringDevices = true
+        defer {
+            if deviceDiscoveryGeneration == discoveryGeneration {
+                isDiscoveringDevices = false
+                hasCompletedDeviceDiscovery = true
+            }
+        }
         do {
             let previousDeviceID = selectedDeviceID
             let wasAwaitingExplicitSelection = requiresExplicitDeviceSelection

@@ -5,6 +5,24 @@ import Testing
 
 @MainActor
 extension SimulatorPaneCoordinatorTests {
+    @Test("Discovery exposes a loading state until the first result arrives")
+    func discoveryLoadingStateIsObservable() async {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = CancellableDiscoveryPaneClient(device: phone)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let startup = Task { await coordinator.start() }
+
+        await client.waitForFirstDiscovery()
+        #expect(coordinator.isDiscoveringDevices)
+        #expect(!coordinator.hasCompletedDeviceDiscovery)
+
+        startup.cancel()
+        await startup.value
+        #expect(!coordinator.isDiscoveringDevices)
+        #expect(coordinator.hasCompletedDeviceDiscovery)
+        await coordinator.close()
+    }
+
     @Test("Recovery retries device discovery after an initial failure")
     func recoveryRetriesDeviceDiscovery() async throws {
         let phone = Self.device(id: "phone", family: .iPhone, state: .booted)

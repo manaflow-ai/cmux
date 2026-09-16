@@ -50,7 +50,7 @@ public struct SimulatorPaneView: View {
                         coordinator: coordinator,
                         backgroundColor: backgroundColor
                     )
-                        .frame(width: 270)
+                        .frame(width: 300)
                 }
             }
         }

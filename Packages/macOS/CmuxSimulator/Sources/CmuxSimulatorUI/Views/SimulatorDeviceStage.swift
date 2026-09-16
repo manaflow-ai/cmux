@@ -14,26 +14,14 @@ struct SimulatorDeviceStage: View {
     var body: some View {
         ZStack {
             backgroundColor
-            if coordinator.devices.isEmpty, coordinator.failure == nil {
-                ContentUnavailableView {
-                    SimulatorLocalizedLabel(simulatorStrings.noDevices, systemImage: "iphone.slash")
-                } description: {
-                    Text(simulatorStrings.noDevicesHelp)
-                } actions: {
-                    SimulatorLocalizedButton(simulatorStrings.refresh) {
-                        coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
-                    }
-                }
-            } else if let failure = coordinator.failure,
-                coordinator.frameTransport == nil
-            {
-                failureView(failure)
+            if let failure = coordinator.failure, coordinator.frameTransport == nil {
+                SimulatorPaneStateView(coordinator: coordinator, failure: failure)
             } else if let display = coordinator.display,
                 let frameTransport = coordinator.frameTransport
             {
                 device(display: display, frameTransport: frameTransport)
             } else {
-                waitingView
+                SimulatorPaneStateView(coordinator: coordinator, failure: nil)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -112,40 +100,6 @@ struct SimulatorDeviceStage: View {
             width: Double(geometry.displayWidth) / display.scale,
             height: Double(geometry.displayHeight) / display.scale
         )
-    }
-
-    @ViewBuilder
-    private func failureView(_ failure: SimulatorFailure) -> some View {
-        ContentUnavailableView {
-            SimulatorLocalizedLabel(simulatorStrings.failed, systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(simulatorStrings.failure(failure.code))
-        } actions: {
-            if failure.isRecoverable {
-                SimulatorLocalizedButton(simulatorStrings.reconnect) { coordinator.recover() }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var waitingView: some View {
-        switch coordinator.status {
-        case .connecting:
-            VStack(spacing: 10) {
-                ProgressView()
-                Text(simulatorStrings.connecting).foregroundStyle(.secondary)
-            }
-        case .workerCrashed:
-            ContentUnavailableView {
-                SimulatorLocalizedLabel(simulatorStrings.workerStopped, systemImage: "bolt.slash")
-            } actions: {
-                SimulatorLocalizedButton(simulatorStrings.reconnect) { coordinator.recover() }
-            }
-        default:
-            ContentUnavailableView {
-                SimulatorLocalizedLabel(simulatorStrings.selectToStart, systemImage: "iphone")
-            }
-        }
     }
 
     private func deviceCornerRadius(

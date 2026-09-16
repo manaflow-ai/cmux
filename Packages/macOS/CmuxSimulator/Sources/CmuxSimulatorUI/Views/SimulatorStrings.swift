@@ -9,6 +9,9 @@ func simulatorResource(
 }
 
 struct SimulatorStrings {
+    let controls = simulatorResource("simulator.toolbar.controls", "Device Controls")
+    let findingDevices = simulatorResource("simulator.status.findingDevices", "Finding Simulators…")
+    let closeTools = simulatorResource("simulator.tools.close", "Close Simulator Tools")
     let simulator = LocalizedStringResource(
         "simulator.pane.title",
         defaultValue: "Simulator",

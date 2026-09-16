@@ -14,13 +14,13 @@ struct SimulatorToolSection<Content: View>: View {
 
     var body: some View {
         GroupBox {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .controlSize(.small)
         } label: {
-            Text(title).font(.headline)
+            Text(title).font(.subheadline.weight(.semibold))
         }
     }
 }

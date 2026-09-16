@@ -30,6 +30,7 @@ struct SimulatorDevicePickerMenu: View {
                 .lineLimit(1)
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
+        .accessibilityLabel(Text(simulatorStrings.chooseDevice))
+        .accessibilityValue(Text(verbatim: snapshot.selectedDeviceName))
     }
 }

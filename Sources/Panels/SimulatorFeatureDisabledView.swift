@@ -5,20 +5,20 @@ struct SimulatorFeatureDisabledView: View {
     let appearance: PanelAppearance
 
     var body: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "iphone.slash")
-                .font(.system(size: 32))
-                .foregroundStyle(.secondary)
-            Text(String(
-                localized: "simulator.featureDisabled.title",
-                defaultValue: "Simulator is temporarily unavailable"
-            ))
-            .font(.headline)
+        ContentUnavailableView {
+            Label {
+                Text(String(
+                    localized: "simulator.featureDisabled.title",
+                    defaultValue: "Simulator is temporarily unavailable"
+                ))
+            } icon: {
+                Image(systemName: "iphone.slash")
+            }
+        } description: {
             Text(String(
                 localized: "simulator.featureDisabled.message",
                 defaultValue: "This feature has been disabled remotely."
             ))
-            .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.contentBackgroundColor))

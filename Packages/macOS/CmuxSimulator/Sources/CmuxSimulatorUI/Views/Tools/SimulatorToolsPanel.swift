@@ -5,26 +5,27 @@ struct SimulatorToolsPanel: View {
     let backgroundColor: Color
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                if coordinator.isPerformingControlAction {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text(simulatorStrings.loading)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(spacing: 0) {
+            HStack {
+                Text(simulatorStrings.tools)
+                    .font(.headline)
+                Spacer()
+                Button { coordinator.showsTools = false } label: {
+                    SimulatorLocalizedLabel(simulatorStrings.closeTools, systemImage: "xmark")
+                        .labelStyle(.iconOnly)
+                        .padding(4)
                 }
-                if let failure = coordinator.controlFailure {
-                    SimulatorLocalizedLabel(simulatorStrings.failure(failure.code), systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    DisclosureGroup {
-                        Text(verbatim: failure.code)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                    } label: {
-                        Text(simulatorStrings.technicalDetails)
-                    }
-                }
+                .buttonStyle(.borderless)
+                .help(Text(simulatorStrings.closeTools))
+            }
+            .padding(12)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    SimulatorToolFeedbackView(
+                        isWorking: coordinator.isPerformingControlAction,
+                        failure: coordinator.controlFailure
+                    )
                 SimulatorDeviceTools(coordinator: coordinator)
                 SimulatorTextInputTools(coordinator: coordinator)
                 SimulatorApplicationTools(coordinator: coordinator)
@@ -39,7 +40,8 @@ struct SimulatorToolsPanel: View {
                 SimulatorWebInspectorTools(coordinator: coordinator)
                 SimulatorActivityTools(entries: coordinator.actionLog)
             }
-            .padding(12)
+                .padding(12)
+            }
         }
         .background(backgroundColor)
     }

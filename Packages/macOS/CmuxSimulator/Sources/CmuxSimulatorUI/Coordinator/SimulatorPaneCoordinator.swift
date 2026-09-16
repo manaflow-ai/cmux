@@ -10,6 +10,10 @@ public final class SimulatorPaneCoordinator {
     static let maximumActionLogCount = 500
     /// Installed iPhone and iPad Simulator devices.
     public internal(set) var devices: [SimulatorDevice] = []
+    /// Whether the current device discovery request is in progress.
+    public internal(set) var isDiscoveringDevices = false
+    /// Whether a device discovery attempt has finished, including an empty result.
+    public internal(set) var hasCompletedDeviceDiscovery = false
     /// The selected CoreSimulator device identifier.
     public internal(set) var selectedDeviceID: String?
     /// The isolated worker session state.
