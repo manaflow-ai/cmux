@@ -556,10 +556,6 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "command.mobileConnect.subtitle": {
-    "class": "brand",
-    "source": "Tailscale"
-  },
   "command.newBrowserTab.subtitle": {
     "source": "Tab",
     "identityLocales": {
