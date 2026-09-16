@@ -57,9 +57,10 @@ struct IrxLivenessTests {
         }
         try await waitUntil { await host.probeCount == 1 }
         await session.connection.setApplicationActive(false)
-        // Deliberately outlast the cancelled probe deadline. This represents time
-        // during which iOS is backgrounded and cannot perform application work.
-        try await Task.sleep(for: .milliseconds(250))
+        let retired = try await withIrxDeadline(.seconds(3), onTimeout: {}) {
+            await host.waitForDelayedProbeClosure()
+        }
+        #expect(retired == true)
         #expect(host.journal.counterSnapshot()["miss", default: 0] == 0)
         #expect(await host.deathCount == 0)
         #expect(await host.probeCount == 1)
@@ -263,6 +264,17 @@ private actor IrxLivenessTestHost {
         let (admit, control) = try await IrxAdmission.performClient(connection: connection, grantJWS: "good-grant", journal: journal)
         return IrxClientSession(connection: connection, admit: admit, control: control,
             establishedAt: Date(), establishedAtMonotonic: .now - age)
+    }
+
+    func waitForDelayedProbeClosure() async -> Bool {
+        guard let delayedLane else { return false }
+        do {
+            let next = try await delayedLane.reader.readControlFrame(IrxPing.self)
+            return next == nil
+        } catch {
+            // Suspending the client resets only the outstanding probe stream.
+            return true
+        }
     }
 
     func recordDeath() { deathCount += 1 }

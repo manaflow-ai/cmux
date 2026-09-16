@@ -36,15 +36,17 @@ struct IrxRelayCredentialInstallerTests {
         let native = RelayInstallProbe(failFirst: true)
         let gate = IrxRelayCredentialRotationGate()
         let generation = await gate.begin()
+        let retry = IrxAsyncLatch()
         let installer = IrxRelayCredentialInstaller(installed: [], journal: IrxLiveTestSupport.journal(),
             sleep: { _ in
                 await native.noteSleep()
-                try await Task.sleep(for: .milliseconds(100))
+                await retry.wait()
             }, install: { try await native.install($0) })
         await installer.replace(with: [credential("old")], ownership: .init(gate: gate, generation: generation))
         try await waitUntil { await native.sleepCount == 1 }
         await gate.invalidate()
-        try await Task.sleep(for: .milliseconds(200))
+        await retry.signal()
+        await installer.waitForCurrentWork()
         #expect(await native.tokens == ["old"])
 
         let current = await gate.begin()

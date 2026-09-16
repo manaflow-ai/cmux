@@ -570,11 +570,10 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionDoesNotPersistUnauthorizedEventSubscription() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let socket = try MobileHostStartedTestSocket()
-        defer { socket.close() }
+        let transport = ScriptedMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
-            connection: socket.connection,
+            transport: transport,
             authorizeRequest: { _ in
                 .failure(MobileHostRPCError(code: "unauthorized", message: "no"))
             },
@@ -588,8 +587,9 @@ extension MobileHostAuthorizationTests {
             Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["terminal.updated"]}}"#.utf8)
         )
         await session.debugHandleReceiveDataForTesting(frame)
-        try await Task.sleep(nanoseconds: 25_000_000)
-        try await Task.sleep(nanoseconds: 25_000_000)
+        let responses = await transport.waitForSentBufferCount(1)
+        #expect(responses.count == 1)
+        #expect(await !session.isSubscribed(to: "terminal.updated"))
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
