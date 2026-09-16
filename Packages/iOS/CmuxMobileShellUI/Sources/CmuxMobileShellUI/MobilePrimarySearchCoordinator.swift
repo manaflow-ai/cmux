@@ -45,6 +45,16 @@ final class MobilePrimarySearchCoordinator {
         }
     }
 
+    /// Starts search for an explicitly chosen destination. The split (iPad)
+    /// sidebar presents one search field over whichever destination is
+    /// visible, so the scope must be selected before the searchable
+    /// presentation activates; presenting first would seed the field from the
+    /// previous scope's committed query.
+    func beginSearch(for scope: MobilePrimarySearchScope) {
+        self.scope = scope
+        setPresentation(true)
+    }
+
     func commitSubmit() -> MobilePrimaryTab {
         let submittedScope = scope
         commitNativeDraft(for: submittedScope)

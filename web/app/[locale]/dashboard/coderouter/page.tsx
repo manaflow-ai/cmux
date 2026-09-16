@@ -1,11 +1,10 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
-import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import type { SubrouterAccount } from "@/services/subrouter/types";
 import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
 import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
@@ -21,18 +20,27 @@ import {
   loadCoderouterTeamMetrics,
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
+import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
 import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
+import { listClaudeAccounts } from "@/services/coderouter/claudeUpstream";
 import {
-  AddAiAccountForms,
-  DeleteAiAccountButton,
-} from "../components/ai-account-forms";
+  CoderouterAccountsSection,
+  type ClaudeAccountsState,
+  type NativeAccountsState,
+  type SharedAccountsState,
+} from "../components/coderouter-accounts";
+import { listAccounts as listNativeAccounts } from "@/services/coderouter/repository";
+import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
+import { withPrioritySpan } from "@/services/telemetry";
+import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
-// Account authorization and the hosted account list must stay fresh for each
-// request. Keep the current tab visible while this page resolves instead of
-// caching mutable per-user data just to satisfy instant-navigation validation.
-export const instant = false;
+// The header is part of the static shell and is prefetched with it. The
+// session, team grants, and team data stream in behind the section boundary,
+// so nothing private is ever part of a prefetch.
+export const instant = true;
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -46,12 +54,6 @@ type DashboardTeam = {
   readonly manageAccounts: boolean;
   readonly personal: boolean;
 };
-
-type AccountState =
-  | { readonly kind: "ok"; readonly accounts: readonly SubrouterAccount[] }
-  | { readonly kind: "migrationPending" }
-  | { readonly kind: "notConfigured" }
-  | { readonly kind: "error" };
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -73,25 +75,134 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-export default async function CoderouterOverviewPage({ params, searchParams }: PageProps) {
-  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
-  const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
-
+export default function CoderouterOverviewPage(props: PageProps) {
   if (!isStackConfigured()) {
     redirect("/");
   }
+
+  return (
+    <CoderouterPageFrame>
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedCoderouterOverviewContent {...props} />
+      </Suspense>
+    </CoderouterPageFrame>
+  );
+}
+
+async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Framework promises are not stable cache keys across prerender phases.
+  const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
+  const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
+
+  return <CoderouterOverviewContent locale={locale} team={team} />;
+}
+
+type CoderouterAuthorization = {
+  readonly selectedTeam: DashboardTeam;
+  readonly accessToken: string;
+};
+
+type CoderouterAuthorizationResult =
+  | { readonly kind: "authorized"; readonly value: CoderouterAuthorization }
+  | { readonly kind: "missing" }
+  | { readonly kind: "noTeams" }
+  | { readonly kind: "unavailable" };
+
+export async function CoderouterOverviewContent({
+  locale,
+  team,
+}: {
+  locale: string;
+  team?: string;
+}) {
+  // Team grants and the access token are resolved for every request, so a
+  // revoked membership stops showing team data on the next render. The
+  // static header above this section is what keeps the navigation instant.
   const requestHeaders = await headers();
-  const tokenStore = {
-    headers: { get: (name: string) => requestHeaders.get(name) },
-  };
-  let authenticated: {
-    readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
-    readonly accessToken: string | null;
-    readonly scopedTeamId: string | null;
-    readonly selectedTeamId: string | null;
-  } | null;
+  const authorization = await withPrioritySpan(
+    "cmux-coderouter-dashboard",
+    "cmux.coderouter.auth",
+    { "http.route": "/dashboard/coderouter", "cmux.locale": locale },
+    () => resolveCoderouterAuthorization(requestHeaders, team),
+  );
+  if (authorization.kind === "unavailable") {
+    return renderCoderouterLoadError(locale);
+  }
+  if (authorization.kind === "missing") {
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
+  }
+  if (authorization.kind === "noTeams") {
+    redirect("/dashboard");
+  }
+
+  const { selectedTeam, accessToken } = authorization.value;
+  const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.coderouter" }),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.accounts",
+      { "cmux.team_scope": "selected" },
+      () => loadSharedAccounts(selectedTeam, accessToken),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.team_metrics",
+      { "cmux.team_scope": "selected" },
+      () => loadCoderouterTeamMetrics(selectedTeam.id),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.claude_upstream",
+      { "cmux.team_scope": "selected" },
+      () => loadClaudeAccounts(selectedTeam.id),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.native_accounts",
+      { "cmux.team_scope": "selected" },
+      () => loadNativeAccounts(selectedTeam.id),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.machine_usage",
+      { "cmux.team_scope": "selected" },
+      () => loadMachineUsage(selectedTeam.id),
+    ),
+  ]);
+
+  return (
+    <>
+      <TeamMetricsSection
+        locale={locale}
+        metrics={metrics}
+        teamName={selectedTeam.name}
+      />
+
+      <CoderouterAccountsSection
+        key={selectedTeam.id}
+        teamId={selectedTeam.id}
+        canManage={selectedTeam.manageAccounts}
+        claude={claudeAccounts}
+        native={nativeAccounts}
+        shared={sharedAccounts}
+      />
+
+      <MachineUsageSection
+        locale={locale}
+        t={tPage}
+        teamName={selectedTeam.name}
+        usage={machineUsage}
+      />
+    </>
+  );
+}
+
+async function resolveCoderouterAuthorization(
+  requestHeaders: Headers,
+  requestedTeamId: string | undefined,
+): Promise<CoderouterAuthorizationResult> {
   try {
-    authenticated = await withSubrouterAuthorizationDeadline(
+    const authenticated = await withSubrouterAuthorizationDeadline(
       async (signal) => {
         const user = await verifySubrouterRequest(
           new Request("https://cmux.com/dashboard/coderouter", {
@@ -101,189 +212,79 @@ export default async function CoderouterOverviewPage({ params, searchParams }: P
           { allowCookie: true, listAllTeams: true },
         );
         if (!user) return null;
-        const authorized = await authorizedSubrouterTeams(user);
-        let authJson: Awaited<ReturnType<ReturnType<typeof getStackServerApp>["getAuthJson"]>>;
-        try {
-          authJson = await getStackServerApp().getAuthJson({ tokenStore });
-        } catch {
-          throw new SubrouterAuthorizationUnavailableError(
-            "Stack session refresh unavailable",
-          );
-        }
+        const [authorized, authJson] = await Promise.all([
+          authorizedSubrouterTeams(user),
+          withStackAuthSpan(
+            "get_auth_json",
+            () => getStackServerApp().getAuthJson({
+              tokenStore: {
+                headers: {
+                  get: (name: string) => requestHeaders.get(name),
+                },
+              },
+            }),
+            { "cmux.auth.flow": "coderouter_dashboard" },
+          ).catch(() => {
+            throw new SubrouterAuthorizationUnavailableError(
+              "Stack session refresh unavailable",
+            );
+          }),
+        ]);
         return {
+          user,
           authorized,
           accessToken: authJson?.accessToken ?? null,
-          scopedTeamId: coderouterOrganizationFromCookieHeader(
-            requestHeaders.get("cookie"),
-            user.id,
-          ),
-          selectedTeamId: user.selectedTeamId,
         };
       },
     );
+    if (!authenticated) return { kind: "missing" };
+
+    const teams = authenticated.authorized
+      .filter((candidate) => candidate.use || candidate.manageAccounts)
+      .map((candidate) => ({
+        id: candidate.teamId,
+        name: candidate.teamName,
+        use: candidate.use,
+        manageAccounts: candidate.manageAccounts,
+        personal: candidate.personal,
+      }));
+    if (teams.length === 0) {
+      return { kind: "noTeams" };
+    }
+    const accessToken = authenticated.accessToken;
+    if (!accessToken) return { kind: "missing" };
+    const selectedTeam = selectTeam(
+      teams,
+      requestedTeamId,
+      coderouterOrganizationFromCookieHeader(
+        requestHeaders.get("cookie"),
+        authenticated.user.id,
+      ),
+      authenticated.user.selectedTeamId,
+    );
+    return {
+      kind: "authorized",
+      value: {
+        selectedTeam,
+        accessToken,
+      },
+    };
   } catch (error) {
     if (!isSubrouterAuthorizationError(error)) throw error;
-    const [tPage, t] = await Promise.all([
-      getTranslations({ locale, namespace: "dashboard.coderouter" }),
-      getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-    ]);
-    return (
-      <div className="mx-auto w-full max-w-5xl px-3 py-4">
-        <DashboardHeader
-          title={tPage("title")}
-          description={tPage("description")}
-        />
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      </div>
-    );
+    return { kind: "unavailable" };
   }
-  if (!authenticated) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
-  }
-  if (!authenticated.accessToken) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
-  }
+}
 
-  const [tPage, t] = await Promise.all([
-    getTranslations({ locale, namespace: "dashboard.coderouter" }),
-    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-  ]);
-  const teams = authenticated.authorized
-    .filter((candidate) => candidate.use || candidate.manageAccounts)
-    .map((candidate) => ({
-      id: candidate.teamId,
-      name: candidate.teamName,
-      use: candidate.use,
-      manageAccounts: candidate.manageAccounts,
-      personal: candidate.personal,
-    }));
-  if (teams.length === 0) {
-    redirect("/dashboard");
-  }
-  const selectedTeam = selectTeam(
-    teams,
-    team,
-    authenticated.scopedTeamId,
-    authenticated.selectedTeamId,
-  );
-  const [accountState, metrics] = await Promise.all([
-    loadAccounts(selectedTeam, authenticated.accessToken),
-    loadCoderouterTeamMetrics(selectedTeam.id),
-  ]);
-  const dateFormatter = new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+async function renderCoderouterLoadError(locale: string) {
+  const t = await getTranslations({ locale, namespace: "dashboard.coderouterAccounts" });
+  return <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />;
+}
 
+function CoderouterPageFrame({ children }: React.PropsWithChildren) {
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <DashboardHeader
-        title={tPage("title")}
-        description={tPage("description")}
-      />
-
-      <section className="mb-4 border border-border p-3">
-        <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
-        <div className="flex flex-wrap gap-3">
-          {teams.map((candidate) => {
-            const selected = candidate.id === selectedTeam.id;
-            return (
-              <Link
-                key={candidate.id}
-                href={`/dashboard/coderouter?team=${encodeURIComponent(candidate.id)}`}
-                className={`py-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                  selected ? "text-foreground" : "text-muted hover:text-foreground"
-                }`}
-              >
-                {candidate.name}
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      <TeamMetricsSection
-        locale={locale}
-        metrics={metrics}
-        teamName={selectedTeam.name}
-      />
-
-      {accountState.kind === "notConfigured" ? (
-        <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
-      ) : accountState.kind === "migrationPending" ? (
-        <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
-      ) : accountState.kind === "error" ? (
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      ) : (
-        <div>
-          {selectedTeam.manageAccounts ? (
-            <section className="mb-4">
-              <div className="mb-2">
-                <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-              </div>
-              <AddAiAccountForms />
-            </section>
-          ) : null}
-
-          <section>
-            <div className="mb-2">
-              <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
-              <p className="mt-1 text-xs text-muted">
-                {t("accountsCount", { count: accountState.accounts.length })}
-              </p>
-            </div>
-
-            {accountState.accounts.length === 0 ? (
-              <div className="border border-border p-3">
-                <div className="text-sm font-medium">{t("emptyTitle")}</div>
-                <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-              </div>
-            ) : (
-              <div className="border border-border">
-                <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
-                  <div>{t("providerColumn")}</div>
-                  <div>{t("labelColumn")}</div>
-                  <div>{t("createdColumn")}</div>
-                  {selectedTeam.manageAccounts ? (
-                    <div className="text-right">{t("actionsColumn")}</div>
-                  ) : <div />}
-                </div>
-                {accountState.accounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
-                  >
-                    <div>
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("providerColumn")}
-                      </div>
-                      <div>{providerLabel(account.kind, t)}</div>
-                    </div>
-                    <div className="min-w-0 truncate text-muted">
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("labelColumn")}
-                      </div>
-                      {account.label || t("unlabeledAccount")}
-                    </div>
-                    <div className="font-mono text-xs text-muted">
-                      <div className="mb-1 font-sans text-xs text-muted md:hidden">
-                        {t("createdColumn")}
-                      </div>
-                      {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
-                    </div>
-                    {selectedTeam.manageAccounts ? (
-                      <DeleteAiAccountButton
-                        teamId={selectedTeam.id}
-                        accountId={account.id}
-                      />
-                    ) : <div />}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+      <CoderouterPageHeader />
+      {children}
     </div>
   );
 }
@@ -320,9 +321,9 @@ function TeamMetricsSection({
     style: "percent",
     maximumFractionDigits: 0,
   });
-  const coverage = metrics.totals.totalTokens > 0
-    ? metrics.totals.pricedTokens / metrics.totals.totalTokens
-    : 1;
+  const unpricedShare = metrics.totals.totalTokens > 0
+    ? metrics.totals.unpricedTokens / metrics.totals.totalTokens
+    : 0;
   const maxDailyTokens = Math.max(
     1,
     ...metrics.daily.map((day) => day.totalTokens),
@@ -342,7 +343,7 @@ function TeamMetricsSection({
         </span>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label={copy.tokens}
           value={number.format(metrics.totals.totalTokens)}
@@ -358,10 +359,6 @@ function TeamMetricsSection({
         <MetricCard
           label={copy.apiEquivalent}
           value={currency.format(metrics.totals.apiEquivalentUsd)}
-        />
-        <MetricCard
-          label={copy.pricingCoverage}
-          value={percent.format(coverage)}
         />
       </div>
 
@@ -390,6 +387,9 @@ function TeamMetricsSection({
       </p>
       <p className="text-[11px] leading-5 text-muted">
         {copy.estimate.replace("{version}", metrics.rateCardVersion)}
+        {unpricedShare > 0
+          ? ` ${copy.unpriced.replace("{share}", percent.format(unpricedShare))}`
+          : ""}
       </p>
     </section>
   );
@@ -414,12 +414,12 @@ function metricsCopy(locale: string) {
       outputTokens: "出力トークン",
       tokens: "合計トークン",
       apiEquivalent: "API換算額",
-      pricingCoverage: "価格対応率",
+      unpriced: "全トークンの {share} は価格が不明なモデルのもので、換算額に含まれていません。",
       chartLabel: "日別のCodeRouterトークン使用量",
       privacy:
         "プロンプト、出力、アカウントラベル、メンバーIDは記録・表示しません。",
       estimate:
-        "API換算額は公開定価（レート表 {version}）による推定で、実際の請求額ではありません。価格不明のモデルは換算額から除外されます。",
+        "API換算額は、同じトークンを公開定価（レート表 {version}）で API 利用した場合の推定額で、実際の請求額ではありません。",
       unavailable: "チーム使用状況は現在利用できません。",
     };
   }
@@ -431,29 +431,14 @@ function metricsCopy(locale: string) {
     outputTokens: "Output tokens",
     tokens: "Total tokens",
     apiEquivalent: "API-equivalent value",
-    pricingCoverage: "Pricing coverage",
+    unpriced: "{share} of these tokens came from models without a list price and are left out of that value.",
     chartLabel: "Daily CodeRouter token usage",
     privacy:
       "No prompts, outputs, account labels, or member identities are recorded or shown.",
     estimate:
-      "API-equivalent value is an estimate using public list prices (rate card {version}), not actual spend. Models without a known price are excluded.",
+      "API-equivalent value is what these tokens would have cost at public API list prices (rate card {version}). It is not what you paid.",
     unavailable: "Team usage is temporarily unavailable.",
   };
-}
-
-function DashboardHeader({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="mb-4 border-b border-border pb-3">
-      <h1 className="text-sm font-medium">{title}</h1>
-      <p className="mt-1 max-w-2xl text-muted">{description}</p>
-    </div>
-  );
 }
 
 function StatusPanel({ title, body }: { title: string; body: string }) {
@@ -489,10 +474,10 @@ function selectTeam(
   return teams[0];
 }
 
-async function loadAccounts(
+async function loadSharedAccounts(
   team: DashboardTeam,
   accessToken: string,
-): Promise<AccountState> {
+): Promise<SharedAccountsState> {
   try {
     if (!await hostedSubrouterCutoverReadyForTeam(team.id)) {
       return { kind: "migrationPending" };
@@ -514,31 +499,18 @@ async function loadAccounts(
   }
 }
 
-function providerLabel(
-  kind: string,
-  t: Awaited<ReturnType<typeof getTranslations>>,
-): string {
-  switch (kind) {
-    case "claude":
-      return t("providerClaude");
-    case "anthropic-apikey":
-      return t("providerAnthropicApiKey");
-    case "codex":
-      return t("providerCodex");
-    case "openai-apikey":
-      return t("providerOpenAiApiKey");
-    default:
-      return t("providerUnknown");
+async function loadNativeAccounts(teamId: string): Promise<NativeAccountsState> {
+  try {
+    return { kind: "ok", accounts: await listNativeAccounts(teamId) };
+  } catch {
+    return { kind: "error" };
   }
 }
 
-function formatCreatedAt(
-  createdAt: string | undefined,
-  formatter: Intl.DateTimeFormat,
-  fallback: string,
-): string {
-  if (!createdAt) return fallback;
-  const date = new Date(createdAt);
-  if (Number.isNaN(date.getTime())) return fallback;
-  return formatter.format(date);
+async function loadClaudeAccounts(teamId: string): Promise<ClaudeAccountsState> {
+  try {
+    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
+  } catch {
+    return { kind: "error" };
+  }
 }

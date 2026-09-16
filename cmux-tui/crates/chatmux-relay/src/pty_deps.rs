@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -27,7 +28,7 @@ use sha2::{Digest, Sha256};
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
     CmuxTui, DataSink, EnsureDaemon, ExitSink, PtyControl, PtyDeps, PtyHandle, PtyOutput,
-    SpawnSpec, session_name_ok,
+    ResolvedCwd, SpawnSpec, session_name_ok,
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
@@ -38,6 +39,16 @@ const PIPE_READ_POLL_MS: i32 = 100;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
+
+fn append_dir_name(names: &mut Vec<String>, entry: Result<Option<String>, ()>) -> Result<bool, ()> {
+    match entry? {
+        Some(name) => {
+            names.push(name);
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
 
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
     control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
@@ -572,7 +583,12 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let reader = File::from(pair.try_clone_reader_descriptor()?);
     let mut command = cmux_pty::PtyCommand::new(spec.file.clone());
     command.args(spec.args.clone());
-    command.cwd(&spec.cwd);
+    let directory = spec
+        .cwd
+        .directory
+        .try_clone()
+        .map_err(|_| anyhow::anyhow!("cwd descriptor clone failed"))?;
+    command.cwd_descriptor(directory);
     command.env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
@@ -583,7 +599,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let (completion, cancel_reader) =
         ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
     let spawned = pair.spawn(command)?;
-    let cmux_pty::SpawnedPty { mut master, child } = spawned;
+    let cmux_pty::SpawnedPty { master, child } = spawned;
     let mut child_cleanup = SpawnedChildCleanup::new(child);
     let writer = master.take_writer()?;
     let killer = child_cleanup.child().clone_killer();
@@ -657,7 +673,7 @@ fn pump_pty(
 fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
-    command.args(&spec.args).current_dir(&spec.cwd).env_clear();
+    command.args(&spec.args).env_clear();
     for (key, value) in &spec.env {
         command.env(key, value);
     }
@@ -665,6 +681,24 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     command.stdin(std::process::Stdio::piped());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
+    let directory = match spec.cwd.directory.try_clone() {
+        Ok(directory) => directory,
+        Err(_) => {
+            output.push_exit(1);
+            return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
+        }
+    };
+    // Keep cwd pinned to the validated directory descriptor. The descriptor
+    // is captured by the child-side pre_exec hook, after which path rebinding
+    // cannot redirect this process.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fchdir(directory.as_raw_fd()) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let banner = format!(
         "[cmux-relay] PTY allocation failed ({reason}); running {} without a TTY.\r\n",
         Path::new(&spec.file)
@@ -785,15 +819,22 @@ async fn cleanup_daemon(mut child: tokio::process::Child) {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
         }
     }
-    if tokio::time::timeout(Duration::from_millis(250), child.wait()).await.is_ok() {
-        return;
+    match tokio::time::timeout(Duration::from_millis(250), child.wait()).await {
+        Ok(Ok(_status)) => return,
+        Ok(Err(_)) | Err(_) => {
+            // A timeout completion is not enough. `wait` has its own I/O
+            // result, and a failed reap must still go through escalation.
+        }
     }
     if let Some(pid) = child.id() {
         unsafe {
             let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
         }
     }
-    let _ = child.kill().await;
+    // `kill` also waits for the child, so using it here would make the
+    // supposedly bounded cleanup unbounded. Send SIGKILL, then bound the
+    // explicit reap below.
+    let _ = child.start_kill();
     let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
 }
 
@@ -845,12 +886,11 @@ impl PtyDeps for RealPtyDeps {
         if let Some(override_path) =
             self.env.get("CHATMUX_RELAY_CMUX_TUI").filter(|value| !value.trim().is_empty())
         {
-            let path = override_path.trim();
-            return if is_executable(Path::new(path)).await {
-                Some(CmuxTui { file: path.to_owned(), prefix: Vec::new() })
-            } else {
-                None
-            };
+            let path = Path::new(override_path.trim());
+            return canonical_executable(path).await.map(|file| CmuxTui {
+                file: file.to_string_lossy().into_owned(),
+                prefix: Vec::new(),
+            });
         }
         // Never a bare `cmux` on PATH — that name is ambiguous; only cmux-tui.
         for dir in self.env.get("PATH").map(String::as_str).unwrap_or("").split(':') {
@@ -858,9 +898,9 @@ impl PtyDeps for RealPtyDeps {
                 continue;
             }
             let candidate = Path::new(dir).join("cmux-tui");
-            if is_executable(&candidate).await {
+            if let Some(file) = canonical_executable(&candidate).await {
                 return Some(CmuxTui {
-                    file: candidate.to_string_lossy().into_owned(),
+                    file: file.to_string_lossy().into_owned(),
                     prefix: Vec::new(),
                 });
             }
@@ -873,7 +913,7 @@ impl PtyDeps for RealPtyDeps {
         cmux_tui: &CmuxTui,
         session: &str,
         socket_dir: &Path,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -914,7 +954,7 @@ impl PtyDeps for RealPtyDeps {
             socket_path.to_string_lossy().into_owned(),
         ]);
         let mut command = tokio::process::Command::new(&cmux_tui.file);
-        command.args(&args).current_dir(cwd).env_clear();
+        command.args(&args).env_clear();
         for (key, value) in env {
             command.env(key, value);
         }
@@ -922,6 +962,19 @@ impl PtyDeps for RealPtyDeps {
         command.stdout(std::process::Stdio::null());
         command.stderr(std::process::Stdio::null());
         command.process_group(0);
+        let directory =
+            cwd.directory.try_clone().map_err(|_| "cwd descriptor clone failed".to_owned())?;
+        // Tokio exposes the underlying std::process::Command for Unix
+        // pre_exec setup. fchdir runs in the child after fork and pins the
+        // daemon to the validated directory descriptor.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::fchdir(directory.as_raw_fd()) == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
 
@@ -958,8 +1011,15 @@ impl PtyDeps for RealPtyDeps {
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()> {
         let mut entries = tokio::fs::read_dir(path).await.map_err(|_| ())?;
         let mut names = Vec::new();
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            names.push(entry.file_name().to_string_lossy().into_owned());
+        loop {
+            let entry = entries
+                .next_entry()
+                .await
+                .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+                .map_err(|_| ());
+            if !append_dir_name(&mut names, entry)? {
+                break;
+            }
         }
         Ok(names)
     }
@@ -986,6 +1046,18 @@ async fn is_executable(path: &Path) -> bool {
         Ok(meta) => meta.is_file() && meta.permissions().mode() & 0o111 != 0,
         Err(_) => false,
     }
+}
+
+/// Resolve and validate an operator-selected executable before handing it to
+/// `Command`. Relative sources are rejected because the relay's launch cwd can
+/// be caller-controlled. Keeping the canonical absolute path in `CmuxTui`
+/// avoids a second PATH lookup after validation.
+async fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let canonical = tokio::fs::canonicalize(path).await.ok()?;
+    is_executable(&canonical).await.then_some(canonical)
 }
 
 /// Session-name validity is re-exported so the daemon path can reject early.
@@ -1044,6 +1116,70 @@ mod tests {
         let error = session_socket_path(Path::new("/run/cmux-tui-501"), 501, "bad/name")
             .expect_err("path separator must be rejected");
         assert!(error.contains("invalid session"));
+    }
+
+    #[tokio::test]
+    async fn canonical_executable_rejects_relative_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!("cmux-relay-cwd-test-{}", std::process::id()));
+        let cwd = root.join("request");
+        let bin = cwd.join("bin");
+        let executable = bin.join("cmux-tui");
+        tokio::fs::create_dir_all(&bin).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let resolved = canonical_executable(Path::new("bin/cmux-tui")).await;
+        assert_eq!(resolved, None);
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[tokio::test]
+    async fn resolver_rejects_relative_override_and_path_entries() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-relay-relative-executable-policy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let cwd = root.join("launch");
+        let executable = cwd.join("bin/cmux-tui");
+        tokio::fs::create_dir_all(executable.parent().unwrap()).await.unwrap();
+        tokio::fs::write(&executable, b"#!/bin/sh\n").await.unwrap();
+        tokio::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))
+            .await
+            .unwrap();
+
+        let mut env = HashMap::new();
+        env.insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), "bin/cmux-tui".to_owned());
+        env.insert("PATH".to_owned(), "bin".to_owned());
+        let mut deps = RealPtyDeps::new(env);
+
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env.remove("CHATMUX_RELAY_CMUX_TUI");
+        assert!(deps.resolve_cmux_tui().await.is_none());
+
+        deps.env
+            .insert("CHATMUX_RELAY_CMUX_TUI".to_owned(), executable.to_string_lossy().into_owned());
+        assert_eq!(
+            deps.resolve_cmux_tui().await.map(|resolved| resolved.file),
+            Some(std::fs::canonicalize(&executable).unwrap().to_string_lossy().into_owned())
+        );
+        let _ = tokio::fs::remove_dir_all(root).await;
+    }
+
+    #[test]
+    fn directory_entry_read_errors_fail_closed() {
+        let mut names = vec!["before-error".to_owned()];
+        let result = append_dir_name(&mut names, Err(()));
+
+        assert_eq!(result, Err(()));
+        assert_eq!(names, vec!["before-error".to_owned()]);
     }
 
     #[test]
@@ -1105,10 +1241,10 @@ mod tests {
         let exit_seen = TestArc::clone(&seen);
         output.subscribe(
             TestArc::new(move |chunk| {
-                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()))
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()));
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
         assert_eq!(
@@ -1194,10 +1330,10 @@ mod tests {
                 data_seen
                     .lock()
                     .expect("seen lock")
-                    .push(String::from_utf8_lossy(&chunk).into_owned())
+                    .push(String::from_utf8_lossy(&chunk).into_owned());
             }),
             TestArc::new(move |code| {
-                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"));
             }),
         );
 
