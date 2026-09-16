@@ -55,5 +55,22 @@ struct MobileIrohSoakRunnerTests {
         #expect(runner.evidence.completedCycles == 0)
         #expect(runner.evidence.operationCounts.isEmpty)
     }
+
+    @Test func stalledOperationReportsWithoutWaitingForCooperation() async throws {
+        let runner = MobileIrohSoakRunner(
+            profile: .stress, durationSeconds: 0, minimumCycles: 1,
+            operationTimeout: .milliseconds(20)
+        )
+        var suspended: CheckedContinuation<MobileIrohReleaseGateProbeResult, Never>?
+        await #expect(throws: MobileIrohSoakRunner.Failure.cycleTooSlow) {
+            try await runner.run(marker: "test", connection: { 1 }, probe: { _ in
+                await withCheckedContinuation { suspended = $0 }
+            }, stress: { _, _ in [] })
+        }
+        #expect(runner.evidence.completedCycles == 0)
+        #expect(runner.evidence.currentOperation == "app_rpc_and_terminal_round_trip")
+        // Release the deliberately uncooperative operation after the deadline wins.
+        suspended?.resume(returning: probe)
+    }
 }
 #endif
