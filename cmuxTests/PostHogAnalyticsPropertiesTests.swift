@@ -825,6 +825,48 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
+    func nativeCrashWithoutAppContextUsesPreviousLaunchIdentity() throws {
+        let suiteName = "cmux.posthog.native.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set([
+            "started_at": Date(timeIntervalSince1970: 900),
+            "app_version": "0.64.22",
+            "app_build": "6422",
+            "app_namespace": "com.cmuxterm.app",
+        ], forKey: "posthog.previousLaunchIdentity")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID()).ghosttycrash")
+        defer { try? FileManager.default.removeItem(at: url) }
+        // Real sentry.native envelopes have a Ghostty release, OS context and
+        // a minidump attachment, with no JSON exception list or app context.
+        let event: [String: Any] = ["platform": "native", "release": "1.3.2-HEAD-ghostty",
+                                    "contexts": ["os": ["name": "macOS"]]]
+        let payload = try JSONSerialization.data(withJSONObject: event)
+        var envelope = Data("{}\n".utf8)
+        envelope.append(try JSONSerialization.data(withJSONObject: ["type": "event", "length": payload.count]))
+        envelope.append(Data("\n".utf8))
+        envelope.append(payload)
+        envelope.append(Data("\n".utf8))
+        try envelope.write(to: url)
+        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.native")
+        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.native.captures")
+        var captured: [String: Any] = [:]
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: workQueue, didStart: true, userDefaults: defaults,
+            now: { Date(timeIntervalSince1970: 2_000) },
+            capturePostHog: { _, properties in capturedQueue.sync { captured = properties } },
+            flushPostHog: {}
+        )
+        analytics.captureCrashException(pendingCrash: .init(fileURL: url, modifiedAt: Date(timeIntervalSince1970: 1_000)))
+        workQueue.sync {}
+        let properties = capturedQueue.sync { captured }
+        #expect(properties["crash_app_version"] as? String == "0.64.22")
+        #expect(properties["crash_app_build"] as? String == "6422")
+        #expect(properties["crash_app_namespace"] as? String == "com.cmuxterm.app")
+        #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:UnknownCrash")
+    }
+
+    @Test
     func captureCrashExceptionSkipsUnderXCTestEvenWhenTelemetryIsEnabled() throws {
         let suiteName = "cmux.posthog.crash.xctest.tests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
