@@ -269,22 +269,20 @@ struct CloudPaneCreationFailureView: View {
     }
 
     private struct Actions: View {
-        let copyableText: String
         let onDismiss: () -> Void
         var body: some View {
-            HStack(spacing: 8) {
-                Button(CloudErrorCopy.title) { CloudErrorCopy.copy(copyableText) }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("CloudPaneCreationFailureCopy")
-                Spacer(minLength: 8)
-                Button(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"), action: onDismiss)
-                    .keyboardShortcut(.cancelAction)
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("CloudPaneCreationFailureDismiss")
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 20, height: 20)
+                    .contentShape(Circle())
             }
-            .controlSize(.small)
-            .font(.system(size: 12))
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .background(.quaternary, in: Circle())
+            .keyboardShortcut(.cancelAction)
+            .accessibilityLabel(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss"))
+            .accessibilityIdentifier("CloudPaneCreationFailureDismiss")
         }
     }
 
@@ -303,8 +301,9 @@ struct CloudPaneCreationFailureView: View {
                         Heading()
                         Detail(text: failure.errorText)
                     }
+                    Spacer(minLength: 4)
+                    Actions(onDismiss: onDismiss)
                 }
-                Actions(copyableText: failure.copyableText, onDismiss: onDismiss)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,7 +327,7 @@ struct CloudPaneCreationFailureView: View {
                 Detail(text: failure.errorText)
                     .multilineTextAlignment(.center)
                 Divider().padding(.vertical, 2)
-                Actions(copyableText: failure.copyableText, onDismiss: onDismiss)
+                Actions(onDismiss: onDismiss)
             }
             .padding(22)
             .frame(maxWidth: .infinity)
@@ -346,7 +345,7 @@ struct CloudPaneCreationFailureView: View {
                 Heading()
                 Detail(text: failure.errorText)
                 Divider().padding(.vertical, 2)
-                Actions(copyableText: failure.copyableText, onDismiss: onDismiss)
+                Actions(onDismiss: onDismiss)
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
