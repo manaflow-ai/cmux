@@ -117,7 +117,7 @@ The fork must expose cancellation for an in-progress connect. Closing a QUIC con
 
 Native macOS relay TLS follows system certificate trust. See the
 [enterprise trust and remediation guide](relay-tls-enterprise.md) for System
-keychain roots, safe failure diagnostics, and the deterministic test harness.
+keychain roots, safe failure diagnostics, and the deterministic test harness. The native endpoint owns the current diagnostics; Swift callbacks only log them. Readiness reads that same endpoint generation directly when constructing a timeout error, so delayed logging callbacks cannot supply stale failures.
 
 `config/iroh/managed-relay-catalog.json` is the committed, server-owned source of truth for the managed fleet. `web/tools/generate-managed-iroh-relay-catalog.ts` validates it and writes the generated TypeScript consumed by the web API and presence worker. Build checks reject generated-file drift. Managed relay URLs do not come from deployment environment variables, and signing keys and relay credentials never enter the catalog or generated files.
 

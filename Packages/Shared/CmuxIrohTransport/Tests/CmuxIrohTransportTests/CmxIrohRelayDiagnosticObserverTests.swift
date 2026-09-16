@@ -17,35 +17,25 @@ import Testing
     func reportsNativeHostAndFailure(
         kind: RelayFailureKind,
         code: String
-    ) async throws {
-        let observer = CmxIrohRelayDiagnosticObserver()
-        try await observer.onChange(diagnostics: [
+    ) throws {
+        let description = try #require(CmxIrohRelayDiagnosticObserver.failureDescription(for: [
             .init(host: "relay.example.test", port: 443, connected: false, failure: kind),
-        ])
-        let description = try #require(await observer.failureDescription)
+        ]))
         #expect(description.contains("relay.example.test:443"))
         #expect(description.contains(code))
     }
 
-    @Test func connectedRelayHasNoFailureDescription() async throws {
-        let observer = CmxIrohRelayDiagnosticObserver()
-        try await observer.onChange(diagnostics: [
-            .init(host: "relay.example.test", port: nil, connected: false, failure: .unknownIssuer),
-        ])
-        #expect(await observer.failureDescription?.contains("UnknownIssuer") == true)
-        try await observer.onChange(diagnostics: [
-            .init(host: "relay.example.test", port: 443, connected: true, failure: nil),
-        ])
-        #expect(await observer.failureDescription == nil)
+    @Test func connectedRelayHasNoFailureDescription() {
+        #expect(CmxIrohRelayDiagnosticObserver.failureDescription(for: [
+            .init(host: "relay.example.test", port: 443, connected: true, failure: .unknownIssuer),
+        ]) == nil)
     }
 
-    @Test func successfulRevalidationClearsAnEarlyDiscoveryFailure() async throws {
+    @Test func oldNotificationCannotChangeTheCurrentSnapshot() async throws {
         let observer = CmxIrohRelayDiagnosticObserver()
         try await observer.onChange(diagnostics: [
             .init(host: "relay.example.test", port: nil, connected: false, failure: .unknownIssuer),
         ])
-        #expect(await observer.failureDescription?.contains("UnknownIssuer") == true)
-        try await observer.onChange(diagnostics: [])
-        #expect(await observer.failureDescription == nil)
+        #expect(CmxIrohRelayDiagnosticObserver.failureDescription(for: []) == nil)
     }
 }

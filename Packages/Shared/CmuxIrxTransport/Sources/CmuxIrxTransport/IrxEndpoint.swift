@@ -322,8 +322,8 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         driver = bound
-        let relayDiagnostics = CmxIrohRelayDiagnosticObserver()
-        relayDiagnosticWatch = bound.watchRelayConnectionDiagnostics(callback: relayDiagnostics)
+        relayDiagnosticWatch = bound.watchRelayConnectionDiagnostics(
+            callback: CmxIrohRelayDiagnosticObserver())
         if !directOnly {
             let installer = IrxRelayCredentialInstaller(installed: usable, journal: journal) { credential in
                 try await bound.insertRelay(config: RelayConfig(
@@ -373,7 +373,9 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         guard cameOnline == true else {
-            let failure = await relayDiagnostics.failureDescription
+            // Read this generation's native state, independent of callback delivery.
+            let failure = CmxIrohRelayDiagnosticObserver.failureDescription(
+                for: bound.relayConnectionDiagnostics())
             journal.record(
                 "endpoint", "online-timeout",
                 ["generation": String(generation)]

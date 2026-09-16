@@ -168,6 +168,9 @@ def handshake(client, directory, name, label, output, diagnostics=True):
     diagnostics = [json.loads(line.removeprefix("DIAGNOSTIC "))
                    for line in log.read_text().splitlines() if line.startswith("DIAGNOSTIC ")]
     observed["diagnostics"] = diagnostics
+    observed["final_diagnostics"] = [json.loads(line.removeprefix("FINAL_DIAGNOSTIC "))
+                                     for line in log.read_text().splitlines()
+                                     if line.startswith("FINAL_DIAGNOSTIC ")]
     print(json.dumps(observed), flush=True)
     return observed
 
@@ -222,10 +225,11 @@ def main():
             raise SystemExit("FAIL: system trust or certificate validation did not match the contract")
         for result, cause in zip(results, ["unknownIssuer", None, "hostnameMismatch",
                                            "certificateExpired", "unknownIssuer"]):
-            if args.diagnostics and cause and not any(item["cause"] == cause for item in result["diagnostics"]):
-                raise SystemExit(f"FAIL: {result['case']} lost the native {cause} diagnostic")
-            if any(item["host"] != "localhost" for item in result["diagnostics"]):
-                raise SystemExit("FAIL: diagnostic did not identify the TLS host")
+            for source in ["diagnostics", "final_diagnostics"]:
+                if args.diagnostics and cause and not any(item["cause"] == cause for item in result[source]):
+                    raise SystemExit(f"FAIL: {result['case']} lost the native {cause} in {source}")
+                if any(item["host"] != "localhost" for item in result[source]):
+                    raise SystemExit("FAIL: diagnostic did not identify the TLS host")
         print("PASS: System-keychain root honored; untrusted issuer, wrong host, expired and removed root rejected")
 
 

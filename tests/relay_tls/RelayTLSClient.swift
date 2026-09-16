@@ -25,12 +25,21 @@ struct RelayTLSClient {
         await watch.stop()
         #endif
         try await endpoint.close()
+        #if RELAY_TLS_DIAGNOSTICS
+        // Readiness closes a timed-out endpoint before presenting its error.
+        // Its direct snapshot must retain the cause without a callback cache.
+        try RelayTLSProbeObserver.write(endpoint.relayConnectionDiagnostics(), prefix: "FINAL_DIAGNOSTIC")
+        #endif
     }
 }
 
 #if RELAY_TLS_DIAGNOSTICS
 private actor RelayTLSProbeObserver: RelayConnectionDiagnosticCallback {
     func onChange(diagnostics: [RelayConnectionDiagnostic]) async throws {
+        try Self.write(diagnostics, prefix: "DIAGNOSTIC")
+    }
+
+    static func write(_ diagnostics: [RelayConnectionDiagnostic], prefix: String) throws {
         for snapshot in diagnostics {
             guard let failure = snapshot.failure else { continue }
             let data = try JSONSerialization.data(withJSONObject: [
@@ -38,7 +47,7 @@ private actor RelayTLSProbeObserver: RelayConnectionDiagnosticCallback {
                 "cause": String(describing: failure),
             ], options: [.sortedKeys])
             // A single write keeps the parent's diagnostic line atomic.
-            FileHandle.standardOutput.write(Data("DIAGNOSTIC ".utf8) + data + Data("\n".utf8))
+            FileHandle.standardOutput.write(Data("\(prefix) ".utf8) + data + Data("\n".utf8))
         }
     }
 }

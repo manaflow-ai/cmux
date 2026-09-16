@@ -6,25 +6,19 @@ nonisolated private let relayLogger = Logger(subsystem: "com.cmux", category: "R
 
 /// Observes native relay failures without probing or retaining raw error text.
 ///
-/// The native endpoint is the source of truth for both validation and failure
-/// classification. This observer owns only the latest diagnostic snapshot.
-public actor CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCallback {
-    private var previous: [RelayConnectionDiagnostic] = []
-    private var failures: [RelayConnectionDiagnostic] = []
-
-    /// Creates an observer for one endpoint generation.
+/// The native endpoint owns diagnostic state and deduplicates notifications.
+/// This stateless bridge only logs; readiness reads the endpoint directly.
+public final class CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCallback {
+    /// Creates a stateless native logging callback.
     ///
     public init() {}
 
-    /// Updates diagnostics when the native home-relay state changes.
+    /// Logs failures when native certificate or relay state changes.
     ///
     /// - Parameter diagnostics: Native snapshots containing no URL credentials.
     public func onChange(diagnostics snapshot: [RelayConnectionDiagnostic]) async throws {
-        guard snapshot != previous else { return }
-        previous = snapshot
-        failures = snapshot.filter { !$0.connected && $0.failure != nil }
-        for failure in failures {
-            guard let kind = failure.failure else { continue }
+        for failure in snapshot {
+            guard !failure.connected, let kind = failure.failure else { continue }
             let code = Self.code(kind)
             let port = failure.port.map(String.init) ?? "unknown"
             #if os(macOS)
@@ -36,12 +30,15 @@ public actor CmxIrohRelayDiagnosticObserver: RelayConnectionDiagnosticCallback {
         }
     }
 
-    /// The last native failure, suitable for a local connection error.
+    /// Formats a current native snapshot for a local connection error.
     ///
     /// Includes only the failing host, port and a fixed diagnostic code. It
     /// never includes URL userinfo, paths, query strings, tokens or peer text.
-    public var failureDescription: String? {
-        guard let failure = failures.first, let kind = failure.failure else { return nil }
+    /// - Parameter diagnostics: Read directly from the active native endpoint.
+    /// - Returns: The first failure, or nil when the snapshot has no failure.
+    public static func failureDescription(for diagnostics: [RelayConnectionDiagnostic]) -> String? {
+        guard let failure = diagnostics.first(where: { !$0.connected && $0.failure != nil }),
+              let kind = failure.failure else { return nil }
         return String(
             format: String(
                 localized: "connection.relay.nativeFailure",
