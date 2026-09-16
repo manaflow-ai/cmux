@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { Effect } from "effect";
+import { changeAccountVisibility } from "../services/coderouter/accountSharing";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
@@ -130,4 +132,24 @@ dbTest("destroying a VM invalidates its credential without waiting for token exp
   expect(await authenticateRouteToken(tokenA)).toBeNull();
   const response = await accountsGet(guest('/api/coderouter/accounts'));
   expect(response.status).toBe(401);
+});
+
+
+dbTest("sharing requires the importer even when the account is currently shared", async () => {
+  for (const accountId of [sharedA, privateA]) {
+    const result = await Effect.runPromise(changeAccountVisibility({ teamId: TEAM_A, userId: 'another-admin',
+      accountId, family: 'native', visibility: 'private' }));
+    expect(result).toBeNull();
+  }
+  const changed = await Effect.runPromise(changeAccountVisibility({ teamId: TEAM_A, userId: USER,
+    accountId: privateA, family: 'native', visibility: 'team' }));
+  expect(changed).toEqual({ id: privateA, visibility: 'team' });
+  expect((await listAccounts(TEAM_A, access())).map(a => a.id).sort()).toEqual([sharedA, privateA].sort());
+});
+
+dbTest("older account writers preserve shared access during deployment", async () => {
+  const [old] = await db`insert into coderouter_accounts (team_id, provider, provider_account_id, label)
+    values (${TEAM_A}, 'openai-apikey', 'legacy-writer', 'Legacy import') returning id, visibility`;
+  expect(old.visibility).toBe('team');
+  expect((await listAccounts(TEAM_A, access())).map(a => a.id)).toContain(old.id);
 });

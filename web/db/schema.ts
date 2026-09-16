@@ -1110,7 +1110,7 @@ export const coderouterAccounts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
-    visibility: text("visibility").$type<"private" | "team">().notNull().default("private"),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
     createdBy: text("created_by"),
     provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     providerAccountId: text("provider_account_id").notNull(),
@@ -1986,7 +1986,7 @@ export const coderouterClaudeAccounts = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     teamId: text("team_id").notNull(),
-    visibility: text("visibility").$type<"private" | "team">().notNull().default("private"),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
     kind: text("kind")
       .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
       .notNull(),

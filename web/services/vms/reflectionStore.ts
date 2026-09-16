@@ -20,7 +20,7 @@ const OWNER_SNAPSHOT_MAX_AGE_MS = 365 * 24 * 60 * 60 * 1_000;
 
 /** Every live machine the same owner has (the caller included). */
 export async function listOwnerLiveVms(self: VmPrincipalRow): Promise<VmPrincipalRow[]> {
-  const ownerScope = eq(cloudVms.ownerTeamId, self.ownerTeamId ?? self.billingTeamId ?? self.userId);
+  const ownerScope = eq(cloudVms.ownerTeamId, self.ownerTeamId);
   const rows = await cloudDb()
     .select({
       id: cloudVms.id,

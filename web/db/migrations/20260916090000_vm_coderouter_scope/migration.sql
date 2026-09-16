@@ -10,9 +10,8 @@ CREATE UNIQUE INDEX "coderouter_pools_default_unique" ON "coderouter_pools" ("te
 
 ALTER TABLE "coderouter_accounts" ADD COLUMN "visibility" text NOT NULL DEFAULT 'team', ADD COLUMN "created_by" text;
 ALTER TABLE "coderouter_claude_accounts" ADD COLUMN "visibility" text NOT NULL DEFAULT 'team';
--- Existing accounts retain the sharing users already had. New imports are private.
-ALTER TABLE "coderouter_accounts" ALTER COLUMN "visibility" SET DEFAULT 'private';
-ALTER TABLE "coderouter_claude_accounts" ALTER COLUMN "visibility" SET DEFAULT 'private';
+-- Keep the shared default for old servers during a rolling deployment. New
+-- account creation explicitly supplies private visibility and its importing user.
 ALTER TABLE "coderouter_accounts" ADD CONSTRAINT "coderouter_accounts_visibility_check" CHECK ("visibility" IN ('private', 'team'));
 ALTER TABLE "coderouter_claude_accounts" ADD CONSTRAINT "coderouter_claude_accounts_visibility_check" CHECK ("visibility" IN ('private', 'team'));
 CREATE UNIQUE INDEX "coderouter_accounts_team_id_unique" ON "coderouter_accounts" ("team_id", "id");

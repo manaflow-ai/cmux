@@ -94,7 +94,9 @@ Removing a pool grant takes effect on the next request, including existing
 sessions. An empty pool returns `no_usable_account` rather than routing through
 another team or a private account. Requests already sent upstream may finish.
 
-New accounts are private to their importing user. Human route tokens and API
+New account API writes explicitly set private visibility and their importing user.
+The database default remains shared for compatibility with older servers during
+a rolling deployment; old writes must not create ownerless private accounts. Human route tokens and API
 keys can use that user's private accounts and the selected team's shared
 accounts. An organization VM never inherits its creator's private access.
 Private accounts in a personal scope (`team_id = created_by`) are available to

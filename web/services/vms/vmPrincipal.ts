@@ -86,7 +86,7 @@ export function isVmPrincipalLiveStatus(status: string): status is VmPrincipalLi
  * another team, and changing the payer does not change machine authorization.
  */
 export function vmPrincipalOwns(row: VmPrincipalRow, identity: Pick<RouteTokenIdentity, "stackUserId" | "teamId">): boolean {
-  return (row.ownerTeamId ?? row.billingTeamId) === identity.teamId;
+  return row.ownerTeamId === identity.teamId;
 }
 
 export async function requireVmPrincipal(
