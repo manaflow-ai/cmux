@@ -31,19 +31,10 @@ struct CloudOperationDetailsView: View {
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(operation.startedAt, style: .time)
                                     if let duration = operation.durationMs {
-                                        Text("Total \(Duration.milliseconds(duration), format: .units(allowed: [.seconds, .milliseconds], width: .abbreviated))")
+                                        Text(Duration.milliseconds(duration), format: .units(allowed: [.seconds, .milliseconds], width: .abbreviated))
                                     }
                                 }
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
-                            if !operation.steps.isEmpty {
-                                HStack {
-                                    Text("Step")
-                                    Spacer()
-                                    Text("Duration")
-                                }
-                                .font(.caption2.bold())
                                 .foregroundStyle(.secondary)
                             }
                             ForEach(operation.steps) { step in
