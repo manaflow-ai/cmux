@@ -117,6 +117,7 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
 }
 
 private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
+    // lint:allow lock - URLProtocol callbacks share this request count across executors.
     private static let storedRequestCount = OSAllocatedUnfairLock(initialState: 0)
 
     static var requestCount: Int { storedRequestCount.withLock { $0 } }
@@ -389,7 +390,6 @@ private func makeReplyLaneCoordinator(
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
 }
-
 
 @MainActor
 @Test func retryLadderRetriesTheRelayWithTheSameReplyId() async throws {

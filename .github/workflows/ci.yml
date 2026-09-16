@@ -231,6 +231,9 @@ jobs:
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
+      - name: Validate xcodebuild failure diagnostics
+        run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
+
       - name: Validate app-host xcodebuild retry guard
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
 
@@ -1611,6 +1614,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
+          python3 tests/test_codex_autoresume_chain.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
           python3 tests/test_cmux_cua_mcp_smoke.py

@@ -1,0 +1,30 @@
+import CmuxSettings
+import Foundation
+
+/// Grants the Cloud-only dogfood exception from the installed app identity.
+/// Display names, environment variables and persisted defaults cannot grant it.
+struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
+    let allowsCloudOverride: Bool
+
+    init(bundle: Bundle = .main) {
+        #if DEBUG
+        self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: true)
+        #else
+        self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: false)
+        #endif
+    }
+
+    init(bundleIdentifier: String?, isDebugBuild: Bool) {
+        // Only the shipping Nightly identity grants the exception in Release.
+        // Debug also requires a debug bundle, so stable/staging identities fail closed.
+        let debugID = SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+        allowsCloudOverride = bundleIdentifier == SocketPathMarkerFiles.nightlyBundleIdentifier
+            || (isDebugBuild && (bundleIdentifier == debugID
+                || bundleIdentifier?.hasPrefix(debugID + ".") == true))
+    }
+
+    func policy(for definition: CmuxFeatureFlagDefinition) -> CmuxFeatureFlagOverridePolicy {
+        guard definition.key == CmuxFeatureFlags.cloudMachinesFlag.key else { return .remoteFirst }
+        return allowsCloudOverride ? .localFirst : .disabled
+    }
+}
