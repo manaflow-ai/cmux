@@ -17,6 +17,7 @@ final class MobileHostIrxRuntime {
 
     nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
     nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+    nonisolated static let pathModeDefaultsKey = CmxIrohTransportVerificationMode.debugDefaultsKey
 
     /// irx is the PRIMARY transport: on by default in every configuration.
     /// An explicit `false` in defaults (the remote revert switch writes it)
@@ -64,6 +65,19 @@ final class MobileHostIrxRuntime {
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
     }
+
+    #if DEBUG
+    func setIrohDebugTransportVerificationMode(
+        _ mode: CmxIrohTransportVerificationMode
+    ) async {
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.pathModeDefaultsKey)
+        UserDefaults.standard.set(
+            mode == .relayOnly,
+            forKey: Self.forceRelayDefaultsKey
+        )
+        await applyManagedNetworkingPolicy()
+    }
+    #endif
 
     /// One journal for every irx component on the Mac. The soak analyzer
     /// tails the JSONL file; `log show` sees the mirrored notice lines.
