@@ -8,20 +8,28 @@ import Darwin
 /// instead of being replayed into a shell whose input state is unknown.
 final class SSHPTYTerminalInputMode {
     enum Phase: Equatable {
+        case unchanged
         case disconnected
         case forwarding
+        case restored
     }
 
     private let fileDescriptor: Int32
     private var original = termios()
-    private var restored = false
+    private var phase: Phase = .unchanged
 
-    init?(phase: Phase, fileDescriptor: Int32 = STDIN_FILENO) {
+    /// Captures the caller's complete mode without changing or flushing the PTY.
+    init?(fileDescriptor: Int32 = STDIN_FILENO) {
         self.fileDescriptor = fileDescriptor
-        guard tcgetattr(fileDescriptor, &original) == 0,
-              apply(phase, action: TCSAFLUSH) else {
+        guard tcgetattr(fileDescriptor, &original) == 0 else {
             return nil
         }
+    }
+
+    /// Protects detached input only after the daemon has passed admission.
+    func beginDisconnected() -> Bool {
+        guard phase == .unchanged else { return phase == .disconnected }
+        return apply(.disconnected, action: TCSAFLUSH)
     }
 
     deinit {
@@ -31,18 +39,23 @@ final class SSHPTYTerminalInputMode {
     /// Discards detached input and switches to the raw forwarding mode.
     @discardableResult
     func beginForwarding() -> Bool {
-        guard !restored else { return false }
-        return apply(.forwarding, action: TCSAFLUSH)
+        switch phase {
+        case .forwarding: return true
+        case .restored: return false
+        case .unchanged: return apply(.forwarding, action: TCSANOW)
+        case .disconnected: return apply(.forwarding, action: TCSAFLUSH)
+        }
     }
 
     /// Restores the caller's terminal mode.
     @discardableResult
     func restore(flushInput: Bool = false) -> Bool {
-        guard !restored else { return true }
+        if phase == .unchanged { phase = .restored }
+        guard phase != .restored else { return true }
         var state = original
         let result = tcsetattr(fileDescriptor, flushInput ? TCSAFLUSH : TCSANOW, &state) == 0
         if result {
-            restored = true
+            phase = .restored
         }
         return result
     }
@@ -61,6 +74,8 @@ final class SSHPTYTerminalInputMode {
             // stop a reconnect while ordinary bytes remain hidden and disposable.
             state.c_lflag |= tcflag_t(ISIG)
         }
-        return tcsetattr(fileDescriptor, action, &state) == 0
+        guard tcsetattr(fileDescriptor, action, &state) == 0 else { return false }
+        self.phase = phase
+        return true
     }
 }

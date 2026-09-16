@@ -1,6 +1,15 @@
 import Foundation
 
 extension CMUXCLI {
+    /// A tty that cannot be protected must never fall back to cooked forwarding.
+    func sshPTYTerminalModeError() -> CLIError {
+        CLIError(message: String(
+            localized: "cli.sshPtyAttach.terminalModeFailed",
+            defaultValue: "SSH attach stopped because terminal input could not be placed in raw forwarding mode. Reconnect the workspace to try again.",
+            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        ))
+    }
+
     /// Flushes bytes typed while a managed persistent SSH PTY was detached.
     ///
     /// The generated retry wrapper invokes this internal no-socket command

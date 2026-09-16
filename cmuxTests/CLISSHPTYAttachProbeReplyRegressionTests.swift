@@ -44,7 +44,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "workspace.remote.pty_bridge":
                     return self.v2Response(id: id, ok: true, result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": "bridge-token",
                         "session_id": sessionID,
@@ -163,7 +163,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "workspace.remote.pty_bridge":
                 return self.v2Response(id: id, ok: true, result: [
-                    "host": "127.0.0.1",
+                    "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionID,
@@ -249,7 +249,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "workspace.remote.pty_bridge":
                     return self.v2Response(id: id, ok: true, result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": "bridge-token",
                         "session_id": sessionID,
@@ -386,7 +386,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 switch method {
                 case "workspace.remote.pty_bridge":
                     return self.v2Response(id: id, ok: true, result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": "bridge-token",
                         "session_id": sessionID,
@@ -565,7 +565,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "workspace.remote.pty_bridge":
                 return self.v2Response(id: id, ok: true, result: [
-                    "host": "127.0.0.1",
+                    "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionID,
@@ -665,7 +665,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1",
+                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
                         "port": bridge.port,
                         "token": token,
                         "session_id": sessionId,

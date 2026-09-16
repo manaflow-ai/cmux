@@ -15299,16 +15299,17 @@ struct CMUXCLI {
             }
         }
 
-        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        var terminalInputMode: SSHPTYTerminalInputMode?
-        if filtersReconnectInput {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
-        }
+        let isTerminalInput = isatty(STDIN_FILENO) == 1
+        let filtersReconnectInput = requireExisting && command == nil && isTerminalInput
+        // Capture once. Admission and network setup must not mutate this snapshot.
+        let terminalInputMode = isTerminalInput ? SSHPTYTerminalInputMode() : nil
+        var signalMonitor: SSHPTYAttachSignalMonitor?
         defer {
             if let terminalInputMode,
                !terminalInputMode.restore(flushInput: filtersReconnectInput) {
                 cliDebugLog("ssh.pty.attach.terminal.restore_failed")
             }
+            signalMonitor?.cancel()
         }
 
         let bridge: [String: Any]
@@ -15376,6 +15377,9 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
+        try SSHPTYDaemonCompatibility(clientVersion: remoteDaemonVersionString(from: resolvedVersionInfo()))
+            .validate(bridge["daemon_version"] as? String)
+        if isTerminalInput, terminalInputMode == nil { throw sshPTYTerminalModeError() }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
         var bridgeReadyUptime: TimeInterval = 0
@@ -15391,6 +15395,10 @@ struct CMUXCLI {
 
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
+            signalMonitor = try SSHPTYAttachSignalMonitor(bridgeFD: fd)
+            if filtersReconnectInput, terminalInputMode?.beginDisconnected() != true {
+                throw sshPTYTerminalModeError()
+            }
             let size = Self.currentCLITerminalSize()
             bridgeHandshakeSize = size
             var handshakeData = try JSONSerialization.data(withJSONObject: [
@@ -15428,6 +15436,8 @@ struct CMUXCLI {
                 )
             }
         } catch {
+            if let connectedFD { Darwin.close(connectedFD) }
+            try signalMonitor?.checkCancellation()
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
             if sessionNotFound {
@@ -15440,7 +15450,6 @@ struct CMUXCLI {
                sshPTYAttachWrapperWillRetry(preReadyExitCode) {
                 wrapperWillRetrySameSurface = true
             }
-            if let connectedFD { Darwin.close(connectedFD) }
             if !sessionNotFound, preReadyRetryable,
                try reconcileBridgeEnd(intentionalOnly: true) {
                 attachFinished = true
@@ -15451,18 +15460,10 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if filtersReconnectInput {
-            guard terminalInputMode?.beginForwarding() == true else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH terminal input could not enter reconnect mode."
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-        } else {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+        // Fresh output may contain live terminal queries, so raw mode precedes it.
+        // A reconnect keeps signal keys live until its historical replay is drained.
+        if isTerminalInput, !filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+            throw sshPTYTerminalModeError()
         }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
@@ -15539,41 +15540,26 @@ struct CMUXCLI {
         var replayOutputFilter = SSHPTYReplayOutputFilter(
             replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
-        func writeReplayFilteredOutput(_ data: Data) {
+        func writeReplayFilteredOutput(_ data: Data) throws {
             guard !data.isEmpty else { return }
             let filtered = replayOutputFilter.filter(data)
-            if !filtered.isEmpty {
-                cliWriteStdout(filtered)
-            }
-        }
-        func finishReplayFiltering() {
-            let trailingReplay = replayOutputFilter.finish()
-            if !trailingReplay.isEmpty {
-                cliWriteStdout(trailingReplay)
+            if !filtered.isEmpty,
+               !cliWrite(filtered, to: .standardOutput, onBrokenPipe: .ignore) {
+                // A closed output consumer still has to unwind the termios owner.
+                throw CLIError(message: "", exitCode: 0)
             }
         }
         defer {
             let pendingReplay = outputProgress.finishPendingReplay(
                 discarding: sshPTYAttachWrapperRetryPending()
             )
-            writeReplayFilteredOutput(pendingReplay)
-            finishReplayFiltering()
+            try? writeReplayFilteredOutput(pendingReplay)
+            _ = cliWrite(replayOutputFilter.finish(), to: .standardOutput, onBrokenPipe: .ignore)
         }
         func startInputForwardingAfterReplay() throws {
             guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
-            if filtersReconnectInput {
-                guard terminalInputMode?.beginForwarding() == true else {
-                    throw CLIError(
-                        message: String(
-                            localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                            defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
-                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                        ),
-                        exitCode: SSHPTYAttachExitCode.retryableTransient
-                    )
-                }
-            } else {
-                terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+            if filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+                throw sshPTYTerminalModeError()
             }
             do {
                 reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
@@ -15606,6 +15592,7 @@ struct CMUXCLI {
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
+            try signalMonitor?.checkCancellation()
             if count > 0 {
                 let output = outputProgress.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
@@ -15615,7 +15602,7 @@ struct CMUXCLI {
                     if inputPumpStarted {
                         reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     }
-                    writeReplayFilteredOutput(output)
+                    try writeReplayFilteredOutput(output)
                 }
                 if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
                     replayState.storeSnapshot(
