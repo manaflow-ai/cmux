@@ -801,6 +801,8 @@ required_true = (
 problems = []
 soak_profile = os.environ["EXPECTED_SOAK"]
 if soak_profile:
+    allowed_paths["automatic"].add("relay")
+    allowed_paths["relayOnly"].add("relay")
     soak = report.get("soak") or {}
     duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
     if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:

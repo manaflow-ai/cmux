@@ -1,5 +1,6 @@
 #if os(iOS) && DEBUG
 import CmuxMobileShellReleaseGateSupport
+import CMUXMobileCore
 import Foundation
 
 /// Runs a fixed workload against the real mobile shell for a full observation window.
@@ -23,6 +24,7 @@ final class MobileIrohSoakRunner {
         var operationCounts: [String: Int] = [:]
         var currentOperation = "starting"
         var maximumCycleSeconds: Double = 0
+        var selectedPath: String?
     }
 
     enum Failure: String, Error {
@@ -30,6 +32,7 @@ final class MobileIrohSoakRunner {
         case connectionUnavailable = "soak_connection_unavailable"
         case cycleTooSlow = "soak_cycle_exceeded_30_seconds"
         case insufficientCoverage = "soak_insufficient_coverage"
+        case pathPolicyMismatch = "soak_native_path_policy_mismatch"
     }
 
     let profile: Profile
@@ -38,24 +41,26 @@ final class MobileIrohSoakRunner {
     private let minimumCycles: Int
     private let interval: Duration
     private let operationTimeout: Duration
+    private let requiresRelay: Bool
     private var operationDeadline = ContinuousClock.now
 
     init(
         profile: Profile, durationSeconds: Int? = nil, minimumCycles: Int? = nil,
-        interval: Duration? = nil, operationTimeout: Duration = .seconds(30)
+        interval: Duration? = nil, operationTimeout: Duration = .seconds(30), requiresRelay: Bool = true
     ) {
         self.profile = profile
         self.durationSeconds = durationSeconds ?? profile.seconds
         self.minimumCycles = minimumCycles ?? profile.minimumCycles
         self.interval = interval ?? profile.interval
         self.operationTimeout = operationTimeout
+        self.requiresRelay = requiresRelay
         evidence = Evidence(profile: profile, requestedDurationSeconds: durationSeconds ?? profile.seconds)
     }
 
     func run(
         clock: some Clock<Duration> = ContinuousClock(),
         marker: String,
-        connection: @escaping @MainActor () async -> UInt64?,
+        connection: @escaping @MainActor () async -> CmxTransportConnectionObservation?,
         probe: @escaping @MainActor (String) async throws -> MobileIrohReleaseGateProbeResult,
         stress: @escaping @MainActor (Int, String) async throws -> [String]
     ) async throws -> MobileIrohReleaseGateProbeResult {
@@ -103,21 +108,20 @@ final class MobileIrohSoakRunner {
     private func runWorkload(
         clock: some Clock<Duration>,
         marker: String,
-        connection: () async -> UInt64?,
+        connection: () async -> CmxTransportConnectionObservation?,
         probe: (String) async throws -> MobileIrohReleaseGateProbeResult,
         stress: (Int, String) async throws -> [String]
     ) async throws -> MobileIrohReleaseGateProbeResult {
         let started = clock.now
         let deadline = started.advanced(by: .seconds(durationSeconds))
-        var expectedConnection = await connection()
-        guard expectedConnection != nil else { throw Failure.connectionUnavailable }
+        var expectedConnection = try observe(await connection())
         var last: MobileIrohReleaseGateProbeResult?
         repeat {
             try Task.checkCancellation()
             let cycleStarted = clock.now
             operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
             evidence.currentOperation = "connection_continuity"
-            guard await connection() == expectedConnection else { throw Failure.connectionChanged }
+            guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             let cycle = evidence.completedCycles
             let cycleMarker = "\(marker)_\(cycle)"
             evidence.currentOperation = "app_rpc_and_terminal_round_trip"
@@ -127,7 +131,7 @@ final class MobileIrohSoakRunner {
                               "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"] {
                 evidence.operationCounts[operation, default: 0] += 1
             }
-            guard await connection() == expectedConnection else { throw Failure.connectionChanged }
+            guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
             if profile == .stress {
                 evidence.currentOperation = cycle % 120 == 119 ? "forced_reconnect" : [
                     "workspace_navigation", "unicode_output_burst", "workspace_create_close", "terminal_after_refresh",
@@ -137,9 +141,8 @@ final class MobileIrohSoakRunner {
                     evidence.operationCounts[operation, default: 0] += 1
                 }
                 if cycle % 120 == 119 {
-                    expectedConnection = await connection()
-                    guard expectedConnection != nil else { throw Failure.connectionUnavailable }
-                } else if await connection() != expectedConnection {
+                    expectedConnection = try observe(await connection())
+                } else if try observe(await connection()) != expectedConnection {
                     throw Failure.connectionChanged
                 }
             }
@@ -155,16 +158,29 @@ final class MobileIrohSoakRunner {
         // A final transaction proves the terminal is still live at the end of the window.
         evidence.currentOperation = "final_terminal_round_trip"
         operationDeadline = ContinuousClock.now.advanced(by: operationTimeout)
-        guard await connection() == expectedConnection else { throw Failure.connectionChanged }
+        guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
         last = try await probe("\(marker)_FINAL")
         try Task.checkCancellation()
-        guard await connection() == expectedConnection else { throw Failure.connectionChanged }
+        guard try observe(await connection()) == expectedConnection else { throw Failure.connectionChanged }
         evidence.elapsedSeconds = Self.seconds(started.duration(to: clock.now))
         guard evidence.completedCycles >= minimumCycles, let last else {
             throw Failure.insufficientCoverage
         }
         evidence.currentOperation = "complete"
         return last
+    }
+
+    private func observe(_ connection: CmxTransportConnectionObservation?) throws -> UInt64 {
+        guard let connection else { throw Failure.connectionUnavailable }
+        switch connection.pathKind {
+        case .relay:
+            evidence.selectedPath = "relay"
+        case .direct where !requiresRelay:
+            evidence.selectedPath = "direct"
+        default:
+            throw Failure.pathPolicyMismatch
+        }
+        return connection.continuityID
     }
 
     private static func seconds(_ duration: Duration) -> Double {

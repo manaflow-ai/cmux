@@ -194,7 +194,9 @@ final class MobileIrohReleaseGateRunner {
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
-        let soakRunner = configuration.soakProfile.map { MobileIrohSoakRunner(profile: $0) }
+        let soakRunner = configuration.soakProfile.map {
+            MobileIrohSoakRunner(profile: $0, requiresRelay: configuration.mode == .relayOnly)
+        }
         self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
@@ -202,7 +204,7 @@ final class MobileIrohReleaseGateRunner {
                 if let soakRunner {
                     return try await soakRunner.run(
                         marker: marker,
-                        connection: { await store.irohSoakConnectionID() },
+                        connection: { await store.irohSoakConnection() },
                         probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker) },
                         stress: { cycle, marker in
                             try await store.runIrohSoakUsageStep(cycle: cycle, marker: marker)
@@ -475,6 +477,13 @@ final class MobileIrohReleaseGateRunner {
             )
         }
         completedProbe = probe
+
+        if let soakRunner, let selectedPath = soakRunner.evidence.selectedPath {
+            return Self.completedReport(
+                mode: configuration.mode, scenario: configuration.scenario,
+                probe: probe, selectedPath: selectedPath
+            )
+        }
 
         if let pathBeforeProbe {
             return Self.completedReport(

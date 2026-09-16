@@ -1,9 +1,15 @@
 #if DEBUG
 import CmuxMobileRPC
+public import CMUXMobileCore
 public import CmuxMobileShell
 import Foundation
 
 extension MobileShellComposite {
+    public func irohSoakConnection() async -> CmxTransportConnectionObservation? {
+        guard hasActiveMacConnection, activeRoute?.kind == .iroh else { return nil }
+        return await remoteClient?.transportConnectionObservation()
+    }
+
     /// Identifies the live native connection so a successful redial cannot hide a drop.
     public func irohSoakConnectionID() async -> UInt64? {
         guard hasActiveMacConnection, activeRoute?.kind == .iroh else { return nil }
