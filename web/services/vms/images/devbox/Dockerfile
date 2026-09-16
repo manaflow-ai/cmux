@@ -221,11 +221,7 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
   && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' > /etc/profile.d/cmux-desktop.sh \
   && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' >> /etc/skel/.bashrc \
-  && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' >> /root/.bashrc \
-  && echo '[ -x /usr/local/bin/cmux-open-url ] && { [ -n "${BROWSER-}" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n "${GH_BROWSER-}" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }' > /etc/profile.d/cmux-open-url.sh \
-  && echo '[ -x /usr/local/bin/cmux-open-url ] && { [ -n "${BROWSER-}" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n "${GH_BROWSER-}" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }' >> /etc/bash.bashrc \
-  && echo '[ -x /usr/local/bin/cmux-open-url ] && { [ -n "${BROWSER-}" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n "${GH_BROWSER-}" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }' >> /etc/skel/.bashrc \
-  && echo '[ -x /usr/local/bin/cmux-open-url ] && { [ -n "${BROWSER-}" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n "${GH_BROWSER-}" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }' >> /root/.bashrc
+  && echo '[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh' >> /root/.bashrc
 
 # Coding agents, pinned at bake time (bump with the image epoch; keep in
 # lockstep with the chatmux devbox). Installed on the mise node so they
