@@ -7,6 +7,21 @@ import Testing
 struct TerminalWorkSentryContextTests {
     private let origin = Date(timeIntervalSince1970: 1_700_000_000)
 
+    @Test(arguments: [
+        ("Fatal App Hang Fully Blocked", "AppHang"),
+        ("Fatal App Hang Non Fully Blocked", "AppHang"),
+        ("WatchdogTermination", "watchdog_termination"),
+        ("MXHangDiagnostic", "mx_hang_diagnostic")
+    ])
+    func sdkHangCategoriesReceiveExplicitEvidence(type: String, mechanism: String) {
+        let event = Event(level: .error)
+        let exception = Exception(value: "Hang diagnostic", type: type)
+        exception.mechanism = Mechanism(type: mechanism)
+        event.exceptions = [exception]
+        TerminalWorkSentryContext().apply(to: event)
+        #expect(event.tags?["terminal.evidence"] == "unavailable")
+    }
+
     @Test func nestedPhaseIsAttributedAtCaptureEvenIfItLaterCompletes() {
         let outer = UUID(), inner = UUID()
         let event = hang(at: 3)

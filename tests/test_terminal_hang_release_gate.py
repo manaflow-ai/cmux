@@ -21,6 +21,12 @@ class TerminalHangReleaseGateTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertAlmostEqual(result["rate_ratio"], .6)
 
+    def test_ios_cannot_pass_a_session_gate_without_session_collection(self):
+        baseline, candidate = self.sample(100), self.sample(10)
+        for sample in (baseline, candidate):
+            sample.update(platform="ios", environment="ios-production")
+        self.assertFalse(gate.evaluate(baseline, candidate)["passed"])
+
     def test_smaller_raw_count_can_still_be_a_regression(self):
         self.assertFalse(gate.evaluate(self.sample(100), self.sample(30, 1000))["passed"])
 
