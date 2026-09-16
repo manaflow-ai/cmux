@@ -33,31 +33,6 @@ final class MobileHostIrxRuntime {
         return true
     }
 
-    /// Longest wait between two activation attempts on the doubling ladder.
-    nonisolated static let maximumActivationRetryDelay: TimeInterval = 5 * 60
-
-    /// Delay before the next activation attempt after `error`.
-    ///
-    /// The ladder starts at 5 s and doubles per consecutive failure up to
-    /// `maximumActivationRetryDelay`. A broker `Retry-After` is a floor that
-    /// wins over the ladder, and `jitterUnitInterval` (0...1) adds up to a
-    /// quarter of the resulting delay so a fleet told to wait the same window
-    /// does not re-mint in lockstep.
-    nonisolated static func activationRetryDelay(
-        after error: any Error,
-        failureCount: Int,
-        jitterUnitInterval: Double
-    ) -> TimeInterval {
-        let exponent = min(max(failureCount, 0), 16)
-        let ladder = min(5 * pow(2, Double(exponent)), maximumActivationRetryDelay)
-        let serverFloor = TimeInterval(
-            max(0, (error as? any CmxRetryAfterProviding)?.retryAfterSeconds ?? 0)
-        )
-        let base = max(ladder, serverFloor)
-        let jitter = min(max(jitterUnitInterval, 0), 1) * base * 0.25
-        return base + jitter
-    }
-
     nonisolated static var forceRelayOnly: Bool {
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
@@ -92,6 +67,8 @@ final class MobileHostIrxRuntime {
     }()
 
     private let managedDevicePolicy: ManagedDevicePolicy
+    private let pairingEnabled: @MainActor () -> Bool
+    private var authTransition = MobileHostAuthTransition.ready
     /// Only the process-wide host publishes into ``MobileHostPublicStatusCache``.
     /// Test-constructed runtimes leave that cache alone so parallel suites
     /// cannot clobber the live identity, and so comparing against ``shared``
@@ -100,9 +77,11 @@ final class MobileHostIrxRuntime {
 
     init(
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
-        publishesPublicHostStatus: Bool = false
+        publishesPublicHostStatus: Bool = false,
+        pairingEnabled: @escaping @MainActor () -> Bool = { MobileHostService.isListeningEnabled }
     ) {
         self.managedDevicePolicy = managedDevicePolicy
+        self.pairingEnabled = pairingEnabled
         self.publishesPublicHostStatus = publishesPublicHostStatus
     }
 
@@ -112,7 +91,8 @@ final class MobileHostIrxRuntime {
     }
 
     var canStartNetworking: Bool {
-        isNetworkingAllowed && MobileHostService.isListeningEnabled
+        isNetworkingAllowed && pairingEnabled()
+            && authTransition.permits(auth?.authenticatedSessionIdentity)
     }
 
     /// Tears the host down without treating the transition as a sign-out:
@@ -132,6 +112,17 @@ final class MobileHostIrxRuntime {
         _ = scheduleManagedNetworking(.stop)
     }
 
+    /// Fences admissions synchronously, then clears the retired account's lease
+    /// through the same queue as every other networking transition.
+    func beginSignOutPreparation() {
+        authTransition = .signingOut(generation: auth?.authSessionGeneration ?? 0)
+        generationToken = UUID()
+        deviceListBox?.clear()
+        activationTask?.cancel()
+        acceptLoop?.cancel()
+        _ = scheduleManagedNetworking(.signOut(deviceListStore))
+    }
+
     /// Reconciles the IRX host with the composition-root pairing decision.
     /// The IRX runtime derives its active state from pairing and managed policy,
     /// so it does not need a second mutable desired-state flag.
@@ -147,6 +138,7 @@ final class MobileHostIrxRuntime {
     }
 
     private enum ManagedNetworkingWork {
+        case signOut(IrxDeviceListStore?)
         case stop
         case reconcile
     }
@@ -172,6 +164,9 @@ final class MobileHostIrxRuntime {
             await previous?.value
             guard let self else { return }
             switch work {
+            case .signOut(let retiredStore):
+                await retiredStore?.clear()
+                await self.transition(to: nil)
             case .stop:
                 await self.performStopHost()
             case .reconcile:
@@ -258,7 +253,7 @@ final class MobileHostIrxRuntime {
     private var deviceListBox: IrxDeviceListCurrent?
     /// Durable home of the lease (Keychain in Release, dev file store in
     /// DEBUG), loaded at activation so admission works offline.
-    private var deviceListStore: IrxDeviceListStore?
+    var deviceListStore: IrxDeviceListStore?
     /// Authenticated Bonjour publisher for the IRX endpoint. Iroh's native
     /// candidate discovery handles public paths, while this publisher makes
     /// same-account LAN candidates available to the client-side fallback.
