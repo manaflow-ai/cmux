@@ -3,6 +3,8 @@ import Darwin
 import SQLite3
 import CmuxFoundation
 
+// These fixtures exercise the queued hook delivery contract.
+
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
         let agent: String
