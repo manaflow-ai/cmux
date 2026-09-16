@@ -8,14 +8,9 @@ final class CloudMachinePinStore {
     static let defaultsKey = "cloudTree.machinePins.v1"
     private static let removedDefaultMachineKey = "cloud.defaultMachineID"
 
-    private struct PersistedScope: Codable, Equatable {
-        var order: [String] = []
-        var pinned: Set<String> = []
-    }
-
     private let defaults: UserDefaults
     private let scopeProvider: @MainActor () -> String?
-    private var scopes: [String: PersistedScope]
+    private var scopes: [String: CloudMachinePinStoreState]
     private var activeScope: String?
     private(set) var pinnedMachineIDs: Set<String> = []
 
@@ -48,7 +43,7 @@ final class CloudMachinePinStore {
     /// Orders machine identities with pinned machines first while preserving stable order.
     func orderedMachineIDs(_ machineIDs: [String]) -> [String] {
         syncScope()
-        let current = scopes[activeScope ?? ""] ?? PersistedScope()
+        let current = scopes[activeScope ?? ""] ?? CloudMachinePinStoreState()
         var seen = Set<String>()
         let order = current.order.filter { machineIDs.contains($0) && seen.insert($0).inserted }
             + machineIDs.filter { seen.insert($0).inserted }
@@ -59,7 +54,7 @@ final class CloudMachinePinStore {
     func reconcile(machineIDs: [String]) {
         syncScope()
         guard let scope = activeScope else { return }
-        var current = scopes[scope] ?? PersistedScope()
+        var current = scopes[scope] ?? CloudMachinePinStoreState()
         var seen = Set<String>()
         let live = machineIDs.filter { seen.insert($0).inserted }
         let liveSet = Set(live)
@@ -73,7 +68,7 @@ final class CloudMachinePinStore {
     func setPinned(_ pinned: Bool, machineID: String) {
         syncScope()
         guard let scope = activeScope, !machineID.isEmpty else { return }
-        var current = scopes[scope] ?? PersistedScope()
+        var current = scopes[scope] ?? CloudMachinePinStoreState()
         if !current.order.contains(machineID) { current.order.append(machineID) }
         if pinned { current.pinned.insert(machineID) } else { current.pinned.remove(machineID) }
         let pinnedOrder = current.order.filter { current.pinned.contains($0) }
@@ -89,7 +84,7 @@ final class CloudMachinePinStore {
         pinnedMachineIDs = activeScope.flatMap { scopes[$0]?.pinned } ?? []
     }
 
-    private func commit(_ value: PersistedScope, scope: String) {
+    private func commit(_ value: CloudMachinePinStoreState, scope: String) {
         guard scopes[scope] != value else { return }
         scopes[scope] = value
         if activeScope == scope { pinnedMachineIDs = value.pinned }

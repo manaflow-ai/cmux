@@ -743,6 +743,7 @@
 		80E8A5087134FBEF755993B6 /* CloudMachineNotificationEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB3D5091A5F87B6B672DF34C /* CloudMachineNotificationEvent.swift */; };
 		32297D75B3ED6ABE50D4C244 /* CloudMachineNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDC6087D41DC9E2271BC886 /* CloudMachineNotificationGate.swift */; };
 		C12575000000000000000001 /* CloudMachinePinStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000002 /* CloudMachinePinStore.swift */; };
+		C12575000000000000000007 /* CloudMachinePinStoreState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000008 /* CloudMachinePinStoreState.swift */; };
 		C12306000000000000000002 /* CloudMachineRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */; };
 		056D049E52C84DE4BAEA363C /* CloudMachineResourcePresentation+MachineSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7134CF3EB1C4101B13E787E /* CloudMachineResourcePresentation+MachineSnapshot.swift */; };
 		0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9143D900F124494A55F859F /* CloudMachinesFeature.swift */; };
@@ -8195,6 +8196,7 @@
 				97A32F9E792A4C9BB3DABC70 /* MachineSnapshotBuilder.swift */,
 				C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */,
 				C12575000000000000000001 /* CloudMachinePinStore.swift */,
+		C12575000000000000000008 /* CloudMachinePinStoreState.swift */,
 				C12575000000000000000006 /* CloudTreeOutlineView+Selection.swift */,
 				874061DC8AD0C4E7297BF267 /* CloudMachineLinkManager.swift */,
 				9A141BCA857942FE946A3730 /* CloudMachineLinkManager+PrivateRoute.swift */,
@@ -12570,7 +12572,8 @@
 				5C6CEB17F0A6776F357BAF09 /* CloudMachineLinkManager.swift in Sources */,
 				80E8A5087134FBEF755993B6 /* CloudMachineNotificationEvent.swift in Sources */,
 				32297D75B3ED6ABE50D4C244 /* CloudMachineNotificationGate.swift in Sources */,
-				C12575000000000000000001 /* CloudMachinePinStore.swift in Sources */,
+		C12575000000000000000001 /* CloudMachinePinStore.swift in Sources */,
+				C12575000000000000000007 /* CloudMachinePinStoreState.swift in Sources */,
 				C12306000000000000000002 /* CloudMachineRefreshCoordinator.swift in Sources */,
 				056D049E52C84DE4BAEA363C /* CloudMachineResourcePresentation+MachineSnapshot.swift in Sources */,
 				0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */,
