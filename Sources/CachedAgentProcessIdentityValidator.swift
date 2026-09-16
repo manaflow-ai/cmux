@@ -122,6 +122,15 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             let observedSessionID: String?
             switch registration.sessionIdSource {
             case .argvOption(let option):
+                if hermesSessionValidation == .currentHookRecord,
+                   snapshot.kind == .claude,
+                   Self.hasEnabledForkSessionFlag(in: arguments) {
+                    // Claude's forked child keeps the parent conversation in
+                    // `--resume`; the hook record is the authoritative child
+                    // identity once PID generation, scope, and executable
+                    // have already matched.
+                    return true
+                }
                 guard let observedSessionID = nonOptionValue(after: option, in: arguments)
                     ?? authoritativeEnvironmentSessionID else {
                     // The identity option only appears on explicit resumes. A
@@ -208,6 +217,15 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    private static func hasEnabledForkSessionFlag(in arguments: [String]) -> Bool {
+        arguments.contains { value in
+            if value == "--fork-session" { return true }
+            guard let suffix = value.split(separator: "=", maxSplits: 1).dropFirst().first,
+                  value.hasPrefix("--fork-session=") else { return false }
+            return !["0", "false", "no", "off"].contains(suffix.lowercased())
+        }
     }
 
     /// Built-in kinds carry no registration on hook-store snapshots, but Amp's
