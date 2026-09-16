@@ -72,6 +72,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
   /** Current prompt name, written into the guest rather than a shell environment. */
@@ -473,6 +475,7 @@ export interface VMProvider {
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 

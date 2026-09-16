@@ -7264,14 +7264,14 @@ struct ContentView: View {
         return snapshot
     }
 
-    /// Search keywords for the Tailscale pairing command palette entry.
+    /// Search keywords for the mobile pairing command palette entry.
     ///
     /// Kept as a single source of truth so the contribution and its behavioral
     /// test agree on what queries (e.g. `ios`, `ipados`) must surface the
     /// command. These are platform/technical terms that read the same across
     /// locales, so they are not localized.
     static let commandPaletteMobileConnectKeywords: [String] = [
-        "tailscale", "mobile", "connect", "pair", "pairing", "device",
+        "tailscale", "iroh", "mobile", "connect", "pair", "pairing", "device",
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
@@ -7620,9 +7620,9 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.mobileConnect",
                 title: constant(
-                    String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+                    String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing")
                 ),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
                 keywords: Self.commandPaletteMobileConnectKeywords,
                 when: { !$0.bool(CommandPaletteContextKeys.mobileRemoteControlManagedByPolicy) }
             )
