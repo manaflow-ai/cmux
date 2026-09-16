@@ -1,7 +1,7 @@
+import Testing
 import CMUXMobileCore
 import CmuxIrxTransport
 import Foundation
-import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

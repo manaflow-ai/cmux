@@ -45,7 +45,6 @@ const routeTokens = new Map<string, { teamId: string; stackUserId: string; vmId:
 mock.module("../services/coderouter/repository", () => ({
   authenticateApiKey: async () => null,
   authenticateRouteToken: async (token: string) => routeTokens.get(token) ?? null,
-  authenticateApiKey: async () => null,
 }));
 
 const { GET } = await import("../app/api/vm/self/route");
