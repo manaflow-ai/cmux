@@ -220,20 +220,47 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        if ready.v2Only {
+            irohReadyContent
+        } else {
+            VStack(alignment: .center, spacing: 14) {
+                getIPhoneAppBadge
+                tailscaleReadyBody(ready)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            tailscaleRow(ready)
+            if ready.reachableViaIroh {
+                irohRow(reachableViaIroh: ready.reachableViaIroh)
+            }
+            manualEntry(ready)
+
+            footer
+        }
+    }
+
+    @ViewBuilder
+    private var irohReadyContent: some View {
         VStack(alignment: .center, spacing: 14) {
             getIPhoneAppBadge
-            tailscaleReadyBody(ready)
+            Image(systemName: "checkmark.shield")
+                .cmuxFont(size: 34)
+                .foregroundStyle(.green)
+            Text(String(
+                localized: "mobile.pairing.irohInstruction",
+                defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically, with no code needed."
+            ))
+                .cmuxFont(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
 
         Divider()
-
-        tailscaleRow(ready)
-        if ready.reachableViaIroh {
-            irohRow(reachableViaIroh: ready.reachableViaIroh)
-        }
-        manualEntry(ready)
-
+        irohRow(reachableViaIroh: true)
         footer
     }
 
