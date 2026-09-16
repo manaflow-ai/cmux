@@ -30,12 +30,14 @@ final class BrowserNativeHoverUITests: XCTestCase {
             addTeardownBlock { app.terminate() }
         }
 
-        let webView = app.webViews.firstMatch
+        let browserHost = app.windows.firstMatch.children(matching: .group).element(boundBy: 1)
+        let webView = browserHost.descendants(matching: .webView).firstMatch
         XCTAssertTrue(webView.waitForExistence(timeout: 15), "Browser web content must be accessible")
         let trigger = webView.buttons["Hover me"].firstMatch
         XCTAssertTrue(trigger.waitForExistence(timeout: 10), "Hover fixture must finish loading")
-        let blank = webView.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 20, dy: 40))
-        let target = trigger.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        let blank = browserHost.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 20, dy: 40))
+        let target = browserHost.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0))
+            .withOffset(CGVector(dx: -80, dy: 151))
         let active = webView.staticTexts["Native hover active"].firstMatch
         let idle = webView.staticTexts["Native hover idle"].firstMatch
 
@@ -45,7 +47,7 @@ final class BrowserNativeHoverUITests: XCTestCase {
         for attempt in 1...2 {
             target.hover()
             let didEnter = active.waitForExistence(timeout: 5)
-            let screenshot = webView.screenshot()
+            let screenshot = browserHost.screenshot()
             capture(app, name: "native-hover-enter-\(attempt)")
             XCTAssertTrue(didEnter, "Native pointer/mouse enter and CSS :hover must all activate")
             XCTAssertTrue(
