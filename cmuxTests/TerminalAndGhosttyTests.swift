@@ -6144,7 +6144,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
 
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The registry coalescer crosses two main-queue turns when no native
+        // resize is active. Pump the queue explicitly so the test observes
+        // the scheduled pass and its follow-up layout settlement.
+        drainMainQueue()
+        drainMainQueue()
+        window.displayIfNeeded()
 
         XCTAssertNil(
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),

@@ -77,7 +77,6 @@ struct CLIOmpHookBindingTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = pi.path
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated([pi.path])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
-
         let result = Harness.runHookProcess(
             context: context,
             arguments: [
@@ -346,6 +345,11 @@ struct CLIOmpHookBindingTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/codex"])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+        // The app-host process can itself sit below another Codex fixture in
+        // the shared test runner. Pin the synthetic callback identity to a
+        // non-agent PID so nested-session ancestry detection cannot classify
+        // this foreground routing test as a Codex subagent.
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
 
         let result = Harness.runHookProcess(
             context: context,

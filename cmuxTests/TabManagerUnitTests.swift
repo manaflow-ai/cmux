@@ -517,6 +517,10 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
+        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
             "/tmp/cmux-cloud-reconnect-\(UUID().uuidString).sock"
@@ -546,7 +550,9 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 localSocketPath: nil,
                 managedCloudVMID: "71smiccrg35sw9pydt8k",
                 terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
-                preserveAfterTerminalExit: true,
+                // Exercise reconnect's respawn path, which repairs a legacy
+                // raw SSH command into the managed Freestyle attach wrapper.
+                preserveAfterTerminalExit: false,
                 persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
                 skipDaemonBootstrap: true
             ),

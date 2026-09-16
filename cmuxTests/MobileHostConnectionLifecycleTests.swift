@@ -345,6 +345,9 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
+        // Readiness is recorded after the response write; a send-count waiter
+        // may resume before that actor continuation publishes the event.
+        await waitForRetainedUsableSessionEvent()
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]
@@ -492,6 +495,15 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    private func waitForRetainedUsableSessionEvent() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if !Self.retainedUsableSessionEvents().isEmpty { return }
+            await Task.yield()
+        }
+    }
+
     private func waitForMobileHostConnectionCount(_ expected: Int) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
@@ -621,6 +633,11 @@ extension MobileHostAuthorizationTests {
                 return nil
             },
             onAuthorizedRequest: { request in
+                guard request.id as? String == "first" else { return }
+                // Ensure the second request has entered authorization before
+                // closing, otherwise task scheduling can close the actor before
+                // the second authorization publishes its start signal.
+                try? await secondAuthorizeStarted.wait()
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
                 firstRecorded.fulfill()
