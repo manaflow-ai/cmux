@@ -37,6 +37,7 @@ struct CloudSidebarNativeDropTests {
         #expect(fixture.transferRegistry.resolve(from: board) != nil)
         let session = CloudSidebarDraggingSession(pasteboard: board)
         coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))

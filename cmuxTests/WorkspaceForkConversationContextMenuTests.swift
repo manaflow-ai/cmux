@@ -2166,6 +2166,11 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(loaderCallCount.withLock { $0 } == 0)
         #expect(probedSessionIds.withLock { $0 } == ["first-fallback"])
+        // Cancellation may hand a requeued request to the single-flight
+        // refresh task just as the active probe completes. Wait for that
+        // authoritative cleanup rather than observing its transient tombstone
+        // before the completion callback runs.
+        await waitForForkValidationCancellationTombstonesToDrain(in: sharedIndex)
         #expect(forkValidationCancellationTombstoneCount(in: sharedIndex) == 0)
         #expect(
             sharedIndex.forkSupportProbeAccepted(
@@ -2332,6 +2337,17 @@ struct WorkspaceForkConversationContextMenuTests {
                 return partial
             }
             return partial + Mirror(reflecting: cancelledRequestIDs).children.count
+        }
+    }
+
+    private func waitForForkValidationCancellationTombstonesToDrain(
+        in sharedIndex: SharedLiveAgentIndex
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if forkValidationCancellationTombstoneCount(in: sharedIndex) == 0 { return }
+            await Task.yield()
         }
     }
 

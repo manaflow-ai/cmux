@@ -112,11 +112,12 @@ struct WorkspaceDragSplitFocusSwiftTests {
     @Test
     func nonFocusSplitPreservesCursorAndHibernationDuringSuspendedPresentation() throws {
         let originalAppDelegate = AppDelegate.shared
-        AppDelegate.shared = nil
-        defer { AppDelegate.shared = originalAppDelegate }
 
         let owner = TerminalPortalTestWorkspace()
-        defer { owner.tearDown() }
+        defer {
+            owner.tearDown()
+            AppDelegate.shared = originalAppDelegate
+        }
         let fixture = try makeFixture(workspace: owner.workspace)
         owner.bind(to: fixture.window)
         // Visibility auto-resume is covered separately. Suspend that policy so

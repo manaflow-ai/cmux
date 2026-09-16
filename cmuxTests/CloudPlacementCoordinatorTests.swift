@@ -379,6 +379,10 @@ struct CloudPlacementCoordinatorTests {
             "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": [],
         ]
         _ = try Self.install(catalog, provider: provider, snapshot: stateSnapshot)
+        // Keep the fixture's explicit detached terminal metadata after the
+        // graph install; an empty view list means the move must project a
+        // fresh tab rather than move a stale one.
+        catalog.upsert(term, from: provider)
         catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: stateSnapshot, machine: Self.machine))
         catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)

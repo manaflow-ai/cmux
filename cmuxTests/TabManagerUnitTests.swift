@@ -1013,6 +1013,9 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
                 GhosttyNotificationKey.title: "Processing Simple Addition Query - grok"
             ]
         )
+        // The title ingress is coalesced in production; force the bounded
+        // pending update through before asserting the workspace title.
+        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
 
         XCTAssertTrue(
             waitForCondition(timeout: 1.0) {

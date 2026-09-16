@@ -1921,7 +1921,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 && ($0["timeout"] as? Int) == 10
         }?["command"] as? String)
         XCTAssertTrue(
-            stopCommand.contains(#"if [ "$cmux_hook_status" -ne 0 ]; then echo '{}'; fi"#),
+            stopCommand.contains("cmux_hook_status=$?")
+                && stopCommand.contains(#"[ "$cmux_hook_status" -ne 0 ]"#)
+                && stopCommand.contains("echo '{}'"),
             "Antigravity queued admission must emit a neutral response when cmux is unavailable, saw \(stopCommand)"
         )
         XCTAssertTrue(

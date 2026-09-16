@@ -360,9 +360,16 @@ extension DockSplitStore {
 
     private func terminalResizeInteractionWindow() -> NSWindow? {
         if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
-        return panels.values.lazy.compactMap { panel in
+        if let hostedWindow = panels.values.lazy.compactMap({ panel in
             (panel as? TerminalPanel)?.hostedView.window
-        }.first
+        }.first) {
+            return hostedWindow
+        }
+        // Programmatic divider-session notifications (and deterministic tests)
+        // can arrive after the portal host has been detached but while the
+        // Dock still owns the active key window. Keep the resize transaction
+        // scoped to that current window instead of silently dropping it.
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {

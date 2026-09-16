@@ -4969,6 +4969,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             contentView.addSubview(rightPanel.hostedView)
             leftPanel.hostedView.setVisibleInUI(true)
             rightPanel.hostedView.setVisibleInUI(true)
+            leftPanel.hostedView.setActive(true)
+            rightPanel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
