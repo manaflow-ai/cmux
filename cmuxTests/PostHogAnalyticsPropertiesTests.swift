@@ -688,6 +688,11 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(scrubbed?.contains("lawrence@cmux.com") == false)
         #expect(scrubbed?.contains("[path]") == true)
         #expect(scrubbed?.contains("[email]") == true)
+
+        let whitespacePath = PostHogAnalytics.scrubbedCrashValue(
+            "Crash at /Users/Jane Doe/Library/Application Support/cmux"
+        )
+        #expect(whitespacePath == "Crash at [path]")
         #expect(PostHogAnalytics.scrubbedCrashValue("") == nil)
         #expect(PostHogAnalytics.scrubbedCrashValue(nil) == nil)
     }
