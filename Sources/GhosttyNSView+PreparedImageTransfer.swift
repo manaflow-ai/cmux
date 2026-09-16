@@ -35,32 +35,9 @@ extension GhosttyNSView {
                 )
                 return false
             }
-            let onTextCompletion: () -> Void
-            switch plan {
-            case .insertText:
-                onTextCompletion = {
-                    preparedContent.cleanupTransferredTemporaryFiles(
-                        using: GhosttyApp.terminalPasteboard
-                    )
-                }
-            case .insertTextSegments(let segments, _):
-                var remainingSegments = segments.count
-                onTextCompletion = {
-                    remainingSegments = max(0, remainingSegments - 1)
-                    guard remainingSegments == 0 else { return }
-                    preparedContent.cleanupTransferredTemporaryFiles(
-                        using: GhosttyApp.terminalPasteboard
-                    )
-                }
-            case .uploadFiles, .pasteCloudImages:
-                onTextCompletion = {}
-            case .reject:
-                onTextCompletion = {}
-            }
             return executeImageTransferPlan(
                 plan,
-                onCancel: onCancel,
-                onTextCompletion: onTextCompletion
+                onCancel: onCancel
             )
         }
     }
