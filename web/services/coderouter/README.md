@@ -15,14 +15,13 @@ Failures in this best-effort metadata write are rate-limited operational
 events, so a database problem is visible without creating one alert per
 request.
 
-Authentication uses an indexed, read-only hash lookup on the request hot path.
+API key authentication uses an indexed, read-only hash lookup on the request hot path.
 Revocation updates one key row by primary key and does not take a process-wide
 lock. PostgreSQL row locks are held only for the affected update. Account
 deletion uses one short, team-scoped transaction advisory lock to serialize the
 last-account check with concurrent account creation or deletion; it is never
 taken by model requests. The auth span records `route_token`, `api_key`, or
-`control_plane`, and
-the route and usage ledger rows carry the opaque API-key UUID for joins. No key
+`control_plane`. The route and usage ledger rows carry the opaque API-key UUID for joins. No key
 secret is logged or sent to telemetry.
 
 ## Telemetry

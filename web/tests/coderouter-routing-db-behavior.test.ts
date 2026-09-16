@@ -302,7 +302,7 @@ describe("coderouter route token VM binding db behavior", () => {
     const issued = await createApiKey(TEAM, "user-1", "throttle");
     const firstAt = new Date("2026-09-13T00:00:00.000Z");
     const secondAt = new Date(firstAt.getTime() + 30_000);
-    const thirdAt = new Date(firstAt.getTime() + 61_000);
+    const thirdAt = new Date(firstAt.getTime() + 60_000);
 
     await authenticateApiKey(issued.key, firstAt);
     await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
@@ -321,6 +321,17 @@ describe("coderouter route token VM binding db behavior", () => {
     await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
       id: issued.id,
       lastUsedAt: thirdAt.toISOString(),
+    }]);
+
+    // Model a different web instance writing a newer timestamp before this
+    // instance's deferred write. The database must keep the newer timestamp.
+    if (!sql) throw new Error("no sql client");
+    const newerAt = new Date(firstAt.getTime() + 180_000);
+    await sql`update coderouter_api_keys set last_used_at = ${newerAt} where id = ${issued.id}`;
+    await authenticateApiKey(issued.key, new Date(firstAt.getTime() + 120_000));
+    await expect(listApiKeys(TEAM)).resolves.toMatchObject([{
+      id: issued.id,
+      lastUsedAt: newerAt.toISOString(),
     }]);
   });
 

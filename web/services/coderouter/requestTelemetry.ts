@@ -175,7 +175,7 @@ export function recordCoderouterIdentity(
     setSpanAttributes(span, {
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
-      "cmux.coderouter.auth_mode": identity.apiKeyId ? "api_key" : "route_token",
+      "cmux.coderouter.auth_mode": authMode,
     });
   }
 }

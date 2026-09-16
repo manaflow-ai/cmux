@@ -4,7 +4,6 @@
   "git": {
     "deploymentEnabled": {
       "main": true,
-      "feat-coderouter-api-key-observability": true,
       "**": false
     }
   },
