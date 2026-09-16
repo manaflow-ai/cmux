@@ -4995,9 +4995,8 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
-        if command == "__codex-teams-app-server-supervisor" {
-            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
-            exit(status)
+        if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
