@@ -64,13 +64,14 @@ commonName = supplied
     for name, hostname in [("valid", "localhost"), ("wrong-host", "wrong.example"),
                            ("expired", "localhost")]:
         ext = directory / f"{name}.ext"
-        ext.write_text(f"basicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
+        ext.write_text(f"[leaf_ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
                        f"extendedKeyUsage=serverAuth\nsubjectAltName=DNS:{hostname}\n")
         run("openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
             "-subj", f"/CN={hostname}", "-keyout", str(directory / f"{name}.key"),
             "-out", str(directory / f"{name}.csr"))
         dates = ["-startdate", "20200101000000Z", "-enddate", "20200102000000Z"] if name == "expired" else []
         run("openssl", "ca", "-batch", "-notext", "-config", str(config), "-extfile", str(ext),
+            "-extensions", "leaf_ext",
             "-in", str(directory / f"{name}.csr"), "-out", str(directory / f"{name}.pem"), *dates)
     return subject
 
