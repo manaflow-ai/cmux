@@ -88,7 +88,7 @@ struct CloudSurfaceDragFeedbackTests {
         view.workspace = fixture.workspace
         view.isActive = true
         let sender = CloudSidebarDraggingInfo(source: NSOutlineView(), pasteboard: fixture.pasteboard, location: .zero)
-        let expected = "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine."
+        let expected = "Cloud workspaces can only hold terminals, browsers, and displays from their own Cloud machine. Open a local workspace and move the splits there."
         #expect(SurfaceTransferRejection.cloudMachineMismatch.message == expected)
         #expect(view.draggingEntered(sender).isEmpty)
         #expect(view.feedback.rejection == .cloudMachineMismatch)
