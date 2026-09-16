@@ -13,14 +13,13 @@ struct CloudTreeMachineResourceSection: Equatable {
 
     var rows: [CloudTreeMachineResourceRow] {
         [
-            row(metric: .cpu, title: metrics.cpu.label, detail: metrics.cpu.inlineDetail, icon: "cpu"),
-            row(metric: .memory, title: metrics.memory.label, detail: metrics.memory.inlineDetail, icon: "memorychip.fill"),
-            row(metric: .disk, title: metrics.disk.label, detail: metrics.disk.inlineDetail, icon: "internaldrive.fill"),
+            row(metric: .cpu, title: metrics.cpu.label, detail: metrics.cpu.inlineDetail),
+            row(metric: .memory, title: metrics.memory.label, detail: metrics.memory.inlineDetail),
+            row(metric: .disk, title: metrics.disk.label, detail: metrics.disk.inlineDetail),
             row(
                 metric: .usage,
                 title: String(localized: "cloudTree.resources.usage", defaultValue: "Usage"),
-                detail: usageSummary,
-                icon: "chart.bar.fill"
+                detail: usageSummary
             ),
         ]
     }
@@ -28,14 +27,12 @@ struct CloudTreeMachineResourceSection: Equatable {
     private func row(
         metric: CloudTreeMachineResourceMetric,
         title: String,
-        detail: String,
-        icon: String
+        detail: String
     ) -> CloudTreeMachineResourceRow {
         CloudTreeMachineResourceRow(
             metric: metric,
             title: title,
             detail: detail,
-            icon: icon,
             accessibilityLabel: "\(title), \(detail)"
         )
     }

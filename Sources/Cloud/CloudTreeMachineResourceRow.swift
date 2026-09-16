@@ -3,6 +3,5 @@ struct CloudTreeMachineResourceRow: Equatable {
     let metric: CloudTreeMachineResourceMetric
     let title: String
     let detail: String
-    let icon: String
     let accessibilityLabel: String
 }

@@ -8,11 +8,7 @@ struct CloudTreeMachineResourceRowContent: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        HStack(spacing: scaled(style.iconGap)) {
-            CloudTreeRowIcon(
-                style: style, systemName: row.icon, tint: CloudTreeIconPalette.machine,
-                weight: .medium, size: max(style.iconSize, 12)
-            )
+        HStack(spacing: scaled(CloudTreeRowGrid.detailGap)) {
             Text(row.title)
                 .cmuxFont(size: style.titleSize, design: style.fontDesign)
                 .foregroundStyle(.primary)
