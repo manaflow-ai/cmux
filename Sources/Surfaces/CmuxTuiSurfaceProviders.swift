@@ -1377,6 +1377,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard watchedLink === link else { return }
         switch change {
         case .connected:
+            guestURLService?.stop()
             // A link can recover after the shared WireGuard hub briefly fails
             // to publish its listener. Always refresh on the successful
             // connection edge so stale hub/link errors disappear from the

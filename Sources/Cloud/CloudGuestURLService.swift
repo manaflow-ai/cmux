@@ -26,7 +26,9 @@ final class CloudGuestURLService {
 
     func update(link: CloudMachineLink, socketPath: String, terminals: [String]) {
         let sorted = Array(Set(terminals)).sorted()
-        if self.socketPath == socketPath, self.link === link, self.terminals == sorted, process?.isRunning == true { return }
+        // An older client/daemon may reject this optional subscription. Retry
+        // only after topology or connection changes, never on every state tick.
+        if self.socketPath == socketPath, self.link === link, self.terminals == sorted { return }
         stop()
         self.link = link
         self.socketPath = socketPath
@@ -38,12 +40,15 @@ final class CloudGuestURLService {
         process.arguments = arguments(socket: socketPath, request: ["cmd": "url-open-subscribe", "terminal_ids": sorted], stream: true)
         process.standardInput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
+        // Foundation must retain a running Process through its actual exit.
+        // Break this deliberate self-retain when SIGTERM/socket EOF completes.
+        process.terminationHandler = { [process] _ in process.terminationHandler = nil }
         let stdout = Pipe()
         process.standardOutput = stdout
         // Reuse the existing nonblocking process pipe reader; at most 16 daemon
         // requests can be outstanding, and each must be claimed before opening.
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading, bufferingPolicy: .bufferingNewest(16))
-        do { try process.run() } catch { return }
+        do { try process.run() } catch { process.terminationHandler = nil; return }
         self.process = process
         reader = Task { [weak self] in
             for await line in lines {
@@ -85,7 +90,7 @@ final class CloudGuestURLService {
         var opened = false
         if let current = resolve(request.terminalID), current.sourceWorkspaceId == initial.sourceWorkspaceId {
             var externalURL: URL?
-            let coordinator = TerminalLinkOpenCoordinator(externalOpen: { externalURL = $0; return true })
+            let coordinator = TerminalLinkOpenCoordinator(externalOpen: { externalURL = $0; return true }, recordsDiagnostics: false)
             var context = current
             context = TerminalLinkOpenRequest(rawValue: request.url, sourceWorkspaceId: context.sourceWorkspaceId,
                                               sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false)

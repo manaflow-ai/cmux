@@ -47,6 +47,10 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         }
     };
     let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
+    #[cfg(unix)]
+    if plan.stream {
+        super::wire::arm_signal_interrupt(stream.as_ref());
+    }
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader
         .get_mut()
@@ -58,8 +62,14 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         return 3;
     }
     loop {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         let line = match read_line_limited(&mut reader) {
             Ok(None) => {
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
                 return transport_failure(
                     "transport.closed",
                     "transport closed before response",
