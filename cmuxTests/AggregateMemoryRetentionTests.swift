@@ -183,6 +183,7 @@ struct AggregateMemoryRetentionTests {
             homeDirectory: home.path, fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [key: (snapshot, 1, [42], [42], .explicit)],
+            environment: [:],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .present },
             processIdentityProvider: { _ in identity }

@@ -150,7 +150,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         enumerationIsComplete: Bool = true,
         enumerationMissingProcessCount: Int = 0
     ) {
-        self.enumerationIsComplete = enumerationIsComplete
+        self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
         self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
@@ -280,6 +280,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         panelProcessIDs: Set<Int>,
         agentProcessIDs: Set<Int>
     ) -> RestorableAgentSessionIndex.HibernationProcessScope {
+        guard enumerationIsComplete else { return ([], [], true) }
         let maximumProcessCount = AgentHibernationController.maximumScopedProcessTerminationCount
         func appendBounded<S: Sequence>(
             _ processIDs: S,
