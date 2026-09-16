@@ -407,7 +407,9 @@ final class MachinesPanelViewModel: ObservableObject {
         statsTask = Task { [weak self] in
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
-                    group.addTask { (id, try? await client.stats(id: id)) }
+                    group.addTask {
+                        (id, (try? await client.stats(id: id)) ?? .unavailable())
+                    }
                 }
                 for await (id, stats) in group {
                     guard !Task.isCancelled, let self, self.isCloudEnabled(), self.statsID == requestID,

@@ -204,6 +204,19 @@ describe("Freestyle platform contract", () => {
     expect(freestyleNetworkAddressMetadata({ publicIpv6: "2602::1" })).toEqual({});
   });
 
+  test("network metadata drops malformed provider addresses before publication", () => {
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "fd60:1e5e:6720::3" }],
+      }),
+    ).toEqual({ networkIpv6: "fd60:1e5e:6720::3" });
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "also-not-an-ip" }],
+      }),
+    ).toEqual({});
+  });
+
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
     // On a VPC: the private address wins even when a public address exists,
     // because a VPC machine has no public inbound rule. v4 is preferred within

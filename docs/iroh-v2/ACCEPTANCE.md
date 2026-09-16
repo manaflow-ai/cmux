@@ -4,9 +4,9 @@ Status: implementation and verification in progress. September 15 clarification:
 
 ## Scope and authority
 
-Implement the entire accepted IROH v2 architecture, Mac and iOS clients, relay integration, Dashboard interactions, storage, contracts, deployment and observability. Preserve Stack sign-in while ignoring previous IROH identities, credentials, grants, directory caches and settings/state that belong to the replaced architecture. Remove incompatible legacy client implementations, configuration and fallback paths. The earlier `feat-iroh-v2` work or an existing IRX transport name is not evidence of this implementation.
+Implement the entire accepted IROH v2 architecture, Mac and iOS clients, relay integration, Dashboard interactions, storage, contracts, deployment and observability. Preserve Stack sign-in while ignoring previous IROH identities, credentials, grants, directory caches and settings/state that belong to the replaced architecture. New iOS uses v2 exclusively. New Macs must retain older iOS discovery, authorization and connection support on the same IROH endpoint. Older authorization cannot bypass v2 permissions for modern peers. The earlier `feat-iroh-v2` work or an existing IRX transport name is not evidence of this implementation.
 
-The source decisions are revision 21 in `cmuxterm-hq-worktrees/feat-iroh-sequence-diagram/cmux-assets/main/iroh-sequence/`. Source receipts when these criteria were authored:
+The original source receipts below cover revision 21 in `cmuxterm-hq-worktrees/feat-iroh-sequence-diagram/cmux-assets/main/iroh-sequence/`. Source receipts when these criteria were authored:
 
 | File | SHA-256 |
 | --- | --- |
@@ -16,6 +16,10 @@ The source decisions are revision 21 in `cmuxterm-hq-worktrees/feat-iroh-sequenc
 | `index.html` | `71094f235512abe0dab88915d2b17a148c5dec627b31c48012634b31f6ad6c95` |
 
 The HTML has six target flows: enrollment/control setup, Mac registration and directory updates, peer connection, renewal/recovery, application lifecycle, and backend operation/storage handling. Verify every branch and failure path, not only the successful arrows. The historical main diagram is a reference, not the desired endpoint. Copy the final accepted source documents into the implementation's durable review packet before closeout; record any later revision explicitly.
+
+## September 15 compatibility clarification
+
+The required combinations are new iOS with new Mac, old iOS with new Mac, and continued old iOS with old Mac service compatibility. New iOS with old Mac is not required. This overrides earlier blanket legacy-removal wording. Record the actual app versions for each combination; verify discovery, authorized terminal input/output, revocation and pairing disable. A rejected modern peer must not gain access through older account authorization. Preserve saved-computer metadata across the local database move without importing old trust or broadening account/team/build visibility.
 
 ## User acceptance runs
 
@@ -76,7 +80,7 @@ Capture continuous video in bounded segments, dense frame splits around launches
 | A17 | Dashboard uses verified team directory/settings/revocations and filtered ordered changes. | Two-team/two-user browser tests; permission-filtered list and revisions, changed metadata, revocation, cursor-gap snapshot and team-switch cache isolation. Same operations and limit policy as native clients. |
 | A18 | Complete bounded observability works on deployed backends and relays. | Query success/denial/rate-limit/error completion events for HTTP and sockets plus enrollment, renewal, DB, revision, socket and deployment events. Confirm Cloudflare metrics, Axiom ingestion and Sentry test exception. Sink outage never blocks response, memory/time are bounded and loss is visible. Durable authority audit survives export failure. No credentials/bodies/terminal bytes/SQL parameters in records. |
 | A19 | Relays validate 30-minute credentials locally using public verification keys and correct audience. | Real relay rejects expired/forged/wrong-audience credentials; key rotation supports still-valid issuances; no backend call per handshake. Logs cover result and aggregate bytes. Load test per-user relay guard separately from exact cross-team backend counters. |
-| A20 | Environments, releases and legacy retirement are operationally complete. | New staging/production deployed; shared dev plus isolated branch capability configured; keys/data/budgets separate; canary team and same build promotion receipt; supported schema rollback runbook and smoke. No incompatible legacy runtime route/flag/listener is reachable in new clients. Pre-v2 service shutdown timing is recorded separately. |
+| A20 | Environments, releases and legacy retirement are operationally complete. | New staging/production deployed; shared dev plus isolated branch capability configured; keys/data/budgets separate; canary team and same build promotion receipt; supported schema rollback runbook and smoke. New iOS uses v2 only. New Macs retain the explicitly required older-iOS compatibility service while modern peers require v2 permission. Pre-v2 service shutdown timing is recorded separately. |
 
 For operation limits still labeled proposed in the capacity document, the implementer must record the selected values and tests before claiming A14. Do not silently copy Lawrence's old account-level physical limits onto an entire team. Do not add a generic sweeper because a storage library previously had one. Required telemetry covers all normal operation completions; sampling applies only to optional debug details.
 

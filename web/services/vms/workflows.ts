@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage } from "./resourceUsage";
+import { applyVmResourceUsage, parseVmResourceUsage } from "./resourceUsage";
+import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -2872,7 +2873,36 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
-      Effect.map((stats) => applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, Date.now())),
+      Effect.flatMap((stats) => {
+        const now = Date.now();
+        const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
+        // Local GCP dev backends do not share the production coderouter edge,
+        // so their baked guest reporter cannot authenticate its callback. Keep
+        // this explicit dev-only fallback behind an operator-set flag; release
+        // and staging continue to use the normal reporter metadata path.
+        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1") {
+          return Effect.succeed(reported);
+        }
+        const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
+        return providers.exec(vm.provider, input.providerVmId, command).pipe(
+          Effect.map((result) => {
+            if (result.exitCode !== 0) return reported;
+            try {
+              const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
+              if (!usage) return reported;
+              return {
+                ...stats,
+                ...usage,
+                sampledAt: now,
+                resourceSampledAt: now,
+              };
+            } catch {
+              return reported;
+            }
+          }),
+          Effect.catchAll(() => Effect.succeed(reported)),
+        );
+      }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);

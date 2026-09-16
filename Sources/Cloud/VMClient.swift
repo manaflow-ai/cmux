@@ -313,27 +313,6 @@ struct VMListPage {
     let limits: VMPlanLimits?
 }
 
-/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
-/// Sleeping machines are never woken for a reading: they come back `asleep` with
-/// only their provisioned memory.
-struct VMStats: Equatable {
-    enum State: String, Equatable {
-        case awake
-        case asleep
-        case unknown
-    }
-
-    let state: State
-    let sampledAt: Date
-    let cpus: Int?
-    let cpuPercent: Double?
-    let loadAverage1m: Double?
-    let memoryTotalMb: Int?
-    let memoryUsedMb: Int?
-    let diskTotalMb: Int?
-    let diskUsedMb: Int?
-}
-
 struct VMBaseSummary {
     let id: String
     let name: String
@@ -1866,29 +1845,7 @@ actor VMClient {
             let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
-            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-            func int(_ key: String) -> Int? {
-                if let v = obj[key] as? Int { return v }
-                if let v = obj[key] as? Double { return Int(v) }
-                return nil
-            }
-            func double(_ key: String) -> Double? {
-                if let v = obj[key] as? Double { return v }
-                if let v = obj[key] as? Int { return Double(v) }
-                return nil
-            }
-            let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
-            return VMStats(
-                state: state,
-                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-                cpus: int("cpus"),
-                cpuPercent: double("cpuPercent"),
-                loadAverage1m: double("loadAverage1m"),
-                memoryTotalMb: int("memoryTotalMb"),
-                memoryUsedMb: int("memoryUsedMb"),
-                diskTotalMb: int("diskTotalMb"),
-                diskUsedMb: int("diskUsedMb")
-            )
+            return VMStats(json: obj)
         }
     }
 
@@ -1909,26 +1866,7 @@ actor VMClient {
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
-            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-            func int(_ key: String) -> Int? {
-                if let value = obj[key] as? Int { return value }
-                if let value = obj[key] as? Double { return Int(value) }
-                return nil
-            }
-            let sampledAtMs = (obj["sampledAt"] as? Double)
-                ?? (obj["sampledAt"] as? Int).map(Double.init)
-                ?? Date().timeIntervalSince1970 * 1000
-            return VMStats(
-                state: state,
-                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-                cpus: int("cpus"),
-                cpuPercent: int("cpuPercent").map(Double.init),
-                loadAverage1m: nil,
-                memoryTotalMb: int("memoryTotalMb"),
-                memoryUsedMb: int("memoryUsedMb"),
-                diskTotalMb: int("diskTotalMb"),
-                diskUsedMb: int("diskUsedMb")
-            )
+            return VMStats(json: obj)
         }
     }
 

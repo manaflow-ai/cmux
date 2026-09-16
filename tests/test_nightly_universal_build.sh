@@ -6,6 +6,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
+  /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
+  in_build && /^      - name:/ { in_build=0 }
+  in_build && /run-xcodebuild-with-diagnostics\.sh --/ { saw_wrapper=1 }
+  in_build && /xcodebuild -jobs 1 -scheme cmux/ { saw_bounded_jobs=1 }
+  END { exit !(saw_wrapper && saw_bounded_jobs) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Release builds must bound xcodebuild concurrency and retain failure diagnostics"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }

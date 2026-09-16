@@ -123,6 +123,10 @@ exit 1
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_SOCKET_STATE"] = socket_state
         env["FAKE_INJECT_ARGS_AVAILABLE"] = "1" if inject_args_available else "0"
+        # Keep this hook-only fixture independent of any ambient cmux CUA
+        # installation on the developer or CI machine.
+        env["CMUX_COMPUTER_USE_APP_ENABLED"] = "0"
+        env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
         if hooks_disabled:
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
@@ -161,6 +165,7 @@ def assert_session_entrypoint_is_instrumented(
     label: str,
     failures: list[str],
     restore_token: str | None = None,
+    expect_synthetic_resume: bool = False,
 ) -> None:
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state=socket_state,
@@ -181,10 +186,11 @@ def assert_session_entrypoint_is_instrumented(
            f"{label}: wrapper never requested local hook args: {cmux_log}", failures)
     expect(not any("ping" in line for line in cmux_log),
            f"{label}: transient socket health must not decide session instrumentation: {cmux_log}", failures)
+    synthetic_resume = any("hooks enqueue codex session-start" in line for line in cmux_log)
+    expect(synthetic_resume == expect_synthetic_resume,
+           f"{label}: synthetic resume SessionStart mismatch: {cmux_log}", failures)
     expect(not any("hooks codex session-start" in line for line in cmux_log),
-           f"{label}: wrapper must not synthesize SessionStart from argv: {cmux_log}", failures)
-    expect(not any("session-start" in line for line in cmux_log),
-           f"{label}: wrapper must not enqueue synthetic SessionStart: {cmux_log}", failures)
+           f"{label}: wrapper must use the queued SessionStart path: {cmux_log}", failures)
     expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
            f"{label}: missing Codex process identity: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
@@ -216,6 +222,7 @@ def test_every_resume_route_is_instrumented(failures: list[str]) -> None:
                 label=f"{route}/{socket_state}",
                 failures=failures,
                 restore_token=restore_token,
+                expect_synthetic_resume=route == "explicit-id",
             )
 
 
@@ -226,6 +233,7 @@ def test_direct_fork_is_instrumented(failures: list[str]) -> None:
             argv=["fork", SESSION_ID],
             label=f"fork/{socket_state}",
             failures=failures,
+            expect_synthetic_resume=False,
         )
 
 
@@ -261,6 +269,7 @@ def test_restore_tokens_do_not_gate_instrumentation(failures: list[str]) -> None
             label=f"restore-token-{token}/stale",
             failures=failures,
             restore_token=token,
+            expect_synthetic_resume=True,
         )
 
 
