@@ -1259,7 +1259,18 @@ export function pauseVm(input: {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (vm.status === "paused") {
-      return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
+      // Freestyle traffic can wake a VM before our row is reconciled. Only
+      // skip the pause when a live read confirms it is still parked.
+      const status = providers.getStatus
+        ? yield* providers.getStatus(vm.provider, providerVmId)
+        : "paused";
+      if (status === "paused") {
+        return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
+      }
+      if (status === "destroyed") {
+        yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "destroyed" });
+        return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+      }
     }
     const pause = providers.pause;
     if (!pause) {
