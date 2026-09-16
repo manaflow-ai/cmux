@@ -607,7 +607,11 @@ func stringFromAnyGo(value any) string {
 // --- Target resolution ---
 
 func tmuxCallerWorkspaceHandle() string {
-	return strings.TrimSpace(os.Getenv("CMUX_WORKSPACE_ID"))
+	handle := strings.TrimSpace(os.Getenv("CMUX_WORKSPACE_ID"))
+	if handle == "current" {
+		return ""
+	}
+	return handle
 }
 
 func tmuxCallerSurfaceHandle() string {
@@ -1534,7 +1538,11 @@ func tmuxShellCommandText(positional []string, cwd string) string {
 
 // --- Wait-for (filesystem-based signaling) ---
 
-func tmuxWaitForSignalPath(name string) string {
+func tmuxWaitForSignalPath(name string) (string, error) {
+	directory, err := tmuxWaitForSignalDirectory()
+	if err != nil {
+		return "", err
+	}
 	var sanitized strings.Builder
 	for _, c := range name {
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
@@ -1544,7 +1552,7 @@ func tmuxWaitForSignalPath(name string) string {
 			sanitized.WriteByte('_')
 		}
 	}
-	return fmt.Sprintf("/tmp/cmux-wait-for-%s.sig", sanitized.String())
+	return filepath.Join(directory, fmt.Sprintf("cmux-wait-for-%s.sig", sanitized.String())), nil
 }
 
 // --- Main dispatch ---
@@ -1987,7 +1995,7 @@ func tmuxSendKeys(rc *rpcContext, args []string) error {
 }
 
 func tmuxCapturePane(rc *rpcContext, args []string) error {
-	p := parseTmuxArgs(args, []string{"-E", "-S", "-t"}, []string{"-J", "-N", "-p"})
+	p := parseTmuxArgs(args, []string{"-E", "-S", "-t", "-b"}, []string{"-J", "-N", "-p"})
 	wsId, _, surfId, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
 	if err != nil {
 		return err
@@ -2010,8 +2018,12 @@ func tmuxCapturePane(rc *rpcContext, args []string) error {
 	if p.hasFlag("-p") {
 		fmt.Print(text)
 	} else {
+		buffer := p.value("-b")
+		if buffer == "" {
+			buffer = "default"
+		}
 		if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
-			store.Buffers["default"] = text
+			store.Buffers[buffer] = text
 			return nil
 		}); err != nil {
 			return err
@@ -2314,11 +2326,15 @@ func tmuxWaitFor(_ *rpcContext, args []string) error {
 		return fmt.Errorf("wait-for requires a name")
 	}
 
-	signalPath := tmuxWaitForSignalPath(name)
+	signalPath, err := tmuxWaitForSignalPath(name)
+	if err != nil {
+		return err
+	}
 
 	if p.hasFlag("-S") {
-		// Signal mode: create the file
-		os.WriteFile(signalPath, []byte{}, 0644)
+		if err := createTmuxWaitForSignal(signalPath); err != nil {
+			return err
+		}
 		fmt.Println("OK")
 		return nil
 	}
@@ -2334,9 +2350,13 @@ func tmuxWaitFor(_ *rpcContext, args []string) error {
 
 	deadline := time.Now().Add(time.Duration(timeout * float64(time.Second)))
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(signalPath); err == nil {
-			os.Remove(signalPath)
-			return nil
+		if info, err := os.Lstat(signalPath); err == nil {
+			if !privateTmuxWaitForSignal(info) {
+				return os.ErrPermission
+			}
+			return os.Remove(signalPath)
+		} else if !os.IsNotExist(err) {
+			return err
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

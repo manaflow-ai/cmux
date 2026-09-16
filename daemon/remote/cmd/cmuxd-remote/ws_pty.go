@@ -53,15 +53,8 @@ type wsLease struct {
 }
 
 type wsLeaseInstallRequest struct {
-	PTYLease  *wsLease            `json:"pty_lease,omitempty"`
-	RPCLease  *wsLease            `json:"rpc_lease,omitempty"`
-	RPCClient *wsRPCClientPayload `json:"rpc_client,omitempty"`
-}
-
-type wsRPCClientPayload struct {
-	Token         string `json:"token"`
-	SessionID     string `json:"sessionId"`
-	ExpiresAtUnix int64  `json:"expiresAtUnix"`
+	PTYLease *wsLease `json:"pty_lease,omitempty"`
+	RPCLease *wsLease `json:"rpc_lease,omitempty"`
 }
 
 type wsAuthFrame struct {
@@ -415,12 +408,7 @@ func handleWebSocketLeaseInstall(w http.ResponseWriter, r *http.Request, cfg wsP
 			return
 		}
 	}
-	if request.RPCClient != nil {
-		if err := writeJSONFile("/tmp/cmux/attach-rpc-client.json", request.RPCClient); err != nil {
-			http.Error(w, "write rpc client failed", http.StatusInternalServerError)
-			return
-		}
-	}
+
 	w.Header().Set("content-type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }

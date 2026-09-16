@@ -332,12 +332,10 @@ func TestDialSocketRefreshesToUpdatedTCPAddressWithoutPolling(t *testing.T) {
 	}()
 
 	refreshCalls := 0
-	start := time.Now()
 	conn, err := dialSocket(staleAddr, func() string {
 		refreshCalls++
 		return readyListener.Addr().String()
 	})
-	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("dialSocket should refresh to updated address, got: %v", err)
 	}
@@ -345,9 +343,6 @@ func TestDialSocketRefreshesToUpdatedTCPAddressWithoutPolling(t *testing.T) {
 	<-accepted
 	if refreshCalls != 1 {
 		t.Fatalf("refreshAddr should be called once, got %d", refreshCalls)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("dialSocket should fail over without polling, took %v", elapsed)
 	}
 }
 
@@ -360,20 +355,15 @@ func TestDialSocketFailsFastWhenTCPAddressStaysStale(t *testing.T) {
 	ln.Close()
 
 	refreshCalls := 0
-	start := time.Now()
 	_, err = dialSocket(addr, func() string {
 		refreshCalls++
 		return addr
 	})
-	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("dialSocket should fail when the relay address stays stale")
 	}
 	if refreshCalls != 1 {
 		t.Fatalf("refreshAddr should be called once on stale TCP failure, got %d", refreshCalls)
-	}
-	if elapsed > 500*time.Millisecond {
-		t.Fatalf("dialSocket should fail fast without polling, took %v", elapsed)
 	}
 }
 

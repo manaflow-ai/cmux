@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +34,10 @@ func TestRestoredWaitSignalRejectsSymlink(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	name := fmt.Sprintf("review-%x", sha256.Sum256([]byte(home)))
-	path := tmuxWaitForSignalPath(name)
+	path, err := tmuxWaitForSignalPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = os.Remove(path) })
 	victim := filepath.Join(home, "must-not-change")
 	if err := os.WriteFile(victim, []byte("preserve me"), 0600); err != nil {
@@ -66,5 +71,82 @@ func TestRestoredOMOInfoDoesNotInstallPlugin(t *testing.T) {
 				t.Fatalf("informational invocation needed plugin installation: %v\n%s", err, output)
 			}
 		})
+	}
+}
+
+func TestWaitSignalIsPrivateAndDoesNotTruncateExistingSignal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath("private-signal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := createTmuxWaitForSignal(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		path string
+		mode os.FileMode
+	}{{filepath.Dir(path), 0700}, {path, 0600}} {
+		info, err := os.Stat(item.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != item.mode {
+			t.Fatalf("mode %o, want %o", info.Mode().Perm(), item.mode)
+		}
+	}
+	if err := os.WriteFile(path, []byte("already signaled"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := createTmuxWaitForSignal(path); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "already signaled" {
+		t.Fatalf("existing signal changed: %q, %v", data, err)
+	}
+	if err := tmuxWaitFor(nil, []string{"private-signal"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("signal not consumed: %v", err)
+	}
+}
+
+func TestWaitSignalRejectsSymlinkedParent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.Symlink(t.TempDir(), filepath.Join(home, ".cmux")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmuxWaitForSignalPath("unsafe-parent"); err == nil {
+		t.Fatal("accepted symlinked parent")
+	}
+}
+
+func TestCurrentWorkspaceEnvironmentUsesFallbackInsteadOfRecursing(t *testing.T) {
+	t.Setenv("CMUX_WORKSPACE_ID", "current")
+	rc := &rpcContext{socketPath: filepath.Join(t.TempDir(), "unavailable.sock")}
+	if _, err := tmuxResolveWorkspaceId(rc, "current"); err == nil || !strings.Contains(err.Error(), "no workspace selected") {
+		t.Fatalf("expected normal workspace lookup failure, got %v", err)
+	}
+}
+
+func TestAdminLeaseIgnoresRetiredRPCClientPayload(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	sum := sha256.Sum256([]byte("admin-token"))
+	handler := newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: fmt.Sprintf("%x", sum),
+	}, io.Discard)
+	request := httptest.NewRequest(http.MethodPost, "/admin/leases", strings.NewReader(`{"pty_lease":{"version":1},"rpc_client":0}`))
+	request.Header.Set("Authorization", "Bearer admin-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("lease install failed: %d %s", response.Code, response.Body.String())
+	}
+	if _, err := os.Stat(leasePath); err != nil {
+		t.Fatal(err)
 	}
 }

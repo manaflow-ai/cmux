@@ -145,8 +145,12 @@ func TestTmuxShellCommandText(t *testing.T) {
 }
 
 func TestTmuxWaitForSignalPath(t *testing.T) {
-	path := tmuxWaitForSignalPath("test-signal")
-	if !strings.HasPrefix(path, "/tmp/cmux-wait-for-") {
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath("test-signal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(path) != filepath.Join(os.Getenv("HOME"), ".cmux", "wait-for") {
 		t.Errorf("unexpected path prefix: %s", path)
 	}
 	if !strings.HasSuffix(path, ".sig") {
@@ -851,7 +855,11 @@ func TestMergeNodeOptions(t *testing.T) {
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	name := "test-roundtrip-" + randomHex(4)
-	path := tmuxWaitForSignalPath(name)
+	t.Setenv("HOME", t.TempDir())
+	path, err := tmuxWaitForSignalPath(name)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer os.Remove(path)
 
 	// Signal creates the file
@@ -861,7 +869,7 @@ func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
 	}
 
 	// Wait consumes the file
-	err := dispatchTmuxCommand(nil, "wait-for", []string{name})
+	err = dispatchTmuxCommand(nil, "wait-for", []string{name})
 	if err != nil {
 		t.Fatalf("wait-for should succeed: %v", err)
 	}

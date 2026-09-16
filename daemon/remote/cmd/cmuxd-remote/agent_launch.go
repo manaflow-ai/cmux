@@ -102,7 +102,8 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	launchContext, err := agentLaunchContextForInvocation(rc, omoLaunchIsNonLaunch(args))
+	nonLaunch := omoLaunchIsNonLaunch(args)
+	launchContext, err := agentLaunchContextForInvocation(rc, nonLaunch)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: %v\n", err)
 		return 1
@@ -110,9 +111,11 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 
 	// Ensure oh-my-opencode plugin is set up only after a real launch's
 	// inherited surface identity has been validated.
-	if err := omoEnsurePlugin(originalPath); err != nil {
-		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
-		return 1
+	if !nonLaunch {
+		if err := omoEnsurePlugin(originalPath); err != nil {
+			fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
+			return 1
+		}
 	}
 
 	configureAgentEnvironment(agentConfig{

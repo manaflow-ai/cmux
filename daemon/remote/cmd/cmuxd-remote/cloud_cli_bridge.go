@@ -63,7 +63,7 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 	if err != nil {
 		return err
 	}
-	if err := os.Chmod(socketPath, 0o666); err != nil {
+	if err := os.Chmod(socketPath, 0o600); err != nil {
 		_ = listener.Close()
 		_ = os.Remove(socketPath)
 		return err
