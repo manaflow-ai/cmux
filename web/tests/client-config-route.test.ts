@@ -394,7 +394,7 @@ describe("client config", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("serves a complete evaluation from the runtime cache before rate limiting", async () => {
+  test("rate limits every request while serving complete evaluations from the runtime cache", async () => {
     mutableEnv.NODE_ENV = "production";
     process.env.VERCEL = "1";
     mutableEnv.VERCEL_ENV = "production";
@@ -424,7 +424,15 @@ describe("client config", () => {
     expect(first.headers.get("x-cmux-client-config-cache")).toBe("miss");
     expect(second.headers.get("x-cmux-client-config-cache")).toBe("hit");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledTimes(2);
+
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+    const blocked = await POST(request());
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("retry-after")).toBe("60");
+    expect(await blocked.json()).toEqual({ error: "rate_limited" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledTimes(3);
   });
 
   test("coalesces concurrent cold evaluations for the same install", async () => {
@@ -462,14 +470,44 @@ describe("client config", () => {
     const secondPromise = POST(request());
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(checkRateLimit).toHaveBeenCalledTimes(1);
     releaseFetch();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(checkRateLimit).toHaveBeenCalledTimes(2);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
     expect(first.headers.get("x-cmux-client-config-cache")).toBe("miss");
     expect(second.headers.get("x-cmux-client-config-cache")).toBe("coalesced");
+  });
+
+  test("a blocked concurrent caller cannot join another request's evaluation", async () => {
+    mutableEnv.NODE_ENV = "production";
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "production";
+    let releaseFetch!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    const fetchMock = mock(async () => {
+      await gate;
+      return Response.json({ errorsWhileComputingFlags: false, featureFlags: {}, featureFlagPayloads: {} });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const request = () => new Request("https://cmux.test/api/client-config", {
+      method: "POST",
+      body: JSON.stringify({ distinctId: "blocked-concurrent-test" }),
+    });
+
+    const allowed = POST(request());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+    const blocked = POST(request());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseFetch();
+    const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
+
+    expect(allowedResponse.status).toBe(200);
+    expect(blockedResponse.status).toBe(429);
+    expect(checkRateLimit).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test.each([
