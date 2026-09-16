@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Xcode and detached fleet jobs may start with only the system search path.
-# Match build-diff-sidecar.sh's explicit Rust tool discovery.
-export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+# Keep explicitly configured tools ahead of these fallback locations.
+export PATH="${PATH}:${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
 
 CMUX_CUA_REPO_URL="${CMUX_CUA_REPO_URL:-https://github.com/manaflow-ai/cmux-cua.git}"
 CMUX_CUA_PINNED_SHA="7a57a7c79522ece017a3ae4ef7884a24d7eec270"

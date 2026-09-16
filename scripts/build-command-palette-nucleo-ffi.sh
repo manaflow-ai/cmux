@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Xcode and detached fleet jobs may start with only the system search path.
-# Match build-diff-sidecar.sh's explicit Rust tool discovery.
-export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+# Keep explicitly configured tools ahead of these fallback locations.
+export PATH="${PATH}:${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="${ROOT}/Native/CommandPaletteNucleoFFI"
