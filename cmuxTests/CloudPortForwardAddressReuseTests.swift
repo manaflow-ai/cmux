@@ -31,7 +31,7 @@ struct CloudPortForwardAddressReuseTests {
             defer { client.cancel() }
             try await client.sendAll(Data("ping".utf8))
             if index == 0 {
-                #expect(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.contains { $0.host == ipv4 } })
+                try #require(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.contains { $0.host == ipv4 } })
                 await clock.waitUntilSleeping(for: .milliseconds(250))
                 clock.advance(by: .milliseconds(250))
             }
@@ -50,7 +50,7 @@ struct CloudPortForwardAddressReuseTests {
         let recovered = try await CloudLoopbackPortForwardTests.client(port: localPort)
         defer { recovered.cancel() }
         try await recovered.sendAll(Data("back".utf8))
-        #expect(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.filter { $0.host == ipv6 }.count == 4 })
+        try #require(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.filter { $0.host == ipv6 }.count == 4 })
         await clock.waitUntilSleeping(for: .milliseconds(250))
         clock.advance(by: .milliseconds(250))
         #expect(try await recovered.receiveExactly(4) == Array("back".utf8),

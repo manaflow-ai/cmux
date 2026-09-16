@@ -47,8 +47,9 @@ import Testing
         let accepted = harness.appDelegate.performSplitShortcut(direction: direction, preferredWindow: window)
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
+        let reservation = try #require(workspace.cloudPendingCreations.values.first)
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        try #require(await AppKitTestEventPump().waitUntil { workspace.cloudMaterializationFailures[reservation.panelID] != nil })
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
