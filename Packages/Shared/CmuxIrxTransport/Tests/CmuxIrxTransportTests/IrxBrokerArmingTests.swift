@@ -65,6 +65,16 @@ enum IrxBrokerArmingSupport {
 
 @Suite("broker signing arming")
 struct IrxBrokerArmingTests {
+    @Test("Mac registrations advertise custom private-path support")
+    func registrationCapabilitiesDescribePlatformSupport() {
+        #expect(IrxBrokerService.registrationCapabilities(for: .mac).contains(
+            "iroh.private_paths.v1"
+        ))
+        #expect(!IrxBrokerService.registrationCapabilities(for: .ios).contains(
+            "iroh.private_paths.v1"
+        ))
+    }
+
     @Test("a cached binding arms request signing at init, before any register()")
     func cachedBindingArmsSigning() async throws {
         let identity = IrxBrokerArmingSupport.identity()

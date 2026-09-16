@@ -44,6 +44,12 @@ protocol PaneDropContainer: AnyObject {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool
 
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool
+
     /// Returns the drag operation for a simulator file destination, if present.
     func simulatorFileDropOperation(
         urls: [URL],
@@ -70,6 +76,12 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool { false }
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool { false }
+
     /// Handles synthetic capabilities before the caller's normal surface move.
     ///
     /// Returning `nil` means the transfer is a live Bonsplit surface. A non-nil
@@ -100,6 +112,8 @@ extension PaneDropContainer {
             )
         case .surfaceResources(let group):
             handled = performPortalSurfaceResourceDrop(group: group, destination: request.destination)
+        case .rightSidebarTool(let mode):
+            handled = canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: request.destination)
         case .surface:
             return nil
         }
@@ -117,6 +131,8 @@ extension PaneDropContainer {
         switch source {
         case .vaultSession, .filePreview, .surfaceResources:
             return true
+        case .rightSidebarTool(let mode):
+            return canPerformRightSidebarToolDrop(mode)
         case .surface:
             return canPerformPortalSurfaceDrop(transfer)
         }
@@ -147,6 +163,8 @@ extension PaneDropContainer {
             ))
         case .surfaceResources(let group):
             return performPortalSurfaceResourceDrop(group: group, destination: destination)
+        case .rightSidebarTool(let mode):
+            return canPerformRightSidebarToolDrop(mode) && performRightSidebarToolDrop(mode, destination: destination)
         case .surface:
             return performPortalSurfaceDrop(
                 tabId: tabId,
@@ -270,6 +288,16 @@ extension PaneDropContainer {
 }
 
 extension Workspace: PaneDropContainer {
+    func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool {
+        !isRetiredFromOwningTabManager && mode.canOpenAsPane && mode.isAvailable()
+    }
+    func performRightSidebarToolDrop(
+        _ mode: RightSidebarMode,
+        destination: BonsplitController.ExternalTabDropRequest.Destination
+    ) -> Bool {
+        handleRightSidebarToolDrop(mode: mode, destination: destination)
+    }
+
     /// A live surface can always ask the workspace dispatcher to move it.
     func canPerformPortalSurfaceDrop(_: PaneDragTransfer) -> Bool {
         true

@@ -24,7 +24,12 @@ const STATE_VERSION: u32 = 1;
 /// understand the original version-1 state.
 pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
+const MAX_LIVE_INVITATIONS: usize = 256;
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Device-id prefix of a grant issued by a trusted-network listener. Such a
+/// connection is admitted by the network it arrived on; it is never revoked by
+/// the daemon's device list or its carrier policy, only by leaving the network.
+pub const TRUSTED_NETWORK_DEVICE_PREFIX: &str = "network:";
 const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
@@ -177,7 +182,7 @@ pub enum KnownDaemonAuth {
 pub struct ClientIdentityStore {
     state_dir: PathBuf,
     identity: StaticIdentity,
-    state: Mutex<PersistedClientState>,
+    state: StdMutex<ClientStateCache>,
 }
 
 impl std::fmt::Debug for ClientIdentityStore {
@@ -203,7 +208,11 @@ impl ClientIdentityStore {
         if routes_changed {
             atomic_json(&path, &state)?;
         }
-        Ok(Arc::new(Self { state_dir, identity, state: Mutex::new(state) }))
+        Ok(Arc::new(Self {
+            state_dir,
+            identity,
+            state: StdMutex::new(ClientStateCache { persisted: state, generation: 0 }),
+        }))
     }
 
     pub fn identity(&self) -> StaticIdentity {
@@ -211,7 +220,15 @@ impl ClientIdentityStore {
     }
 
     pub async fn known_daemons(&self) -> Vec<KnownDaemon> {
-        let mut daemons = self.state.lock().await.daemons.values().cloned().collect::<Vec<_>>();
+        let mut daemons = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .persisted
+            .daemons
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         daemons.sort_by(|left, right| left.name.cmp(&right.name));
         daemons
     }
@@ -254,8 +271,7 @@ impl ClientIdentityStore {
         let route_hints = credential_free_route_hints(route_hints)?;
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
-        let mut state = self.state.lock().await;
-        let (_path_lock, mut candidate, _) = self.reload_client_state_locked(&mut state).await?;
+        let (transaction, mut candidate) = self.reload_client_state().await?;
         if let Some(existing) = candidate.daemons.get_mut(&fingerprint) {
             if decode_key(&existing.public_key)? != public_key {
                 return Err(IdentityError::Invalid("known daemon fingerprint collision".into()));
@@ -274,7 +290,7 @@ impl ClientIdentityStore {
                 existing.route_hints = route_hints;
             }
             let record = existing.clone();
-            self.commit_client_state_locked(&mut state, candidate)?;
+            self.commit_client_state(transaction, candidate)?;
             return Ok(record);
         }
         let record = KnownDaemon {
@@ -287,7 +303,7 @@ impl ClientIdentityStore {
             last_used_at_unix: now,
         };
         candidate.daemons.insert(fingerprint, record.clone());
-        self.commit_client_state_locked(&mut state, candidate)?;
+        self.commit_client_state(transaction, candidate)?;
         Ok(record)
     }
 
@@ -298,12 +314,11 @@ impl ClientIdentityStore {
     ) -> Result<Option<KnownDaemon>, IdentityError> {
         let route = credential_free_route_hint(route)?;
         let now = unix_time()?;
-        let mut state = self.state.lock().await;
-        let (_path_lock, mut candidate, routes_changed) =
-            self.reload_client_state_locked(&mut state).await?;
+        let (transaction, mut candidate) = self.reload_client_state().await?;
+        let routes_changed = transaction.routes_changed;
         let Some(existing) = candidate.daemons.get_mut(fingerprint) else {
             if routes_changed {
-                self.commit_client_state_locked(&mut state, candidate)?;
+                self.commit_client_state(transaction, candidate)?;
             }
             return Ok(None);
         };
@@ -312,73 +327,130 @@ impl ClientIdentityStore {
             existing.route_hints.push(route);
         }
         let record = existing.clone();
-        self.commit_client_state_locked(&mut state, candidate)?;
+        self.commit_client_state(transaction, candidate)?;
         Ok(Some(record))
     }
 
     pub async fn daemon_key(&self, fingerprint: &str) -> Result<Option<[u8; 32]>, IdentityError> {
-        let mut state = self.state.lock().await;
-        let (_path_lock, candidate, routes_changed) =
-            self.reload_client_state_locked(&mut state).await?;
+        let (transaction, candidate) = self.reload_client_state().await?;
+        let routes_changed = transaction.routes_changed;
         let key = candidate
             .daemons
             .get(fingerprint)
             .map(|daemon| decode_key(&daemon.public_key))
             .transpose()?;
         if routes_changed {
-            self.commit_client_state_locked(&mut state, candidate)?;
+            self.commit_client_state(transaction, candidate)?;
         }
         Ok(key)
     }
 
     pub async fn forget_daemon(&self, fingerprint: &str) -> Result<bool, IdentityError> {
-        let mut state = self.state.lock().await;
-        let (_path_lock, mut candidate, routes_changed) =
-            self.reload_client_state_locked(&mut state).await?;
+        let (transaction, mut candidate) = self.reload_client_state().await?;
+        let routes_changed = transaction.routes_changed;
         let removed = candidate.daemons.remove(fingerprint).is_some();
         if removed || routes_changed {
-            self.commit_client_state_locked(&mut state, candidate)?;
+            self.commit_client_state(transaction, candidate)?;
         }
         Ok(removed)
     }
 
-    async fn reload_client_state_locked(
+    async fn reload_client_state(
         &self,
-        state: &mut PersistedClientState,
-    ) -> Result<(OwnerFileLock, PersistedClientState, bool), IdentityError> {
+    ) -> Result<(ClientStateTransaction, PersistedClientState), IdentityError> {
         let path = self.state_dir.join(CLIENT_STATE_FILE);
         let lock_path = sibling_lock_path(&path).map_err(IdentityError::Io)?;
-        let path_lock = OwnerFileLock::acquire_async(lock_path).await.map_err(IdentityError::Io)?;
-        let (disk_state, routes_changed) =
-            load_client_state(&path)?.unwrap_or_else(|| (state.clone(), false));
-        *state = disk_state.clone();
-        Ok((path_lock, disk_state, routes_changed))
-    }
-
-    fn commit_client_state_locked(
-        &self,
-        state: &mut PersistedClientState,
-        candidate: PersistedClientState,
-    ) -> Result<(), IdentityError> {
-        match self.persist_client_locked(&candidate) {
-            Ok(()) => {
-                *state = candidate;
-                Ok(())
+        loop {
+            let (generation, fallback) = {
+                let cache = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                (cache.generation, cache.persisted.clone())
+            };
+            let path_lock =
+                OwnerFileLock::acquire_async(lock_path.clone()).await.map_err(IdentityError::Io)?;
+            let loaded = load_client_state(&path)?;
+            let mut cache = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if cache.generation != generation {
+                // A transaction completed while this operation waited for the
+                // owner-file lock. Reload under a new lease so the disk state
+                // and cache generation describe the same point in history.
+                continue;
             }
-            Err(error @ IdentityError::Committed(_)) => {
-                *state = candidate;
-                Err(error)
-            }
-            Err(error) => Err(error),
+            let (candidate, routes_changed) = loaded.unwrap_or((fallback, false));
+            cache.replace(candidate.clone())?;
+            let generation = cache.generation;
+            drop(cache);
+            return Ok((
+                ClientStateTransaction { _path_lock: path_lock, routes_changed, generation },
+                candidate,
+            ));
         }
     }
 
-    fn persist_client_locked(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
+    fn commit_client_state(
+        &self,
+        transaction: ClientStateTransaction,
+        candidate: PersistedClientState,
+    ) -> Result<(), IdentityError> {
+        {
+            let cache = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if cache.generation != transaction.generation {
+                return Err(IdentityError::Persistence(
+                    "client identity cache changed while its owner-file lock was held".into(),
+                ));
+            }
+        }
+        let result = match self.persist_client_state(&candidate) {
+            Ok(()) => {
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .replace(candidate)?;
+                Ok(())
+            }
+            Err(error @ IdentityError::Committed(_)) => {
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .replace(candidate)?;
+                Err(error)
+            }
+            Err(error) => Err(error),
+        };
+        // Keep the cross-process lease through both the durable write and the
+        // matching cache publication.
+        drop(transaction);
+        result
+    }
+
+    fn persist_client_state(&self, state: &PersistedClientState) -> Result<(), IdentityError> {
         atomic_json(&self.state_dir.join(CLIENT_STATE_FILE), state)
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ClientStateCache {
+    persisted: PersistedClientState,
+    generation: u64,
+}
+
+impl ClientStateCache {
+    fn replace(&mut self, persisted: PersistedClientState) -> Result<(), IdentityError> {
+        if self.persisted != persisted {
+            self.generation = self.generation.checked_add(1).ok_or_else(|| {
+                IdentityError::Invalid("client state generation exhausted".into())
+            })?;
+            self.persisted = persisted;
+        }
+        Ok(())
+    }
+}
+
+struct ClientStateTransaction {
+    _path_lock: OwnerFileLock,
+    routes_changed: bool,
+    generation: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct PersistedClientState {
     version: u32,
     #[serde(default)]
@@ -1059,6 +1131,11 @@ impl AuthDatabase {
         let mut state = self.state.lock().await;
         state.ensure_open()?;
         state.prune_invitations(now);
+        if state.invitations.len() >= MAX_LIVE_INVITATIONS {
+            return Err(IdentityError::Invalid(format!(
+                "maximum invitation count ({MAX_LIVE_INVITATIONS}) reached"
+            )));
+        }
         state.invitations.insert(
             id,
             InvitationRecord {
@@ -1079,6 +1156,9 @@ impl AuthDatabase {
     }
 
     pub async fn device_is_active(&self, device_id: &str) -> bool {
+        if device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
+            return true;
+        }
         if device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1094,6 +1174,9 @@ impl AuthDatabase {
     /// published. The generation check closes the race where a revocation can
     /// happen after the Noise handshake but before all physical lanes arrive.
     pub async fn grant_is_current(&self, grant: &AuthGrant) -> bool {
+        if grant.device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
+            return true;
+        }
         if grant.device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1302,7 +1385,10 @@ impl AuthDatabase {
         device_id: &str,
         connection_attempt: ConnectionAttemptId,
     ) -> Result<(), IdentityError> {
-        if device_id.starts_with("carrier:") {
+        // Carrier and trusted-network grants have no device record to stamp;
+        // their admission is the transport's, not the device list's.
+        if device_id.starts_with("carrier:") || device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX)
+        {
             return Ok(());
         }
         let now = unix_time()?;
@@ -1494,6 +1580,23 @@ impl ServerAuthenticator for AuthDatabase {
                     device_id: fingerprint,
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: generation,
+                })
+            }
+            // A trusted-network listener vouches for every peer that can reach it;
+            // the grant still names the client's own key so connections stay
+            // attributable and individually disconnectable. The `network:` prefix
+            // keeps it apart from a policy-gated `carrier:` grant: the network's
+            // membership, not `allow_carrier`, is what keeps it current.
+            AuthKind::Carrier
+                if matches!(&request.inbound, InboundAuthEvidence::TrustedNetwork(_)) =>
+            {
+                Ok(AuthGrant {
+                    device_id: format!(
+                        "{TRUSTED_NETWORK_DEVICE_PREFIX}{}",
+                        public_key_fingerprint(&request.device_public_key)
+                    ),
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: *self.revocation_tx.borrow(),
                 })
             }
             AuthKind::Carrier
@@ -3089,6 +3192,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn contended_client_state_file_does_not_block_cached_daemon_reads() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
+        let state_path = temp.path().join(CLIENT_STATE_FILE);
+        let lock_path = sibling_lock_path(&state_path).unwrap();
+        let path_lock = OwnerFileLock::acquire(&lock_path).unwrap();
+
+        let lookup = store.daemon_key("unknown");
+        tokio::pin!(lookup);
+        assert!(
+            futures_util::poll!(lookup.as_mut()).is_pending(),
+            "daemon lookup unexpectedly completed while the state file was locked"
+        );
+
+        tokio::time::timeout(Duration::from_millis(100), store.known_daemons())
+            .await
+            .expect("cached daemon reads waited for an unrelated owner-file lock");
+
+        drop(path_lock);
+        assert_eq!(lookup.await.unwrap(), None);
+    }
+
+    #[tokio::test]
     async fn failed_known_daemon_forget_keeps_live_trust() {
         let temp = tempfile::tempdir().unwrap();
         let store = ClientIdentityStore::load_or_create(temp.path()).unwrap();
@@ -3731,9 +3857,9 @@ mod tests {
             .await
             .unwrap();
         {
-            let mut state = store.state.lock().await;
-            state.daemons.get_mut(&known.fingerprint).unwrap().last_used_at_unix = 1;
-            store.persist_client_locked(&state).unwrap();
+            let mut state = store.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.persisted.daemons.get_mut(&known.fingerprint).unwrap().last_used_at_unix = 1;
+            store.persist_client_state(&state.persisted).unwrap();
         }
 
         let refreshed = store
@@ -3840,6 +3966,37 @@ mod tests {
         assert!(!format!("{invitation:?}").contains("secret-connect-ticket"));
         let decoded = EnrollmentInvitation::from_uri(&invitation.to_uri().unwrap()).unwrap();
         assert_eq!(decoded.relay_access, vec![access]);
+    }
+
+    #[tokio::test]
+    async fn invitation_count_is_bounded_without_evicting_live_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
+
+        let mut invitation_ids = HashSet::with_capacity(MAX_LIVE_INVITATIONS);
+        for _ in 0..MAX_LIVE_INVITATIONS {
+            let invitation =
+                database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+            invitation_ids.insert(invitation.id);
+        }
+
+        let error = database
+            .create_invitation(Duration::from_secs(60), Vec::new())
+            .await
+            .expect_err("live invitation cardinality limit was not enforced");
+        assert!(matches!(
+            error,
+            IdentityError::Invalid(message) if message.contains("maximum invitation count")
+        ));
+
+        let persisted = load_state(&temp.path().join("devices.json")).unwrap();
+        assert_eq!(persisted.invitations.len(), MAX_LIVE_INVITATIONS);
+        let persisted_ids = persisted
+            .invitations
+            .into_iter()
+            .map(|invitation| invitation.id)
+            .collect::<HashSet<_>>();
+        assert_eq!(persisted_ids, invitation_ids);
     }
 
     #[test]

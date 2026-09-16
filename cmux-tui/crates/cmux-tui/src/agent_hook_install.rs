@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -12,6 +14,7 @@ use std::path::{Path, PathBuf};
 #[cfg(not(unix))]
 use std::process::Command;
 use std::process::{Child, Output, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
@@ -51,6 +54,37 @@ const CODEX_SESSION_END_TIMEOUT_SECONDS: u64 = 3;
 const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Builds the helper command embedded in a provider's native hook config.
+fn helper_command(provider: &str, event: &str) -> String {
+    format!("cmux-tui-hook {provider} {event}")
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static FORCE_HERMES_REAPER_SPAWN_FAILURE: Cell<bool> = const { Cell::new(false) };
+    static HERMES_TEST_CHILD_SENDER: RefCell<Option<std::sync::mpsc::Sender<u32>>> =
+        const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn hermes_reaper_spawn_should_fail() -> bool {
+    FORCE_HERMES_REAPER_SPAWN_FAILURE.with(Cell::get)
+}
+
+#[cfg(test)]
+fn publish_hermes_test_child(child_id: u32) {
+    HERMES_TEST_CHILD_SENDER.with(|sender| {
+        if let Some(sender) = sender.borrow().as_ref() {
+            let _ = sender.send(child_id);
+        }
+    });
+}
+
+#[cfg(not(test))]
+fn hermes_reaper_spawn_should_fail() -> bool {
+    false
+}
 
 const CODEX_EVENTS: &[&str] = &[
     "SessionStart",
@@ -147,6 +181,27 @@ const GROK_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+const KIRO_EVENTS: &[&str] =
+    &["agentSpawn", "userPromptSubmit", "stop", "preToolUse", "postToolUse"];
+const ANTIGRAVITY_EVENTS: &[&str] =
+    &["SessionStart", "PreInvocation", "Stop", "turn-completion", "Notification", "SessionEnd"];
+const ROVODEV_EVENTS: &[&str] = &["on_complete", "on_error", "on_tool_permission"];
+const COPILOT_EVENTS: &[&str] =
+    &["SessionStart", "Stop", "Notification", "SessionEnd", "PreToolUse"];
+const CODEBUDDY_EVENTS: &[&str] = COPILOT_EVENTS;
+const FACTORY_EVENTS: &[&str] = COPILOT_EVENTS;
+const QODER_EVENTS: &[&str] = &["SessionStart", "Stop", "SessionEnd", "PreToolUse"];
+const KIMI_EVENTS: &[&str] = &[
+    "SessionStart",
+    "UserPromptSubmit",
+    "Notification",
+    "Stop",
+    "StopFailure",
+    "SessionEnd",
+    "PreToolUse",
+    "PostToolUse",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
     Install,
@@ -172,6 +227,9 @@ enum Format {
     Flat { timeout: u64 },
     Plugin { template: &'static str },
     HermesPlugin { module: &'static str, manifest: &'static str },
+    RovoYaml,
+    KimiToml,
+    AntigravityJson,
 }
 
 #[derive(Clone, Copy)]
@@ -242,6 +300,96 @@ const PROVIDERS: &[Provider] = &[
             manifest: include_str!("../assets/agent-hooks/hermes.yaml"),
         },
         events: &[],
+    },
+    Provider {
+        id: "omp",
+        binary: "omp",
+        default_path: ".omp/agent/config.json",
+        override_env: None,
+        override_relative_path: "config.json",
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
+        events: &[],
+    },
+    Provider {
+        id: "campfire",
+        binary: "campfire",
+        default_path: ".campfire/agent/config.json",
+        override_env: None,
+        override_relative_path: "config.json",
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
+        events: &[],
+    },
+    Provider {
+        id: "kiro",
+        binary: "kiro-cli",
+        default_path: ".kiro/agents/cmux.json",
+        override_env: Some("KIRO_HOME"),
+        override_relative_path: "agents/cmux.json",
+        format: Format::Flat { timeout: COMMAND_HOOK_TIMEOUT_SECONDS },
+        events: KIRO_EVENTS,
+    },
+    Provider {
+        id: "antigravity",
+        binary: "agy",
+        default_path: ".gemini/config/hooks.json",
+        override_env: None,
+        override_relative_path: "hooks.json",
+        format: Format::AntigravityJson,
+        events: ANTIGRAVITY_EVENTS,
+    },
+    Provider {
+        id: "rovodev",
+        binary: "acli",
+        default_path: ".rovodev/config.yml",
+        override_env: None,
+        override_relative_path: "config.yml",
+        format: Format::RovoYaml,
+        events: ROVODEV_EVENTS,
+    },
+    Provider {
+        id: "copilot",
+        binary: "copilot",
+        default_path: ".copilot/config.json",
+        override_env: Some("COPILOT_HOME"),
+        override_relative_path: "config.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: COPILOT_EVENTS,
+    },
+    Provider {
+        id: "codebuddy",
+        binary: "codebuddy",
+        default_path: ".codebuddy/settings.json",
+        override_env: Some("CODEBUDDY_CONFIG_DIR"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: CODEBUDDY_EVENTS,
+    },
+    Provider {
+        id: "factory",
+        binary: "droid",
+        default_path: ".factory/settings.json",
+        override_env: None,
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: FACTORY_EVENTS,
+    },
+    Provider {
+        id: "qoder",
+        binary: "qodercli",
+        default_path: ".qoder/settings.json",
+        override_env: Some("QODER_CONFIG_DIR"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: QODER_EVENTS,
+    },
+    Provider {
+        id: "kimi",
+        binary: "kimi",
+        default_path: ".kimi/config.toml",
+        override_env: None,
+        override_relative_path: "config.toml",
+        format: Format::KimiToml,
+        events: KIMI_EVENTS,
     },
     Provider {
         id: "opencode",
@@ -466,6 +614,8 @@ fn select_providers(plan: &Plan, context: &Context) -> anyhow::Result<Vec<Provid
         let requested = match requested.as_str() {
             "claude-code" => "claude",
             "hermes" => "hermes-agent",
+            "agy" => "antigravity",
+            "rovo" => "rovodev",
             value => value,
         };
         let provider = PROVIDERS
@@ -709,6 +859,71 @@ fn run_hermes_command(binary: &Path, args: &[&str]) -> anyhow::Result<Output> {
 
 type HermesOutputReader = std::thread::JoinHandle<io::Result<Vec<u8>>>;
 
+struct HermesReapState {
+    child: Mutex<Option<Child>>,
+    #[cfg(unix)]
+    child_exit: Mutex<Option<UnixChildExitSignal>>,
+}
+
+impl HermesReapState {
+    fn new(child: Child, #[cfg(unix)] child_exit: Option<UnixChildExitSignal>) -> Self {
+        Self {
+            child: Mutex::new(Some(child)),
+            #[cfg(unix)]
+            child_exit: Mutex::new(child_exit),
+        }
+    }
+
+    fn reap(&self) {
+        #[cfg(unix)]
+        if let Some(child_exit) =
+            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take()
+        {
+            child_exit.finish();
+        }
+        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+        if let Some(mut child) = child {
+            let _ = child.wait();
+        }
+    }
+
+    fn handoff_reap(&self) {
+        #[cfg(unix)]
+        let child_exit =
+            self.child_exit.lock().expect("Hermes exit observer mutex poisoned").take();
+        let child = self.child.lock().expect("Hermes reaper mutex poisoned").take();
+
+        #[cfg(unix)]
+        if let Some(child_exit) = child_exit {
+            // The exit observer already owns the child's PID wait path. It
+            // can block in waitpid without extending this timeout caller.
+            child_exit.reap();
+            drop(child);
+            return;
+        }
+
+        // This is only a defensive path. Unix commands install an exit
+        // observer before reaching the timeout branch. On Windows, closing
+        // the process handle after a nonblocking probe leaves termination to
+        // the kernel without making the timeout caller wait.
+        if let Some(mut child) = child {
+            let _ = child.try_wait();
+        }
+    }
+}
+
+fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
+    let reaper_state = Arc::clone(&state);
+    if hermes_reaper_spawn_should_fail() {
+        drop(reaper_state);
+        return Err(io::Error::other("forced Hermes reaper spawn failure"));
+    }
+    std::thread::Builder::new()
+        .name("hermes-command-reaper".into())
+        .spawn(move || reaper_state.reap())
+        .map(|_| ())
+}
+
 #[cfg(unix)]
 fn cleanup_hermes_start_failure(
     child: &mut Child,
@@ -761,6 +976,8 @@ fn run_hermes_command_with_timeout(
     #[cfg(unix)]
     tree.configure(&mut command);
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
+    #[cfg(test)]
+    publish_hermes_test_child(child.id());
     #[cfg(unix)]
     if let Err(error) = tree.bind(child.id()) {
         tree.terminate_until(deadline);
@@ -862,14 +1079,20 @@ fn run_hermes_command_with_timeout(
     let timed_out = status.is_none();
     if timed_out {
         let _ = child.kill();
-        // Reaping must not extend the command's absolute deadline. The
-        // process scope or Windows job has already issued exact termination;
-        // a detached reaper owns the blocking wait.
-        let _ = std::thread::Builder::new().name("hermes-command-reaper".into()).spawn(move || {
-            #[cfg(unix)]
-            child_exit.take().expect("Unix child exit observer").finish();
-            let _ = child.wait();
-        });
+        // Keep normal reaping detached so it does not extend the command's
+        // absolute deadline. The process scope or Windows job has already
+        // issued exact termination. If the OS cannot create that thread, the
+        // state below keeps ownership for a nonblocking fallback handoff.
+        #[cfg(unix)]
+        let reap_state = Arc::new(HermesReapState::new(child, child_exit.take()));
+        #[cfg(not(unix))]
+        let reap_state = Arc::new(HermesReapState::new(child));
+        if spawn_hermes_reaper(Arc::clone(&reap_state)).is_err() {
+            // Keep the already-running Unix observer as the owner when the
+            // OS cannot create the detached reaper. The handoff is
+            // nonblocking, so thread exhaustion cannot extend the deadline.
+            reap_state.handoff_reap();
+        }
     }
     let stdout = stdout.join().map_err(|_| anyhow::anyhow!("Hermes stdout reader panicked"))?;
     let stderr = stderr.join().map_err(|_| anyhow::anyhow!("Hermes stderr reader panicked"))?;
@@ -1062,6 +1285,98 @@ fn install_provider(
                 || before_manifest.as_deref() != Some(manifest.as_bytes());
             Ok(("installed", changed))
         }
+        Format::RovoYaml => {
+            let existing = fs::read_to_string(path).unwrap_or_default();
+            let marker_start = "# cmux hooks rovodev begin";
+            let marker_end = "# cmux hooks rovodev end";
+            let mut lines: Vec<&str> = existing.lines().collect();
+            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start)
+                && let Some(end_rel) =
+                    lines[start..].iter().position(|line| line.trim() == marker_end)
+            {
+                lines.drain(start..=start + end_rel);
+            }
+            if !lines.is_empty() {
+                lines.push("");
+            }
+            lines.push(marker_start);
+            lines.push("eventHooks:");
+            lines.push("  events:");
+            let mut owned = lines.iter().map(|line| (*line).to_string()).collect::<Vec<_>>();
+            for event in provider.events {
+                let command = helper_command(provider.id, event);
+                owned.push(format!("    - name: {event}"));
+                owned.push("      commands:".into());
+                owned.push(format!("        - command: {command:?}"));
+            }
+            owned.push(marker_end.into());
+            let output = owned.join("\n") + "\n";
+            let changed = output.as_bytes() != existing.as_bytes();
+            if changed {
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", changed))
+        }
+        Format::KimiToml => {
+            let existing = fs::read_to_string(path).unwrap_or_default();
+            let start = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin";
+            let end = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end";
+            let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+            }
+            if !lines.is_empty() && lines.last().is_some_and(|line| !line.is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push(start.into());
+            for event in provider.events {
+                lines.push("[[hooks]]".into());
+                lines.push(format!("event = \"{event}\""));
+                lines.push(format!(
+                    "command = \"{}\"",
+                    helper_command(provider.id, event).replace('\\', "\\\\").replace('"', "\\\"")
+                ));
+                lines.push("timeout = 5".into());
+                lines.push(String::new());
+            }
+            lines.push(end.into());
+            let output = lines.join("\n") + "\n";
+            let changed = output.as_bytes() != existing.as_bytes();
+            if changed {
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", changed))
+        }
+        Format::AntigravityJson => {
+            ensure_replaceable_target(path)?;
+            let mut root = read_json_object(path)?;
+            let existing = root.clone();
+            let mut group = Map::new();
+            for event in provider.events {
+                let command = helper_command(provider.id, event);
+                let hook = json!({"type": "command", "command": command, "timeout": 10});
+                let entry = if *event == "PreToolUse" || *event == "PostToolUse" {
+                    json!({"matcher": "*", "hooks": [hook]})
+                } else {
+                    hook
+                };
+                group.insert((*event).into(), Value::Array(vec![entry]));
+            }
+            root.insert("cmux".into(), Value::Object(group));
+            let output = serde_json::to_vec_pretty(&Value::Object(root))?;
+            let old = serde_json::to_vec_pretty(&Value::Object(existing))?;
+            let changed = output != old;
+            if changed {
+                atomic_write(
+                    path,
+                    &(output.iter().copied().chain(std::iter::once(b'\n')).collect::<Vec<_>>()),
+                    Some(0o600),
+                )?;
+            }
+            Ok(("installed", changed))
+        }
     }
 }
 
@@ -1143,6 +1458,42 @@ fn uninstall_provider(
             remove_owned_plugin_directory(path)?;
             Ok(("absent", true))
         }
+        Format::RovoYaml | Format::KimiToml => {
+            let Ok(existing) = fs::read_to_string(path) else {
+                return Ok(("absent", false));
+            };
+            let (start, end) = if matches!(provider.format, Format::RovoYaml) {
+                ("# cmux hooks rovodev begin", "# cmux hooks rovodev end")
+            } else {
+                (
+                    "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin",
+                    "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end",
+                )
+            };
+            let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
+            let mut changed = false;
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+                changed = true;
+            }
+            if changed {
+                let output = if lines.is_empty() { String::new() } else { lines.join("\n") + "\n" };
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("absent", changed))
+        }
+        Format::AntigravityJson => {
+            let mut root = read_json_object(path)?;
+            let changed = root.remove("cmux").is_some();
+            if changed {
+                let mut output = serde_json::to_vec_pretty(&Value::Object(root))?;
+                output.push(b'\n');
+                atomic_write(path, &output, Some(0o600))?;
+            }
+            Ok(("absent", changed))
+        }
     }
 }
 
@@ -1193,6 +1544,31 @@ fn provider_status(
                 _ => "absent",
             }
         }
+        Format::RovoYaml => match fs::read_to_string(path) {
+            Ok(content)
+                if content.contains("# cmux hooks rovodev begin")
+                    && content.contains("# cmux hooks rovodev end") =>
+            {
+                "installed"
+            }
+            Ok(content) if content.contains("cmux hooks rovodev") => "partial",
+            _ => "absent",
+        },
+        Format::KimiToml => match fs::read_to_string(path) {
+            Ok(content)
+                if content
+                    .contains("# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin")
+                    && content
+                        .contains("# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end") =>
+            {
+                "installed"
+            }
+            _ => "absent",
+        },
+        Format::AntigravityJson => match read_json_object(path) {
+            Ok(root) if root.contains_key("cmux") => "installed",
+            _ => "absent",
+        },
     };
     Ok((state, false))
 }
@@ -1578,6 +1954,7 @@ fn codex_owned_hook_entry<'a>(
     })
 }
 
+#[cfg(test)]
 fn codex_owned_hook_position(root: &Map<String, Value>, event: &str) -> Option<(usize, usize)> {
     codex_owned_hook_entry(root, event)
         .map(|(group_index, handler_index, _, _)| (group_index, handler_index))
@@ -2158,13 +2535,119 @@ mod tests {
     fn hermes_command_obeys_its_execution_deadline() {
         let started = Instant::now();
         let error = run_hermes_command_with_timeout(
-            Path::new("/bin/sh"),
-            &["-c", "sleep 30"],
+            Path::new("/bin/sleep"),
+            &["30"],
             Duration::from_millis(100),
         )
         .unwrap_err();
         assert!(error.to_string().contains("timed out"));
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_command_reaps_child_when_reaper_spawn_fails() {
+        let (pid_sender, pid_receiver) = std::sync::mpsc::channel();
+        let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
+        let started = Instant::now();
+        let worker = std::thread::spawn(move || {
+            FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+            HERMES_TEST_CHILD_SENDER.with(|sender| sender.replace(Some(pid_sender)));
+            let result = run_hermes_command_with_timeout(
+                Path::new("/bin/sleep"),
+                &["30"],
+                Duration::from_secs(2),
+            );
+            result_sender.send(result).unwrap();
+        });
+
+        let pid = libc::pid_t::try_from(
+            pid_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("Hermes child did not complete startup"),
+        )
+        .unwrap();
+
+        let error = result_receiver
+            .recv_timeout(Duration::from_secs(4))
+            .expect("Hermes timeout worker did not return")
+            .unwrap_err();
+        worker.join().unwrap();
+        assert!(error.to_string().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(4));
+
+        let reap_deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+            // SAFETY: `pid` was written by the direct child started above, and
+            // WNOWAIT keeps this assertion from consuming its exit status.
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    pid as libc::id_t,
+                    status.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result < 0 {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ECHILD) {
+                    break;
+                }
+                panic!("waitid failed while checking Hermes reaper: {error}");
+            }
+            assert!(
+                Instant::now() < reap_deadline,
+                "Hermes child was not reaped after timeout returned"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_reaper_spawn_failure_does_not_wait_for_a_live_child() {
+        struct ReaperFailureGuard;
+
+        impl Drop for ReaperFailureGuard {
+            fn drop(&mut self) {
+                FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(false));
+            }
+        }
+
+        struct ChildGuard(libc::pid_t);
+
+        impl Drop for ChildGuard {
+            fn drop(&mut self) {
+                // SAFETY: this is the direct child created by the test.
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                    let mut status = 0;
+                    libc::waitpid(self.0, &mut status, 0);
+                }
+            }
+        }
+
+        let child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pid = libc::pid_t::try_from(child.id()).unwrap();
+        let _child_guard = ChildGuard(pid);
+        let child_exit = UnixChildExitSignal::observe(child.id()).unwrap();
+        let state = Arc::new(HermesReapState::new(child, Some(child_exit)));
+        FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
+        let _failure_guard = ReaperFailureGuard;
+
+        let started = Instant::now();
+        assert!(spawn_hermes_reaper(Arc::clone(&state)).is_err());
+        state.handoff_reap();
+        assert!(
+            started.elapsed() < Duration::from_millis(200),
+            "reaper fallback waited for a live child"
+        );
+
+        // The handoff deliberately leaves the live child to make the
+        // nonblocking property observable. The guard terminates it after the
+        // assertion and consumes any status the detached observer did not yet
+        // consume.
     }
 
     #[cfg(not(unix))]
@@ -2898,9 +3381,113 @@ mod tests {
                 Format::Nested { timeout, .. } | Format::Flat { timeout } => {
                     assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS);
                 }
-                Format::Plugin { .. } | Format::HermesPlugin { .. } => {}
+                Format::Plugin { .. }
+                | Format::HermesPlugin { .. }
+                | Format::RovoYaml
+                | Format::KimiToml
+                | Format::AntigravityJson => {}
             }
         }
+    }
+
+    #[test]
+    fn cloud_catalog_covers_every_local_hook_provider_and_alias() {
+        let expected = [
+            "codex",
+            "claude",
+            "gemini",
+            "cursor",
+            "grok",
+            "opencode",
+            "amp",
+            "pi",
+            "omp",
+            "campfire",
+            "kiro",
+            "antigravity",
+            "rovodev",
+            "hermes-agent",
+            "copilot",
+            "codebuddy",
+            "factory",
+            "qoder",
+            "kimi",
+        ];
+        for provider in expected {
+            assert!(
+                PROVIDERS.iter().any(|candidate| candidate.id == provider),
+                "missing cloud provider {provider}"
+            );
+        }
+        assert_eq!(
+            select_providers(
+                &Plan { action: Action::Status, providers: vec!["agy".into(), "rovo".into()] },
+                &context(tempfile::tempdir().unwrap().path())
+            )
+            .unwrap()
+            .iter()
+            .map(|provider| provider.id)
+            .collect::<Vec<_>>(),
+            ["antigravity", "rovodev"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn every_catalog_provider_installs_and_reports_ready_in_a_real_home() {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        // Hermes activation requires its CLI, unlike file-only providers.
+        // Keep the executable and its enabled state inside this test's home.
+        let binary = root.path().join("hermes");
+        atomic_write(
+            &binary,
+            br#"#!/bin/sh
+state="${0%/*}/hermes-enabled"
+case "$*" in
+  'plugins list --enabled --user --no-bundled --json')
+    if [ -s "$state" ]; then
+      printf '[{"name":"cmux-tui-journal"}]\n'
+    else
+      printf '[]\n'
+    fi ;;
+  'plugins enable cmux-tui-journal') printf enabled > "$state" ;;
+  'plugins disable cmux-tui-journal') : > "$state" ;;
+  *) exit 64 ;;
+esac
+"#,
+            Some(0o755),
+        )
+        .unwrap();
+        context.path = Some(root.path().as_os_str().to_owned());
+        for provider in PROVIDERS {
+            let plan = Plan { action: Action::Install, providers: vec![provider.id.into()] };
+            let result = run_with_context(&plan, &context);
+            assert!(!result.failed, "{}: {}", provider.id, result.value);
+            let status = Plan { action: Action::Status, providers: vec![provider.id.into()] };
+            let result = run_with_context(&status, &context);
+            assert_eq!(
+                result.value["providers"][0]["state"], "installed",
+                "{}: {}",
+                provider.id, result.value
+            );
+        }
+        assert_eq!(fs::read_to_string(root.path().join("hermes-enabled")).unwrap(), "enabled");
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn hermes_install_requires_its_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        let error = result.value["errors"][0].as_str().unwrap();
+        assert!(error.contains("Hermes Agent executable is unavailable"));
     }
 
     #[cfg(unix)]

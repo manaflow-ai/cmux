@@ -48,8 +48,9 @@ import Testing
     }
 
     @Test func emptyRoutesAreStatedNotOmitted() throws {
-        // Pairing off: the wire must carry [] ("no routes"), never an absent
-        // field (which the service reads as "keep the previous set").
+        // While the host is enabled, the wire must carry [] ("no routes"),
+        // never an absent field (which the service reads as "keep the previous
+        // set"). Pairing off suppresses the heartbeat before this body exists.
         let body = PresenceHeartbeatClient.heartbeatBody(
             deviceID: "11111111-2222-4333-8444-555555555555",
             tag: "default",
@@ -127,5 +128,31 @@ import Testing
             stopping: true
         )
         #expect(JSONSerialization.isValidJSONObject(body))
+    }
+    // `resolvedServiceURL` is a static member of the main-actor class, so the
+    // test must run on the main actor; without this the cmuxTests target does
+    // not compile and no unit test in the target can run in CI.
+    @MainActor
+    @Test func productionPresenceIgnoresStagingEnvironment() {
+        let defaults = UserDefaults(suiteName: "presence-prod-origin-\(UUID().uuidString)")!
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                PresenceSettings.serviceURLEnvKey: "https://cmux-presence-dev.example",
+            ],
+            defaults: defaults
+        )?.absoluteString == PresenceSettings.productionServiceURL)
+    }
+
+    @MainActor
+    @Test func explicitPresenceEnableCannotOverridePairingOptOut() {
+        let suiteName = "presence-pairing-gate-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: PresenceSettings.enabledKey)
+        defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+
+        #expect(!PresenceSettings.isEnabled(defaults: defaults))
     }
 }
