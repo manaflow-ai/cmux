@@ -1201,6 +1201,7 @@
 		CC0033E15A1B2C3D4E5F0032 /* CMUXCLI+VMTuiWorkspaceNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */; };
 		C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */; };
 		7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */; };
+		CBAA45D21F4147CDB3A8268A /* CMUXCLI+WorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32B173F8C38F4139ADB1C3A9 /* CMUXCLI+WorkspaceContext.swift */; };
 		06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */; };
 		C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */; };
 		112950000000000000000012 /* CMUXCLIForkLegacyFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000011 /* CMUXCLIForkLegacyFallbackTests.swift */; };
@@ -2752,6 +2753,7 @@
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
 		F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */; };
 		9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */; };
+		1879D02628D34885B4BE7578 /* SessionWorkspacePullRequestSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E498FE5CA71840A9B2260F64 /* SessionWorkspacePullRequestSnapshot.swift */; };
 		077A3D2FFBE248DD88CF85BA /* SetAutoTitleSocketTests+CloudSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */; };
 		583A675AA1224E8D82A44883 /* SetAutoTitleSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */; };
 		D10000000000000000A00020 /* SettingsAccountJSONResetBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */; };
@@ -3316,6 +3318,7 @@
 		DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */; };
 		D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */; };
 		9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */; };
+		D04B0C735102482195DA6FCB /* TerminalController+WorkspaceContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F9C5E7375E4CE7A1267FFE /* TerminalController+WorkspaceContext.swift */; };
 		C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */; };
 		D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */; };
 		C0DE00000000000000000E91 /* TerminalController+WorkspaceCreateIdempotencyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE00000000000000000E90 /* TerminalController+WorkspaceCreateIdempotencyCache.swift */; };
@@ -5144,6 +5147,7 @@
 		CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTuiWorkspaceNaming.swift"; sourceTree = "<group>"; };
 		EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPN.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VPNAppManaged.swift"; sourceTree = "<group>"; };
+		32B173F8C38F4139ADB1C3A9 /* CMUXCLI+WorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceContext.swift"; sourceTree = "<group>"; };
 		7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+WorkspaceTodo.swift"; sourceTree = "<group>"; };
 		C0DE31390000000000000106 /* CMUXCLIErrorOutputRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIErrorOutputRegressionTests.swift; sourceTree = "<group>"; };
 		112950000000000000000011 /* CMUXCLIForkLegacyFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXCLIForkLegacyFallbackTests.swift; sourceTree = "<group>"; };
@@ -6596,6 +6600,7 @@
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
 		F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptTypes.swift; sourceTree = "<group>"; };
 		9666F2029666F2029666F202 /* SessionWindowSnapshot+Scrollback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionWindowSnapshot+Scrollback.swift"; sourceTree = "<group>"; };
+		E498FE5CA71840A9B2260F64 /* SessionWorkspacePullRequestSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionWorkspacePullRequestSnapshot.swift; sourceTree = "<group>"; };
 		FE006CEA49324833982DA204 /* SetAutoTitleSocketTests+CloudSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SetAutoTitleSocketTests+CloudSidebar.swift"; sourceTree = "<group>"; };
 		F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetAutoTitleSocketTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A00021 /* SettingsAccountJSONResetBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAccountJSONResetBehaviorUITests.swift; sourceTree = "<group>"; };
@@ -7152,6 +7157,7 @@
 		78E042D748CB4949BE375319 /* TerminalController+VaultCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+VaultCommands.swift"; sourceTree = "<group>"; };
 		D6212D0C00000000000000D4 /* TerminalController+WindowDockBrowserRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowDockBrowserRouting.swift"; sourceTree = "<group>"; };
 		9065A0010000000000000002 /* TerminalController+WindowScreenshotCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WindowScreenshotCapture.swift"; sourceTree = "<group>"; };
+		C9F9C5E7375E4CE7A1267FFE /* TerminalController+WorkspaceContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceContext.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000C83 /* TerminalController+WorkspaceCreate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreate.swift"; sourceTree = "<group>"; };
 		D1A70000000000000000000B /* TerminalController+WorkspaceCreateExecutionPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateExecutionPreparation.swift"; sourceTree = "<group>"; };
 		C0DE00000000000000000E90 /* TerminalController+WorkspaceCreateIdempotencyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+WorkspaceCreateIdempotencyCache.swift"; sourceTree = "<group>"; };
@@ -9470,6 +9476,7 @@
 				C0DE00000000000000000C8A /* TerminalController+WorkspaceGroupAction.swift */,
 				A17C0A110000000000000002 /* WorkspaceInitialCommandLoginShell.swift */,
 				C0DE00000000000000000C88 /* TerminalController+WorkspaceMove.swift */,
+				C9F9C5E7375E4CE7A1267FFE /* TerminalController+WorkspaceContext.swift */,
 				C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */,
 				8777C0028777C0028777C002 /* TerminalController+DockControlTopology.swift */,
 				C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
@@ -10113,6 +10120,7 @@
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				E498FE5CA71840A9B2260F64 /* SessionWorkspacePullRequestSnapshot.swift */,
 				87590000000000000000000A /* MainThreadHangCaptureStore.swift */,
 				87590000000000000000000C /* MainThreadHangSampleRunner.swift */,
 				875900000000000000000004 /* MainThreadHangWatchdog.swift */,
@@ -10530,6 +10538,7 @@
 				B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
 				7E5D35CC62B0F252F9EC2AD1 /* CMUXCLI+WorkspaceTodo.swift */,
+				32B173F8C38F4139ADB1C3A9 /* CMUXCLI+WorkspaceContext.swift */,
 				C0DE10651000000000000011 /* LocalTmuxSessionRegistry.swift */,
 				C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */,
 				C0DE10651000000000000013 /* LocalTmuxProcessRunner.swift */,
@@ -13997,6 +14006,7 @@
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				9666F2019666F2019666F201 /* SessionWindowSnapshot+Scrollback.swift in Sources */,
+				1879D02628D34885B4BE7578 /* SessionWorkspacePullRequestSnapshot.swift in Sources */,
 				D9CCF002D9CCF002D9CCF002 /* SettingsLazyLoadHelpers.swift in Sources */,
 				D5671401D5671401D5671401 /* SettingsNavigation+TerminalScrollSpeed.swift in Sources */,
 				A50019A0 /* SettingsNavigation.swift in Sources */,
@@ -14405,6 +14415,7 @@
 				DC6E1A6F7452404AA8DE3F5E /* TerminalController+VaultCommands.swift in Sources */,
 				D6212D0C00000000000000D3 /* TerminalController+WindowDockBrowserRouting.swift in Sources */,
 				9065A0010000000000000001 /* TerminalController+WindowScreenshotCapture.swift in Sources */,
+				D04B0C735102482195DA6FCB /* TerminalController+WorkspaceContext.swift in Sources */,
 				C0DE00000000000000000C84 /* TerminalController+WorkspaceCreate.swift in Sources */,
 				D1A70000000000000000000C /* TerminalController+WorkspaceCreateExecutionPreparation.swift in Sources */,
 				C0DE00000000000000000E91 /* TerminalController+WorkspaceCreateIdempotencyCache.swift in Sources */,
@@ -14978,6 +14989,7 @@
 				CC0033E15A1B2C3D4E5F0032 /* CMUXCLI+VMTuiWorkspaceNaming.swift in Sources */,
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				7A0CE1000000000000000102 /* CMUXCLI+VPNAppManaged.swift in Sources */,
+				CBAA45D21F4147CDB3A8268A /* CMUXCLI+WorkspaceContext.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				D9F800000000000000000003 /* CmuxTuiRemoteRouting.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,

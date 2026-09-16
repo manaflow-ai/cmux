@@ -5260,13 +5260,16 @@ class TerminalController {
         guard let action = v2ActionKey(params) else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
+        if action == "set_context", v2HasNonNullParam(params, "workspace_id"), v2UUID(params, "workspace_id") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let supportedActions = [
             "pin", "unpin", "rename", "clear_name",
             "set_description", "clear_description",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect"
+            "set_color", "clear_color", "mobile_connect", "set_context"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5379,6 +5382,9 @@ class TerminalController {
             case "clear_description":
                 tabManager.clearCustomDescription(tabId: workspace.id)
                 finish(["description": NSNull()])
+
+            case "set_context":
+                result = applyWorkspaceContext(params: params, workspace: workspace, windowID: windowId)
 
             case "move_up":
                 _ = tabManager.reorderWorkspace(tabId: workspace.id, by: -1)

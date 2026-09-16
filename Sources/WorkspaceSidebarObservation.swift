@@ -305,8 +305,11 @@ extension Workspace {
     }
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
+        let presentedDirectory = Publishers.CombineLatest($currentDirectory, $workspaceDirectory)
+            .map { current, assigned in assigned ?? current }
+            .removeDuplicates()
         let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
+            presentedDirectory,
             $extensionSidebarProjectRootPath,
             panelsPublisher.map(SidebarPanelObservationState.init),
             $panelDirectories
@@ -320,7 +323,8 @@ extension Workspace {
         let gitFields = Publishers.CombineLatest4(
             sidebarMetadata.gitBranchPublisher,
             sidebarMetadata.panelGitBranchesPublisher,
-            sidebarMetadata.pullRequestPublisher,
+            sidebarMetadata.pullRequestPublisher.combineLatest($workspacePullRequest)
+                .map { reported, assigned in assigned ?? reported },
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(

@@ -77049,61 +77049,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requires a subcommand. Try: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace потребує підкоманди. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace потребує підкоманди. Доступні: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace 需要一个子命令。可尝试：list、create、env、close、rename、select、status、reconnect、disconnect、loading、group"
+            "value": "workspace 需要一个子命令。可尝试：list、create、set、env、close、rename、select、status、reconnect、disconnect、loading、group"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace erfordert einen Unterbefehl. Versuchen Sie: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace erfordert einen Unterbefehl. Versuchen Sie: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requiert une sous-commande. Essayez : list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requiert une sous-commande. Essayez : list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتطلب workspace أمرًا فرعيًا. جرب: list، create، env، close، rename، select، status، reconnect، disconnect، loading، group"
+            "value": "تتطلب workspace أمرًا فرعيًا. جرب: list، create، set، env، close، rename، select، status، reconnect، disconnect، loading، group"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requiere un subcomando. Prueba con: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace requiere un subcomando. Prueba con: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace 需要子命令。請試試：list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "workspace 需要子命令。請試試：list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -77114,61 +77114,61 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Unknown workspace subcommand: %@. Try: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 workspace 子命令：%@。可尝试：list、create、env、close、rename、select、status、reconnect、disconnect、loading、group"
+            "value": "未知的 workspace 子命令：%@。可尝试：list、create、set、env、close、rename、select、status、reconnect、disconnect、loading、group"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unbekannter workspace-Unterbefehl: %@. Versuche: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Unbekannter workspace-Unterbefehl: %@. Versuche: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sous-commande d'espace de travail inconnue : %@. Essayez : list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Sous-commande d'espace de travail inconnue : %@. Essayez : list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أمر فرعي غير معروف لـ workspace: %@. جرب: list، create، env، close، rename، select، status، reconnect، disconnect، loading، group"
+            "value": "أمر فرعي غير معروف لـ workspace: %@. جرب: list، create، set، env، close، rename، select، status، reconnect، disconnect، loading، group"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subcomando de espacio de trabajo desconocido: %@. Prueba con: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "Subcomando de espacio de trabajo desconocido: %@. Prueba con: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未知的 workspace 子命令：%@。請試試：list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+            "value": "未知的 workspace 子命令：%@。請試試：list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -123390,51 +123390,251 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynaklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси"
+          }
+        }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
-        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання"
+          }
+        }
       }
     },
     "cloudTree.group.terminals": {
@@ -528574,6 +528774,360 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 接続が終了しました。再読み込みして接続し直してください。"
+          }
+        }
+      }
+    },
+    "workspace.context.error.conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set or clear a directory or pull request; do not set and clear the same field."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lege ein Verzeichnis oder einen Pull Request fest oder entferne ihn; setze und lösche nicht dasselbe Feld."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Définissez ou effacez un répertoire ou une pull request, sans définir et effacer le même champ."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عيّن مجلدًا أو طلب سحب أو امسحه، ولا تعيّن الحقل نفسه وتمسحه معًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Establece o borra un directorio o una pull request; no establezcas y borres el mismo campo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定或清除目錄或提取要求；請勿同時設定和清除同一欄位。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置或清除目录或拉取请求；请勿同时设置和清除同一字段。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디렉터리 또는 풀 리퀘스트를 설정하거나 지우세요. 같은 필드를 동시에 설정하고 지울 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリまたはプルリクエストを設定またはクリアしてください。同じ項目の設定とクリアは同時にできません。"
+          }
+        }
+      }
+    },
+    "workspace.context.error.directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace directory must be an absolute path."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Arbeitsbereichsverzeichnis muss ein absoluter Pfad sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le répertoire de l’espace de travail doit être un chemin absolu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون مجلد مساحة العمل مسارًا مطلقًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El directorio del espacio de trabajo debe ser una ruta absoluta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區目錄必須是絕對路徑。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区目录必须是绝对路径。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 디렉터리는 절대 경로여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのディレクトリには絶対パスを指定してください。"
+          }
+        }
+      }
+    },
+    "workspace.context.error.remote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assigning a workspace directory is supported for local workspaces only."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Arbeitsbereichsverzeichnis lässt sich nur für lokale Arbeitsbereiche festlegen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’affectation d’un répertoire est disponible uniquement pour les espaces de travail locaux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن تعيين مجلد مساحة العمل لمساحات العمل المحلية فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se puede asignar un directorio a espacios de trabajo locales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅本機工作區支援指定工作區目錄。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅本地工作区支持指定工作区目录。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 워크스페이스에만 디렉터리를 지정할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリの指定はローカルワークスペースでのみ対応しています。"
+          }
+        }
+      }
+    },
+    "workspace.context.error.pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request requires a positive number and an HTTP or HTTPS URL."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Pull Request benötigt eine positive Nummer und eine HTTP- oder HTTPS-URL."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une pull request nécessite un numéro positif et une URL HTTP ou HTTPS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب طلب السحب رقمًا موجبًا ورابط HTTP أو HTTPS."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pull request requiere un número positivo y una URL HTTP o HTTPS."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提取要求需要正整數編號及 HTTP 或 HTTPS URL。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉取请求需要正整数编号及 HTTP 或 HTTPS URL。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트에는 양수 번호와 HTTP 또는 HTTPS URL이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストには正の番号と HTTP または HTTPS の URL が必要です。"
+          }
+        }
+      }
+    },
+    "workspace.context.error.state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request needs a label and state open, merged, or closed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Pull Request benötigt eine Bezeichnung und den Status open, merged oder closed."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une pull request nécessite un libellé et l’état open, merged ou closed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج طلب السحب إلى تسمية وحالة open أو merged أو closed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pull request necesita una etiqueta y el estado open, merged o closed."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提取要求需要標籤及 open、merged 或 closed 狀態。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉取请求需要标签及 open、merged 或 closed 状态。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트에는 레이블과 open, merged 또는 closed 상태가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストにはラベルと open、merged、closed のいずれかの状態が必要です。"
+          }
+        }
+      }
+    },
+    "cli.workspace.context.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   Assign the workspace directory (aliases: --cwd, --working-directory)\n  --pr <url|number>    Assign a pull request; numbers also require --pr-url <url>\n  --pr-label <label>  Badge label (default: PR)\n  --pr-state <state>  open, merged, or closed (default: open)\n  --pr-branch <name>  Optional branch metadata\n  --clear-directory  Resume following terminal directories\n  --clear-pr         Resume automatic pull request display\n\nSets persistent workspace context for sidebars, file actions, and new terminals.\nExisting terminals keep their cwd. PR state is explicitly reported, not polled.\nDefaults to the caller's workspace. An explicit --window uses that window's selection.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   Arbeitsbereichsverzeichnis festlegen (Aliasse: --cwd, --working-directory)\n  --pr <url|number>    Pull Request zuweisen; Nummern benötigen zusätzlich --pr-url <url>\n  --pr-label <label>  Badge-Bezeichnung (Standard: PR)\n  --pr-state <state>  open, merged oder closed (Standard: open)\n  --pr-branch <name>  Optionale Branch-Metadaten\n  --clear-directory  Wieder den Terminalverzeichnissen folgen\n  --clear-pr         Automatische Pull-Request-Anzeige wiederherstellen\n\nLegt dauerhaften Arbeitsbereichskontext für Seitenleisten, Dateiaktionen und neue Terminals fest.\nBestehende Terminals behalten ihr cwd. Der PR-Status wird explizit gemeldet, nicht abgefragt.\nStandard ist der Arbeitsbereich des Aufrufers. --window verwendet die Auswahl dieses Fensters.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   Définir le répertoire de l’espace de travail (alias : --cwd, --working-directory)\n  --pr <url|number>    Associer une pull request ; un numéro nécessite aussi --pr-url <url>\n  --pr-label <label>  Libellé du badge (par défaut : PR)\n  --pr-state <state>  open, merged ou closed (par défaut : open)\n  --pr-branch <name>  Métadonnées de branche facultatives\n  --clear-directory  Suivre à nouveau les répertoires des terminaux\n  --clear-pr         Rétablir l’affichage automatique des pull requests\n\nDéfinit un contexte persistant pour les barres latérales, les actions sur les fichiers et les nouveaux terminaux.\nLes terminaux existants conservent leur cwd. L’état de la PR est déclaré explicitement, sans interrogation périodique.\nCible par défaut l’espace de travail de l’appelant. --window utilise la sélection de cette fenêtre.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   تعيين مجلد مساحة العمل (الأسماء البديلة: --cwd, --working-directory)\n  --pr <url|number>    تعيين طلب سحب؛ تتطلب الأرقام أيضًا --pr-url <url>\n  --pr-label <label>  تسمية الشارة (الافتراضي: PR)\n  --pr-state <state>  open أو merged أو closed (الافتراضي: open)\n  --pr-branch <name>  بيانات فرع اختيارية\n  --clear-directory  استئناف تتبع مجلدات الطرفيات\n  --clear-pr         استئناف عرض طلبات السحب تلقائيًا\n\nيحدد سياقًا دائمًا لمساحة العمل للأشرطة الجانبية وإجراءات الملفات والطرفيات الجديدة.\nتحتفظ الطرفيات الحالية بمجلد cwd. تُحدّد حالة PR صراحةً ولا تُفحص دوريًا.\nيستخدم مساحة عمل المستدعي افتراضيًا. يستخدم --window اختيار النافذة المحددة.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   Asignar el directorio del espacio de trabajo (alias: --cwd, --working-directory)\n  --pr <url|number>    Asignar una pull request; los números también requieren --pr-url <url>\n  --pr-label <label>  Etiqueta de la insignia (predeterminado: PR)\n  --pr-state <state>  open, merged o closed (predeterminado: open)\n  --pr-branch <name>  Metadatos de rama opcionales\n  --clear-directory  Volver a seguir los directorios de los terminales\n  --clear-pr         Restablecer la visualización automática de pull requests\n\nEstablece el contexto persistente para las barras laterales, las acciones de archivos y los nuevos terminales.\nLos terminales existentes conservan su cwd. El estado de la PR se indica explícitamente, sin consultas periódicas.\nUsa el espacio de trabajo del proceso que llama. --window usa la selección de esa ventana.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   指定工作區目錄（別名：--cwd、--working-directory）\n  --pr <url|number>    指定提取要求；使用編號時還需要 --pr-url <url>\n  --pr-label <label>  徽章標籤（預設：PR）\n  --pr-state <state>  open、merged 或 closed（預設：open）\n  --pr-branch <name>  選用的分支中繼資料\n  --clear-directory  恢復跟隨終端機目錄\n  --clear-pr         恢復自動顯示提取要求\n\n為側邊欄、檔案操作和新終端機設定持續儲存的工作區內容。\n現有終端機保留其 cwd。PR 狀態由明確回報設定，不會輪詢。\n預設使用呼叫者的工作區。指定 --window 時使用該視窗的選取項目。\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   指定工作区目录（别名：--cwd、--working-directory）\n  --pr <url|number>    指定拉取请求；使用编号时还需要 --pr-url <url>\n  --pr-label <label>  徽章标签（默认：PR）\n  --pr-state <state>  open、merged 或 closed（默认：open）\n  --pr-branch <name>  可选的分支元数据\n  --clear-directory  恢复跟随终端目录\n  --clear-pr         恢复自动显示拉取请求\n\n为侧边栏、文件操作和新终端设置持久保存的工作区上下文。\n现有终端保留其 cwd。PR 状态由显式报告设置，不会轮询。\n默认使用调用者的工作区。指定 --window 时使用该窗口的选中项。\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   워크스페이스 디렉터리 지정 (별칭: --cwd, --working-directory)\n  --pr <url|number>    풀 리퀘스트 지정. 번호를 사용하면 --pr-url <url>도 필요합니다\n  --pr-label <label>  배지 레이블 (기본값: PR)\n  --pr-state <state>  open, merged 또는 closed (기본값: open)\n  --pr-branch <name>  선택적 브랜치 메타데이터\n  --clear-directory  터미널 디렉터리를 다시 따라가기\n  --clear-pr         자동 풀 리퀘스트 표시 복원\n\n사이드바, 파일 작업 및 새 터미널의 워크스페이스 컨텍스트를 영구 저장합니다.\n기존 터미널은 cwd를 유지합니다. PR 상태는 명시적으로 보고되며 주기적으로 조회하지 않습니다.\n기본 대상은 호출자의 워크스페이스입니다. --window를 지정하면 해당 창의 선택을 사용합니다.\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux workspace set [--workspace <id|ref|index>] [--window <id|ref|index>] [flags]\n\n  --directory <path>   ワークスペースのディレクトリを指定（別名：--cwd、--working-directory）\n  --pr <url|number>    プルリクエストを指定。番号には --pr-url <url> も必要です\n  --pr-label <label>  バッジのラベル（既定：PR）\n  --pr-state <state>  open、merged、closed のいずれか（既定：open）\n  --pr-branch <name>  任意のブランチメタデータ\n  --clear-directory  ターミナルのディレクトリへの追従を再開\n  --clear-pr         プルリクエストの自動表示を再開\n\nサイドバー、ファイル操作、新しいターミナルのワークスペースコンテキストを永続的に設定します。\n既存のターミナルは cwd を保持します。PR 状態は明示的な報告で設定され、定期取得されません。\n既定は呼び出し元のワークスペースです。--window を指定すると、そのウィンドウの選択を使用します。\n\n  cmux workspace set --directory ./worktrees/task\n  cmux workspace set --pr https://github.com/acme/project/pull/123\n  cmux workspace set --clear-directory --clear-pr"
           }
         }
       }

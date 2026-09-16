@@ -231,6 +231,9 @@ extension Workspace {
         includeFallback: Bool,
         preferDisplayLabels: Bool
     ) -> [SidebarDisplayedDirectory] {
+        if !usesRemoteDirectoryProvenance, let workspaceDirectory {
+            return [SidebarDisplayedDirectory(text: workspaceDirectory, isDisplayLabel: false)]
+        }
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
             resolvedPanelDirectories: resolvedDirectories
@@ -260,7 +263,7 @@ extension Workspace {
             ))
         }
 
-        if includeFallback, ordered.isEmpty, let fallbackDirectory = presentedCurrentDirectory {
+        if includeFallback, ordered.isEmpty, let fallbackDirectory = presentedWorkspaceDirectory {
             return [SidebarDisplayedDirectory(text: fallbackDirectory, isDisplayLabel: false)]
         }
         return ordered
@@ -271,7 +274,8 @@ extension Workspace {
     }
 
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
-        SidebarBranchOrdering()
+        if !usesRemoteDirectoryProvenance, workspaceDirectory != nil { return presentedGitBranch.map { [$0] } ?? [] }
+        return SidebarBranchOrdering()
             .orderedUniqueBranches(
                 orderedPanelIds: orderedPanelIds,
                 panelBranches: sidebarPanelGitBranches(orderedPanelIds: orderedPanelIds),
@@ -287,13 +291,21 @@ extension Workspace {
     func sidebarBranchDirectoryEntriesInDisplayOrder(
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+        if !usesRemoteDirectoryProvenance, let workspaceDirectory {
+            let branch = presentedGitBranch
+            return [SidebarBranchOrdering.BranchDirectoryEntry(
+                branch: branch?.branch,
+                isDirty: branch?.isDirty ?? false,
+                directory: workspaceDirectory
+            )]
+        }
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
         return SidebarBranchOrdering().orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: sidebarPanelGitBranches(orderedPanelIds: orderedPanelIds),
             panelDirectories: resolvedDirectories,
             panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
-            defaultDirectory: presentedCurrentDirectory,
+            defaultDirectory: presentedWorkspaceDirectory,
             homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
                 resolvedPanelDirectories: resolvedDirectories
             ),
@@ -306,6 +318,14 @@ extension Workspace {
     }
 
     var presentedGitBranch: SidebarGitBranchState? {
+        if let workspaceDirectory, !usesRemoteDirectoryProvenance {
+            let path = NSString(string: workspaceDirectory).standardizingPath
+            let matchingPanels = sidebarOrderedPanelIds().filter {
+                effectivePanelDirectory(panelId: $0).map { NSString(string: $0).standardizingPath == path } ?? false
+            }
+            if let reported = matchingPanels.compactMap({ panelGitBranches[$0] }).first { return reported }
+            return workspacePullRequest?.branch.map { SidebarGitBranchState(branch: $0, isDirty: false) }
+        }
         if let focusedPanelId, cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { return nil }
         if usesRemoteDirectoryProvenance, presentedCurrentDirectory == nil { return nil }
         return gitBranch

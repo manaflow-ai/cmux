@@ -86,6 +86,25 @@ struct WorkspaceContextTests {
         }
     }
 
+    @Test func contextOnlyChangesInvalidateAutosaveAndLegacySnapshotsDecode() throws {
+        let manager = TabManager()
+        defer { for workspace in manager.tabs { workspace.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let before = manager.sessionAutosaveFingerprint()
+        workspace.setWorkspaceDirectory("/tmp/task")
+        let withDirectory = manager.sessionAutosaveFingerprint()
+        #expect(before != withDirectory)
+        workspace.setWorkspacePullRequest(number: 123, label: "PR", url: URL(string: "https://github.com/acme/project/pull/123")!)
+        #expect(withDirectory != manager.sessionAutosaveFingerprint())
+        let data = try JSONEncoder().encode(workspace.sessionSnapshot(includeScrollback: false))
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "workspaceDirectory")
+        object.removeValue(forKey: "workspacePullRequest")
+        let legacy = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.workspaceDirectory == nil)
+        #expect(legacy.workspacePullRequest == nil)
+    }
+
     private func requireOK(_ result: TerminalController.V2CallResult) throws {
         if case .err(_, let message, _) = result { throw ContextFailure(message: message) }
     }
@@ -104,7 +123,12 @@ struct WorkspaceContextTests {
             var params = fields
             params["workspace_id"] = workspace.id.uuidString
             params["action"] = "set_context"
-            return controller.v2WorkspaceAction(params: params)
+            let selected = manager.selectedTabId
+            let focused = workspace.focusedPanelId
+            let result = controller.v2WorkspaceAction(params: params)
+            #expect(manager.selectedTabId == selected)
+            #expect(workspace.focusedPanelId == focused)
+            return result
         }
     }
 
