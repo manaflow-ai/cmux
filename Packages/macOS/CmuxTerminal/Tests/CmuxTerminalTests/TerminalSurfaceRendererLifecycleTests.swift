@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -26,13 +27,9 @@ import Testing
     }
 
     private func failProbe(on surface: TerminalSurface) {
-        guard let token = surface.rendererPresentationState.inFlightToken else {
-            Issue.record("expected an in-flight presentation probe")
-            return
-        }
-        surface.rendererFrameDidFail(
-            token: token,
-            status: GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED
-        )
+        #expect(cmux_test_ghostty_renderer_fail(
+            surface.runtimeSurfacePointer,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
     }
 }
