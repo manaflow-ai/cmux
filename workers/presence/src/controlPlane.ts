@@ -999,8 +999,12 @@ export class ControlPlaneCore {
     // receive directory revisions and each client can tear down the other's
     // session while trying to recover.
     for (const candidate of this.deps.sockets()) {
-      if (candidate === socket) continue;
       const candidateAttachment = candidate.getAttachment();
+      // The Cloudflare adapter recreates the transport wrapper while
+      // enumerating hibernating sockets, so wrapper identity is not stable.
+      // The session id is assigned at accept time and is the stable identity
+      // for this connection.
+      if (candidateAttachment?.sessionId === attachment.sessionId) continue;
       if (!candidateAttachment?.helloed
         || candidateAttachment.endpointId !== payload.endpointId) continue;
       try {

@@ -10,9 +10,10 @@
 // row that the token's user or team owns.
 //
 // Deny by default. A VM principal is accepted ONLY by the guest-facing reflection
-// routes (app/api/vm/reflection); no other `/api/vm/*` route reads it, and no user
+// routes (app/api/vm/reflection) and its own resource-usage report; no user
 // (Stack) session is ever accepted on the guest-facing routes. The authority a
-// machine gets is therefore read-only knowledge about itself and its siblings.
+// machine gets is read-only knowledge about itself and its siblings, plus
+// permission to publish only its own advisory resource gauges.
 import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
@@ -20,7 +21,6 @@ import { authenticateRequestRouteToken, type RouteTokenIdentity } from "../coder
 import { normalizeVmId } from "../coderouter/teamMachines";
 import {
   VM_PRINCIPAL_LIVE_STATUSES,
-  type VmPrincipal,
   type VmPrincipalLiveStatus,
   type VmPrincipalResult,
   type VmPrincipalRow,

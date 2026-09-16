@@ -501,15 +501,16 @@ esac
     });
   });
 
-  // `cmux notify` is what agent hooks run inside a machine. cmux-tui has no
-  // `notify` verb, so the shim must translate to `notification create` and tag
-  // the daemon-assigned terminal so the Mac can attribute the notification to
-  // the pane showing it. Nothing Mac-side (workspace/surface ids, sockets) may
-  // travel in the other direction.
+  // `cmux notify` is what agent hooks run inside a machine. cmux-tui's own
+  // `notify` verb carries the macOS signature (subtitle field, scoped --clear,
+  // --reply refused, selectors validated), so the shim forwards the arguments
+  // untouched on the machine's session. A translation here would fork the
+  // grammar: https://github.com/manaflow-ai/cmux/pull/12131 moved it into the
+  // daemon and the daemon's tests pin it.
   describe("notify", () => {
-    test("maps to notification create on the daemon session, tagged with this terminal", () => {
+    test("forwards every argument verbatim to the daemon's notify verb on the local session", () => {
       const run = runShim(
-        ["notify", "--title", "Build done", "--subtitle", "api", "--body", "3 tests passed", "--tab", "0", "--panel", "1", "--reply"],
+        ["notify", "--title", "Build done", "--subtitle", "api", "--body", "3 tests passed", "--surface", "current"],
         { CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
       );
       expect(run.stderr).toBe("");
@@ -518,59 +519,47 @@ esac
         "--session",
         "cloud",
         "--quiet",
-        "notification",
-        "create",
+        "notify",
         "--title",
         "Build done",
+        "--subtitle",
+        "api",
         "--body",
-        "api — 3 tests passed",
-        "--terminal",
-        TERMINAL_ID,
+        "3 tests passed",
+        "--surface",
+        "current",
       ]);
     });
 
-    test("omits --terminal outside a daemon PTY, drops levels the daemon rejects, defaults the title", () => {
-      const withoutTerminal = runShim(["notify", "--body", "hi", "--level", "success"], { CMUX_TUI_TERMINAL_ID: undefined });
-      expect(withoutTerminal.status).toBe(0);
-      expect(withoutTerminal.argv).toEqual(["--session", "cloud", "--quiet", "notification", "create", "--title", "Notification", "--body", "hi"]);
-
-      const withLevel = runShim(["notify", "--title=T", "--body=B", "--level=error", "--surface", "surface:3"], {
-        CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
-      });
-      expect(withLevel.status).toBe(0);
-      expect(withLevel.argv).toEqual([
-        "--session",
-        "cloud",
-        "--quiet",
-        "notification",
-        "create",
-        "--title",
-        "T",
-        "--body",
-        "B",
-        "--level",
-        "error",
-        "--terminal",
-        TERMINAL_ID,
-      ]);
+    test("does not fold, drop, or rewrite flags: --clear and --reply reach the daemon for it to decide", () => {
+      const clear = runShim(["notify", "--clear", "--workspace", "current"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      expect(clear.status).toBe(0);
+      expect(clear.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--clear", "--workspace", "current"]);
+      const reply = runShim(["notify", "--title=T", "--reply"], { CMUX_TUI_TERMINAL_ID: undefined });
+      expect(reply.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--title=T", "--reply"]);
     });
 
-    test("never forwards Mac socket or topology identity into the daemon", () => {
-      const run = runShim(["notify", "--title", "T", "--workspace", "workspace:1", "--surface", "surface:2", "--window", "window:1"], {
+    test("drops --quiet when the caller wants the JSON result, since the two output modes exclude each other", () => {
+      const json = runShim(["notify", "--title", "T", "--json"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
+      expect(json.argv).toEqual(["--session", "cloud", "notify", "--title", "T", "--json"]);
+      const jsonl = runShim(["notify", "--jsonl", "--title=T"], {});
+      expect(jsonl.argv).toEqual(["--session", "cloud", "notify", "--jsonl", "--title=T"]);
+    });
+
+    test("keeps --quiet when a body value merely contains a JSON flag", () => {
+      const run = runShim(["notify", "--body", "status --json complete"]);
+      expect(run.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--body", "status --json complete"]);
+    });
+
+    test("never adds Mac socket identity from the environment", () => {
+      const run = runShim(["notify", "--title", "T"], {
         CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
         CMUX_SOCKET_PATH: "/tmp/should-not-leak.sock",
         CMUX_WORKSPACE_ID: "11111111-1111-1111-1111-111111111111",
         CMUX_SURFACE_ID: "22222222-2222-2222-2222-222222222222",
       });
       expect(run.status).toBe(0);
-      const joined = run.argv.join(" ");
-      expect(joined).not.toContain("workspace:1");
-      expect(joined).not.toContain("surface:2");
-      expect(joined).not.toContain("window:1");
-      expect(joined).not.toContain("1111");
-      expect(joined).not.toContain("2222");
-      expect(joined).not.toContain(".sock");
-      expect(run.argv).toEqual(["--session", "cloud", "--quiet", "notification", "create", "--title", "T", "--body", "", "--terminal", TERMINAL_ID]);
+      expect(run.argv).toEqual(["--session", "cloud", "--quiet", "notify", "--title", "T"]);
     });
   });
 
@@ -601,7 +590,7 @@ esac
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("home-fake --session cloud --quiet notification create --title T --body  --terminal " + TERMINAL_ID);
+    expect(result.stdout).toContain("home-fake --session cloud --quiet notify --title T");
   }, 20_000);
 
   test("install command is a safe atomic base64 write", () => {

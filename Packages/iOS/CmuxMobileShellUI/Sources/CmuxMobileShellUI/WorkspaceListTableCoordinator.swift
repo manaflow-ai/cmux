@@ -28,6 +28,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
+        case emptyWorkspaceList
     }
 
     private struct HeightCacheKey: Hashable {
@@ -809,7 +810,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
             identifier = group.id.rawValue as NSString
             actions = contextMenuActions(for: group)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
         guard !actions.isEmpty else { return nil }
@@ -851,7 +852,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previousAnchor?.actionCapabilities.supportsCloseActions
                     != nextAnchor?.actionCapabilities.supportsCloseActions
                 || nativeActionAvailabilityChanged(previous: previous, next: next)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return false
         }
     }
@@ -960,7 +961,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else { return nil }
             guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
             return configuration.workspacesByID[anchorWorkspaceID]
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
     }
@@ -981,7 +982,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             configuration.groupsByID[groupID]
                 .map { !$0.isEmpty && groupActionCapabilities(for: $0).supportsMoveActions }
                 ?? false
-        case .chrome, .filterEmpty, .groupFooter:
+        case .chrome, .filterEmpty, .groupFooter, .emptyWorkspaceList:
             false
         }
     }
@@ -1055,6 +1056,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .margins(.trailing, 12)
         case .filterEmpty:
             break
+        case .emptyWorkspaceList:
+            hosting = hosting
+                .margins(.top, 8)
+                .margins(.bottom, 8)
+                .margins(.leading, 12)
+                .margins(.trailing, 12)
+                .minSize(width: 0, height: 0)
         }
         cell.contentConfiguration = hosting
     }
@@ -1203,6 +1211,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     showAll: configuration.showAll
                 )
             )
+        case .emptyWorkspaceList:
+            return AnyView(MobileWorkspaceListEmptyRow())
         }
     }
 
@@ -1263,6 +1273,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             ].joined(separator: "|"))
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
+        case .emptyWorkspaceList:
+            kind = .emptyWorkspaceList
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1375,6 +1387,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || (previous.reconnect != nil) != (next.reconnect != nil)
         case .filterEmpty:
             return previous.filter != next.filter
+        case .emptyWorkspaceList:
+            return false
         }
     }
 

@@ -556,10 +556,6 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
-  "command.mobileConnect.subtitle": {
-    "class": "brand",
-    "source": "Tailscale"
-  },
   "command.newBrowserTab.subtitle": {
     "source": "Tab",
     "identityLocales": {
@@ -1440,7 +1436,18 @@
   },
   "machines.stats.cpu": {
     "class": "technical",
-    "source": "CPU"
+    "source": "CPU",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
   },
   "machines.stats.memory": {
     "source": "Mem",
@@ -3014,6 +3021,90 @@
           "%ld bytes"
         ]
       }
+    }
+  },
+  "cli.billing.global_usage": {
+    "source": "billing checkout --plan <go|pro|max> [--no-open]",
+    "identityLocales": {
+      "de": "Command syntax is intentionally identical in this locale.",
+      "fr": "Command syntax is intentionally identical in this locale.",
+      "ar": "Command syntax is intentionally identical in this locale.",
+      "es": "Command syntax is intentionally identical in this locale.",
+      "zh-Hant": "Command syntax is intentionally identical in this locale.",
+      "zh-Hans": "Command syntax is intentionally identical in this locale.",
+      "ko": "Command syntax is intentionally identical in this locale.",
+      "ja": "Command syntax is intentionally identical in this locale."
+    }
+  },
+  "machines.new.plan.name.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "pricing.native.plan.max": {
+    "source": "Max",
+    "class": "brand"
+  },
+  "machines.new.plan.name.pro": {
+    "source": "Pro",
+    "class": "brand"
+  },
+  "pricing.native.plan.go": {
+    "source": "Go",
+    "class": "brand"
+  },
+  "pricing.native.max.price": {
+    "source": "$200",
+    "class": "format"
+  },
+  "pricing.native.go.price": {
+    "source": "$10",
+    "class": "format"
+  },
+  "cloud.ports.title": {
+    "source": "Ports",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "fr": "Standard technical UI term with the same spelling in this language."
+    }
+  },
+  "cloud.ports.status": {
+    "source": "Status",
+    "identityLocales": {
+      "de": "Standard technical UI term with the same spelling in this language.",
+      "da": "Standard technical UI term with the same spelling in this language.",
+      "nb": "Standard technical UI term with the same spelling in this language."
+    }
+  },
+  "cloudTree.resources.loading.symbol": {
+    "source": "…",
+    "class": "format"
+  },
+  "cloudTree.resources.missing": {
+    "source": "—",
+    "class": "format"
+  },
+  "cloudTree.resources.ram": {
+    "source": "RAM",
+    "class": "technical",
+    "identityLocales": {
+      "bs": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "da": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "it": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "km": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "nb": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pl": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
+      "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
+  },
+  "settings.shortcuts.paneResizeStep.value": {
+    "source": "%d px",
+    "identityLocales": {
+      "de": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "fr": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
   }
 }

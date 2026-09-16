@@ -90,8 +90,14 @@ export const mobileMacCompatList: MobileMacCompatList = {
       nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
-        beta: { stableMinVersion: "0.64.17" },
-        internal: { stableMinVersion: "0.64.17" },
+        beta: {
+          stableMinVersion: "0.64.17",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
+        internal: {
+          stableMinVersion: "0.64.17",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
         demo: { stableMinVersion: "0.64.17" },
         prod: {
           stableMinVersion: "0.64.23",
@@ -106,8 +112,14 @@ export const mobileMacCompatList: MobileMacCompatList = {
       nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
       buildKinds: {
         dev: { stableMinVersion: "0.64.0" },
-        beta: { stableMinVersion: "0.64.20" },
-        internal: { stableMinVersion: "0.64.23" },
+        beta: {
+          stableMinVersion: "0.64.20",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
+        internal: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
         demo: { stableMinVersion: "0.64.20" },
         prod: {
           stableMinVersion: "0.64.23",
@@ -125,7 +137,10 @@ export const mobileMacCompatList: MobileMacCompatList = {
           stableMinVersion: "0.64.23",
           nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
         },
-        internal: { stableMinVersion: "0.64.23" },
+        internal: {
+          stableMinVersion: "0.64.23",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3345650013202" },
+        },
         demo: { stableMinVersion: "0.64.23" },
         prod: {
           stableMinVersion: "0.64.23",

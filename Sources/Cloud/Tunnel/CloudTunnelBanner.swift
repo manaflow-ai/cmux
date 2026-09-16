@@ -24,6 +24,10 @@ struct CloudTunnelBanner: Equatable, Sendable {
     /// Only the approval wait sends the user somewhere.
     var opensSystemSettings: Bool { kind == .awaitingApproval }
 
+    /// Only transient VPN operations appear above the machine tree.
+    /// Optional setup guidance belongs in Ports; connected status belongs in the setup pane.
+    var showsInMachinesPanel: Bool { kind != .connected }
+
     init?(status: CloudTunnelStatus) {
         guard status.backend.isNetworkExtension else { return nil }
         switch status.state {
