@@ -441,11 +441,14 @@ describe("client config", () => {
     mutableEnv.VERCEL_ENV = "production";
     process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
+    let fetchStarted!: () => void;
+    const started = new Promise<void>((resolve) => { fetchStarted = resolve; });
     let releaseFetch!: () => void;
     const fetchGate = new Promise<void>((resolve) => {
       releaseFetch = resolve;
     });
     const fetchMock = mock(async () => {
+      fetchStarted();
       await fetchGate;
       return new Response(
         JSON.stringify({
@@ -466,9 +469,8 @@ describe("client config", () => {
     });
 
     const firstPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
     const secondPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started;
 
     releaseFetch();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
@@ -484,9 +486,12 @@ describe("client config", () => {
     mutableEnv.NODE_ENV = "production";
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "production";
+    let fetchStarted!: () => void;
+    const started = new Promise<void>((resolve) => { fetchStarted = resolve; });
     let releaseFetch!: () => void;
     const gate = new Promise<void>((resolve) => { releaseFetch = resolve; });
     const fetchMock = mock(async () => {
+      fetchStarted();
       await gate;
       return Response.json({ errorsWhileComputingFlags: false, featureFlags: {}, featureFlagPayloads: {} });
     });
@@ -497,12 +502,11 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started;
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
-    const blocked = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const blockedResponse = await POST(request());
     releaseFetch();
-    const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
+    const allowedResponse = await allowed;
 
     expect(allowedResponse.status).toBe(200);
     expect(blockedResponse.status).toBe(429);
