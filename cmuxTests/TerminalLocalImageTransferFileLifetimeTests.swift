@@ -76,9 +76,9 @@ struct TerminalLocalImageTransferFileLifetimeTests {
 
     @Test(
         "Copied image pixels take precedence over an auxiliary URL",
-        arguments: ["folder", "web", "missing-image"]
+        arguments: [TerminalImageTransferMode.paste, .drop], ["folder", "web", "missing-image"]
     )
-    func imagePixelsTakePrecedenceOverURL(urlKind: String) throws {
+    func imagePixelsTakePrecedenceOverURL(mode: TerminalImageTransferMode, urlKind: String) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-image-priority-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -103,7 +103,7 @@ struct TerminalLocalImageTransferFileLifetimeTests {
 
         let prepared = TerminalImageTransferPlanner.prepareSynchronously(
             pasteboard: pasteboard,
-            mode: .paste,
+            mode: mode,
             pasteboardService: service
         )
         guard case .fileURLs(let urls) = prepared else {
@@ -139,13 +139,77 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         ) == .fileURLs([source.standardizedFileURL]))
     }
 
-    private func makeHostedTerminal() throws -> HostedTerminal {
+    @Test("An image drop reaches the TUI as one bracketed paste", arguments: [false, true])
+    func imageDropDeliversBracketedPaste(throughDropController: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-drop-bytes-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let imageURL = directory.appendingPathComponent("image with spaces.png")
+        try #require(Data(base64Encoded: Self.onePixelPNGBase64)).write(to: imageURL)
+        let captureURL = directory.appendingPathComponent("input.bin")
+        let scriptURL = directory.appendingPathComponent("capture.py")
+        let ready = "CMUX_IMAGE_CAPTURE_READY"
+        let script = """
+        import os, select, sys, termios, time, tty
+        fd = sys.stdin.fileno()
+        previous = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            sys.stdout.write("\\x1b[?2004h\(ready)\\r\\n")
+            sys.stdout.flush()
+            data = bytearray()
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.1)[0]:
+                    data.extend(os.read(fd, 65536))
+                    if data.endswith(b"\\x1b[201~"):
+                        break
+            with open(sys.argv[1], "wb") as output:
+                output.write(data)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        let hosted = try makeHostedTerminal(initialCommand:
+            "/usr/bin/python3 \(TerminalImageTransferPlanner.escapeForShell(scriptURL.path)) " +
+            TerminalImageTransferPlanner.escapeForShell(captureURL.path)
+        )
+        defer { hosted.window.orderOut(nil) }
+        let readyDeadline = Date().addingTimeInterval(10)
+        while hosted.surface.readText(region: .screen)?.contains(ready) != true,
+              Date() < readyDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        try #require(hosted.surface.readText(region: .screen)?.contains(ready) == true)
+        if throughDropController {
+            #expect(FileDropTextDropController.performTerminalFileDrop(
+                terminal: hosted.surfaceView,
+                urls: [imageURL]
+            ))
+        } else {
+            #expect(hosted.surfaceView.executePreparedImageTransfer(
+                .fileURLs([imageURL]), mode: .drop, onCancel: {}
+            ))
+        }
+        let captureDeadline = Date().addingTimeInterval(12)
+        while !FileManager.default.fileExists(atPath: captureURL.path), Date() < captureDeadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        let bytes = try Data(contentsOf: captureURL)
+        let expected = "\u{1b}[200~" + TerminalImageTransferPlanner.escapeForShell(imageURL.path) + "\u{1b}[201~"
+        #expect(bytes == Data(expected.utf8))
+        #expect(FileManager.default.fileExists(atPath: imageURL.path))
+    }
+
+    private func makeHostedTerminal(initialCommand: String? = nil) throws -> HostedTerminal {
         _ = NSApplication.shared
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            initialCommand: initialCommand
         )
         let hostedView = surface.hostedView
         let window = NSWindow(
