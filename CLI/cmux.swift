@@ -15450,19 +15450,6 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if filtersReconnectInput {
-            guard terminalInputMode?.beginForwarding() == true else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH terminal input could not enter reconnect mode."
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-        } else {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
-        }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
             explicitPassword: explicitPassword,
