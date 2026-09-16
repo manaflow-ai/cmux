@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension PullRequestProbeService {
     /// Adds optional check details to every resolved PR concurrently. Results

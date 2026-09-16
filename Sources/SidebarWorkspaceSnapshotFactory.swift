@@ -139,7 +139,8 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
+            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
+            showsPullRequestChecks: settings.showsPullRequestChecks
         )
     }
 

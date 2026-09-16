@@ -56,11 +56,14 @@ import CmuxSidebar
         let suite = "pr-checks-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).showsPullRequestChecks)
+        let disabled = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(!disabled.showsPullRequestChecks)
         let client = UserDefaultsSettingsClient(defaults: defaults)
         client.set(true, for: SidebarCatalogSection().showPullRequestChecks)
         let enabled = SidebarTabItemSettingsSnapshot(defaults: defaults)
         #expect(enabled.showsPullRequestChecks)
         #expect(enabled.details.showPullRequestChecks)
+        #expect(SidebarWorkspaceSnapshotFactory.presentationKey(settings: disabled, showsAgentActivity: false)
+            != SidebarWorkspaceSnapshotFactory.presentationKey(settings: enabled, showsAgentActivity: false))
     }
 }
