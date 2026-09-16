@@ -201,7 +201,7 @@ import SwiftUI
         let errors: [(Error, CloudDiagnosticFailure)] = [
             (CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab"), .notFound),
             (CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("machine"), .notFound),
-            (CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("machine"), .network),
+            (CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("machine"), .response),
             (CmuxTuiSurfaceProvider.ProviderError.terminalExited("term"), .notFound),
             (CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated("private response"), .response),
             (SurfaceCatalogError.ambiguousRemotePlacement(.init(machine: .cloud("machine"), kind: .terminal, key: "term"), workspaceID: "private-workspace"), .conflict)

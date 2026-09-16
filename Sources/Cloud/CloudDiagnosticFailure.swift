@@ -68,18 +68,6 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
-        if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
-            switch error {
-            case .notSignedIn: return .authentication
-            case .machineAsleep, .stateUnavailable: return .network
-            case .noWorkspaceOnMachine, .remoteWorkspaceNotFound, .remoteTabNotFound, .terminalExited: return .notFound
-            case .remotePlacementUnavailable: return .conflict
-            case .terminalNotCreated, .invalidSnapshot, .invalidPreviewURL: return .response
-            case .terminalAttachTimedOut: return .timeout
-            case .snapshotOnly, .hubUnavailable: return .unsupported
-            case .localForwardURLUnavailable: return .network
-            }
-        }
         if let error = error as? SurfaceCatalogError {
             switch error {
             case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
