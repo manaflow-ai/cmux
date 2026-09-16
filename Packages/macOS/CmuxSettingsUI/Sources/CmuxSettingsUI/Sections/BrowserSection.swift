@@ -13,6 +13,7 @@ import SwiftUI
 /// and Browsing History.
 @MainActor
 public struct BrowserSection: View {
+    @State private var pageDrafts = SettingsPageDrafts()
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
 
@@ -35,12 +36,6 @@ public struct BrowserSection: View {
     @State private var reactGrab: DefaultsValueModel<String>
 
     @State private var confirmClearHistory: Bool = false
-    @State private var httpAllowlistDraft: String = ""
-    @State private var httpAllowlistSyncedValue: String = ""
-    @State private var httpAllowlistLoaded: Bool = false
-    @State private var urlAllowlistDraft: String = ""
-    @State private var urlAllowlistSyncedValue: String = ""
-    @State private var urlAllowlistLoaded: Bool = false
 
     /// Whether management locks the embedded-browser disable (policy key
     /// enforced, or the user key itself forced). Refreshed from
@@ -56,6 +51,16 @@ public struct BrowserSection: View {
     /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
     /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
     @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
+
+    init(
+        defaultsStore: UserDefaultsSettingsStore,
+        catalog: SettingCatalog,
+        hostActions: SettingsHostActions,
+        pageDrafts: SettingsPageDrafts
+    ) {
+        self.init(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+        _pageDrafts = State(initialValue: pageDrafts)
+    }
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -113,12 +118,12 @@ public struct BrowserSection: View {
                 browserURLAllowlistManagedByPolicy = policy.isManaged
                 urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
-                    urlAllowlistDraft = effectiveURLAllowlistText(
+                    pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
                         policy: policy
                     )
-                    urlAllowlistSyncedValue = urlAllowlistDraft
-                    urlAllowlistLoaded = true
+                    pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
+                    pageDrafts.urlAllowlistLoaded = true
                 }
             }
         }
@@ -418,7 +423,7 @@ public struct BrowserSection: View {
             Text(String(localized: "settings.browser.httpAllowlist.description", defaultValue: "Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Defaults include localhost, *.localhost, 127.0.0.1, ::1, 0.0.0.0, and *.localtest.me. Remove entries to block them; reset to restore defaults."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
-            TextEditor(text: $httpAllowlistDraft)
+            TextEditor(text: $pageDrafts.httpAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
                 .padding(6)
@@ -440,12 +445,12 @@ public struct BrowserSection: View {
                     Spacer(minLength: 0)
                     httpAllowlistResetButton(model: model)
                     Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
-                        model.set(httpAllowlistDraft)
-                        httpAllowlistSyncedValue = httpAllowlistDraft
+                        model.set(pageDrafts.httpAllowlistDraft)
+                        pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(httpAllowlistDraft == model.current)
+                    .disabled(pageDrafts.httpAllowlistDraft == model.current)
                     .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
                 }
 
@@ -457,12 +462,12 @@ public struct BrowserSection: View {
                         Spacer(minLength: 0)
                         httpAllowlistResetButton(model: model)
                         Button(String(localized: "settings.browser.httpAllowlist.save", defaultValue: "Save")) {
-                            model.set(httpAllowlistDraft)
-                            httpAllowlistSyncedValue = httpAllowlistDraft
+                            model.set(pageDrafts.httpAllowlistDraft)
+                            pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(httpAllowlistDraft == model.current)
+                        .disabled(pageDrafts.httpAllowlistDraft == model.current)
                         .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
                     }
                 }
@@ -471,10 +476,10 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .task {
-            if !httpAllowlistLoaded {
-                httpAllowlistDraft = model.current
-                httpAllowlistSyncedValue = model.current
-                httpAllowlistLoaded = true
+            if !pageDrafts.httpAllowlistLoaded {
+                pageDrafts.httpAllowlistDraft = model.current
+                pageDrafts.httpAllowlistSyncedValue = model.current
+                pageDrafts.httpAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
@@ -482,24 +487,24 @@ public struct BrowserSection: View {
             // only refresh the draft when the user hasn't edited it
             // since the last sync. Otherwise keep their in-progress
             // edits intact across external store updates.
-            if !httpAllowlistLoaded {
-                httpAllowlistDraft = newValue
-                httpAllowlistSyncedValue = newValue
-                httpAllowlistLoaded = true
+            if !pageDrafts.httpAllowlistLoaded {
+                pageDrafts.httpAllowlistDraft = newValue
+                pageDrafts.httpAllowlistSyncedValue = newValue
+                pageDrafts.httpAllowlistLoaded = true
                 return
             }
-            if httpAllowlistDraft == httpAllowlistSyncedValue {
-                httpAllowlistDraft = newValue
+            if pageDrafts.httpAllowlistDraft == pageDrafts.httpAllowlistSyncedValue {
+                pageDrafts.httpAllowlistDraft = newValue
             }
-            httpAllowlistSyncedValue = newValue
+            pageDrafts.httpAllowlistSyncedValue = newValue
         }
     }
 
     private func httpAllowlistResetButton(model: DefaultsValueModel<String>) -> some View {
         Button(String(localized: "settings.browser.httpAllowlist.reset", defaultValue: "Reset to Defaults")) {
             model.reset()
-            httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
-            httpAllowlistSyncedValue = httpAllowlistDraft
+            pageDrafts.httpAllowlistDraft = catalog.browser.insecureHttpHostsAllowedInEmbeddedBrowser.defaultValue
+            pageDrafts.httpAllowlistSyncedValue = pageDrafts.httpAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -529,7 +534,7 @@ public struct BrowserSection: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
             }
-            TextEditor(text: $urlAllowlistDraft)
+            TextEditor(text: $pageDrafts.urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
                 .padding(6)
@@ -568,28 +573,28 @@ public struct BrowserSection: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .task {
-            if !urlAllowlistLoaded {
-                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
-                urlAllowlistSyncedValue = urlAllowlistDraft
-                urlAllowlistLoaded = true
+            if !pageDrafts.urlAllowlistLoaded {
+                pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
+                pageDrafts.urlAllowlistLoaded = true
             }
         }
         .onChange(of: model.current) { _, newValue in
             if browserURLAllowlistManagedByPolicy {
-                urlAllowlistDraft = effectiveURLAllowlistText(for: model)
-                urlAllowlistSyncedValue = urlAllowlistDraft
+                pageDrafts.urlAllowlistDraft = effectiveURLAllowlistText(for: model)
+                pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
                 return
             }
-            if !urlAllowlistLoaded {
-                urlAllowlistDraft = newValue
-                urlAllowlistSyncedValue = newValue
-                urlAllowlistLoaded = true
+            if !pageDrafts.urlAllowlistLoaded {
+                pageDrafts.urlAllowlistDraft = newValue
+                pageDrafts.urlAllowlistSyncedValue = newValue
+                pageDrafts.urlAllowlistLoaded = true
                 return
             }
-            if urlAllowlistDraft == urlAllowlistSyncedValue {
-                urlAllowlistDraft = newValue
+            if pageDrafts.urlAllowlistDraft == pageDrafts.urlAllowlistSyncedValue {
+                pageDrafts.urlAllowlistDraft = newValue
             }
-            urlAllowlistSyncedValue = newValue
+            pageDrafts.urlAllowlistSyncedValue = newValue
         }
     }
 
@@ -638,7 +643,7 @@ public struct BrowserSection: View {
 
     private var urlAllowlistValidationMessage: String? {
         guard !browserURLAllowlistManagedByPolicy else { return nil }
-        let rules = urlAllowlistDraft
+        let rules = pageDrafts.urlAllowlistDraft
             .components(separatedBy: CharacterSet(charactersIn: ",;\n\r\t"))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -653,12 +658,12 @@ public struct BrowserSection: View {
     private func urlAllowlistSaveButton(model: DefaultsValueModel<String>) -> some View {
         Button(String(localized: "settings.browser.urlAllowlist.save", defaultValue: "Save")) {
             guard !browserURLAllowlistManagedByPolicy else { return }
-            model.set(urlAllowlistDraft)
-            urlAllowlistSyncedValue = urlAllowlistDraft
+            model.set(pageDrafts.urlAllowlistDraft)
+            pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
-        .disabled(browserURLAllowlistManagedByPolicy || urlAllowlistDraft == model.current)
+        .disabled(browserURLAllowlistManagedByPolicy || pageDrafts.urlAllowlistDraft == model.current)
         .accessibilityIdentifier("SettingsBrowserURLAllowlistSaveButton")
     }
 
@@ -666,8 +671,8 @@ public struct BrowserSection: View {
         Button(String(localized: "settings.browser.urlAllowlist.reset", defaultValue: "Reset to Defaults")) {
             guard !browserURLAllowlistManagedByPolicy else { return }
             model.reset()
-            urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
-            urlAllowlistSyncedValue = urlAllowlistDraft
+            pageDrafts.urlAllowlistDraft = BrowserURLAllowlistPolicy.defaultAllowlistText
+            pageDrafts.urlAllowlistSyncedValue = pageDrafts.urlAllowlistDraft
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

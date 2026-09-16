@@ -25,6 +25,12 @@ public struct SettingsWindowRoot: View {
         self.initialSection = initialSection
     }
 
+    init(runtime: SettingsRuntime, initialSection: SettingsSectionID, pageDrafts: SettingsPageDrafts) {
+        self.init(runtime: runtime, initialSection: initialSection)
+        _pageDrafts = State(initialValue: pageDrafts)
+    }
+
+    @State var pageDrafts = SettingsPageDrafts()
     @State private var initialNavigationPending = true
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0

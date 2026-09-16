@@ -33,10 +33,9 @@ extension SettingsWindowRoot {
         case .sleepyMode:
             SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
         case .mobile:
-            MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
+            MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions, pageDrafts: pageDrafts)
         case .cloudMachines:
-            // `DisableCloud` (MDM) and the rollout gate: no Cloud pane at all
-            // while unavailable, not just no placeholder.
+            // Match the sidebar's managed-policy and rollout gate.
             if isCloudSectionAvailable {
                 CloudMachinesSection(hostActions: hostActions)
             }
@@ -60,7 +59,8 @@ extension SettingsWindowRoot {
                 secretStore: secretStore,
                 catalog: catalog,
                 errorLog: runtime.errorLog,
-                hostActions: hostActions
+                hostActions: hostActions,
+                pageDrafts: pageDrafts
             )
         case .computerUse:
             ComputerUseSection(
@@ -73,7 +73,8 @@ extension SettingsWindowRoot {
             BrowserSection(
                 defaultsStore: defaultsStore,
                 catalog: catalog,
-                hostActions: hostActions
+                hostActions: hostActions,
+                pageDrafts: pageDrafts
             )
         case .globalHotkey:
             GlobalHotkeySection(
