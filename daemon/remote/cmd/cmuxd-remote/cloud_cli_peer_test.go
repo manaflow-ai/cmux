@@ -21,7 +21,7 @@ func TestCloudCLIBridgeAuthenticatesPeerBeforeForwarding(t *testing.T) {
 	}{
 		{name: "native same user", allowed: true},
 		{name: "another user", lookup: func(net.Conn) (uint32, error) { return uint32(os.Geteuid()) + 1, nil }},
-		{name: "credential lookup failure", lookup: func(net.Conn) (uint32, error) { return 0, errors.New("lookup failed") }},
+		{name: "credential lookup failure", lookup: func(net.Conn) (uint32, error) { return uint32(os.Geteuid()), errors.New("lookup failed") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bridge := newCloudCLIBridge()
