@@ -242,7 +242,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.missingProcessCount == 0)
     }
 
-    @Test func implausibleCoalitionFootprintFallsBackToCompleteTree() {
+    @Test func zeroCoalitionFootprintFallsBackToCompleteTree() {
         let process = CmuxTopProcessInfo(
             pid: 42,
             parentPID: 1,
@@ -271,7 +271,7 @@ struct MemoryPressureStateTrackerTests {
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
             snapshotProvider: { snapshot },
-            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 9_000),
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 0),
             physicalMemoryProvider: { 8_000 },
             availableMemoryProvider: { nil }
         )
