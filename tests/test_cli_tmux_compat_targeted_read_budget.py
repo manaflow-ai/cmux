@@ -50,9 +50,9 @@ class ProductionLimiter:
             self.connection += 1
             return self.connection
 
-    def admit(self, connection, method):
+    def admit(self, connection, method, now):
         with self.lock:
-            self.process.stdin.write(json.dumps({"connection": connection, "method": method}) + "\n")
+            self.process.stdin.write(json.dumps({"connection": connection, "method": method, "now": now}) + "\n")
             self.process.stdin.flush()
             return json.loads(self.process.stdout.readline())
 
@@ -66,10 +66,11 @@ class ProductionLimiter:
 class Server(socketserver.ThreadingUnixStreamServer):
     daemon_threads = True
 
-    def __init__(self, path, limiter, fault=None):
+    def __init__(self, path, limiter, fault=None, wire_reply=None):
         self.limiter = limiter
         self.state = FakeCmuxState()
         self.fault = fault
+        self.wire_reply = wire_reply
         self.requests = []
         self.limited = []
         self.early_retries = []
@@ -80,6 +81,8 @@ class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         connection = self.server.limiter.new_connection()
         retry_at = 0.0
+        virtual_ns = 0
+        refill_ns = 0
         previous_request = None
         for raw in self.rfile:
             line = raw.decode().strip()
@@ -93,7 +96,10 @@ class Handler(socketserver.StreamRequestHandler):
             self.server.requests.append((connection, request))
             if request == previous_request and time.monotonic() < retry_at:
                 self.server.early_retries.append(request)
-            decision = self.server.limiter.admit(connection, method)
+            if refill_ns and time.monotonic() >= retry_at:
+                virtual_ns += refill_ns
+                refill_ns = 0
+            decision = self.server.limiter.admit(connection, method, virtual_ns)
             error = self.server.fault(request) if self.server.fault else None
             if error is None and not decision["allowed"]:
                 error = {
@@ -104,7 +110,9 @@ class Handler(socketserver.StreamRequestHandler):
                 self.server.limited.append((connection, request, error))
                 response = {"id": request["id"], "ok": False, "error": error}
                 hint = error.get("data", {}).get("retry_after_ms")
-                retry_at = time.monotonic() + (hint / 1000 if type(hint) is int and hint > 0 else 0)
+                valid_hint = type(hint) is int and hint > 0
+                retry_at = time.monotonic() + (hint / 1000 if valid_hint else 0)
+                refill_ns = hint * 1_000_000 if valid_hint else 0
                 previous_request = request
             else:
                 previous_request = None
@@ -114,16 +122,21 @@ class Handler(socketserver.StreamRequestHandler):
                     result = self.server.state.handle(method, request.get("params", {}))
                 response = {"id": request["id"], "ok": True, "result": result}
             try:
-                self.wfile.write((json.dumps(response) + "\n").encode())
+                if self.server.wire_reply:
+                    response = self.server.wire_reply(request, response)
+                    if response is None:
+                        return
+                text = response if isinstance(response, str) else json.dumps(response)
+                self.wfile.write((text + "\n").encode())
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 return
 
 
 @contextmanager
-def serve(directory, limiter, fault=None):
+def serve(directory, limiter, fault=None, wire_reply=None):
     path = directory / "socket"
-    server = Server(path, limiter, fault)
+    server = Server(path, limiter, fault, wire_reply)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -209,7 +222,24 @@ def error_contract(cli, directory, limiter):
         assert 1 < len(server.requests) <= 9, server.requests
         assert len({connection for connection, _ in server.requests}) == 1
         assert not server.early_retries
-    print("PASS: permanent errors, invalid hints, mutation non-retry, and bounded persistent backpressure")
+    for wire_reply in (
+        lambda _, response: {**response, "id": "unrelated"},
+        lambda _, response: {k: v for k, v in response.items() if k != "id"},
+        lambda *_: "ERROR: access denied",
+        lambda *_: "not json",
+        lambda *_: None,
+    ):
+        with serve(directory, limiter, lambda _: error, wire_reply) as (server, path):
+            result = run(cli, path, directory, ["rpc", "pane.list"])
+            assert result.returncode != 0 and result.stderr
+            assert len(server.requests) == 1, "invalid/uncorrelated replies and lost responses must not retry"
+    with serve(directory, limiter, lambda request: error if request["method"] == "surface.split" else None) as (server, path):
+        result = run(cli, path, directory, ["__tmux-compat", "split-window", "-d", "-t", PANE, "-P"])
+        assert result.returncode != 0 and "rate_limited" in result.stderr
+        assert not result.stdout.strip()
+        assert server.state.split_count == 0
+        assert sum(request["method"] == "surface.split" for _, request in server.requests) == 1
+    print("PASS: permanent errors, invalid hints/replies, mutation failure reporting, and bounded backpressure")
 
 
 def limiter_isolation(directory, limiter):
