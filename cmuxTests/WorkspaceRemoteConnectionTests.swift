@@ -2185,6 +2185,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         __CMUX_REMOTE_OS__=Linux
                         __CMUX_REMOTE_ARCH__=x86_64
                         __CMUX_REMOTE_EXISTS__=yes
+                        __CMUX_REMOTE_SIZE__=123
                         """,
                         stderr: ""
                     )
