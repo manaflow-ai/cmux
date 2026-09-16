@@ -45,7 +45,11 @@ fn resolve_kind(ctx: &Context, kind: &str, raw: Option<&str>, explicitly_supplie
                 }
             }
             let mut params = json!({});
-            if let Some(window) = ctx.window.as_deref() { params["window_id"] = Value::String(window.to_string()); }
+            if let Some(window) = ctx.window.as_deref() {
+                if let Some(window_id) = resolve_kind(ctx, "window", Some(window), true)? {
+                    params["window_id"] = Value::String(window_id);
+                }
+            }
             let current = ctx.rpc("workspace.current", params)?;
             Ok(current.get("workspace_id").or_else(|| current.get("id")).and_then(Value::as_str).map(str::to_owned))
         }
@@ -62,7 +66,11 @@ fn lookup(ctx: &Context, kind: &str, workspace: Option<&str>, index: Option<i64>
     let mut params = json!({});
     if let Some(workspace) = workspace { params["workspace_id"] = Value::String(workspace.to_string()); }
     if kind == "workspace" {
-        if let Some(window) = ctx.window.as_deref() { params["window_id"] = Value::String(window.to_string()); }
+        if let Some(window) = ctx.window.as_deref() {
+            if let Some(window_id) = resolve_kind(ctx, "window", Some(window), true)? {
+                params["window_id"] = Value::String(window_id);
+            }
+        }
     }
     let payload = ctx.rpc(method, params)?;
     let items = payload.get(list_key).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -82,4 +90,3 @@ fn item_id(item: &Value) -> Option<String> { item.get("id").or_else(|| item.get(
 fn item_index(item: &Value) -> Option<i64> { item.get("index").and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok())) }
 fn parse_ref(raw: &str) -> Option<(&str, i64)> { let (kind, index) = raw.split_once(':')?; if !matches!(kind, "window" | "workspace" | "pane" | "surface") { return None; } Some((kind, index.parse().ok()?)) }
 fn looks_like_uuid(value: &str) -> bool { value.len() == 36 && value.as_bytes().iter().enumerate().all(|(i, c)| if [8, 13, 18, 23].contains(&i) { *c == b'-' } else { c.is_ascii_hexdigit() }) }
-

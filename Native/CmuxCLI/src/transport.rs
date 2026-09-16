@@ -215,7 +215,7 @@ fn resolve_password(ctx: &Context, socket_path: &str) -> Option<String> {
     if let Some(tag) = env::var("CMUX_TAG").ok().filter(|v| !v.is_empty()) { services.insert(0, format!("com.cmuxterm.app.socket-control.{}", sanitize_scope(&tag))); }
     if let Some(raw) = scope.strip_prefix("cmux-debug-").and_then(|v| v.strip_suffix(".sock")) { services.insert(0, format!("com.cmuxterm.app.socket-control.{}", sanitize_scope(raw))); }
     for service in services {
-        let output = std::process::Command::new("security").args(["find-generic-password", "-s", &service, "-a", "local-socket-password", "-w"]).output().ok()?;
+        let Ok(output) = std::process::Command::new("security").args(["find-generic-password", "-s", &service, "-a", "local-socket-password", "-w"]).output() else { continue };
         if output.status.success() { let value = String::from_utf8_lossy(&output.stdout).trim().to_string(); if !value.is_empty() { return Some(value); } }
     }
     None
