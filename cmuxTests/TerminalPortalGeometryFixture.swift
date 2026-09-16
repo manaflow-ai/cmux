@@ -1,5 +1,6 @@
 import AppKit
 import CmuxTerminal
+import Darwin
 import GhosttyKit
 
 #if canImport(cmux_DEV)
@@ -71,7 +72,7 @@ final class TerminalPortalGeometryFixture {
         let deadline = Date().addingTimeInterval(2)
         repeat {
             if let geometry = surface.committedPaneGeometry,
-               geometry.phase == .settled, surface.surface != nil,
+               geometry.phase == .settled, gridMatchesPTY(),
                portal.entriesByHostedId[hostedID]?.needsSettledCommit == false,
                width.map({ abs($0 - geometry.size.width) < 0.5 }) ?? true {
                 return true
@@ -79,6 +80,25 @@ final class TerminalPortalGeometryFixture {
             flushLayout()
         } while Date() < deadline
         return false
+    }
+
+    /// Read the actual terminal screen and kernel TTY, not just Ghostty's
+    /// main-thread size cache, which can lead its asynchronous IO resize.
+    private func gridMatchesPTY() -> Bool {
+        guard let runtime = surface.surface,
+              let name = surface.controllingTTYName() else { return false }
+        let path = name.hasPrefix("/dev/") ? name : "/dev/\(name)"
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_NOCTTY)
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
+        var size = winsize()
+        var grid = ghostty_surface_grid_metrics_s()
+        guard ioctl(descriptor, TIOCGWINSZ, &size) == 0,
+              ghostty_surface_grid_metrics(runtime, &grid) else { return false }
+        let requested = ghostty_surface_size(runtime)
+        return grid.columns > 1 && grid.rows > 1 &&
+            grid.columns == size.ws_col && grid.rows == size.ws_row &&
+            grid.columns == requested.columns && grid.rows == requested.rows
     }
 
     func close() {

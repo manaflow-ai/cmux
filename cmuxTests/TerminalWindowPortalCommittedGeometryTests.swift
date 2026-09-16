@@ -57,6 +57,20 @@ struct TerminalWindowPortalCommittedGeometryTests {
         #expect(before.rows == after.rows)
     }
 
+    @Test func unmountedEntryCannotBeRevealedByAQueuedGeometryPass() {
+        let fixture = TerminalPortalGeometryFixture()
+        defer { fixture.close() }
+        fixture.bind()
+        #expect(fixture.waitForCommit())
+        fixture.portal.hideEntry(forHostedId: fixture.hostedID)
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        fixture.flushLayout()
+        fixture.portal.commitSettledPaneGeometries()
+        #expect(fixture.portal.entriesByHostedId[fixture.hostedID]?.visibleInUI == false)
+        #expect(fixture.hosted.isHidden)
+        #expect(fixture.surface.committedPaneGeometry == nil)
+    }
+
     @Test(arguments: [false, true])
     func dragTicksStayInteractiveUntilEnd(native: Bool) throws {
         let fixture = TerminalPortalGeometryFixture()

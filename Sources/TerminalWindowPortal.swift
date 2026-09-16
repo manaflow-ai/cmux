@@ -1503,7 +1503,7 @@ final class WindowTerminalPortal: NSObject {
         entry.hostedView?.clearPortalGeometry()
         entry.needsSettledCommit = false
         entry.transientRecoveryRetriesRemaining = 0
-        entriesByHostedId[hostedId]?.transientRecoveryRetriesRemaining = 0
+        entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
 #if DEBUG
@@ -1908,7 +1908,7 @@ final class WindowTerminalPortal: NSObject {
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
         guard entry.transientRecoveryRetriesRemaining != 0 else { return }
         entry.transientRecoveryRetriesRemaining = 0
-        entriesByHostedId[hostedId] = entry
+        entriesByHostedId[hostedId]?.transientRecoveryRetriesRemaining = 0
     }
 
     private func scheduleTransientRecoveryRetryIfNeeded(
