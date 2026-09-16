@@ -586,8 +586,12 @@ defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MOD
 # Constrain both generations so a same-host direct route cannot satisfy a
 # check advertised as exercising the relay fleet.
 FORCE_RELAY=0
-[[ "$RAW_MODE" != relayOnly ]] || FORCE_RELAY=1
-defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay -bool "$FORCE_RELAY"
+FORCE_RELAY_BOOLEAN=false
+if [[ "$RAW_MODE" == relayOnly ]]; then
+  FORCE_RELAY=1
+  FORCE_RELAY_BOOLEAN=true
+fi
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay -bool "$FORCE_RELAY_BOOLEAN"
 if [[ -n "$PRESENCE_BASE_URL" ]]; then
   defaults write "$MAC_BUNDLE_ID" presenceServiceURL -string "$PRESENCE_BASE_URL"
 else
