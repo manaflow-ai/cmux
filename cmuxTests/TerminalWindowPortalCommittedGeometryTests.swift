@@ -58,6 +58,10 @@ extension TerminalWindowPortalLifecycleTests {
         XCTAssertEqual(committed.phase, .settled)
         XCTAssertEqual(committed.size.width, 240, accuracy: 0.5)
         XCTAssertEqual(committed.size.height, 160, accuracy: 0.5)
+        XCTAssertTrue(
+            surface.hostedView.commitPortalGeometry(phase: .settled),
+            "A settled commit is successful even when the renderer size is already current"
+        )
     }
 
     @MainActor

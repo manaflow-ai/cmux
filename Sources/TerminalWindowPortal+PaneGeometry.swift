@@ -4,6 +4,21 @@ import CmuxTerminalCore
 // MARK: - Pane geometry publication
 
 extension WindowTerminalPortal {
+    /// Marks a visible entry for the next settled geometry commit.
+    ///
+    /// A new settlement episode gets the full convergence budget. Repeated
+    /// frame notifications in the same episode keep the budget already in
+    /// progress so a noisy layout cannot refill retries indefinitely.
+    func markNeedsSettledCommit(for hostedId: ObjectIdentifier) {
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        let wasPending = entry.needsSettledCommit
+        entry.needsSettledCommit = true
+        entriesByHostedId[hostedId] = entry
+        if !wasPending {
+            geometrySettlementPassesRemaining = 4
+        }
+    }
+
     /// Publishes the resting size of every visible entry whose frame changed
     /// since its last commit. This and the drag-tick commit in
     /// `synchronizeHostedView` are the only two paths that give a terminal a
@@ -13,8 +28,8 @@ extension WindowTerminalPortal {
             guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
                   entry.needsSettledCommit, let hostedView = entry.hostedView,
                   !hostedView.isHidden, hostedView.window === window else { continue }
+            guard hostedView.commitPortalGeometry(phase: .settled) else { continue }
             entriesByHostedId[hostedId]?.needsSettledCommit = false
-            _ = hostedView.commitPortalGeometry(phase: .settled)
         }
     }
 

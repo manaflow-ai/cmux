@@ -1539,14 +1539,15 @@ final class WindowTerminalPortal: NSObject {
         entry.visibleInUI = effectiveVisibleInUI
         if becameVisible {
             lastHierarchySyncSignature = nil
-            geometrySettlementPassesRemaining = 4
-            entry.needsSettledCommit = true
         } else if !effectiveVisibleInUI {
             entry.needsSettledCommit = false
             entry.hostedView?.clearPortalGeometry()
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
+        if becameVisible {
+            markNeedsSettledCommit(for: hostedId)
+        }
         if becameHidden {
             clearPresentationNotificationState(for: hostedId)
         }
@@ -1669,8 +1670,7 @@ final class WindowTerminalPortal: NSObject {
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         if becameVisible || (visibleInUI && didChangeAnchor) {
             lastHierarchySyncSignature = nil
-            geometrySettlementPassesRemaining = 4
-            entriesByHostedId[hostedId]?.needsSettledCommit = true
+            markNeedsSettledCommit(for: hostedId)
         }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
@@ -1922,7 +1922,9 @@ final class WindowTerminalPortal: NSObject {
                !entry.visibleInUI, entry.hostedView?.isHidden == true {
                 continue
             }
-            synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
+            // The outer pass has already installed and laid out the portal.
+            // Avoid repeating hierarchy synchronization for every hosted pane.
+            synchronizeHostedView(withId: hostedId, syncLayout: false)
         }
     }
 
@@ -2280,7 +2282,7 @@ final class WindowTerminalPortal: NSObject {
                     if isInteractiveGeometryActive {
                         _ = hostedView.commitPortalGeometry(phase: .interactive)
                     }
-                    entriesByHostedId[hostedId]?.needsSettledCommit = true
+                    markNeedsSettledCommit(for: hostedId)
                 }
             }
         }
@@ -2316,7 +2318,7 @@ final class WindowTerminalPortal: NSObject {
             if isInteractiveGeometryActive {
                 _ = hostedView.commitPortalGeometry(phase: .interactive)
             }
-            entriesByHostedId[hostedId]?.needsSettledCommit = true
+            markNeedsSettledCommit(for: hostedId)
             // Mid window live-resize the pass runs synchronously inside the
             // resize tick's still-open transaction (see the didResize
             // observer), where refreshSurfaceNow's displayIfNeeded reaches
@@ -2786,7 +2788,6 @@ enum TerminalWindowPortalRegistry {
     static func endInteractiveGeometryResize(in window: NSWindow?) {
         endInteractiveGeometryResize(windowId: window.map(ObjectIdentifier.init))
     }
-
     static func beginInteractiveGeometryResize(owner: AnyObject, in window: NSWindow?) {
         let ownerId = ObjectIdentifier(owner)
         guard interactiveGeometryResizeOwnerWindowIds[ownerId] == nil,
@@ -2799,7 +2800,6 @@ enum TerminalWindowPortalRegistry {
             beginInteractiveGeometryResize(windowId: nil)
         }
     }
-
     static func endInteractiveGeometryResize(owner: AnyObject) {
         let ownerId = ObjectIdentifier(owner)
         if let windowId = interactiveGeometryResizeOwnerWindowIds.removeValue(forKey: ownerId) {
@@ -2808,7 +2808,6 @@ enum TerminalWindowPortalRegistry {
             endInteractiveGeometryResize(windowId: nil)
         }
     }
-
     private static func beginInteractiveGeometryResize(windowId: ObjectIdentifier?) {
         guard let windowId else {
             unscopedInteractiveGeometryResizeCount += 1
@@ -2821,7 +2820,6 @@ enum TerminalWindowPortalRegistry {
         }
 #endif
     }
-
     private static func endInteractiveGeometryResize(windowId: ObjectIdentifier?) {
         guard let windowId else {
             guard unscopedInteractiveGeometryResizeCount > 0 else { return }
@@ -2834,7 +2832,6 @@ enum TerminalWindowPortalRegistry {
             }
             return
         }
-
         guard let count = interactiveGeometryResizeCountsByWindowId[windowId], count > 0 else { return }
         if count == 1 {
             interactiveGeometryResizeCountsByWindowId.removeValue(forKey: windowId)
@@ -2858,7 +2855,6 @@ enum TerminalWindowPortalRegistry {
             interactiveGeometryResizeCountsByWindowId[windowId] = count - 1
         }
     }
-
 #if DEBUG
     /// Test support: clears interactive geometry state after a failed test
     /// whose balancing end call may not have run.
@@ -2907,13 +2903,11 @@ enum TerminalWindowPortalRegistry {
             }
         }
     }
-
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
     }
-
     /// Hides every registered terminal portal owned by one inactive workspace.
     static func hideHostedViews(forWorkspaceID workspaceID: UUID) {
         for portal in portalsByWindowId.values {
@@ -2933,7 +2927,6 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
         return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
-
     /// Whether the registry entry still names this anchor, including while the
     /// anchor is temporarily detached and therefore has no live window binding.
     static func hasEntry(for hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
@@ -2941,7 +2934,6 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
-
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let window = anchorView.window else { return false }
@@ -2949,7 +2941,6 @@ enum TerminalWindowPortalRegistry {
         guard hostedToWindowId[hostedId] == windowId, let portal = portalsByWindowId[windowId] else { return false }
         return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
-
     static func isPresented(_ hostedView: GhosttySurfaceScrollView) -> Bool {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
@@ -2958,17 +2949,14 @@ enum TerminalWindowPortalRegistry {
         }
         return portal.isPresented(hostedView, hostedId: hostedId)
     }
-
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {
         let portal = portal(for: window)
         return portal.viewAtWindowPoint(windowPoint)
     }
-
     static func terminalViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> GhosttyNSView? {
         let portal = portal(for: window)
         return portal.terminalViewAtWindowPoint(windowPoint)
     }
-
     static func terminalPaneDropTargetAtWindowPoint(
         _ windowPoint: NSPoint,
         in window: NSWindow
@@ -2976,9 +2964,7 @@ enum TerminalWindowPortalRegistry {
         let portal = portal(for: window)
         return portal.terminalPaneDropTargetAtWindowPoint(windowPoint)
     }
-
 }
-
 extension Notification.Name {
     /// Posted when the last interactive geometry resize session in a window
     /// ends (sidebar/split divider drags). Fired from the registry's single

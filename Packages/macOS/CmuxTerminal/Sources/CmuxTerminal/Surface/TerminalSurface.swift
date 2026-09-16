@@ -666,12 +666,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public func debugWaitAfterCommand() -> Bool {
         configTemplate?.waitAfterCommand ?? false
     }
-
     /// The ghostty launch context the surface was created with.
     public var launchContext: ghostty_surface_context_e {
         surfaceContext
     }
-
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
@@ -682,7 +680,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }
-
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
@@ -695,7 +692,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement = placement
         registry.updateFocusPlacement(for: self, placement)
     }
-
     /// Retires logical registry ownership once across explicit teardown and deinit.
     func retireSurfaceRegistryRegistrationIfNeeded() {
         guard ownsSurfaceRegistryRegistration else { return }
@@ -827,10 +823,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 extension TerminalSurface: TerminalSurfaceControlling {
     /// The stable identity of the terminal surface (callback seam).
     public var surfaceId: UUID { id }
-
     /// The workspace tab that owns the surface (callback seam).
     public var owningTabId: UUID { tabId }
-
     /// The live runtime surface pointer (callback seam).
     public var runtimeSurfacePointer: ghostty_surface_t? { surface }
 }
@@ -839,7 +833,6 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; lifecycle generations are registered separately so
 // the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
-
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the
 /// main actor for closing. `@unchecked Sendable` because the window is
 /// exclusively owned by the request from creation until `close()` runs.

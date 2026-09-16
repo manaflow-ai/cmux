@@ -10317,7 +10317,14 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        let targetSize = scrollView.bounds.size
+        // Resolve the clip view after scroller tiling and layout. Reading the
+        // scroll view's bounds can include a legacy scroller gutter while the
+        // content view is the actual visible terminal viewport.
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.contentView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
@@ -10325,7 +10332,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
+            size: CGSize(width: targetSize.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
@@ -10359,12 +10366,6 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
-        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
-        // which makes interactive width changes arrive a queue turn late on Sequoia.
-        if didScrollbarAppearanceChange {
-            scrollView.tile()
-        }
-        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -11349,14 +11350,18 @@ final class GhosttySurfaceScrollView: NSView {
     /// The portal calls this only for a visible, unhidden entry from a
     /// settled layout pass or a drag tick.
     ///
-    /// - Returns: Whether the renderer or PTY size changed.
+    /// - Returns: Whether the visible pane geometry was accepted for publication.
     @discardableResult
     func commitPortalGeometry(phase: TerminalPaneGeometry.Phase) -> Bool {
         _ = synchronizeGeometryAndContent()
         let size = surfaceView.frame.size
-        guard size.width > 0, size.height > 0 else { return false }
-        defer { surfaceView.terminalSurface?.rendererPresentationReadinessDidChange() }
-        return surfaceView.commitPaneGeometry(size: size, phase: phase)
+        guard size.width > 0, size.height > 0,
+              size.width.isFinite, size.height.isFinite else { return false }
+        guard let terminalSurface = surfaceView.terminalSurface,
+              surfaceView.window != nil else { return false }
+        defer { terminalSurface.rendererPresentationReadinessDidChange() }
+        _ = surfaceView.commitPaneGeometry(size: size, phase: phase)
+        return true
     }
 
     /// Forgets the committed size when the portal stops presenting this view.
