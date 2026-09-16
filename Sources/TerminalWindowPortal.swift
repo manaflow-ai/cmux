@@ -838,7 +838,7 @@ final class WindowTerminalPortal: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
-                self.scheduleExternalGeometrySynchronize()
+                self.endInteractiveGeometryPhase()
             }
         })
         geometryObservers.append(center.addObserver(
@@ -1051,6 +1051,17 @@ final class WindowTerminalPortal: NSObject {
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
     private var geometrySettlementPassesRemaining = 4
+    /// An interaction owner (divider drag, window live resize) ended and the
+    /// geometry it produced is final by definition. The next pass commits it
+    /// as settled without waiting for a second unchanged fingerprint.
+    var interactionEndedAwaitingCommit = false
+
+    /// Records that the interaction that was moving frames has ended and
+    /// schedules the pass that publishes its final geometry.
+    func endInteractiveGeometryPhase() {
+        interactionEndedAwaitingCommit = true
+        scheduleExternalGeometrySynchronize(forceImmediate: false)
+    }
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -1129,7 +1140,9 @@ final class WindowTerminalPortal: NSObject {
         let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
-        if hierarchyWasAlreadySettled {
+        let interactionEnded = interactionEndedAwaitingCommit
+        interactionEndedAwaitingCommit = false
+        if hierarchyWasAlreadySettled || interactionEnded {
             commitSettledPaneGeometries()
         } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.needsSettledCommit }) {
             if geometrySettlementPassesRemaining > 0 {
@@ -2832,7 +2845,7 @@ enum TerminalWindowPortalRegistry {
             if unscopedInteractiveGeometryResizeCount == 0 {
                 for (portalWindowId, portal) in portalsByWindowId
                 where interactiveGeometryResizeCountsByWindowId[portalWindowId, default: 0] == 0 {
-                    portal.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                    portal.endInteractiveGeometryPhase()
                 }
             }
             return
@@ -2844,7 +2857,7 @@ enum TerminalWindowPortalRegistry {
             // Apply the final exact renderer and PTY dimensions only in the
             // window whose pixel-only coalescing gate just cleared.
             if unscopedInteractiveGeometryResizeCount == 0 {
-                portalsByWindowId[windowId]?.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                portalsByWindowId[windowId]?.endInteractiveGeometryPhase()
             }
             // Single choke point every drag-end path funnels through (tracker
             // onEnded, legacy gesture onEnded, cursor failsafe): observers
