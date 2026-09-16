@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { getClientConfig, type ClientConfig, type ClientConfigFlagValue } from "./client-config";
+import { FEATURE_FLAGS } from "./feature-flags";
 
 export type ClientConfigFlagDefinition<Value> = {
   readonly key: string;
@@ -117,4 +118,5 @@ export const clientConfigFlags = {
   cmuxForAndroid: booleanClientConfigFlag("cmux-for-android"),
   mobileConnectButtonEnabledRelease: booleanClientConfigFlag("mobile-connect-button-enabled-release"),
   iosArtifactChipEnabledRelease: booleanClientConfigFlag("ios-artifact-chip-enabled-release", true),
+  goPlanEnabledRelease: booleanClientConfigFlag(FEATURE_FLAGS.goPlan.key, false),
 } as const;

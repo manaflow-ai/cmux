@@ -150,7 +150,7 @@ function checkoutInput(customerId = "cus_123") {
         data: [
           {
             current_period_end: 1_800_000_000,
-            price: { id: "price_123" },
+            price: { id: "price_123", lookup_key: "cmux-pro-monthly-50" },
           },
         ],
       },
@@ -3251,7 +3251,7 @@ function userSubscriptionUpdate({ status }: { status: string }) {
       data: [
         {
           current_period_end: 1_800_000_000,
-          price: { id: "price_123" },
+          price: { id: "price_123", lookup_key: "cmux-pro-monthly-50" },
         },
       ],
     },
