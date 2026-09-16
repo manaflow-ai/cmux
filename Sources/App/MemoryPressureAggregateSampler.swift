@@ -40,7 +40,7 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
             ProcessInfo.processInfo.physicalMemory
         },
         availableMemoryProvider: @escaping @Sendable () -> UInt64? = {
-            DarwinSystemMemorySnapshot.capture()?.availableBytes
+            DarwinSystemMemorySnapshot()?.availableBytes
         }
     ) {
         self.processID = processID

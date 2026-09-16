@@ -13,8 +13,8 @@ public struct DarwinSystemMemorySnapshot: Equatable, Sendable {
     public let compressedLogicalBytes: UInt64
 
     /// Reads a full host VM snapshot and releases the temporary host port right.
-    /// - Returns: Current counters, or `nil` when host statistics are unavailable.
-    public static func capture() -> Self? {
+    /// Fails when host statistics are unavailable.
+    public init?() {
         var statistics = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(
             MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size
@@ -31,14 +31,12 @@ public struct DarwinSystemMemorySnapshot: Equatable, Sendable {
         var hostPageSize: vm_size_t = 0
         guard host_page_size(host, &hostPageSize) == KERN_SUCCESS, hostPageSize > 0 else { return nil }
         let pageSize = UInt64(hostPageSize)
-        return Self(
-            freeBytes: UInt64(statistics.free_count) * pageSize,
-            availableBytes: (UInt64(statistics.free_count)
-                + UInt64(statistics.inactive_count)
-                + UInt64(statistics.speculative_count)) * pageSize,
-            compressorBytes: UInt64(statistics.compressor_page_count) * pageSize,
-            compressedLogicalBytes: statistics.total_uncompressed_pages_in_compressor * pageSize
-        )
+        freeBytes = UInt64(statistics.free_count) * pageSize
+        availableBytes = (UInt64(statistics.free_count)
+            + UInt64(statistics.inactive_count)
+            + UInt64(statistics.speculative_count)) * pageSize
+        compressorBytes = UInt64(statistics.compressor_page_count) * pageSize
+        compressedLogicalBytes = statistics.total_uncompressed_pages_in_compressor * pageSize
     }
 
     /// Returns numeric diagnostic fields and fixed measurement-source labels.

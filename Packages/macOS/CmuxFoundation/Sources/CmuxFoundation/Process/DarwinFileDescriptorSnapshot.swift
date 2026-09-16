@@ -12,8 +12,8 @@ public struct DarwinFileDescriptorSnapshot: Sendable {
 
     /// Samples allocated table slots and enumerates current descriptors.
     /// - Parameter processID: Process to inspect; defaults to the caller.
-    /// - Returns: Counts with explicit completeness after at most three reads.
-    public static func capture(processID: pid_t = getpid()) -> Self {
+    /// Records explicit completeness after at most three reads.
+    public init(processID: pid_t = getpid()) {
         var info = proc_bsdinfo()
         let infoSize = MemoryLayout<proc_bsdinfo>.stride
         let tableCapacity = proc_pidinfo(
@@ -22,7 +22,8 @@ public struct DarwinFileDescriptorSnapshot: Sendable {
         let stride = MemoryLayout<proc_fdinfo>.stride
         let initialBytes = proc_pidinfo(processID, PROC_PIDLISTFDS, 0, nil, 0)
         guard tableCapacity != nil, initialBytes > 0 else {
-            return Self(tableCapacity: tableCapacity, typeCounts: [:], isComplete: false)
+            self.init(tableCapacity: tableCapacity, typeCounts: [:], isComplete: false)
+            return
         }
         var capacity = max(32, Int(initialBytes) / stride + 32)
         var typeCounts: [String: Int] = [:]
@@ -35,14 +36,21 @@ public struct DarwinFileDescriptorSnapshot: Sendable {
             guard bytes > 0, Int(bytes) % stride == 0 else { break }
             typeCounts = [:]
             for record in records.prefix(min(capacity, Int(bytes) / stride)) {
-                typeCounts[typeName(record.proc_fdtype), default: 0] += 1
+                typeCounts[Self.typeName(record.proc_fdtype), default: 0] += 1
             }
             if Int(bytes) < capacity * stride {
-                return Self(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: true)
+                self.init(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: true)
+                return
             }
             capacity *= 2
         }
-        return Self(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: false)
+        self.init(tableCapacity: tableCapacity, typeCounts: typeCounts, isComplete: false)
+    }
+
+    private init(tableCapacity: Int?, typeCounts: [String: Int], isComplete: Bool) {
+        self.tableCapacity = tableCapacity
+        self.typeCounts = typeCounts
+        self.isComplete = isComplete
     }
 
     /// Returns sanitized counts, keeping capacity distinct from actual open count.

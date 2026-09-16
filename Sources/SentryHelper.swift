@@ -109,13 +109,13 @@ func sentryRefreshMemoryContext(reason: String) async {
     let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let residentMemorySource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
     let surfaceSnapshot = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
-    let systemMemory = DarwinSystemMemorySnapshot.capture()
+    let systemMemory = DarwinSystemMemorySnapshot()
     let aggregate = DarwinMemoryPressureAggregateSampler(
         snapshotProvider: { processSnapshot },
         availableMemoryProvider: { systemMemory?.availableBytes }
     ).sample(at: processSnapshot.sampledAt)
     let descendants = MemoryResourceDiagnostics(snapshot: processSnapshot, appPID: pid)
-    let descriptors = DarwinFileDescriptorSnapshot.capture()
+    let descriptors = DarwinFileDescriptorSnapshot()
     guard !Task.isCancelled else { return }
 
     await MainActor.run {

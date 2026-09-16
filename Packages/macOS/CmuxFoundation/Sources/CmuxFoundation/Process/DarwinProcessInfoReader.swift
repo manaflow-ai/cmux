@@ -1,8 +1,19 @@
 import Darwin
 
-extension DarwinProcessListing {
+/// Reads detailed topology, falling back to public kernel identity when libproc denies it.
+struct DarwinProcessInfoReader {
+    func readBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
+        var info = proc_bsdinfo()
+        let size = MemoryLayout<proc_bsdinfo>.stride
+        if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(size)) == size { return info }
+        // libproc denies detailed records for other users, even though the
+        // public process topology is readable. Keep those parent edges so an
+        // unrelated protected process does not disable descendant accounting.
+        // Its memory remains unavailable unless the resource APIs can read it.
+        return fallbackBSDInfo(pid)
+    }
     /// Reads only the public topology and generation fields needed by the index.
-    static func fallbackBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
+    func fallbackBSDInfo(_ pid: pid_t) -> proc_bsdinfo? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         var process = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride

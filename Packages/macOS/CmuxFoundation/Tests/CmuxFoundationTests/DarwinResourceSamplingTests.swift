@@ -6,7 +6,7 @@ import Testing
 struct DarwinResourceSamplingTests {
     @Test("Unreadable process topology remains explicitly incomplete")
     func missingTopology() {
-        let listing = DarwinProcessListing.capture(
+        let listing = DarwinProcessEnumerator(
             listPIDs: { pointer, _ in
                 guard let pointer else { return 2 }
                 let pids = pointer.assumingMemoryBound(to: pid_t.self)
@@ -20,7 +20,7 @@ struct DarwinResourceSamplingTests {
                 info.pbi_pid = UInt32(pid)
                 return info
             }
-        )
+        ).capture()
         #expect(!listing.isComplete)
         #expect(listing.missingProcessCount == 1)
     }
@@ -28,7 +28,7 @@ struct DarwinResourceSamplingTests {
     @Test("Truncated PID buffers remain incomplete after bounded retries")
     func growingProcessTableFailsClosed() {
         var readCount = 0
-        let listing = DarwinProcessListing.capture(
+        let listing = DarwinProcessEnumerator(
             listPIDs: { pointer, bytes in
                 guard let pointer else { return 1 }
                 readCount += 1
@@ -42,7 +42,7 @@ struct DarwinResourceSamplingTests {
                 info.pbi_pid = UInt32(pid)
                 return info
             }
-        )
+        ).capture()
         #expect(readCount == 3)
         #expect(!listing.isComplete)
         #expect(!listing.processes.isEmpty)
@@ -50,7 +50,7 @@ struct DarwinResourceSamplingTests {
 
     @Test("Topology fallback preserves kernel parent and process generation")
     func publicTopologyFallbackRetainsIdentity() throws {
-        let info = try #require(DarwinProcessListing.fallbackBSDInfo(getpid()))
+        let info = try #require(DarwinProcessInfoReader().fallbackBSDInfo(getpid()))
         #expect(info.pbi_pid == UInt32(getpid()))
         #expect(info.pbi_ppid == UInt32(getppid()))
         #expect(info.pbi_pgid == UInt32(getpgrp()))
@@ -64,12 +64,12 @@ struct DarwinResourceSamplingTests {
             try? pipe.fileHandleForReading.close()
             try? pipe.fileHandleForWriting.close()
         }
-        let sample = DarwinFileDescriptorSnapshot.capture()
+        let sample = DarwinFileDescriptorSnapshot()
         try #require(sample.isComplete)
         #expect(sample.typeCounts["pipe", default: 0] >= 2)
         let tableCapacity = try #require(sample.tableCapacity)
         #expect(tableCapacity >= sample.typeCounts.values.reduce(0, +))
-        #expect(DarwinFileDescriptorSnapshot.capture(processID: -1).isComplete == false)
+        #expect(DarwinFileDescriptorSnapshot(processID: -1).isComplete == false)
     }
 
 }
