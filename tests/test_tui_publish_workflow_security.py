@@ -1598,6 +1598,68 @@ def test_stable_release_builds_and_tests_once_before_dispatching_publishers() ->
         assert "workflow_call:" not in workflow(name)
 
 
+def test_tui_delivery_is_checked_independently_of_artifact_completion() -> None:
+    delivery = workflow("cmux-tui-release-delivery.yml")
+    triggers = workflow_triggers(delivery)
+    assert triggers["workflow_run"]["workflows"] == ["cmux-tui release binaries"]
+    assert "schedule" in triggers
+    assert "contents: read" in delivery
+    assert "contents: write" not in delivery
+    assert "check_release_delivery.py" in delivery
+    assert "head_sha" not in delivery
+    assert "persist-credentials: false" in delivery
+    build = workflow("cmux-tui-build-package.yml")
+    wheel_smoke = build.split("- name: Smoke verify PyPI wheels", 1)[1].split("- name:", 1)[0]
+    assert "/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json" in wheel_smoke
+    assert '"build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]' in wheel_smoke
+    assert '"distribution_version": os.environ["NPM_VERSION"]' in wheel_smoke
+
+
+def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
+    document = yaml.safe_load(workflow("cmux-tui-build-package.yml"))
+    smoke = next(
+        step["run"]
+        for job in document["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Smoke verify PyPI wheels"
+    )
+    validation = smoke.rsplit("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    expected = {"build_identity": "a" * 40, "distribution_version": "0.13.2"}
+    env = dict(os.environ, NPM_VERSION="0.13.2", CMUX_TUI_EXPECTED_BUILD_IDENTITY="a" * 40)
+    for key in (None, "build_identity", "distribution_version"):
+        probe = dict(expected)
+        if key:
+            probe[key] = "stale"
+        result = subprocess.run(
+            ["python3", "-c", validation],
+            env=dict(env, CMUX_TUI_WHEEL_PROBE=json.dumps(probe)),
+            capture_output=True,
+            text=True,
+        )
+        assert (result.returncode == 0) == (key is None), result.stderr
+
+
+def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.safe_load(workflow(name))
+        assert document["jobs"]["build-package"]["with"]["build_cloudflare_relay"] is False
+    shared = workflow("cmux-tui-build-package.yml")
+    assert "if: inputs.build_cloudflare_relay" in shared
+    assert "npm audit --audit-level=high" in shared
+
+
+def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.load(workflow(name), Loader=yaml.BaseLoader)
+        assert document["on"]["workflow_dispatch"]["inputs"]["include_windows"]["default"] == "false"
+        assert document["jobs"]["build-package"]["with"]["include_windows"] == "${{ inputs.include_windows == true }}"
+    publisher = workflow("tui-publish-npm.yml")
+    assert 'if [[ -d dist/npm-packages/cmux-tui-win32-x64 ]]; then' in publisher
+    platform_block = publisher.split("packages=(", 1)[1].split(")", 1)[0]
+    assert "cmux-tui-win32-x64" not in platform_block
+    assert "packages+=(cmux-tui-win32-x64)" in publisher
+
+
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
     # family. If the coordinated TUI publish or the nightly lane ever grows a

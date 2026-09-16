@@ -14,6 +14,7 @@ on:
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
+      - ".github/workflows/cmux-tui-release-delivery.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
@@ -45,6 +46,7 @@ on:
       - ".github/workflows/cmux-tui-nightly.yml"
       - ".github/workflows/cmux-tui-release-cut.yml"
       - ".github/workflows/cmux-tui-release.yml"
+      - ".github/workflows/cmux-tui-release-delivery.yml"
       - ".github/workflows/cmux-tui-sdks.yml"
       - ".github/workflows/cmux-tui-spec.yml"
       - ".github/workflows/relay-publish-npm.yml"
@@ -130,6 +132,9 @@ jobs:
 
       - name: Test PyPI post-upload reconciliation helper
         run: bash tests/test_tui_pypi_postpublish_reconcile.sh
+
+      - name: Test TUI registry delivery check
+        run: python3 cmux-tui/scripts/test_check_release_delivery.py
 
       - name: Test TUI package artifact contract
         run: python3 tests/test_tui_package_contract.py
