@@ -43,17 +43,23 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
   test("routes an attached terminal's web URL through the durable host notification, with a headless fallback", () => {
+    let notifyPath = "";
     const attached = runShim(
       ["open-url", "HTTPS://github.com/login/device"],
       { CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
-      (directory) => writeFileSync(join(directory, "cmux-tui"), `#!/bin/sh
+      (directory) => {
+        notifyPath = join(directory, "notify-args");
+        writeFileSync(join(directory, "cmux-tui"), `#!/bin/sh
 if [ "$3" = --json ] && [ "$4" = client ] && [ "$5" = list ]; then printf '%s' '[{"attached_terminal_ids":["${TERMINAL_ID}"]}]'; exit 0; fi
 if [ "$4" = notify ]; then printf '%s\\n' "$@" >> "$HOME/notify-args"; exit 0; fi
 exit 91
-`),
+`);
+      },
     );
     expect(attached.status).toBe(0);
     expect(attached.stdout).toBe("");
+    expect(readFileSync(notifyPath, "utf8")).toContain("cmux.open-url");
+    expect(readFileSync(notifyPath, "utf8")).toContain("HTTPS://github.com/login/device");
 
     const headless = runShim(["open-url", "https://github.com/login/device"], { CMUX_TUI_TERMINAL_ID: TERMINAL_ID });
     expect(headless.status).toBe(0);
