@@ -126,6 +126,8 @@ Pi's multiline case passed on rerun after a transient terminal screen-read failu
 | V22 | [Mac rebuild run](https://github.com/manaflow-ai/cmux/actions/runs/35030862663) completed and installed tag `xfd2`; auth status still reports `aziz@manaflow.ai`. The matching iOS archive compiled and exported, and the isolated simulator install succeeded. | The physical iPhone was unavailable, so the signed app is queued with the personal account contract. It will auto-install when the phone reconnects; pairing after replacement remains pending. |
 | V23 | [Provider verification](https://github.com/manaflow-ai/cmux/actions/runs/35033730472) was dispatched against the successful Mac build. | Awaiting its complete result. |
 
+| V24 | 2026-09-16: pulled `origin/main` through `5994f5e3332` and merged it in `a496ef635cd`. The conflict was limited to the iOS localization catalog; main transport/onboarding strings and Feed strings were retained. | Focused transport sources parse. A fresh tagged runtime rebuild was started but the shared fleet process was stopped after hanging without producing an artifact; the previously installed tag remains from the earlier revision. |
+
 ## Gaps and next work
 
 These are outstanding parts of existing scope or limits that affect its acceptance. Proposed extensions are identified explicitly; they are not silently added as requirements.
