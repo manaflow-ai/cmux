@@ -23,7 +23,9 @@ private final class PortalBindLayoutCountingView: NSView {
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         let paneId = PaneID()
         let size = NSSize(width: 480, height: 320)
         let currentColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
@@ -229,9 +231,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(!usedLatestReconciliation)
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
 
         #expect(observedReasons?.contains(.bindingRequired) == true)
@@ -253,7 +253,9 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         window.contentView = container
         container.addSubview(host)
 
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         let coordinator = GhosttyTerminalView.Coordinator()
         var ownsPane = true
         coordinator.attachGeneration = 1
@@ -284,7 +286,6 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             panel.surface.teardownSurface()
         }
 
-        panel.hostedView.setVisibleInUI(true)
         window.orderFront(nil)
         window.displayIfNeeded()
         GhosttyTerminalView.stagePortalReconciliation(
@@ -348,8 +349,10 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         container.addSubview(firstAnchor)
         container.addSubview(secondAnchor)
 
-        let firstPanel = TerminalPanel(workspaceId: UUID())
-        let secondPanel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let firstPanel = TerminalPanel(workspaceId: workspace.id)
+        let secondPanel = TerminalPanel(workspaceId: workspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
@@ -411,7 +414,9 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         let anchor = NSView(frame: container.bounds)
         window.contentView = container
         container.addSubview(anchor)
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
@@ -428,13 +433,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             expectedGeneration: panel.surface.portalBindingGeneration()
         )
         panel.hostedView.setVisibleInUI(true)
+        await waitForLiveSurface(panel.surface)
         await flushPortalReconciliationPasses()
         window.displayIfNeeded()
         container.layoutSubtreeIfNeeded()
         panel.hostedView.layoutSubtreeIfNeeded()
         _ = panel.hostedView.reconcileGeometryNow()
         _ = panel.hostedView.surfaceView.forceRefreshSurface()
-        await waitForLiveSurface(panel.surface)
         @MainActor func terminalSize() throws -> CGSize {
             let sample = try #require(panel.surface.rawSizingSample())
             return CGSize(width: CGFloat(sample.surfaceWidthPx), height: CGFloat(sample.surfaceHeightPx))
@@ -521,17 +526,13 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         await flushPortalReconciliationTurn()
         for _ in 0..<4 {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                DispatchQueue.main.async {
-                    continuation.resume()
-                }
+                DispatchQueue.main.async { continuation.resume() }
             }
         }
     }
     private func flushPortalReconciliationTurn() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
     }
     private func waitForLiveSurface(_ surface: TerminalSurface) async {
@@ -543,7 +544,6 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             surface.requestInputDemandSurfaceStartIfNeeded()
         }
     }
-
     private func shapeLayers(in layer: CALayer?) -> [CAShapeLayer] {
         guard let layer else { return [] }
         return ((layer as? CAShapeLayer).map { [$0] } ?? [])
