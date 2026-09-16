@@ -685,7 +685,7 @@ enum CloudTreeNodeBuilder {
     static func nodeID(browsersGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/browsers" }
     static func nodeID(portsGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ports" }
     static func nodeID(resourcesPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/resources" }
-    static func nodeID(resource machine: SurfaceMachineID, metric: CloudTreeMachineResourceRow.Metric) -> String { "machine:\(machine.rawValue)/resources/\(metric.rawValue)" }
+    static func nodeID(resource machine: SurfaceMachineID, metric: CloudTreeMachineResourceMetric) -> String { "machine:\(machine.rawValue)/resources/\(metric.rawValue)" }
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
 
     // MARK: This Mac

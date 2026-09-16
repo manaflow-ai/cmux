@@ -26,7 +26,7 @@ struct CloudTreeMachineResourceSection: Equatable {
     }
 
     private func row(
-        metric: CloudTreeMachineResourceRow.Metric,
+        metric: CloudTreeMachineResourceMetric,
         title: String,
         detail: String,
         icon: String
