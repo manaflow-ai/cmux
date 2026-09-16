@@ -1358,7 +1358,7 @@ struct WorkspaceShellView: View {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
-        let buildLabelsByID = WorkspaceMachineSnapshots.buildLabelsByID(
+        let buildLabelsByID = WorkspaceMachineSnapshots.BuildLabelResolver().labels(
             workspaces: store.workspaces,
             existing: store.pairedMacBuildLabelsByEntryID()
         )

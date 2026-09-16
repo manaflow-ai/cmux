@@ -54,7 +54,7 @@ import Testing
             ),
         ]
 
-        let labels = WorkspaceMachineSnapshots.buildLabelsByID(
+        let labels = WorkspaceMachineSnapshots.BuildLabelResolver().labels(
             workspaces: workspaces,
             existing: [:]
         )

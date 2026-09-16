@@ -10,30 +10,37 @@ struct WorkspaceMachineSnapshots: Equatable {
 
     static let empty = WorkspaceMachineSnapshots(filterMachines: [], macPickerMachines: [])
 
-    /// Merges authoritative paired-Mac labels with labels carried by workspace
-    /// previews, which are available before the paired-Mac cache loads.
-    nonisolated static func buildLabelsByID(
-        workspaces: [MobileWorkspacePreview],
-        existing: [String: String]
-    ) -> [String: String] {
-        var labels = existing
-        let channel = MacBuildChannel()
-        for workspace in workspaces {
-            guard let macDeviceID = workspace.macDeviceID,
-                  let instanceTag = workspace.macInstanceTag,
-                  !instanceTag.isEmpty else {
-                continue
-            }
-            let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-            if labels[pairingID] == nil,
-               let label = channel.label(bundleID: nil, tag: instanceTag) {
-                labels[pairingID] = label
-            }
+    /// Resolves workspace-provided labels before the paired-Mac cache loads.
+    struct BuildLabelResolver {
+        private let channel: MacBuildChannel
+
+        init(channel: MacBuildChannel = MacBuildChannel()) {
+            self.channel = channel
         }
-        return labels
+
+        /// Merges authoritative paired-Mac labels with workspace preview tags.
+        nonisolated func labels(
+            workspaces: [MobileWorkspacePreview],
+            existing: [String: String]
+        ) -> [String: String] {
+            var labels = existing
+            for workspace in workspaces {
+                guard let macDeviceID = workspace.macDeviceID,
+                      let instanceTag = workspace.macInstanceTag,
+                      !instanceTag.isEmpty else {
+                    continue
+                }
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+                if labels[pairingID] == nil,
+                   let label = channel.label(bundleID: nil, tag: instanceTag) {
+                    labels[pairingID] = label
+                }
+            }
+            return labels
+        }
     }
 
     init(filterMachines: [WorkspaceFilterMachine], macPickerMachines: [WorkspaceFilterMachine]) {
