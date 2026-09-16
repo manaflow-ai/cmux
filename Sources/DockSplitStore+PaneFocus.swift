@@ -362,7 +362,7 @@ extension DockSplitStore {
         if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
         if let hostedWindow = panels.values.lazy.compactMap({ panel in
             (panel as? TerminalPanel)?.hostedView.window
-        }.first) {
+        }).first {
             return hostedWindow
         }
         // Programmatic divider-session notifications (and deterministic tests)
