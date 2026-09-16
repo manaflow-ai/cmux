@@ -44,16 +44,22 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }
   const distinctId = normalizeDistinctId(body.value.distinctId);
+  // Admission applies to each caller, including cache hits and callers that
+  // join an in-flight evaluation. Only PostHog work is shared and cached.
+  const rateLimitResponse = await checkClientConfigRateLimit(rateLimitRequest, distinctId);
+  if (rateLimitResponse?.kind === "response") {
+    return json(rateLimitResponse.body, rateLimitResponse.status, rateLimitResponse.headers);
+  }
   const context = normalizeClientConfigEvaluationContext(body.value.context);
   const cacheKey = clientConfigCacheKey(distinctId, context);
   const result = cacheKey
     ? await loadClientConfigOnce(cacheKey, async () => {
       const config = isVercelRuntime() ? await readCachedClientConfig(cacheKey) : undefined;
-      // Exact evaluations need neither another limiter check nor PostHog call.
+      // Reuse the exact evaluation after this request passes admission.
       if (config) return { kind: "config", config, cacheStatus: "hit" };
-      return await fetchClientConfig(rateLimitRequest, cacheKey, distinctId, context);
+      return await fetchClientConfig(cacheKey, distinctId, context);
     })
-    : await fetchClientConfig(rateLimitRequest, cacheKey, distinctId, context);
+    : await fetchClientConfig(cacheKey, distinctId, context);
   return result.kind === "config"
     ? json(result.config, 200, { "x-cmux-client-config-cache": result.cacheStatus ?? "miss" })
     : json(result.body, result.status, result.headers);
@@ -144,13 +150,10 @@ async function checkClientConfigRateLimit(
 }
 
 async function fetchClientConfig(
-  request: Request,
   cacheKey: string | undefined,
   distinctId: string,
   context: ReturnType<typeof normalizeClientConfigEvaluationContext>,
 ): Promise<ClientConfigResult> {
-  const rateLimitResponse = await checkClientConfigRateLimit(request, distinctId);
-  if (rateLimitResponse) return rateLimitResponse;
   try {
     const response = await fetch(postHogFlagsUrl(), {
       method: "POST",
