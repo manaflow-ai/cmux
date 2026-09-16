@@ -526,7 +526,7 @@ struct PostHogAnalyticsPropertiesTests {
         var capturedEvents: [(event: String, properties: [String: Any])] = []
         let eventsCaptured = DispatchSemaphore(value: 0)
         let flushCalled = DispatchSemaphore(value: 0)
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
             userDefaults: defaults,
@@ -578,7 +578,7 @@ struct PostHogAnalyticsPropertiesTests {
         let flushRanOnMainThread = DispatchSemaphore(value: 0)
         let flushRanOffMainThread = DispatchSemaphore(value: 0)
         let callerReturned = DispatchSemaphore(value: 0)
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: DispatchQueue(label: "com.cmux.tests.posthog.analytics"),
             didStart: true,
             userDefaults: defaults,
@@ -786,7 +786,7 @@ struct PostHogAnalyticsPropertiesTests {
         let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.analytics")
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.capture")
         var capturedEvents: [(event: String, properties: [String: Any])] = []
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: workQueue,
             didStart: true,
             userDefaults: defaults,
@@ -851,7 +851,7 @@ struct PostHogAnalyticsPropertiesTests {
         let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.native")
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.native.captures")
         var captured: [String: Any] = [:]
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: workQueue, didStart: true, userDefaults: defaults,
             now: { Date(timeIntervalSince1970: 2_000) },
             capturePostHog: { _, properties in capturedQueue.sync { captured = properties } },
@@ -882,7 +882,7 @@ struct PostHogAnalyticsPropertiesTests {
         let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.xctest.analytics")
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.xctest.capture")
         var capturedEvents: [String] = []
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: workQueue,
             didStart: false,
             userDefaults: defaults,
@@ -918,7 +918,7 @@ struct PostHogAnalyticsPropertiesTests {
         let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.disabled.analytics")
         let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.disabled.capture")
         var capturedEvents: [String] = []
-        let analytics = PostHogAnalytics.makeForTesting(
+        let analytics = PostHogAnalytics(
             workQueue: workQueue,
             didStart: false,
             userDefaults: defaults,

@@ -37,7 +37,7 @@ final class PostHogAnalytics: @unchecked Sendable {
     private var didStart: Bool
     private var activeCheckTimer: Timer?
 
-    private init(
+    init(
         workQueue: DispatchQueue = DispatchQueue(label: "com.cmux.posthog.analytics", qos: .utility),
         didStart: Bool = false,
         userDefaults: UserDefaults = .standard,
@@ -63,30 +63,6 @@ final class PostHogAnalytics: @unchecked Sendable {
         utcDayFormatter = Self.makeUTCFormatter("yyyy-MM-dd")
         workQueue.setSpecific(key: workQueueSpecificKey, value: ())
     }
-
-#if DEBUG
-    static func makeForTesting(
-        workQueue: DispatchQueue,
-        didStart: Bool,
-        userDefaults: UserDefaults,
-        now: @escaping @Sendable () -> Date,
-        capturePostHog: @escaping @Sendable (String, [String: Any]) -> Void,
-        flushPostHog: @escaping @Sendable () -> Void,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
-    ) -> PostHogAnalytics {
-        PostHogAnalytics(
-            workQueue: workQueue,
-            didStart: didStart,
-            userDefaults: userDefaults,
-            now: now,
-            capturePostHog: capturePostHog,
-            flushPostHog: flushPostHog,
-            environment: environment,
-            telemetryEnabled: telemetryEnabled
-        )
-    }
-#endif
 
     private var isEnabled: Bool {
         // XCTest hosts can inherit the production PostHog configuration. Keep
