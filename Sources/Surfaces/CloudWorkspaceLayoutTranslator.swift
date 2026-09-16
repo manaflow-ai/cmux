@@ -84,7 +84,7 @@ enum CloudWorkspaceLayoutTranslator {
         var trees: [SurfaceProjectionLayout] = []
         for screen in tables.screens {
             guard let document = screen.layout else { return nil }
-            let root = document["root"] ?? (document["kind"] != nil ? document : nil)
+            let root: Any? = document["root"] ?? (document["kind"] != nil ? (document as Any) : nil)
             do {
                 if let tree = try build(root, screen: screen, tables: tables) { trees.append(tree) }
             } catch {
