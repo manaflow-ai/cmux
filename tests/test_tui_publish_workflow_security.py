@@ -1611,8 +1611,32 @@ def test_tui_delivery_is_checked_independently_of_artifact_completion() -> None:
     build = workflow("cmux-tui-build-package.yml")
     wheel_smoke = build.split("- name: Smoke verify PyPI wheels", 1)[1].split("- name:", 1)[0]
     assert "/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json" in wheel_smoke
-    assert 'probe.get("build_identity")' in wheel_smoke
-    assert 'probe.get("distribution_version")' in wheel_smoke
+    assert '"build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"]' in wheel_smoke
+    assert '"distribution_version": os.environ["NPM_VERSION"]' in wheel_smoke
+
+
+def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
+    document = yaml.safe_load(workflow("cmux-tui-build-package.yml"))
+    smoke = next(
+        step["run"]
+        for job in document["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "Smoke verify PyPI wheels"
+    )
+    validation = smoke.rsplit("python3 - <<'PY'\n", 1)[1].split("\nPY", 1)[0]
+    expected = {"build_identity": "a" * 40, "distribution_version": "0.13.2"}
+    env = dict(os.environ, NPM_VERSION="0.13.2", CMUX_TUI_EXPECTED_BUILD_IDENTITY="a" * 40)
+    for key in (None, "build_identity", "distribution_version"):
+        probe = dict(expected)
+        if key:
+            probe[key] = "stale"
+        result = subprocess.run(
+            ["python3", "-c", validation],
+            env=dict(env, CMUX_TUI_WHEEL_PROBE=json.dumps(probe)),
+            capture_output=True,
+            text=True,
+        )
+        assert (result.returncode == 0) == (key is None), result.stderr
 
 
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
