@@ -31,6 +31,13 @@ const { POST } = await import("../app/api/client-config/route");
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
 
+async function waitForMockCalls(mockFn: { mock: { calls: unknown[] } }, count: number): Promise<void> {
+  for (let turns = 0; turns < 100 && mockFn.mock.calls.length < count; turns += 1) {
+    await Promise.resolve();
+  }
+  expect(mockFn.mock.calls.length).toBeGreaterThanOrEqual(count);
+}
+
 beforeEach(() => {
   process.env.VERCEL_DEPLOYMENT_ID = "client-config-route-tests";
   const entries = new Map<string, unknown>();
@@ -466,9 +473,9 @@ describe("client config", () => {
     });
 
     const firstPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForMockCalls(fetchMock, 1);
     const secondPromise = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForMockCalls(checkRateLimit, 2);
 
     releaseFetch();
     const [first, second] = await Promise.all([firstPromise, secondPromise]);
@@ -497,10 +504,10 @@ describe("client config", () => {
     });
 
     const allowed = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForMockCalls(fetchMock, 1);
     checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
     const blocked = POST(request());
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForMockCalls(checkRateLimit, 2);
     releaseFetch();
     const [allowedResponse, blockedResponse] = await Promise.all([allowed, blocked]);
 
