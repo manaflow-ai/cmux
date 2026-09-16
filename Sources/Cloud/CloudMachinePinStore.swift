@@ -36,18 +36,26 @@ final class CloudMachinePinStore {
 
     /// Returns whether an immutable machine identity is pinned in the active scope.
     func isPinned(_ machineID: String) -> Bool {
-        syncScope()
         return pinnedMachineIDs.contains(machineID)
     }
 
     /// Orders machine identities with pinned machines first while preserving stable order.
     func orderedMachineIDs(_ machineIDs: [String]) -> [String] {
-        syncScope()
         let current = scopes[activeScope ?? ""] ?? CloudMachinePinStoreState()
         var seen = Set<String>()
         let order = current.order.filter { machineIDs.contains($0) && seen.insert($0).inserted }
             + machineIDs.filter { seen.insert($0).inserted }
         return order.filter { current.pinned.contains($0) } + order.filter { !current.pinned.contains($0) }
+    }
+
+    /// Records newly visible machines without treating a partial catalog as a deletion.
+    func remember(machineIDs: [String]) {
+        syncScope()
+        guard let scope = activeScope else { return }
+        var current = scopes[scope] ?? CloudMachinePinStoreState()
+        var seen = Set(current.order)
+        current.order += machineIDs.filter { seen.insert($0).inserted }
+        commit(current, scope: scope)
     }
 
     /// Reconciles the persisted order and removes identities confirmed absent by a full list.

@@ -833,6 +833,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
+    lazy var cloudMachinePinStore = CloudMachinePinStore(defaults: .standard, scopeProvider: { [weak self] in
+        guard let flow = self?.auth?.accountFlow,
+              let userID = flow.currentIdentity?.id, !userID.isEmpty else { return nil }
+        return "user:\(userID)|team:\(flow.selectedTeamID ?? "personal")"
+    })
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?
     var cloudWorkspaceOperationController: CloudWorkspaceOperationController?
     var newMachineSheetPresenter: (any NewMachineSheetPresenting)?

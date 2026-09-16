@@ -555,18 +555,8 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
-        // Creates the person just started go first: they are what the person is
-        // waiting on, and a failed one must not hide below a long fleet. A
-        // create whose machine the fleet list or the catalog already returned
-        // has a real row now and drops its stand-in (never the same machine
-        // twice while the CLI is still opening it).
-        for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
-            nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
-        }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var seen = Set<String>()
-        for machine in machines {
-            seen.insert(machine.id)
+        for machine in MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: snapshot) {
             let info = infoByMachine[.cloud(machine.id)]
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: .cloud(machine.id)),
@@ -580,29 +570,11 @@ enum CloudTreeNodeBuilder {
                 isPinned: machine.isPinned
             ))
         }
-        // Machines the catalog knows but the fleet list has not returned yet (or
-        // returned under another name) still get a row so their surfaces are reachable.
-        for info in snapshot.machines where !info.id.isLocal {
-            guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
-            let placeholderSnapshot = MachineSnapshot(
-                id: id,
-                provider: "",
-                image: info.image ?? "",
-                isDesktop: info.hasDesktop,
-                activity: MachineSnapshotBuilder.activity(fromStatus: info.status),
-                createdAt: nil,
-                label: info.name == id ? nil : info.name
-            )
-            nodes.append(CloudTreeNode(
-                id: nodeID(machine: info.id),
-                kind: .machine(placeholderSnapshot, info),
-                children: cloudChildren(
-                    machine: info.id,
-                    info: info,
-                    snapshot: snapshot,
-                    projectionIndex: projectionIndex
-                )
-            ))
+        // New creates append below the existing fleet. Their stand-in disappears
+        // once the list or catalog supplies the real machine, without shifting
+        // any existing machine above or below its neighbors.
+        for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
+            nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         return nodes
     }

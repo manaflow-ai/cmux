@@ -133,7 +133,9 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
         #expect(recorder.deletions == [Self.machineID])
-        #expect(recorder.pinChanges == [(Self.machineID, true)])
+        #expect(recorder.pinChanges.count == 1)
+        #expect(recorder.pinChanges.first?.0 == Self.machineID)
+        #expect(recorder.pinChanges.first?.1 == true)
     }
 
     @Test("A nested terminal activates its owning Cloud workspace for click and Return")
@@ -228,6 +230,73 @@ struct CloudTreeMachineMenuTests {
         })
         await controller.waitForPendingOperations()
         #expect(executions == 1)
+    }
+
+    @Test("catalog-only machine pins update the real menu, survive refresh, and append discoveries")
+    func catalogMachinePinsRoundTripThroughSidebar() throws {
+        let suite = "cloud-sidebar-pin-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:test|team:one" })
+        var catalog = Self.catalog(["older", "pin-me"])
+        let creates = MachineCreateCoordinator(notifier: { _ in })
+        let model = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        let recorder = CloudTreeMenuVerbRecorder()
+        var actions = Self.machineActions(recording: recorder)
+        actions.setPinned = { id, pinned in model.setMachinePinned(pinned, id: id) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: actions,
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        func render() {
+            coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+                machines: model.sidebarMachines, snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
+            ))
+        }
+        render()
+        let outline = try #require(coordinator.outlineView)
+        let pinRow = outline.row(forItem: try #require(coordinator.nodes.last))
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: pinRow)))
+        render()
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older"])
+        #expect(coordinator.nodes.first?.isPinned == true)
+        let pinnedMenu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(pinnedMenu.items.contains { $0.title == Self.title("machines.row.unpin", "Unpin Machine") })
+
+        catalog = Self.catalog(["new", "older", "pin-me"])
+        model.readCatalog()
+        render()
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older", "new"])
+        let secondPanel = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        secondPanel.localWorkspacesProvider = { [] }
+        secondPanel.readCatalog()
+        #expect(secondPanel.sidebarMachines.map(\.id) == ["pin-me", "older", "new"])
+        secondPanel.setMachinePinned(false, id: "pin-me")
+        render()
+        #expect(coordinator.nodes.first?.isPinned == false)
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older", "new"])
+        model.setMachinePinned(true, id: "new")
+        let restored = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:test|team:one" })
+        #expect(restored.isPinned("new"))
+        #expect(restored.orderedMachineIDs(["older", "new", "pin-me"]) == ["new", "pin-me", "older"])
+    }
+
+    private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
+        SurfaceCatalogSnapshot(machines: ids.map { id in
+            SurfaceMachineInfo(
+                id: .cloud(id), name: id, status: "running", image: nil, hasDesktop: false,
+                memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }, resources: [], projections: [])
     }
 
     @Test("expired machines still allow local pinning")

@@ -14,7 +14,7 @@ import CmuxCloudMachines
 /// rows with their live shortcut hints, and the shared action every
 /// entrypoint routes through.
 @MainActor
-@Suite("New Cloud Workspace shortcut")
+@Suite("New Cloud Workspace shortcut", .serialized)
 final class NewCloudWorkspaceShortcutTests {
     private final class RecordingSheetPresenter: NewMachineSheetPresenting {
         private(set) var presentCount = 0
@@ -43,7 +43,7 @@ final class NewCloudWorkspaceShortcutTests {
     private var originalCloudRemoteOverride: Bool?
     private var originalBrowserDisabled: Any?
 
-    init() {
+    private func setUp() {
         originalFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "new-cloud-workspace")
         let defaults = UserDefaults.standard
         originalCloudOptIn = defaults.object(forKey: Self.cloudOptInKey)
@@ -55,7 +55,7 @@ final class NewCloudWorkspaceShortcutTests {
         }
     }
 
-    deinit {
+    private func tearDown() {
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         if let originalFileStore {
             KeyboardShortcutSettings.settingsFileStore = originalFileStore
@@ -94,6 +94,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testDefaultShortcutIsCommandYAndDoesNotCollide() {
+        setUp()
+        defer { tearDown() }
         let action = KeyboardShortcutSettings.Action.newCloudWorkspace
         #expect(action.label == "New Cloud Workspace")
         #expect(action.defaultsKey == "shortcut.newCloudWorkspace")
@@ -117,6 +119,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testNewCloudMachineUsesCommandShiftY() {
+        setUp()
+        defer { tearDown() }
         let action = KeyboardShortcutSettings.Action.newCloudMachine
         #expect(action.defaultShortcut == StoredShortcut(key: "y", command: true, shift: true, option: false, control: false))
         #expect(action.label == "New Cloud Machine")
@@ -124,6 +128,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testSettingsPackageActionStaysAligned() throws {
+        setUp()
+        defer { tearDown() }
         let settingsAction = try #require(ShortcutAction(rawValue: KeyboardShortcutSettings.Action.newCloudWorkspace.rawValue))
         #expect(settingsAction.defaultStroke == ShortcutStroke(key: "y", command: true))
         #expect(settingsAction.displayName == KeyboardShortcutSettings.Action.newCloudWorkspace.label)
@@ -133,6 +139,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testRebindPersistsThroughSettingsAPI() {
+        setUp()
+        defer { tearDown() }
         let rebound = StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
         KeyboardShortcutSettings.setShortcut(rebound, for: .newCloudWorkspace)
         #expect(KeyboardShortcutSettings.shortcut(for: .newCloudWorkspace) == rebound)
@@ -147,6 +155,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testBuiltInActionResolvesFromConfigAndMapsToShortcut() {
+        setUp()
+        defer { tearDown() }
         #expect(CmuxSurfaceTabBarBuiltInAction(configID: "cmux.newCloudWorkspace") == .newCloudWorkspace)
         #expect(CmuxSurfaceTabBarBuiltInAction(configID: "newCloudWorkspace") == .newCloudWorkspace)
         #expect(CmuxSurfaceTabBarBuiltInAction(configID: "cmux.newCloudMachine") == .newCloudMachine)
@@ -203,6 +213,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testDefaultPlusMenuListsStandardRowsWithShortcutHints() throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         try withDefaultPlusMenu { menu in
             let rows = builtInMenuRows(menu)
@@ -226,6 +238,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testPlusMenuHintFollowsRebindAndUnbind() throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "k", command: true, shift: true, option: false, control: false),
@@ -247,6 +261,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testPlusMenuHidesCloudRowWhenFeatureIsOff() throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(false)
         try withDefaultPlusMenu { menu in
             let actions = builtInMenuRows(menu).map(\.action)
@@ -257,6 +273,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testPlusMenuHidesBrowserRowWhenBrowserIsDisabled() throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         UserDefaults.standard.set(true, forKey: BrowserAvailabilitySettings.disabledKey)
         try withDefaultPlusMenu { menu in
@@ -268,6 +286,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testConfiguredMenuKeepsUserOrderAndStillShowsHints() throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         let (store, root) = try loadStore(globalJSON: """
         {
@@ -291,6 +311,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testPlusMenuMachineRowExecutesSharedAction() async throws {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
 
@@ -310,6 +332,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testSharedActionDoesNotPresentSheetWhenFeatureIsOff() {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(false)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
@@ -320,6 +344,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testSharedActionDoesNotPresentSheetWhenSignedOut() {
+        setUp()
+        defer { tearDown() }
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
@@ -330,6 +356,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testCommandYRoutesThroughSharedAction() async throws {
+        setUp()
+        defer { tearDown() }
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
@@ -360,6 +388,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testCommandYCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
+        setUp()
+        defer { tearDown() }
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
@@ -401,6 +431,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testReboundKeyRoutesAndOldKeyDoesNot() async throws {
+        setUp()
+        defer { tearDown() }
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
@@ -440,6 +472,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test
     func testCommandPaletteNewMachineAdvertisesShortcut() {
+        setUp()
+        defer { tearDown() }
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: ContentView.commandPaletteCloudNewMachineCommandId) == .newCloudMachine)
     }
 

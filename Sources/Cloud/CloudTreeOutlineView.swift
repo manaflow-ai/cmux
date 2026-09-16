@@ -12,7 +12,7 @@ import SwiftUI
 /// drag whose drop projects the row as a pane in the main view.
 struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
-    /// Creates still running or failed, shown as pending rows above the fleet.
+    /// Creates still running or failed, shown as pending rows below the fleet.
     var pendingCreates: [MachineCreateOperation] = []
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
@@ -774,16 +774,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let actions = machineActions
             let nodeActions = nodeActions
             let id = machine.id
+            items.append(item(
+                machine.isPinned
+                    ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
+                    : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
+            ) {
+                actions.setPinned(id, !machine.isPinned)
+            })
             if machine.freeAccess == .expired {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
-                items.append(item(
-                    machine.isPinned
-                        ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
-                        : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
-                ) {
-                    actions.setPinned(id, !machine.isPinned)
-                })
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
                 items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {

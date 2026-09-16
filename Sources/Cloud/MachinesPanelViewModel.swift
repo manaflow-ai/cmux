@@ -231,19 +231,26 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
-    /// In-flight and failed creates appear above the fleet; the shared
+    /// In-flight and failed creates appear below the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
 
-    func setMachinePinned(_ pinned: Bool, id: String) {
-        guard machines.contains(where: { $0.id == id }) else { return }
-        machinePinStore?.setPinned(pinned, machineID: id)
-        machines = machines.map { machine in
+    /// Every visible machine uses the same pin state and remembered order, including
+    /// catalog discoveries that have not reached the list endpoint yet.
+    var sidebarMachines: [MachineSnapshot] {
+        let snapshots = MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog).map { machine in
             var next = machine
-            next.isPinned = machine.id == id ? pinned : machine.isPinned
+            next.isPinned = machinePinStore?.isPinned(machine.id) == true
             return next
         }
-        machines = orderedMachines(machines)
+        return orderedMachines(snapshots)
+    }
+
+    func setMachinePinned(_ pinned: Bool, id: String) {
+        guard let machinePinStore, sidebarMachines.contains(where: { $0.id == id }) else { return }
+        machinePinStore.remember(machineIDs: sidebarMachines.map(\.id))
+        machinePinStore.setPinned(pinned, machineID: id)
+        objectWillChange.send()
     }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
@@ -290,8 +297,14 @@ final class MachinesPanelViewModel: ObservableObject {
     private static let statsInterval: Duration = .seconds(20)
 
     let machinePinStore: CloudMachinePinStore?
+    private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
 
-    init(createCoordinator: MachineCreateCoordinator? = nil, machinePinStore: CloudMachinePinStore? = nil) {
+    init(
+        createCoordinator: MachineCreateCoordinator? = nil,
+        machinePinStore: CloudMachinePinStore? = nil,
+        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot }
+    ) {
+        self.catalogProvider = catalogProvider
         self.machinePinStore = machinePinStore
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
@@ -410,7 +423,8 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Publishes the catalog's current value and the local workspace list. Cheap
     /// (a value read), so every change notification may call it.
     func readCatalog() {
-        catalog = SurfaceCatalog.shared.snapshot
+        catalog = catalogProvider()
+        machinePinStore?.remember(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog).map(\.id))
         localWorkspaces = localWorkspacesProvider()
         // The unread index and the catalog change on the same accepted daemon
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
@@ -656,13 +670,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
-            machinePinStore?.reconcile(machineIDs: snapshots.map(\.id))
-            snapshots = snapshots.map { snapshot in
-                var next = snapshot
-                next.isPinned = machinePinStore?.isPinned(snapshot.id) == true
-                return next
-            }
-            snapshots = orderedMachines(snapshots)
+            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: catalogProvider()).map(\.id))
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()

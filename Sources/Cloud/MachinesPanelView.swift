@@ -27,12 +27,7 @@ struct MachinesPanelView: View {
     init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(machinePinStore: CloudMachinePinStore(defaults: .standard, scopeProvider: {
-                guard let flow = AppDelegate.shared?.auth?.accountFlow,
-                      let userID = flow.currentIdentity?.id,
-                      !userID.isEmpty else { return nil }
-                return "user:\(userID)|team:\(flow.selectedTeamID ?? "personal")"
-            })))
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(machinePinStore: AppDelegate.shared?.cloudMachinePinStore))
     }
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -445,7 +440,7 @@ struct MachinesPanelView: View {
             refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
-            machines: viewModel.machines,
+            machines: viewModel.sidebarMachines,
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
