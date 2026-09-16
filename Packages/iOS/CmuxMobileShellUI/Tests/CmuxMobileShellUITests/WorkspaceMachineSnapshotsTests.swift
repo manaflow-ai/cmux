@@ -54,7 +54,7 @@ import Testing
             ),
         ]
 
-        let labels = buildMacBuildLabelsByID(
+        let labels = WorkspaceMachineSnapshots.buildLabelsByID(
             workspaces: workspaces,
             existing: [:]
         )

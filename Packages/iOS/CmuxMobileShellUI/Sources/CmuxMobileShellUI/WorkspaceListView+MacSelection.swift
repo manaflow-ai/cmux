@@ -103,7 +103,7 @@ extension WorkspaceListView {
                 for: displayPairedMacsForPicker
             ) { _, _ in nil }
         }
-        return buildMacBuildLabelsByID(
+        return WorkspaceMachineSnapshots.buildLabelsByID(
             workspaces: workspaces,
             existing: labels
         )
@@ -229,7 +229,9 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 } label: {
                     menuRow(
                         title: machine.name,
-                        subtitle: machine.buildLabel,
+                        subtitle: machine.buildLabel.map {
+                            MacAppInstanceDisplayFormatter().localizedBuildLabel($0)
+                        },
                         isSelected: value.selection == selection
                     )
                 }

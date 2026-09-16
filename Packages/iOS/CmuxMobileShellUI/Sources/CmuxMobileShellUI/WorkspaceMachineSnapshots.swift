@@ -10,6 +10,32 @@ struct WorkspaceMachineSnapshots: Equatable {
 
     static let empty = WorkspaceMachineSnapshots(filterMachines: [], macPickerMachines: [])
 
+    /// Merges authoritative paired-Mac labels with labels carried by workspace
+    /// previews, which are available before the paired-Mac cache loads.
+    nonisolated static func buildLabelsByID(
+        workspaces: [MobileWorkspacePreview],
+        existing: [String: String]
+    ) -> [String: String] {
+        var labels = existing
+        let channel = MacBuildChannel()
+        for workspace in workspaces {
+            guard let macDeviceID = workspace.macDeviceID,
+                  let instanceTag = workspace.macInstanceTag,
+                  !instanceTag.isEmpty else {
+                continue
+            }
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            if labels[pairingID] == nil,
+               let label = channel.label(bundleID: nil, tag: instanceTag) {
+                labels[pairingID] = label
+            }
+        }
+        return labels
+    }
+
     init(filterMachines: [WorkspaceFilterMachine], macPickerMachines: [WorkspaceFilterMachine]) {
         self.filterMachines = filterMachines
         self.macPickerMachines = macPickerMachines
@@ -82,34 +108,6 @@ struct WorkspaceMachineSnapshots: Equatable {
             "mobile.workspaces.macPicker.titleWithBuildFormat",
             defaultValue: "%1$@ · %2$@"
         )
-        return String(format: format, machine.name, buildLabel)
+        return String(format: format, machine.name, MacAppInstanceDisplayFormatter().localizedBuildLabel(buildLabel))
     }
-}
-
-/// Fill labels for workspace-owned Mac instances before the paired-Mac cache
-/// has finished loading. Workspace previews already carry the exact instance
-/// tag, so this keeps the picker correct during shell startup; live presence
-/// or the persisted pairing label remains authoritative when it is available.
-func buildMacBuildLabelsByID(
-    workspaces: [MobileWorkspacePreview],
-    existing: [String: String]
-) -> [String: String] {
-    var labels = existing
-    let channel = MacBuildChannel()
-    for workspace in workspaces {
-        guard let macDeviceID = workspace.macDeviceID,
-              let instanceTag = workspace.macInstanceTag,
-              !instanceTag.isEmpty else {
-            continue
-        }
-        let pairingID = MobilePairedMac.pairingID(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        if labels[pairingID] == nil,
-           let label = channel.label(bundleID: nil, tag: instanceTag) {
-            labels[pairingID] = label
-        }
-    }
-    return labels
 }
