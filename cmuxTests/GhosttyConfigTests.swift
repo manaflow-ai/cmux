@@ -5283,7 +5283,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_precmd
             repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+              /usr/bin/grep -q 'rpc surface.ports_kick ' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
