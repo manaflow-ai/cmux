@@ -18,8 +18,10 @@ struct GhosttyDrawableSizeRetryTests {
         let initialSize = CGSize(width: 800, height: 600)
         let targetSize = CGSize(width: 1296, height: 893)
         let initialFrame = NSRect(origin: .zero, size: initialSize)
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
         let terminalSurface = TerminalSurface(
-            tabId: UUID(),
+            tabId: workspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -38,6 +40,10 @@ struct GhosttyDrawableSizeRetryTests {
         }
 
         let contentView = try #require(window.contentView)
+        // This test controls the drawable size, so keep the scrollbar gutter
+        // independent of the runner's "Show scroll bars" preference.
+        let scrollView = try #require(hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
+        scrollView.scrollerStyle = .overlay
         hostedView.frame = initialFrame
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
@@ -98,6 +104,8 @@ struct GhosttyDrawableSizeRetryTests {
 
         let initialSize = CGSize(width: 800, height: 600)
         let targetSize = CGSize(width: 1296, height: 893)
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: initialSize),
             styleMask: [.titled, .closable, .resizable],
@@ -111,7 +119,7 @@ struct GhosttyDrawableSizeRetryTests {
         }
 
         let terminalSurface = TerminalSurface(
-            tabId: UUID(),
+            tabId: workspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil

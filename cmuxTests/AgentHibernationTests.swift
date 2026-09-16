@@ -1214,7 +1214,7 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
-    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+    func testResumePreparationWithoutCapturedLaunchQueuesRestoreSelector() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -1233,9 +1233,9 @@ struct AgentHibernationTests {
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        expectEqual(preparation, .resumed(queuedStartupInput: false))
+        expectEqual(preparation, .resumed(queuedStartupInput: true))
         expectFalse(panel.isAgentHibernated)
-        expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+        expectTrue(snapshot.resumeStartupInput()?.contains("restore manual-agent manual-agent-session") == true)
     }
 
 }

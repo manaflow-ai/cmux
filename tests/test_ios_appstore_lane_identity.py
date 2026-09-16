@@ -31,7 +31,6 @@ ASC_VERSION_ID = "version-1.0.0"
 ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 APPSTORE_MARKETING_VERSION = "1.0.0"
-BETA_MARKETING_VERSION = "1.0.4"
 PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXAuthEnvironment": "production",
     "CMUXApiBaseURL": "https://cmux.com",
@@ -704,6 +703,11 @@ def _read_xcconfig_setting(path: Path, key: str) -> str:
         if name.strip() == key:
             values.append(value.strip())
     return values[-1] if values else ""
+
+
+BETA_MARKETING_VERSION = _read_xcconfig_setting(
+    ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_BETA_MARKETING_VERSION"
+)
 
 
 def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) -> None:

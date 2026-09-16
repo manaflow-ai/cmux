@@ -8,11 +8,13 @@ import Testing
 #endif
 
 @Suite struct CloudAgentSkillLauncherTests {
-    @Test func bundledSkillResourceExistsAndMentionsTheCLI() {
-        let markdown = CloudAgentSkillLauncher.skillMarkdown()
-        #expect(markdown != nil, "Resources/cloud-agent-skill.md must ship in the app bundle")
-        #expect(markdown?.contains("cmux vm") == true)
-        #expect(markdown?.contains("--help` is authoritative") == true)
+    @Test func bundledSkillResourceExistsAndMentionsTheCLI() throws {
+        let markdown = try #require(
+            CloudAgentSkillLauncher.skillMarkdown(),
+            "Resources/cloud-agent-skill.md must ship in the app bundle"
+        )
+        #expect(markdown.contains("cmux vm --help"))
+        #expect(markdown.contains("cmux vm ls"))
     }
 
     @Test func kickoffPromptReferencesTheSkillPathAndDiscovery() {
@@ -42,9 +44,13 @@ import Testing
                 == home.appendingPathComponent(CloudAgentSkillLauncher.installedSkillRelativePath).path
         )
         let contents = try String(contentsOf: url, encoding: .utf8)
-        #expect(contents.contains("cmux vm"))
+        let bundledContents = try #require(CloudAgentSkillLauncher.skillMarkdown())
+        #expect(contents == bundledContents)
+        #expect(contents.contains("cmux vm --help"))
 
         // Regeneration overwrites in place rather than failing.
+        try "stale skill".write(to: url, atomically: true, encoding: .utf8)
         _ = try CloudAgentSkillLauncher.installSkillFile(homeDirectory: home)
+        #expect(try String(contentsOf: url, encoding: .utf8) == bundledContents)
     }
 }

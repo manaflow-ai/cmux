@@ -273,10 +273,20 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
 
     func testBrowserPaneFilePreviewOnlyDragUsesPaneDropPathInsteadOfHostedWebView() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
-            let previousAppDelegate = AppDelegate.shared
-            let appDelegate = AppDelegate()
-            AppDelegate.shared = appDelegate
-            defer { AppDelegate.shared = previousAppDelegate }
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let appDelegate = fixture.appDelegate
+            let workspace = fixture.workspace
+            let targetPanelID = try XCTUnwrap(workspace.focusedPanelId)
+            let targetPaneID = try XCTUnwrap(workspace.paneId(forPanelId: targetPanelID))
+            _ = try XCTUnwrap(workspace.newBrowserSurface(
+                inPane: targetPaneID,
+                url: URL(string: "about:blank"),
+                focus: true,
+                creationPolicy: .restoration,
+                allowsExternalBrowserFallback: false
+            ))
+            let browserPanelID = try XCTUnwrap(workspace.focusedPanelId)
 
             let defaults = UserDefaults.standard
             let savedDefaultBehavior = defaults.object(forKey: FileDropBehaviorSettings.defaultBehaviorKey)
@@ -310,9 +320,9 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
             slot.addSubview(webView)
             slot.pinHostedWebView(webView)
             slot.setPaneDropContext(BrowserPaneDropContext(
-                workspaceId: UUID(),
-                panelId: UUID(),
-                paneId: PaneID(id: UUID())
+                workspaceId: workspace.id,
+                panelId: browserPanelID,
+                paneId: targetPaneID
             ))
             slot.layoutSubtreeIfNeeded()
 

@@ -1301,7 +1301,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+    func computerUseHelperArtworkKeepsItsComposerRenditionAcrossAppearances() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
         let staticArtwork = NSImage(
             size: NSSize(width: 32, height: 32),
@@ -1333,8 +1333,11 @@ struct ComputerUseUXTests {
         let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
         let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
-        #expect(lightPlate.brightnessComponent > 0.7)
+        // The authored macOS rendition owns its plate in both appearances.
+        // Compositing must preserve that dark plate and transparent corners.
+        #expect(lightPlate.brightnessComponent < 0.4)
         #expect(darkPlate.brightnessComponent < 0.4)
+        #expect(abs(lightPlate.brightnessComponent - darkPlate.brightnessComponent) < 0.01)
         #expect(lightCorner.alphaComponent < 0.01)
         #expect(darkCorner.alphaComponent < 0.01)
     }
@@ -1697,12 +1700,16 @@ struct ComputerUseUXTests {
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             authenticationToken: "production-token"
         )
         let staging = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app.staging",
             authenticationToken: "staging-token"
@@ -2627,12 +2634,7 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = NSRunningApplication.current
         let targetName = try #require(target.localizedName)
         let targetLaunchDate = try #require(target.launchDate)
         let writerIdentity = try #require(AgentPIDProcessIdentity(
@@ -2660,22 +2662,22 @@ struct ComputerUseUXTests {
             writerPID: Int(writerIdentity.pid),
             writerStartSeconds: writerIdentity.startSeconds,
             writerStartMicroseconds: writerIdentity.startMicroseconds,
-            session: driverSessionID,
+            session: "\(driverSessionID)-mcp-73-2000",
             targetApp: targetName,
             targetPID: Int(target.processIdentifier),
             targetWindowID: 7,
             lastActionAt: formatter.string(from: actionDate)
         )
 
-        let activationEvents = AsyncStream.makeStream(
-            of: pid_t.self,
+        let focusEvents = AsyncStream.makeStream(
+            of: UUID.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        defer { activationEvents.continuation.finish() }
+        defer { focusEvents.continuation.finish() }
 
         try await confirmation(
-            "background directory callback activated the target once"
-        ) { activated in
+            "background directory callback preserves calling-terminal focus once"
+        ) { focused in
             let controller = ComputerUseWatchTargetController(
                 stateDirectoryURL: directory,
                 featureEnabled: { true },
@@ -2684,10 +2686,13 @@ struct ComputerUseUXTests {
                 feed: ComputerUseWatchTargetFeed(
                     authenticationKey: Self.stateAuthenticationKey
                 ),
-                activate: { application in
-                    activationEvents.continuation.yield(
-                        application.processIdentifier
-                    )
+                onFocusTerminal: { focusedWorkspaceID, focusedSurfaceID, _ in
+                    MainActor.assertIsolated()
+                    #expect(focusedWorkspaceID == workspaceID)
+                    focusEvents.continuation.yield(focusedSurfaceID)
+                },
+                activate: { _ in
+                    Issue.record("A new Computer Use session must preserve calling-terminal focus")
                 }
             )
             controller.start()
@@ -2697,12 +2702,12 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("watcher.json"),
                 options: .atomic
             )
-            for await processIdentifier in activationEvents.stream {
-                guard processIdentifier == target.processIdentifier else {
+            for await focusedSurfaceID in focusEvents.stream {
+                guard focusedSurfaceID == surfaceID else {
                     continue
                 }
-                activated()
-                activationEvents.continuation.finish()
+                focused()
+                focusEvents.continuation.finish()
                 break
             }
         }
@@ -2721,13 +2726,8 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
-                && !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = try await Self.launchExternalTargetForTesting()
+        defer { target.terminate() }
         let targetName = try #require(target.localizedName)
         let targetBundleIdentifier = try #require(target.bundleIdentifier)
         let targetLaunchDate = try #require(target.launchDate)
@@ -2770,12 +2770,9 @@ struct ComputerUseUXTests {
             }
         )
         var featureEnabled = false
-        var reportScannedSession = false
-        let scannedSessions = AsyncStream.makeStream(
-            of: String.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { scannedSessions.continuation.finish() }
+        let terminalFocusEvents = AsyncStream<UUID>.makeStream()
+        var terminalFocusIterator = terminalFocusEvents.stream.makeAsyncIterator()
+        defer { terminalFocusEvents.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [
@@ -2790,18 +2787,14 @@ struct ComputerUseUXTests {
             featureEnabled: { featureEnabled },
             liveDriverSessions: { sessions },
             currentLiveDriverSession: { scannedSession in
-                if reportScannedSession {
-                    scannedSessions.continuation.yield(
-                        scannedSession.logicalSessionID
-                    )
-                }
-                return sessionsBySurfaceID[scannedSession.surfaceID]
+                sessionsBySurfaceID[scannedSession.surfaceID]
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
+                terminalFocusEvents.continuation.yield(surfaceID)
             },
             onCursorVisibilityChange: {
                 driverSessionID,
@@ -2830,7 +2823,8 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(cursorVisibilityChanges.isEmpty)
         #expect(focusedTerminalSessions.count == 1)
         #expect(
@@ -2881,18 +2875,21 @@ struct ComputerUseUXTests {
             options: .atomic
         )
 
-        reportScannedSession = true
         featureEnabled = true
         NotificationCenter.default.post(
             name: .cmuxFeatureFlagsDidChange,
             object: nil
         )
-        var scannedIterator = scannedSessions.stream.makeAsyncIterator()
-        let scannedLogicalSessionID = await scannedIterator.next()
-
-        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers.isEmpty)
         #expect(focusedTerminalSessions.count == 2)
+
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.proxySessionID == backgroundProxySessionID)
+        #expect(cursorVisibilityChanges.first?.visible == true)
+        let cursorEffectCountBeforeViewing = cursorVisibilityChanges.count
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -2906,9 +2903,9 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
-        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(cursorVisibilityChanges.count == cursorEffectCountBeforeViewing)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID
@@ -3778,6 +3775,31 @@ struct ComputerUseUXTests {
             return
         }
         appendString(value, to: &message)
+    }
+
+    @MainActor
+    private static func launchExternalTargetForTesting() async throws -> NSRunningApplication {
+        let existingPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.hides = true
+        configuration.addsToRecentItems = false
+        let target = try await NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+            configuration: configuration
+        )
+        try #require(!existingPIDs.contains(target.processIdentifier),
+            "The fixture must own the external app instance it will terminate")
+        do {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                !target.isTerminated && target.localizedName != nil && target.launchDate != nil
+            })
+            return target
+        } catch {
+            target.terminate()
+            throw error
+        }
     }
 
     private static func sampledIconColor(

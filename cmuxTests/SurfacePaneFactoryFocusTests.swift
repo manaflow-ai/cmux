@@ -47,8 +47,9 @@ import Testing
         let accepted = harness.appDelegate.performSplitShortcut(direction: direction, preferredWindow: window)
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
+        let reservation = try #require(workspace.cloudPendingCreations.values.first)
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        try #require(await AppKitTestEventPump().waitUntil { workspace.cloudMaterializationFailures[reservation.panelID] != nil })
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
@@ -122,9 +123,13 @@ import Testing
 
     /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
     @Test("Failed cloud pane creation does not enter a process-modal run loop")
-    func failedCloudPaneCreationStaysInWorkspaceState() async throws {
+    func failedCloudPaneCreationStaysInReservedPane() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
+        let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
+        CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
+        defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let sourcePanelID = try #require(workspace.focusedPanelId)
@@ -161,26 +166,28 @@ import Testing
         ))
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        let reservation = try #require(workspace.cloudPendingCreations.values.first)
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        #expect(await AppKitTestEventPump().waitUntil { workspace.cloudMaterializationFailures[reservation.panelID] != nil })
 
         #expect(NSApp.modalWindow == nil)
-        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        #expect(failure.machine == machine)
-        #expect(!failure.errorText.isEmpty)
-        #expect(!failure.errorText.contains("connection refused"))
-        #expect(workspace.cloudPaneCreationFailureStore.canRetry)
+        let failure = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: reservation.panelID))
+        #expect(reservation.machine == machine)
+        #expect(!failure.detail.isEmpty)
+        #expect(!failure.detail.contains("connection refused"))
+        #expect(failure.showsReconnectButton)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        workspace.cloudPaneCreationFailureStore.retry(id: failure.id)
+        #expect(workspace.reconnectCloudTerminalSurface(surfaceId: reservation.panelID))
         let retryRequest = await requestIterator.next()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        #expect(await AppKitTestEventPump().waitUntil { workspace.cloudMaterializationFailures[reservation.panelID] != nil })
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
 
-        let retriedFailure = try #require(workspace.cloudPaneCreationFailureStore.failure)
-        workspace.cloudPaneCreationFailureStore.dismiss(id: retriedFailure.id)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.closePanel(reservation.panelID, force: true))
+        #expect(workspace.cloudPendingCreations[reservation.panelID] == nil)
+        #expect(!workspace.cloudPaneCreationFailureStore.hasActiveRequests)
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -409,11 +416,6 @@ import Testing
         #expect(workspace.focusedPanelId == before)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
-    }
-
-    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
     }
 
     @MainActor

@@ -415,8 +415,13 @@ struct PortScannerAgentPublicationIntegrationTests {
         #expect(processScanWasReleased == false)
         #expect(removalLifecycleWasActiveAtCallback)
 
-        await withCheckedContinuation { continuation in
-            scanner.queue.async { continuation.resume() }
+        // Queue acknowledgement is followed by a main-actor lifecycle update.
+        // A queue barrier alone can resume this test before that update runs.
+        _ = await AppKitTestEventPump().waitUntil {
+            !scanner.publicationState.isCurrentAgentRevision(
+                removalRevision,
+                workspaceId: workspaceID
+            )
         }
         #expect(scanner.publicationState.isCurrentAgentRevision(
             removalRevision,
@@ -494,22 +499,25 @@ struct PortScannerAgentPortRetirementTests {
             scanner.onAgentPortsUpdated = nil
         }
 
+        scanner.setTrackedAgentScanningPaused(true)
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         let initialPorts = try #require(await iterator.next())
         #expect(initialPorts == [4321])
         let requestedPIDsAfterInitialScan = await runner.lsofRequestedPIDs
         let initialRequestedPIDs = requestedPIDsAfterInitialScan.first
         #expect(initialRequestedPIDs == [100, 101, 102])
-        scanner.setTrackedAgentScanningPaused(true)
+        scanner.queue.sync {}
         await runner.stopListening()
 
         let firstLsofInvocation = await runner.lsofInvocationCount
+        var retiredPorts = initialPorts
         for expectedInvocation in (firstLsofInvocation + 1)...(firstLsofInvocation + 3) {
             scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
             try await runner.waitForLsofInvocation(expectedInvocation)
+            retiredPorts = try #require(await iterator.next())
+            scanner.queue.sync {}
         }
 
-        let retiredPorts = try #require(await iterator.next())
         #expect(retiredPorts.isEmpty)
         let postExitRequestedPIDs = (await runner.lsofRequestedPIDs).dropFirst()
         #expect(postExitRequestedPIDs.allSatisfy { $0 == [100] })

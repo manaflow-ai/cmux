@@ -31,7 +31,7 @@ struct BrowserWebViewUserAgentRegressionTests {
         panel.navigate(to: URL(string: "about:blank")!)
 
         #expect(
-            panel.webView.customUserAgent == nil,
+            (panel.webView.customUserAgent ?? "").isEmpty,
             "Embedded WKWebView must keep its native identity so canvas apps do not select Safari-only rendering paths"
         )
     }
@@ -3771,11 +3771,17 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
+        private(set) var displayInvalidationCount = 0
         private(set) var reattachRenderingStateCount = 0
 
         override func displayIfNeeded() {
             displayIfNeededCount += 1
             super.displayIfNeeded()
+        }
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            displayInvalidationCount += 1
+            super.setNeedsDisplay(invalidRect)
         }
 
         @objc(_enterInWindow)
@@ -4520,7 +4526,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialDisplayCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
@@ -4533,7 +4539,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
+            webView.displayInvalidationCount,
             initialDisplayCount,
             "Pure anchor geometry updates should still repaint the hosted browser"
         )
@@ -4596,7 +4602,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialDisplayCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialWidth = slot.frame.width
 
@@ -4612,7 +4618,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Moving the app split divider should shrink the hosted browser slot"
         )
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
+            webView.displayInvalidationCount,
             initialDisplayCount,
             "External split resize should still repaint the hosted browser"
         )

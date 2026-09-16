@@ -315,7 +315,9 @@ struct SurfaceCatalogTests {
             info: provider.info
         )
 
-        #expect(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" }?.remoteViews?.first?.name == "new")
+        let renamed = try #require(catalog.snapshot.resources(on: machine).first { $0.id.key == "term_one" })
+        #expect(renamed.title == "old")
+        #expect(renamed.remoteViews?.first { $0.tabID == "tab_one" }?.name == "new")
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
@@ -385,6 +387,34 @@ struct SurfaceCatalogTests {
         #expect(catalog.machines[machine]?.remoteWorkspaces == [
             SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
         ])
+
+        let created = SurfaceRemoteWorkspace(id: "created", name: "new", index: 1, focused: false)
+        var createdInfo = staleInfo
+        createdInfo.remoteWorkspaces?.append(created)
+        catalog.updateMachine(createdInfo, from: provider, createdRemoteWorkspaceID: created.id)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.id) == ["ws", "created"])
+
+        // A pre-create status response must not erase the committed receipt or
+        // its payload while the daemon graph still trails the create response.
+        catalog.updateMachine(staleInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+        catalog.replaceCloudState(state, resources: [], info: staleInfo)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.last == created)
+
+        var acknowledgedSnapshot = snapshot
+        acknowledgedSnapshot["cursor"] = ["generation": "g1", "revision": "2"]
+        acknowledgedSnapshot["workspaces"] = [
+            ["id": "ws", "name": "canonical", "focused": true],
+            ["id": "created", "name": "new", "focused": false],
+        ]
+        let acknowledged = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: acknowledgedSnapshot, machine: machine))
+        catalog.replaceCloudState(acknowledged, resources: [], info: createdInfo)
+        var removedSnapshot = snapshot
+        removedSnapshot["cursor"] = ["generation": "g1", "revision": "3"]
+        let removed = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: removedSnapshot, machine: machine))
+        catalog.replaceCloudState(removed, resources: [], info: createdInfo)
+        catalog.updateMachine(createdInfo, from: provider)
+        #expect(catalog.machines[machine]?.remoteWorkspaces?.map(\.id) == ["ws"])
     }
 
     @Test func `Resource ID round trips through the wire form`() {
@@ -1219,12 +1249,21 @@ extension SurfaceCatalogTests {
         let machine = SurfaceMachineID.cloud("vm-1")
         catalog.register(FakeProvider(machine: machine))
         let ids = ["a", "b", "c", "d"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
-        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-main", name: "main", index: 0, focused: true)
+        let placements = ids.map {
+            SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "tab-\($0.key)")
+        }
+        catalog.replaceResources(ids.map {
+            var resource = terminal(machine, $0.key)
+            resource.remoteViews = [SurfaceRemoteView(tabID: "tab-\($0.key)", workspace: remoteWorkspace)]
+            return resource
+        }, on: machine)
 
         let newWorkspace = UUID()
         let starter = UUID()
         var reserved: [(SurfaceDestination, Bool)] = []
         var attached: [SurfaceResourceID] = []
+        var attachedTabIDs: [String?] = []
         var closedStarters = 0
         var attachedBeforeAllReserved = false
         var lookups = 0
@@ -1237,24 +1276,25 @@ extension SurfaceCatalogTests {
                     reserved.append((destination, focus))
                     return CloudTerminalPaneReservation(workspaceID: newWorkspace, panelID: UUID(), machine: machine)
                 },
-                attach: { _, resource, _ in
+                attach: { _, resource, remoteTabID in
                     if reserved.count < ids.count { attachedBeforeAllReserved = true }
                     attached.append(resource.id)
+                    attachedTabIDs.append(remoteTabID)
                 }
             )
         )
         let layout = SurfaceProjectionLayout.split(
             direction: .right, ratio: 0.5,
-            first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[0]), SurfaceResourcePlacement(resource: ids[1])]),
+            first: .leaf(placements: [placements[0], placements[1]]),
             second: .split(
                 direction: .down, ratio: 0.5,
-                first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[2])]),
-                second: .leaf(placements: [SurfaceResourcePlacement(resource: ids[3])])
+                first: .leaf(placements: [placements[2]]),
+                second: .leaf(placements: [placements[3]])
             )
         )
 
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-            SurfaceResourceGroup(title: "main", resources: ids), title: "vm-1: main", focus: true, host: host, layout: layout
+            SurfaceResourceGroup(title: "main", placements: placements), title: "vm-1: main", focus: true, host: host, layout: layout
         )
 
         #expect(opened.workspaceID == newWorkspace)
@@ -1270,11 +1310,14 @@ extension SurfaceCatalogTests {
         #expect(reserved.map(\.1) == [true, false, false, false])
         #expect(!attachedBeforeAllReserved)
         #expect(Set(attached) == Set(ids))
+        #expect(attachedTabIDs == ["tab-a", "tab-c", "tab-b", "tab-d"])
         // Every reserved pane already carries its projection, so a bound-workspace pass
         // sees no missing placement while the attachments run.
         #expect(opened.projections.count == 4)
         for projection in opened.projections {
             #expect(catalog.projection(forPanel: projection.panelID) == projection)
+            #expect(projection.remoteWorkspaceID == remoteWorkspace.id)
+            #expect(projection.remoteTabID == "tab-\(projection.resource.key)")
         }
     }
 

@@ -124,6 +124,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
                 XCTAssertEqual(params["require_existing"] as? Bool, true)
                 return self.v2Response(id: id, ok: false, error: error)
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "requested_session_lifecycle": "active",
+                    "sessions": [["session_id": sessionId]],
+                ])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
@@ -408,6 +413,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         "attachment_id": surfaceId,
                     ]
                 )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: [
+                    "requested_session_lifecycle": "active",
+                    "sessions": [["session_id": sessionId]],
+                ])
             case "workspace.remote.pty_detach":
                 return self.v2Response(id: id, ok: true, result: ["detached": true])
             case "workspace.remote.pty_attach_end":
@@ -442,10 +452,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled, bridgeHandled], timeout: 10)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertTrue(
-            result.stderr.contains("timed out waiting for bridge status"),
-            result.stderr
-        )
+        XCTAssertEqual(result.stderr, "", "The reconnect wrapper owns retryable error presentation")
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
         // Wrapper-retryable failures re-run the attach on this same surface;

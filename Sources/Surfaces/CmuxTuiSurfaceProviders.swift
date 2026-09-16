@@ -900,7 +900,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let provisional = SurfaceRemoteWorkspace(id: id, name: provisionalName, index: info.remoteWorkspaces?.count ?? 0, focused: false)
         if info.remoteWorkspaces?.contains(where: { $0.id == id }) != true {
             info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
-            catalog.updateMachine(info, from: self)
+            catalog.updateMachine(info, from: self, createdRemoteWorkspaceID: id)
         }
         if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
             _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
@@ -1375,7 +1375,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // the local banners for those rows go with them.
                 guard let store = AppDelegate.shared?.notificationStore else { return }
                 let removedIDs = Set(ids)
-                for notification in store.notifications where notification.correlationKey.map { CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) } == true {
+                for notification in store.notifications where notification.correlationKey.map({ CloudNotificationCorrelation.matches($0, machineID: machineID, notificationIDs: removedIDs) }) == true {
                     store.remove(id: notification.id)
                 }
             }
@@ -1644,7 +1644,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
-    func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
+    func reconcileRemovedRemoteWorkspace(_ id: String) {
+        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
+        catalog.updateMachine(info, from: self, removedRemoteWorkspaceID: id)
+    }
+
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }

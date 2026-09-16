@@ -34,6 +34,8 @@ final class SurfaceCatalog {
     /// while cancellation is unresolved. This prevents one unhealthy machine from blocking
     /// unrelated machines while also bounding repeated provider replacements.
     nonisolated static let defaultMaximumTrackedMaterializations = 16
+    /// Bound create receipts while a machine's graph is unavailable or stale.
+    nonisolated static let defaultMaximumPendingCloudWorkspaces = 64
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -53,6 +55,9 @@ final class SurfaceCatalog {
     /// part of the daemon document or its cursor.
     private(set) var cloudStates: [SurfaceMachineID: CloudVMState] = [:]
     private(set) var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Only a committed create response may add a workspace ahead of its graph.
+    /// Its receipt expires when a graph first contains that workspace.
+    private var pendingCloudWorkspaces: [SurfaceMachineID: [SurfaceRemoteWorkspace]] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Remote rename intents shared by all local windows.
     let cloudRenameCoordinator = CloudRenameCoordinator()
@@ -149,6 +154,7 @@ final class SurfaceCatalog {
 
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
+            pendingCloudWorkspaces[provider.machine] = nil
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
             let inFlightKeys = inFlightProjects.keys.filter { $0.machine == provider.machine }
             for key in inFlightKeys {
@@ -197,6 +203,7 @@ final class SurfaceCatalog {
         cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
+        pendingCloudWorkspaces[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -315,8 +322,29 @@ final class SurfaceCatalog {
     }
 
     /// Update machine metadata, optionally validating the provider registration that supplied it.
-    func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
+    func updateMachine(
+        _ info: SurfaceMachineInfo,
+        from source: (any SurfaceProvider)? = nil,
+        createdRemoteWorkspaceID: String? = nil,
+        removedRemoteWorkspaceID: String? = nil
+    ) {
         guard accepts(writeFor: info.id, from: source) else { return }
+        if let createdRemoteWorkspaceID,
+           let created = info.remoteWorkspaces?.first(where: { $0.id == createdRemoteWorkspaceID }) {
+            var pending = pendingCloudWorkspaces[info.id] ?? []
+            if let index = pending.firstIndex(where: { $0.id == created.id }) {
+                pending[index] = created
+            } else {
+                pending.append(created)
+            }
+            if pending.count > Self.defaultMaximumPendingCloudWorkspaces {
+                pending.removeFirst(pending.count - Self.defaultMaximumPendingCloudWorkspaces)
+            }
+            pendingCloudWorkspaces[info.id] = pending
+        }
+        if let removedRemoteWorkspaceID {
+            pendingCloudWorkspaces[info.id]?.removeAll { $0.id == removedRemoteWorkspaceID }
+        }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
         notifyChange()
     }
@@ -494,7 +522,8 @@ final class SurfaceCatalog {
     func clearCloudState(on machine: SurfaceMachineID) {
         let removedState = cloudStates.removeValue(forKey: machine) != nil
         let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
-        guard removedState || removedObservation else { return }
+        let removedPending = pendingCloudWorkspaces.removeValue(forKey: machine) != nil
+        guard removedState || removedObservation || removedPending else { return }
         notifyChange()
     }
 
@@ -544,27 +573,35 @@ final class SurfaceCatalog {
 
     /// A provider summary can arrive after a newer daemon graph. Keep the graph's
     /// workspace list authoritative so a stale status response cannot regress a
-    /// renamed workspace or resurrect a removed one in the tree. Pending creation
-    /// rows remain represented by their resource overlays until the next graph.
+    /// renamed workspace or resurrect a removed one in the tree. Pending creates
+    /// remain represented by committed receipts or resource overlays until the graph.
     private func machineInfoPreservingCanonicalCloudState(
         _ info: SurfaceMachineInfo,
         state: CloudVMState? = nil
     ) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
-              let state = state ?? cloudStates[info.id] else { return info }
+        guard case .cloud = info.id else { return info }
+        let acceptedState = state ?? cloudStates[info.id]
+        let acknowledgedIDs = Set(acceptedState?.workspaces.map(\.id) ?? [])
+        let pending = (pendingCloudWorkspaces[info.id] ?? []).filter {
+            !acknowledgedIDs.contains($0.id)
+        }
+        pendingCloudWorkspaces[info.id] = pending.isEmpty ? nil : pending
+        if acceptedState == nil, pending.isEmpty { return info }
         var adjusted = info
-        let canonical = state.workspaces.map {
+        let canonical = acceptedState?.workspaces.map {
             SurfaceRemoteWorkspace(id: $0.id, name: $0.name, index: $0.index, focused: $0.focused)
+        } ?? (info.remoteWorkspaces ?? []).filter { workspace in
+            !pending.contains(where: { $0.id == workspace.id })
         }
         var seen = Set(canonical.map(\.id))
-        // Only resource overlays attest to a creation ahead of the graph.
-        // A machine summary has no mutation receipt and may contain deleted rows.
-        let pending = (resourceIDsByMachine[info.id] ?? [])
+        // Committed empty-workspace receipts and terminal resource overlays
+        // attest to creates ahead of the graph; stale summaries do not.
+        let pendingWorkspaces = (pending + (resourceIDsByMachine[info.id] ?? [])
             .compactMap { resources[$0] }
-            .flatMap(\.remoteWorkspaces)
+            .flatMap(\.remoteWorkspaces))
             .filter { seen.insert($0.id).inserted }
             .sorted { ($0.index, $0.id) < ($1.index, $1.id) }
-        adjusted.remoteWorkspaces = canonical + pending
+        adjusted.remoteWorkspaces = canonical + pendingWorkspaces
         return adjusted
     }
 

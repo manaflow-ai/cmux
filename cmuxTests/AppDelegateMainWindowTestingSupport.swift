@@ -57,6 +57,26 @@ actor AppContextSerialGate {
 /// Tests that model an authoritative close explicitly forget the resulting
 /// route after they finish exercising its recovery behavior.
 extension AppDelegate {
+    /// Establishes the real window/controller/terminal focus relationship before input probes.
+    func focusTerminalForTesting(_ panel: TerminalPanel, workspace: Workspace, in window: NSWindow) async -> Bool {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        guard await AppKitTestEventPump().waitUntil({
+            panel.hostedView.uiWindow === window
+                && panel.hostedView.surfaceView.window === window
+                && panel.hostedView.bounds.width > 1
+                && panel.hostedView.bounds.height > 1
+                && panel.hostedView.surfaceView.bounds.width > 1
+                && panel.hostedView.surfaceView.bounds.height > 1
+                && window.isKeyWindow
+        }) else { return false }
+        noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panel.id, in: window)
+        workspace.focusPanel(panel.id, focusIntent: .terminal(.surface))
+        return window.makeFirstResponder(panel.hostedView.surfaceView)
+            && window.firstResponder === panel.hostedView.surfaceView
+            && allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panel.id, in: window)
+    }
+
     @discardableResult
     func registerMainWindowContextForTesting(
         windowId: UUID = UUID(),

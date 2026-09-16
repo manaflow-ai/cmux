@@ -1776,13 +1776,6 @@ struct ContentView: View {
         ))
     }
 
-    /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
-    /// minimal WindowGroup hosts can still need the reported safe area cancelled.
-    @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
-    /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
-    /// main windows use MainWindowHostingView and report zero.
-    @State private var hostingSafeAreaTop: CGFloat = 0
-
     private var currentIsMinimalMode: Bool {
         workspacePresentationModeRuntimeCache.isMinimalMode
     }
@@ -1899,8 +1892,7 @@ struct ContentView: View {
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
+            runtimeCache: workspacePresentationModeRuntimeCache
         ))
     }
 
@@ -2288,7 +2280,13 @@ struct ContentView: View {
         }
         schedulePortalGeometrySynchronize()
         updateSidebarResizerBandState()
-        syncTrafficLightInset(isMinimalMode: isMinimalMode)
+        // A visible sidebar already supplies the titlebar leading inset in
+        // both presentation modes. Avoid rewriting every workspace's Bonsplit
+        // appearance during a mode toggle; that would invalidate each mounted
+        // WorkspaceContentView even though no geometry changes.
+        if !sidebarState.isVisible {
+            syncTrafficLightInset(isMinimalMode: isMinimalMode)
+        }
     }
 
     private func applyTitlebarDebugChromeChange() {
@@ -2332,14 +2330,15 @@ struct ContentView: View {
         let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
         let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
         let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-        if abs(titlebarPadding - nextPadding) > 0.5 {
-            DispatchQueue.main.async {
-                titlebarPadding = nextPadding
+        // WindowAccessor can call this while SwiftUI is tracking the parent
+        // body. Read the leaf's observable metrics in the deferred update too,
+        // so native measurement does not subscribe ContentView to them.
+        DispatchQueue.main.async {
+            if abs(self.workspacePresentationModeRuntimeCache.titlebarPadding - nextPadding) > 0.5 {
+                self.workspacePresentationModeRuntimeCache.titlebarPadding = nextPadding
             }
-        }
-        if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-            DispatchQueue.main.async {
-                hostingSafeAreaTop = nextSafeAreaTop
+            if abs(self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+                self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop = nextSafeAreaTop
             }
         }
     }
@@ -11861,7 +11860,8 @@ struct VerticalTabsSidebar: View, Equatable {
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval,
+            deliverInitialValue: !featureFlags.isAppKitSidebarListEnabled
         ) { workspaceId in
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)

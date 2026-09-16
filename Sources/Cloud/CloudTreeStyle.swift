@@ -88,7 +88,12 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
-            return rowHeight + (machineBand ? 7 : 2)
+            // The SwiftUI row adds the machine name line, its own vertical
+            // padding, and the tinted band padding. Keep the outline's
+            // reserved height at least as large as the rendered content;
+            // sections otherwise measured 28pt while fitting at 29.5pt.
+            let rendered = machineNameLineHeight + machineVerticalPadding * 2 + (machineBand ? 8 : 0)
+            return max(rowHeight + (machineBand ? 7 : 2), rendered)
         case .twoLine:
             let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
             let usageHeight = hasUsage ? 1 + machineResourceHeight : 0

@@ -63,6 +63,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // ordinary, already-finished table update without retaining a second cycle.
     private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
     private var pendingWorkspaceDragTokenID: UUID?
+    private weak var pendingWorkspaceDragSourceTableView: SidebarWorkspaceTableViewImpl?
     // The native NSDraggingItem owns the writer through endedAt; the
     // controller keeps only the exact source table and cleanup identities.
     private weak var activeWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
@@ -175,6 +176,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         workspaceDragWriterOwnership.removeAll()
         pendingWorkspaceDragWriter = nil
         pendingWorkspaceDragTokenID = nil
+        pendingWorkspaceDragSourceTableView = nil
         pendingWorkspaceDragWriters.removeAllObjects()
     }
 
@@ -182,14 +184,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // ARC deallocation is bridged to the main actor asynchronously. An
         // older token must not tear down a newer provisional request.
         guard pendingWorkspaceDragTokenID == tokenID else { return }
+        let abandonedSourceTable = pendingWorkspaceDragSourceTableView
         pendingWorkspaceDragWriter = nil
         pendingWorkspaceDragTokenID = nil
+        pendingWorkspaceDragSourceTableView = nil
         guard !workspaceDragWriterOwnership.hasPendingTokens else { return }
         // A provisional writer has no AppKit `endedAt` callback. Its final
         // deallocation is the ownership boundary that proves no native source
         // can still arrive for this request, so release the retained table now
         // instead of waiting for an unrelated future mouse-down.
         discardAbandonedProvisionalWorkspaceDrag(force: true)
+        // The weak writer has already cleared at its deallocation callback.
+        // A surviving dismantled table must still release its data source.
+        if let abandonedSourceTable, abandonedSourceTable !== containerView?.tableView,
+           activeWorkspaceDragTableView !== abandonedSourceTable {
+            detachController(from: abandonedSourceTable)
+        }
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -1179,6 +1189,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // payload after the old generation's terminal callback was suppressed.
         pendingWorkspaceDragWriter = writer
         pendingWorkspaceDragTokenID = writer.provisionalToken.id
+        pendingWorkspaceDragSourceTableView = tableView as? SidebarWorkspaceTableViewImpl
         pendingWorkspaceDragWriters.setObject(writer, forKey: tableView)
         if isWorkspaceDragSourceActive {
             // A writer requested while a native session is already active is
@@ -1268,6 +1279,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // in its drag loop, even if its `endedAt` callback was suppressed.
             if activeWorkspaceDraggingSession === session {
                 return
+            }
+            // AppKit can replace a native source before delivering the old
+            // session's terminal callback. Treat this begin as the same
+            // supersession boundary as a real pointer-down so the external
+            // source registry cannot retain the old generation until an
+            // unrelated future gesture.
+            if let activeSessionId = activeWorkspaceDragSessionId {
+                (activeWorkspaceDragActions ?? actions ?? pendingWorkspaceDragActions)?
+                    .nativeWorkspaceDragLifecycle?
+                    .reclaimSupersededNativeSources(activeSessionId)
             }
             let supersededSession = activeWorkspaceDraggingSession
             workspaceDragSessionDidEnd(session: supersededSession)

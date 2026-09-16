@@ -9,8 +9,9 @@ extension Workspace {
         source: CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
         propagateToCloud: Bool = true,
-        catalog: SurfaceCatalog = .shared
+        catalog: SurfaceCatalog? = nil
     ) -> Bool {
+        let catalog = catalog ?? .shared
         guard panels[panelId] != nil else { return false }
         let previousWorkspaceTitle = self.title
         defer {

@@ -164,7 +164,7 @@ struct VMTunnelManagerTests {
 
         let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-scope-tests", isDirectory: true)
         let manager = VMTunnelManager(home: home, interfaceName: "cmux-staging")
-        #expect(manager.configURL.lastPathComponent == "cmux-staging.conf")
+        #expect(manager.configURL.lastPathComponent == "cmux-staging.browser.conf")
     }
 
     @Test
@@ -226,9 +226,9 @@ struct VMTunnelManagerTests {
         #expect(stable.deviceIDURL.lastPathComponent == "device-id")
         #expect(stable.configURL.lastPathComponent == "cmux.conf")
         #expect(nightly.interfaceName == "cmux-nightly")
-        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.private.key")
-        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.device-id")
-        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.conf")
+        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.browser.private.key")
+        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.browser.device-id")
+        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.browser.conf")
     }
 
     @Test
@@ -324,8 +324,21 @@ struct VMTunnelManagerTests {
     func terminalAndBrowserRolesUseSeparateKeysAndConfigs() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let browser = VMTunnelManager(home: home, purpose: .browser)
-        let terminal = VMTunnelManager(home: home, purpose: .terminal)
+        let productionURL = URL(string: "https://cmux.com")!
+        let browser = VMTunnelManager(
+            home: home,
+            purpose: .browser,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
+        let terminal = VMTunnelManager(
+            home: home,
+            purpose: .terminal,
+            bundleIdentifier: "com.cmuxterm.app",
+            environment: [:],
+            apiBaseURL: productionURL
+        )
 
         #expect(try terminal.deviceFingerprint() != browser.deviceFingerprint())
 

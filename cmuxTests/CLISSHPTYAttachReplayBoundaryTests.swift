@@ -256,7 +256,6 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             allowReplay: DispatchSemaphore,
             forwardedCaptured: DispatchSemaphore
         ) {
-            defer { forwardedCaptured.signal() }
             guard readThroughNewline(fd: clientFD) else { return }
             let readyPayload = "{\"type\":\"ready\",\"attachment_token\":\"attach-token\",\"replay_bytes\":\(replay.utf8.count)}\n"
             guard cliMockWriteAll(readyPayload, to: clientFD) else { return }
@@ -269,6 +268,9 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             guard cliMockWriteAll(replay, to: clientFD) else { return }
             let postReplay = readUntilNewline(fd: clientFD, timeoutMilliseconds: 5_000)
             try? (preReplay + postReplay).write(to: capturedURL)
+            // Signal once the forwarded command has been captured; waiting for
+            // the bridge connection to close would deadlock the attach process.
+            forwardedCaptured.signal()
         }
 
         private static func readThroughNewline(fd: Int32) -> Bool {
@@ -341,7 +343,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
 
     private func makeSocketPath() -> String {
         URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-ssh-replay-\(UUID().uuidString).sock")
+            .appendingPathComponent("cmux-ssh-r-\(UUID().uuidString.prefix(8)).sock")
             .path
     }
 
