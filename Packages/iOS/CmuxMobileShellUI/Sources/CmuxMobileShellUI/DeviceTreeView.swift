@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileCloud
 import CmuxMobileCloudUI
 import CmuxMobilePairedMac
 import CmuxMobileShell

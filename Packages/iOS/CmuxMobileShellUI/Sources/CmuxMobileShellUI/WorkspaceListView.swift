@@ -141,7 +141,7 @@ struct WorkspaceListView: View {
     var searchText = ""
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     #if os(iOS)
-    @Environment(\.cloudSessionController) private var cloudSessionController
+    @Environment(\.cloudSessionController) var cloudSessionController
     #endif
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -537,22 +537,19 @@ struct WorkspaceListView: View {
             uniquingKeysWith: { first, _ in first }
         )
         #if os(iOS)
-        let baseList: AnyView
-        if let selectedCloudMachine, let cloudSessionController {
-            baseList = AnyView(
+        let baseList = Group {
+            if let selectedCloudMachine, let cloudSessionController {
                 CloudWorkspacePickerList(
                     machine: selectedCloudMachine,
                     controller: cloudSessionController
                 )
-            )
-        } else {
-            baseList = AnyView(
+            } else {
                 workspaceTable(
                     groupedItems: currentDisplayedGroupedListItems,
                     workspacesByID: currentWorkspacesByID
                 )
                 .modifier(WorkspaceListBarUnderlap())
-            )
+            }
         }
         #else
         let baseList = List {
