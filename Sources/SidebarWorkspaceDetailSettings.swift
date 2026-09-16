@@ -5,6 +5,7 @@ import Foundation
 struct SidebarWorkspaceDetailSettings: Equatable {
     let showBranchDirectory: Bool
     let showPullRequests: Bool
+    let showPullRequestChecks: Bool
     let watchGitStatus: Bool
     let showSSH: Bool
     let showPorts: Bool
@@ -18,6 +19,7 @@ struct SidebarWorkspaceDetailSettings: Equatable {
         let sidebar = SidebarCatalogSection()
         showBranchDirectory = settings.value(for: sidebar.showBranchDirectory)
         showPullRequests = settings.value(for: sidebar.showPullRequests)
+        showPullRequestChecks = settings.value(for: sidebar.showPullRequestChecks)
         watchGitStatus = settings.value(for: sidebar.watchGitStatus)
         showSSH = settings.value(for: sidebar.showSSH)
         showPorts = settings.value(for: sidebar.showPorts)

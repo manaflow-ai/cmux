@@ -144,7 +144,9 @@ extension TabManager: SidebarGitHosting {
             // Raw values are shared between the app and package status enums.
             status: SidebarPullRequestStatus(rawValue: badge.status.rawValue) ?? .open,
             branch: badge.branch,
-            isStale: badge.isStale
+            isStale: badge.isStale,
+            checks: badge.checks.map(SidebarPullRequestChecks.init),
+            preserveChecks: false
         )
     }
 
@@ -182,6 +184,10 @@ extension TabManager: SidebarGitHosting {
         SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard)
     }
 
+    var pullRequestChecksEnabled: Bool {
+        SidebarWorkspaceDetailSettings(defaults: .standard).showPullRequestChecks
+    }
+
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {
         MobileHostRequestActivity.hasRecentActivity(within: interval)
     }
@@ -201,7 +207,8 @@ extension SidebarPullRequestState {
             url: url,
             status: PullRequestStatus(rawValue: status.rawValue) ?? .open,
             branch: branch,
-            isStale: isStale
+            isStale: isStale,
+            checks: checks?.gitSummary
         )
     }
 }

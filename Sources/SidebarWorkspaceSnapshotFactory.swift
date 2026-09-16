@@ -338,6 +338,13 @@ struct SidebarWorkspaceSnapshotFactory {
         return result
     }
 
+    private func pullRequestChecks(for pr: SidebarPullRequestState) -> SidebarPullRequestChecks? {
+        guard settings.showsPullRequestChecks, pr.status == .open,
+              pr.url.host?.lowercased() == "github.com" else { return nil }
+        if !pr.isStale, let checks = pr.checks { return checks }
+        return SidebarPullRequestChecks(status: .unavailable, checks: [], mergeStatus: .unknown)
+    }
+
     private func pullRequestDisplays(
         orderedPanelIds: [UUID]
     ) -> [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] {
@@ -348,7 +355,8 @@ struct SidebarWorkspaceSnapshotFactory {
                 label: $0.label,
                 url: $0.url,
                 status: $0.status,
-                isStale: $0.isStale
+                isStale: $0.isStale,
+                checks: pullRequestChecks(for: $0)
             )
         }
     }

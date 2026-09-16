@@ -7,8 +7,19 @@ extension PullRequestPollService {
     // MARK: Settings
 
     public func sidebarPullRequestPollingSettingsDidChange() {
+        guard let host else { return }
         let activity = sidebarPullRequestActivity
+        let checksEnabled = host.pullRequestChecksEnabled
+        let checksChanged = checksEnabled != lastSidebarPullRequestChecksEnabled
+        lastSidebarPullRequestChecksEnabled = checksEnabled
+        if checksChanged {
+            resetWorkspacePullRequestRefreshState()
+            clearPullRequestChecks()
+        }
         guard activity != lastSidebarPullRequestActivity else {
+            if checksChanged, activity.performsActivePolling {
+                refreshTrackedWorkspacePullRequestsIfNeeded(reason: "pullRequestChecksChanged")
+            }
             return
         }
         lastSidebarPullRequestActivity = activity
@@ -92,7 +103,8 @@ extension PullRequestPollService {
                 url: currentPullRequest.url,
                 status: nextStatus,
                 branch: currentPullRequest.branch,
-                isStale: false
+                isStale: false,
+                checks: nil
             )
         )
     }

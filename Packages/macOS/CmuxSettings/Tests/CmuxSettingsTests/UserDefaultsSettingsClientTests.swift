@@ -28,6 +28,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.sidebar.stackBranchDirectory) == false)
         #expect(client.value(for: catalog.sidebar.pathLastSegmentOnly) == false)
         #expect(client.value(for: catalog.sidebar.makePullRequestsClickable) == true)
+        #expect(client.value(for: catalog.sidebar.showPullRequestChecks) == false)
         #expect(client.value(for: catalog.app.keepWorkspaceOpenWhenClosingLastSurface) == true)
         #expect(client.value(for: catalog.app.workspaceInheritWorkingDirectory) == true)
         #expect(client.value(for: catalog.app.newWorkspacePlacement) == .afterCurrent)

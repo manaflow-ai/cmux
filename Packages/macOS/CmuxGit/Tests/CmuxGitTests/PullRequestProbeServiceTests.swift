@@ -112,6 +112,32 @@ import Testing
         ))
     }
 
+    @Test func checkStatusMapsGitHubConclusionsToCompactStates() {
+        #expect(PullRequestProbeService.checkStatus(status: "completed", conclusion: "success") == .success)
+        #expect(PullRequestProbeService.checkStatus(status: "completed", conclusion: "failure") == .failure)
+        #expect(PullRequestProbeService.checkStatus(status: "queued", conclusion: nil) == .pending)
+        #expect(PullRequestProbeService.checkStatus(status: "completed", conclusion: "skipped") == .neutral)
+    }
+
+    @Test func overallCheckStatusPrioritizesFailureThenPending() {
+        let checks = [
+            PullRequestCheck(id: "1", name: "unit", status: .success),
+            PullRequestCheck(id: "2", name: "lint", status: .pending),
+        ]
+        #expect(PullRequestProbeService.overallCheckStatus(checks) == .pending)
+        #expect(PullRequestProbeService.overallCheckStatus(checks + [
+            PullRequestCheck(id: "3", name: "integration", status: .failure)
+        ]) == .failure)
+        #expect(PullRequestProbeService.overallCheckStatus([]) == .neutral)
+    }
+
+    @Test func mergeStatusSurfacesConflictsAndBlockedPullRequests() {
+        #expect(PullRequestProbeService.mergeStatus(mergeable: false, mergeableState: "dirty") == .conflict)
+        #expect(PullRequestProbeService.mergeStatus(mergeable: true, mergeableState: "blocked") == .blocked)
+        #expect(PullRequestProbeService.mergeStatus(mergeable: true, mergeableState: "clean") == .ready)
+        #expect(PullRequestProbeService.mergeStatus(mergeable: nil, mergeableState: nil) == .unknown)
+    }
+
     // MARK: REST decode + mapping
 
     @Test func decodesRESTItemsAndSynthesizesMergedState() throws {

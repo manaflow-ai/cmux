@@ -5,6 +5,7 @@ import Foundation
 struct WorkspacePullRequestRESTItem: Decodable, Sendable {
     struct Ref: Decodable, Sendable {
         let ref: String
+        let sha: String?
     }
 
     let number: Int

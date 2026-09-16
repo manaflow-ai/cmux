@@ -14,6 +14,8 @@ public struct SidebarPullRequestState: Equatable, Sendable {
     public let branch: String?
     /// Whether the row is stale (reported by an inactive panel).
     public let isStale: Bool
+    /// Optional GitHub check and mergeability details.
+    public let checks: SidebarPullRequestChecks?
 
     /// Creates a pull-request row (defaults mirror the legacy initializer).
     public init(
@@ -22,7 +24,8 @@ public struct SidebarPullRequestState: Equatable, Sendable {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        checks: SidebarPullRequestChecks? = nil
     ) {
         self.number = number
         self.label = label
@@ -30,5 +33,6 @@ public struct SidebarPullRequestState: Equatable, Sendable {
         self.status = status
         self.branch = branch?.normalizedSidebarBranchName
         self.isStale = isStale
+        self.checks = checks
     }
 }

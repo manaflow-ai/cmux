@@ -395,7 +395,9 @@ extension SidebarGitMetadataService {
                     url: pullRequest.url,
                     status: pullRequest.status,
                     branch: pullRequest.branch,
-                    isStale: false
+                    isStale: false,
+                    checks: host.pullRequestChecksEnabled && previousPullRequestBadge?.url == pullRequest.url
+                        ? previousPullRequestBadge?.checks : nil
                 )
                 didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange
                     || previousPullRequestBadge != nextBadge

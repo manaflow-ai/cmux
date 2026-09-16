@@ -33,6 +33,10 @@ public struct PullRequestProbeService: Sendable {
     /// same actor, which is how every app window coalesces GitHub requests.
     let requestCoordinator: GitHubPullRequestRequestCoordinator
 
+    /// Short-lived cache for optional check-run probes. PR metadata and checks
+    /// have different freshness needs, so checks stay out of the branch cache.
+    let checksCache: PullRequestChecksCache
+
     /// Debug-log sink for probe diagnostics (the app injects its debug logger
     /// in DEBUG builds; defaults to a no-op).
     let debugLog: @Sendable (String) -> Void
@@ -54,6 +58,7 @@ public struct PullRequestProbeService: Sendable {
         self.commandRunner = commandRunner
         self.authHeaderCache = GitHubAuthHeaderCache()
         self.requestCoordinator = requestCoordinator ?? GitHubPullRequestRequestCoordinator()
+        self.checksCache = PullRequestChecksCache()
         self.debugLog = debugLog
     }
 
@@ -216,6 +221,7 @@ public struct PullRequestProbeService: Sendable {
             }
 
             var matchedPullRequest: GitHubPullRequestProbeItem?
+            var matchedRepoSlug: String?
             var matchedPullRequestUsedCache = false
             var sawTransientFailure = false
             var sawCachedSuccess = false
@@ -229,6 +235,7 @@ public struct PullRequestProbeService: Sendable {
                     }
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
+                        matchedRepoSlug = repoSlug
                         matchedPullRequestUsedCache = usedCache
                         break
                     }
@@ -249,7 +256,9 @@ public struct PullRequestProbeService: Sendable {
                         number: matchedPullRequest.number,
                         urlString: matchedPullRequest.url,
                         statusRawValue: status.rawValue,
-                        branch: candidate.branch
+                        branch: candidate.branch,
+                        repoSlug: matchedRepoSlug ?? "",
+                        headSHA: matchedPullRequest.headSHA
                     )
                 )
                 usedCachedRepoData = matchedPullRequestUsedCache

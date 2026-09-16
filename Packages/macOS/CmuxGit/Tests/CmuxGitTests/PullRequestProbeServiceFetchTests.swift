@@ -174,6 +174,97 @@ struct PullRequestProbeServiceFetchTests {
         #expect(urls.contains { $0.contains("feat/beta") || $0.contains("feat%2Fbeta") })
         #expect(urls.allSatisfy { !hasQueryItem(named: "page", in: $0) })
     }
+
+    private func detailStub(sha: String = "abc123", conflict: Bool = false) -> GitHubPullRequestStub {
+        .init(statusCode: 200, data: Data("""
+        {"mergeable":\(!conflict),"mergeable_state":"\(conflict ? "dirty" : "clean")","head":{"sha":"\(sha)"}}
+        """.utf8))
+    }
+
+    /// Both payloads share a stub body so the two concurrent requests can
+    /// arrive in either order without depending on scheduling.
+    private func checksStub(conclusion: String = "success", state: String = "success", count: Int = 1) -> GitHubPullRequestStub {
+        .init(statusCode: 200, data: Data("""
+        {"total_count":\(count),
+         "check_runs":[{"id":1,"name":"unit","status":"completed","conclusion":"\(conclusion)"}],
+         "statuses":[{"id":2,"context":"deploy","state":"\(state)"}]}
+        """.utf8))
+    }
+
+    @Test func optionalChecksIncludesLegacyStatusesAndMergeConflicts() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            detailStub(conflict: true), checksStub(state: "pending"), checksStub(state: "pending"),
+        ])
+        let summary = try #require(await makeService().fetchPullRequestChecks(
+            repoSlug: repoSlug, pullRequestNumber: 8175, headSHA: "abc123"
+        ))
+        #expect(summary.status == .pending)
+        #expect(summary.mergeStatus == .conflict)
+        #expect(summary.checks.map(\.name) == ["deploy", "unit"])
+        #expect(summary.checks.map(\.status) == [.pending, .success])
+    }
+
+    @Test func checksCacheSeparatesPullRequestsAndCommitHeads() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            detailStub(), checksStub(), checksStub(),
+            detailStub(), checksStub(conclusion: "failure"), checksStub(conclusion: "failure"),
+            detailStub(sha: "def456"), checksStub(state: "pending"), checksStub(state: "pending"),
+        ])
+        let service = makeService()
+        let first = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        let cached = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(first?.status == .success)
+        #expect(cached == first)
+        #expect(requestURLStrings().count == 3)
+        let second = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 2, headSHA: "abc123")
+        #expect(second?.status == .failure)
+        let pushed = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "def456")
+        #expect(pushed?.status == .pending)
+        #expect(requestURLStrings().contains { $0.contains("/commits/def456/") })
+        #expect(requestURLStrings().count == 9)
+    }
+
+    @Test func failedEndpointsNeverBecomePassingOrNoChecks() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            detailStub(), .init(statusCode: 403), .init(statusCode: 403),
+        ])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .unavailable)
+        #expect(summary?.mergeStatus == .ready)
+    }
+
+    @Test func emptySuccessfulEndpointsAreNeutral() async throws {
+        let empty = GitHubPullRequestStub(statusCode: 200, data: Data("""
+        {"total_count":0,"check_runs":[],"statuses":[]}
+        """.utf8))
+        PullRequestProbeStubURLProtocol.reset(stubs: [detailStub(), empty, empty])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .neutral)
+        #expect(summary?.checks.isEmpty == true)
+    }
+
+    @Test func checkRunFailureOnLaterPagePreventsFalseGreen() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            checksStub(count: 101),
+            .init(statusCode: 200, data: Data("""
+            {"total_count":101,"check_runs":[{"id":101,"name":"integration","status":"completed","conclusion":"failure"}]}
+            """.utf8)),
+        ])
+        let runs = await makeService().fetchCheckRuns(repoSlug: repoSlug, sha: "abc123", authHeader: "Bearer fixture")
+        #expect(runs.complete)
+        #expect(PullRequestProbeService.overallCheckStatus(runs.checks) == .failure)
+        #expect(requestURLStrings().last?.contains("page=2") == true)
+    }
+
+    @Test func commitPushDuringLookupUsesNewerDetailHead() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [detailStub(sha: "def456"), checksStub(), checksStub()])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .success)
+        let urls = requestURLStrings()
+        #expect(urls.filter { $0.contains("/commits/def456/") }.count == 2)
+        #expect(!urls.contains { $0.contains("/commits/abc123/") })
+    }
+
 }
 
 /// Resolves a stable non-empty auth header so the fetch layer proceeds without a
