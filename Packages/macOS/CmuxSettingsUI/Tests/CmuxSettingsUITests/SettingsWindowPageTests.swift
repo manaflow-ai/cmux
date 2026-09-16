@@ -1,0 +1,136 @@
+import AppKit
+import CmuxSettings
+import Foundation
+import SwiftUI
+import Testing
+@testable import CmuxSettingsUI
+
+/// Hosts the real Settings content to verify inactive categories do not
+/// leave their AppKit controls in the detail page, including on cold open.
+@MainActor
+@Suite(.serialized, .timeLimit(.minutes(3))) struct SettingsWindowPageTests {
+    /// Per-test settings stack. `defaults` also backs the root's `@AppStorage`
+    /// (selected section, sidebar entry) through `.defaultAppStorage`, so
+    /// one test's restore navigation cannot leak into the next.
+    struct Fixture {
+        let runtime: SettingsRuntime
+        let defaults: UserDefaults
+    }
+
+    static func makeFixture() -> Fixture {
+        let suiteName = "SettingsWindowPageTests.\(UUID().uuidString)"
+        // Two handles on the same suite: `UserDefaults` is not Sendable, so
+        // the instance handed to the store actor cannot be reused here.
+        let runtime = SettingsRuntime(
+            catalog: SettingCatalog(),
+            userDefaultsStore: UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!),
+            jsonStore: JSONConfigStore(
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
+            ),
+            secretStore: SecretFileStore(
+                baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            ),
+            errorLog: SettingsErrorLog()
+        )
+        return Fixture(runtime: runtime, defaults: UserDefaults(suiteName: suiteName)!)
+    }
+
+    /// AppKit-backed controls (`NSSwitch`, `NSPopUpButton`, `NSStepper`,
+    /// `NSColorWell`, `NSButton`, …) currently attached under `view`.
+    static func controlCount(in view: NSView?) -> Int {
+        guard let view else { return 0 }
+        return (view is NSControl ? 1 : 0) + view.subviews.reduce(0) { $0 + controlCount(in: $1) }
+    }
+
+    /// Hosts `root` the way `SettingsWindowFactory.makeSettingsWindow` does:
+    /// `NSWindow(contentViewController:)` runs the first layout pass
+    /// synchronously, before any run-loop turn. The window is then ordered
+    /// in off screen so SwiftUI treats the content as presented.
+    static func host(_ root: SettingsWindowRoot, in fixture: Fixture) -> NSWindow {
+        let hosting = NSHostingController(rootView: root.defaultAppStorage(fixture.defaults))
+        let window = NSWindow(contentViewController: hosting)
+        window.setContentSize(NSSize(width: 980, height: 680))
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.setFrameOrigin(NSPoint(x: -4000, y: -4000))
+        window.orderBack(nil)
+        return window
+    }
+
+    @Test func categoryPagesReplaceTheirControls() {
+        let fixture = Self.makeFixture()
+        let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
+        defer { window.close() }
+        let accountControls = Self.controlCount(in: window.contentView)
+
+        Self.navigate(to: .browser, in: window)
+        let browserControls = Self.controlCount(in: window.contentView)
+        #expect(browserControls > accountControls + 10)
+
+        Self.navigate(to: .account, in: window)
+        #expect(Self.controlCount(in: window.contentView) == accountControls)
+    }
+
+    @Test func browserImportHasItsOwnPage() {
+        let fixture = Self.makeFixture()
+        let browser = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .browser), in: fixture)
+        defer { browser.close() }
+        let importPage = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .browserImport), in: fixture)
+        defer { importPage.close() }
+
+        let browserControls = Self.controlCount(in: browser.contentView)
+        let importControls = Self.controlCount(in: importPage.contentView)
+        #expect(importControls > 0)
+        #expect(browserControls > importControls + 10)
+    }
+
+    @Test func targetedOpenDoesNotBuildTheLastViewedPage() {
+        let fixture = Self.makeFixture()
+        fixture.defaults.set(SettingsSectionID.browser.rawValue, forKey: SettingsWindowRoot.selectedSectionDefaultsKey)
+        let targeted = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
+        defer { targeted.close() }
+        let targetedControls = Self.controlCount(in: targeted.contentView)
+
+        let account = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
+        defer { account.close() }
+        #expect(targetedControls == Self.controlCount(in: account.contentView))
+        #expect(fixture.defaults.string(forKey: SettingsWindowRoot.selectedSectionDefaultsKey) == SettingsSectionID.account.rawValue)
+    }
+
+    @Test func searchNavigationScrollsWithinTheNewPage() throws {
+        let fixture = Self.makeFixture()
+        let window = Self.host(SettingsWindowRoot(runtime: fixture.runtime, initialSection: .account), in: fixture)
+        defer { window.close() }
+        NotificationCenter.default.post(
+            name: SettingsWindowRoot.navigationRequestName,
+            object: nil,
+            userInfo: [
+                "target": SettingsSectionID.browser.rawValue,
+                "anchor": "setting:browser:http-allowlist",
+                "highlight": true
+            ]
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+        let scroll = try #require(Self.scrollViews(in: window.contentView).max {
+            ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
+        })
+        #expect(scroll.documentVisibleRect.minY > 100)
+
+        Self.navigate(to: .browser, in: window)
+        #expect(scroll.documentVisibleRect.minY < 30)
+    }
+
+    private static func scrollViews(in view: NSView?) -> [NSScrollView] {
+        guard let view else { return [] }
+        return ((view as? NSScrollView).map { [$0] } ?? [])
+            + view.subviews.flatMap { scrollViews(in: $0) }
+    }
+
+    private static func navigate(to section: SettingsSectionID, in window: NSWindow) {
+        NotificationCenter.default.post(
+            name: SettingsWindowRoot.navigationRequestName,
+            object: nil,
+            userInfo: ["target": section.rawValue]
+        )
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+}

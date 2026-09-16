@@ -56,14 +56,14 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
     /// something to import from (otherwise it would show the "No importable
     /// browsers found" alert). Opens Settings, scrolls to the Browser
     /// section, presses the Choose… button (`SettingsBrowserImportChooseButton`,
-    /// which exists in `BrowserSection.swift`), then asserts the import
+    /// which exists in `BrowserImportSection.swift`), then asserts the import
     /// wizard surface appears. The wizard's first-step `Next` button and the
     /// "Import Browser Data" window are the same elements
     /// `BrowserImportProfilesUITests` asserts on, so they are known to exist.
     func testImportChooseButtonOpensImportWizard() {
         let app = makeLaunchedAppWithImportFixture()
         let window = openSettings(app)
-        navigate(window, to: "Browser")
+        navigate(window, to: "Import Browser Data")
 
         let chooseButton = requireElement(
             candidates: [
