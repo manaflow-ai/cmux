@@ -10,6 +10,20 @@ import Testing
 @MainActor
 @Suite(.timeLimit(.minutes(1)))
 struct MobileHostLifecycleCoordinatorTests {
+    @Test func synchronousInvalidationObserverSeesRetirementAndCanReplaceIntent() async {
+        let fixture = MobileHostLifecycleFixture()
+        let coordinator = fixture.makeCoordinator()
+        fixture.onInvalidation = {
+            #expect(coordinator.isTransitioning)
+            fixture.onInvalidation = nil
+            coordinator.request("replacement")
+        }
+        coordinator.request("original")
+        await coordinator.waitForTransition()
+        #expect(fixture.retirements == 1)
+        #expect(fixture.activations == ["replacement"])
+    }
+
     @Test func repeatedStoppedIntentDoesNoWork() async {
         let fixture = MobileHostLifecycleFixture()
         let coordinator = fixture.makeCoordinator()

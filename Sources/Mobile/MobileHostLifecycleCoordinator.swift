@@ -28,16 +28,19 @@ final class MobileHostLifecycleCoordinator<Scope: Equatable & Sendable> {
         guard restart || self.scope != scope else { return }
         self.scope = scope
         generation = UUID()
-        invalidate()
-        guard transition == nil else { return }
-        transition = Task { @MainActor [weak self, retire] in
-            await retire()
-            guard let self else { return }
-            // No suspension separates selecting the final intent and starting it.
-            // A later request will retire that generation through this same owner.
-            self.transition = nil
-            if let scope = self.scope { self.activate(scope, self.generation) }
+        if transition == nil {
+            transition = Task { @MainActor [weak self, retire] in
+                await retire()
+                guard let self else { return }
+                // No suspension separates selecting the final intent and starting it.
+                // A later request will retire that generation through this same owner.
+                self.transition = nil
+                if let scope = self.scope { self.activate(scope, self.generation) }
+            }
         }
+        // Reserve the retiring phase before publishing: a synchronous observer
+        // may re-enter with a newer intent, but must never see the old resources as active.
+        invalidate()
     }
 
     /// Explicit shutdown callers can join cleanup; UI policy updates never wait for it.

@@ -11,6 +11,7 @@ import Foundation
 final class MobileHostLifecycleFixture {
     var holdsRetirement = false
     var invalidations = 0
+    var onInvalidation: (() -> Void)?
     var retirements = 0
     var activations: [String] = []
     var activationGenerations: [UUID] = []
@@ -19,7 +20,10 @@ final class MobileHostLifecycleFixture {
 
     func makeCoordinator() -> MobileHostLifecycleCoordinator<String> {
         MobileHostLifecycleCoordinator(
-            invalidate: { self.invalidations += 1 },
+            invalidate: {
+                self.invalidations += 1
+                self.onInvalidation?()
+            },
             retire: {
                 self.retirements += 1
                 guard self.holdsRetirement else { return }
