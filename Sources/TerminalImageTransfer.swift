@@ -445,6 +445,19 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
+        let text = pasteboardService.stringContents(from: pasteboard)
+        if text?.isEmpty != false {
+            switch pasteboardService.materializeImageFileURLIfNeeded(from: pasteboard) {
+            case .saved(let imageURL):
+                return .fileURLs([imageURL])
+            case .rejectedImagePayload:
+                return .reject
+            case .noDecodableImagePayload:
+                break
+            }
+        }
+
+        // Preserve file selections after resolving an image copy's auxiliary URLs.
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
@@ -456,21 +469,8 @@ enum TerminalImageTransferPlanner {
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
-
-        if let string = pasteboardService.stringContents(from: pasteboard),
-           !string.isEmpty {
-            return .insertText(string)
-        }
-
-        switch pasteboardService.materializeImageFileURLIfNeeded(
-            from: pasteboard
-        ) {
-        case .saved(let imageURL):
-            return .fileURLs([imageURL])
-        case .rejectedImagePayload:
-            return .reject
-        case .noDecodableImagePayload:
-            break
+        if let text, !text.isEmpty {
+            return .insertText(text)
         }
 
         // Clipboard managers can advertise unusable image types alongside valid text.
