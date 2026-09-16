@@ -19,6 +19,17 @@ const agentNames = agentSlugs.map((slug) => {
 });
 const linkClass = "text-sm text-muted underline underline-offset-2 decoration-link-underline hover:text-foreground hover:decoration-foreground transition-colors";
 
+function ComputerUseActions({ location }: { location: string }) {
+  const common = useTranslations("common");
+  return (
+    <div className="flex flex-wrap items-center gap-3" data-dev="cua-action-row">
+      <DownloadButton location={location} />
+      <GitHubButton location={location} />
+      <Link href="/docs/computer-use" className={linkClass}>{common("readTheDocs")}</Link>
+    </div>
+  );
+}
+
 export async function generateMetadata() {
   const locale = await getLocale();
   const t = await getTranslations({ locale, namespace: "docs.computerUse" });
@@ -51,10 +62,8 @@ export default function ComputerUsePage() {
         </div>
         <p className="text-lg leading-relaxed mb-3 text-foreground">{t("tagline")}</p>
         <p className="text-base text-muted leading-normal">{t("intro")}</p>
-        <div className="flex flex-wrap items-center gap-3 mt-[21px] mb-4" data-dev="cua-cta">
-          <DownloadButton location="landing" />
-          <GitHubButton location="landing" />
-          <Link href="/docs/computer-use" className={linkClass}>{common("readTheDocs")}</Link>
+        <div className="mt-[21px] mb-4" data-dev="cua-cta">
+          <ComputerUseActions location="landing" />
         </div>
         <figure className="my-12">
           <Image
@@ -92,11 +101,11 @@ export default function ComputerUsePage() {
             copiedLabel={t("copiedPrompt")}
           />
         </section>
-        <div className="flex flex-wrap items-center gap-6 border-t border-border pt-6" data-dev="cua-footer-links">
-          <DownloadButton location="landing-footer" />
-          <GitHubButton location="landing-footer" />
-          <Link href="/docs/computer-use" className={linkClass}>{common("readTheDocs")}</Link>
-          <Link href="/docs/changelog" className={linkClass}>{common("viewChangelog")}</Link>
+        <div className="border-t border-border pt-6" data-dev="cua-footer-links">
+          <ComputerUseActions location="landing-footer" />
+          <div className="mt-6">
+            <Link href="/docs/changelog" className={linkClass}>{common("viewChangelog")}</Link>
+          </div>
         </div>
       </main>
     </>
