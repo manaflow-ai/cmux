@@ -1041,7 +1041,7 @@ struct MacComputerDetailView: View {
                 Label(
                     L10n.string(
                         "mobile.computers.routes.scanTailscale",
-                        defaultValue: "Scan Tailscale Pairing Code"
+                        defaultValue: "Scan Mobile Pairing Code"
                     ),
                     systemImage: "qrcode.viewfinder"
                 )

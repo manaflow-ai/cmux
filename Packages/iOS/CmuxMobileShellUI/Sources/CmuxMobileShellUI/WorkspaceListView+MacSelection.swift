@@ -95,12 +95,18 @@ extension WorkspaceListView {
     }
 
     func macBuildLabelsByID() -> [String: String] {
+        let labels: [String: String]
         if let store {
-            return store.pairedMacBuildLabelsByEntryID()
+            labels = store.pairedMacBuildLabelsByEntryID()
+        } else {
+            labels = MobileShellComposite.buildLabelsByEntryID(
+                for: displayPairedMacsForPicker
+            ) { _, _ in nil }
         }
-        return MobileShellComposite.buildLabelsByEntryID(
-            for: displayPairedMacsForPicker
-        ) { _, _ in nil }
+        return WorkspaceMacBuildLabelResolver().labels(
+            workspaces: workspaces,
+            existing: labels
+        )
     }
 
     var filterMenuPresentMachineIDs: [String] {
@@ -223,7 +229,9 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                 } label: {
                     menuRow(
                         title: machine.name,
-                        subtitle: machine.buildLabel,
+                        subtitle: machine.buildLabel.map {
+                            MacAppInstanceDisplayFormatter().localizedBuildLabel($0)
+                        },
                         isSelected: value.selection == selection
                     )
                 }
