@@ -73,6 +73,16 @@ class WebValidationTests(unittest.TestCase):
                 capture_output=True)
             self.assertEqual(output.read_text().strip(), "required=true")
 
+            before_move_back = git("rev-parse", "HEAD")
+            git("mv", "docs/new.ts", "web/new.ts")
+            git("commit", "-qm", "move back into web")
+            output.write_text("")
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "route"],
+                cwd=repo, env={**os.environ, "EVENT_NAME": "pull_request", "BASE_SHA": before_move_back,
+                    "HEAD_SHA": git("rev-parse", "HEAD"), "GITHUB_OUTPUT": str(output)}, check=True,
+                capture_output=True)
+            self.assertEqual(output.read_text().strip(), "required=true")
+
     def check_results(self, needs):
         return subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "check"],
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs)}, capture_output=True).returncode
