@@ -12,16 +12,18 @@ struct MobileHostV2Configuration: Sendable {
     let stateDirectory: URL
 
     @MainActor
-    static func current() throws -> Self {
-        let values = ProcessInfo.processInfo.environment
-        let defaults = UserDefaults.standard
-        let namespace = Bundle.main.bundleIdentifier ?? "dev.cmux"
+    static func current(
+        values: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) throws -> Self {
+        let namespace = bundle.bundleIdentifier ?? "dev.cmux"
         for key in ["CMUX_IROH_V2_ENVIRONMENT", "CMUX_IROH_V2_BASE_URL", "CMUX_IROH_V2_FORCE_RELAY"] {
             if let value = values[key] { defaults.set(value, forKey: "cmux.iroh.v2.config." + key) }
         }
         func override(_ key: String) -> String? {
             values[key] ?? defaults.string(forKey: "cmux.iroh.v2.config." + key)
-                ?? Bundle.main.object(forInfoDictionaryKey: key) as? String
+                ?? bundle.object(forInfoDictionaryKey: key) as? String
         }
         #if DEBUG
         let fallback = "development"

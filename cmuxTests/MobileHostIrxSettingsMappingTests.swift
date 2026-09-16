@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 import Testing
 
@@ -205,5 +206,70 @@ struct MobileHostIrxActivationRetryTests {
             jitterUnitInterval: 1
         )
         #expect(delay == 75)
+    }
+}
+
+@MainActor
+struct MobileHostV2ConfigurationTests {
+    @Test func emptyPackagedOverridesUseTheBuiltInWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            let configuration = try MobileHostV2Configuration.current(
+                values: [:], defaults: defaults, bundle: bundle
+            )
+            #if DEBUG
+            #expect(configuration.environment == "development")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2-development.debussy.workers.dev")
+            #else
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #endif
+        }
+    }
+
+    @Test func blankOverridesDoNotMaskTheProductionEnvironment() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            defaults.set("production", forKey: "cmux.iroh.v2.config.CMUX_IROH_V2_ENVIRONMENT")
+            let configuration = try MobileHostV2Configuration.current(
+                values: ["CMUX_IROH_V2_ENVIRONMENT": " \n", "CMUX_IROH_V2_BASE_URL": ""],
+                defaults: defaults,
+                bundle: bundle
+            )
+            #expect(configuration.environment == "production")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+        }
+    }
+
+    @Test func unknownEnvironmentCannotSelectTheDevelopmentWorker() throws {
+        try withBlankReleaseBundle { bundle, defaults in
+            #expect(throws: V2ControlFailure.scopeMismatch) {
+                try MobileHostV2Configuration.current(
+                    values: ["CMUX_IROH_V2_ENVIRONMENT": "produciton"],
+                    defaults: defaults,
+                    bundle: bundle
+                )
+            }
+        }
+    }
+
+    private func withBlankReleaseBundle(
+        _ body: (Bundle, UserDefaults) throws -> Void
+    ) throws {
+        let identifier = "com.cmuxterm.configuration-test.\(UUID().uuidString)"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(identifier + ".bundle")
+        let defaults = try #require(UserDefaults(suiteName: identifier))
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: identifier)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let info: [String: String] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.nightly",
+            "CMUX_IROH_V2_ENVIRONMENT": "",
+            "CMUX_IROH_V2_BASE_URL": ""
+        ]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: directory.appendingPathComponent("Info.plist"))
+        let bundle = try #require(Bundle(url: directory))
+        try body(bundle, defaults)
     }
 }
