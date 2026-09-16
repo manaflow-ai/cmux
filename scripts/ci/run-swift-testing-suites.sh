@@ -16,9 +16,21 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
-suite_list="$({
-  swift test list --package-path "$package_path"
-} | sed -nE 's/^[^.]+\.([^/]+)\/.*$/\1/p' | sort -u)"
+# GhosttyKit's static archive name also makes `swift test list` return a
+# nonzero status after emitting the complete list. Preserve that list while
+# tolerating only the same known diagnostic accepted by the package test lane.
+suite_list_output=""
+suite_list_status=0
+suite_list_output="$(swift test list --package-path "$package_path" 2>&1)" || suite_list_status=$?
+if [ "$suite_list_status" -ne 0 ]; then
+  if printf '%s\n' "$suite_list_output" \
+    | grep -v 'unexpected binary' \
+    | grep -Eq '(^|[^a-zA-Z])error:'; then
+    printf '%s\n' "$suite_list_output" >&2
+    exit "$suite_list_status"
+  fi
+fi
+suite_list="$(printf '%s\n' "$suite_list_output" | sed -nE 's/^[^.]+\.([A-Za-z_][A-Za-z0-9_]*)\/.*$/\1/p' | sort -u)"
 
 if [ -z "$suite_list" ]; then
   echo "no test suites discovered for $package_path" >&2

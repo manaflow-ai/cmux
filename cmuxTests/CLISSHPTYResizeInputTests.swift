@@ -17,7 +17,6 @@ struct CLISSHPTYResizeInputTests {
         let token = "bridge-token"
         let resizeRequestReceived = DispatchSemaphore(value: 0)
         let inputForwarded = DispatchSemaphore(value: 0)
-        let bridgeReady = DispatchSemaphore(value: 0)
         let closeBridge = DispatchSemaphore(value: 0)
         let bridgeCloseObserved = DispatchSemaphore(value: 0)
         let capturedResizeParams = CapturedResizeParams()
@@ -88,7 +87,6 @@ struct CLISSHPTYResizeInputTests {
 
         let bridgeHandled = startBridgeServer(
             bridge: bridge,
-            bridgeReady: bridgeReady,
             inputForwarded: inputForwarded,
             closeBridge: closeBridge,
             bridgeCloseObserved: bridgeCloseObserved,
@@ -112,12 +110,13 @@ struct CLISSHPTYResizeInputTests {
         slaveFD = -1
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = [
+            "--socket", socketPath,
             "ssh-pty-attach",
             "--workspace", workspaceId,
             "--session-id", sessionId,
             "--attachment-id", surfaceId,
         ]
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX") }
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         process.environment = environment
@@ -133,7 +132,7 @@ struct CLISSHPTYResizeInputTests {
                 process.terminate()
             }
         }
-        #expect(bridgeReady.wait(timeout: .now() + 5) == .success)
+        #expect(waitForForwardingOutput(masterFD), "CLI must forward bridge output before the input edge")
 
         try setPTYSize(masterFD: masterFD, cols: 120, rows: 40)
         writeAll(fd: masterFD, data: Data("stty size\n".utf8))
@@ -172,7 +171,7 @@ struct CLISSHPTYResizeInputTests {
         #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
 
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        #expect(process.terminationStatus == 0, Comment(rawValue: stderr))
+        #expect(process.terminationStatus == 0, "\(stderr); isolated mock requests: \(state.snapshot())")
         let resizeParams = capturedResizeParams.snapshot()
         #expect(resizeParams?["attachment_token"] as? String == "attach-token")
         #expect(resizeParams?["cols"] as? Int == 120)
@@ -421,6 +420,9 @@ struct CLISSHPTYResizeInputTests {
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> Data
     ) {
+        // Darwin accept inherits O_NONBLOCK, but this reader waits for each request.
+        let flags = fcntl(clientFD, F_GETFL, 0)
+        guard flags >= 0, fcntl(clientFD, F_SETFL, flags & ~O_NONBLOCK) == 0 else { return }
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -445,7 +447,6 @@ struct CLISSHPTYResizeInputTests {
 
     private func startBridgeServer(
         bridge: LoopbackTCPListener,
-        bridgeReady: DispatchSemaphore,
         inputForwarded: DispatchSemaphore,
         closeBridge: DispatchSemaphore,
         bridgeCloseObserved: DispatchSemaphore,
@@ -476,11 +477,10 @@ struct CLISSHPTYResizeInputTests {
                 pending.append(buffer, count: count)
             }
 
-            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\ninput-resize-ready\n"
             ready.withCString { ptr in
                 _ = Darwin.write(clientFD, ptr, strlen(ptr))
             }
-            bridgeReady.signal()
             while true {
                 let count = Darwin.read(clientFD, &buffer, buffer.count)
                 if count > 0 {
