@@ -145,8 +145,7 @@ extension TabManager: SidebarGitHosting {
             status: SidebarPullRequestStatus(rawValue: badge.status.rawValue) ?? .open,
             branch: badge.branch,
             isStale: badge.isStale,
-            checks: badge.checks.map(SidebarPullRequestChecks.init),
-            preserveChecks: false
+            checks: badge.checks.map(SidebarPullRequestChecks.init)
         )
     }
 

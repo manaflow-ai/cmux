@@ -11,8 +11,7 @@ extension Workspace {
         status: SidebarPullRequestStatus,
         branch: String? = nil,
         isStale: Bool = false,
-        checks: SidebarPullRequestChecks? = nil,
-        preserveChecks: Bool = true
+        checks: SidebarPullRequestChecks? = nil
     ) {
         if cloudDirectoryProvenanceRequired(panelId: panelId) {
             clearPanelPullRequest(panelId: panelId)
@@ -44,8 +43,7 @@ extension Workspace {
             status: status,
             branch: resolvedBranch,
             isStale: isStale,
-            checks: checks ?? (preserveChecks && existing?.url == url
-                && existing?.status == status && existing?.branch == resolvedBranch ? existing?.checks : nil)
+            checks: checks
         )
         if existing != state {
             panelPullRequests[panelId] = state

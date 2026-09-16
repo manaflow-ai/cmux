@@ -52,6 +52,20 @@ import CmuxSidebar
         #expect(missing.statusLabel != empty.statusLabel)
     }
 
+    @Test func passivePRReportsClearChecksWithoutLosingThePR() throws {
+        let workspace = Workspace(title: "PR checks")
+        let panel = UUID()
+        let url = try #require(URL(string: "https://github.com/o/r/pull/1"))
+        workspace.updatePanelPullRequest(
+            panelId: panel, number: 1, label: "PR", url: url, status: .open, branch: "feature/x",
+            checks: SidebarPullRequestChecks(status: .success, checks: [], mergeStatus: .ready)
+        )
+        #expect(workspace.panelPullRequests[panel]?.checks?.status == .success)
+        workspace.updatePanelPullRequest(panelId: panel, number: 1, label: "PR", url: url, status: .open, branch: "feature/x")
+        #expect(workspace.panelPullRequests[panel]?.number == 1)
+        #expect(workspace.panelPullRequests[panel]?.checks == nil)
+    }
+
     @Test func optInIsSharedByBothSidebarRenderers() throws {
         let suite = "pr-checks-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

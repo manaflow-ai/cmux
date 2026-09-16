@@ -2,8 +2,8 @@ import CryptoKit
 import Foundation
 
 extension PullRequestProbeService {
-    /// Fetches current GitHub checks and mergeability using the shared authenticated
-    /// transport. Partial or failed check data can never produce a passing badge.
+    /// Fetches GitHub’s PR commit rollup through the shared authenticated transport.
+    /// Reruns replace earlier attempts within the same provider/workflow/event.
     public nonisolated func fetchPullRequestChecks(
         repoSlug: String,
         pullRequestNumber: Int,
@@ -15,29 +15,40 @@ extension PullRequestProbeService {
         let identity = Data(SHA256.hash(data: Data(authHeader.utf8))).base64EncodedString()
         let key = "\(identity)|\(repoSlug)#\(pullRequestNumber)|\(headSHA ?? "")"
         if let cached = await checksCache.value(for: key, now: Date()) { return cached }
-        guard !Task.isCancelled else { return nil }
-        let response = await performRequest(endpoint: "repos/\(repoSlug)/pulls/\(pullRequestNumber)", authHeader: authHeader)
-        let detail = response?.decode(WorkspacePullRequestDetailItem.self)
-        // The PR detail is newer than the branch lookup when a push races this pass.
-        guard let sha = detail?.head?.sha ?? headSHA,
-              !sha.isEmpty, sha.allSatisfy({ $0.isHexDigit }), !Task.isCancelled else { return nil }
-        async let runs = fetchCheckRuns(repoSlug: repoSlug, sha: sha, authHeader: authHeader)
-        async let statuses = fetchCommitStatuses(repoSlug: repoSlug, sha: sha, authHeader: authHeader)
-        let (runResult, statusResult) = await (runs, statuses)
-        guard !Task.isCancelled else { return nil }
-        let checks = (runResult.checks + statusResult.checks).sorted {
-            $0.name == $1.name ? $0.id < $1.id : $0.name < $1.name
+        let slug = repoSlug.split(separator: "/")
+        guard slug.count == 2 else { return nil }
+        var currentSHA: String?
+        var mergeStatus: PullRequestMergeStatus = .unknown
+        var contexts: [PullRequestCheckIdentity: PullRequestCheckContext] = [:]
+        var cursor: String?
+        var seenCursors: Set<String> = []
+        var complete = false
+        for _ in 0..<10 {
+            guard !Task.isCancelled else { return nil }
+            let query = PullRequestChecksQuery(owner: String(slug[0]), repository: String(slug[1]), number: pullRequestNumber, cursor: cursor)
+            guard let body = try? query.encodedBody(),
+                  let response = await requestCoordinator.response(endpoint: "graphql", authHeader: authHeader, body: body),
+                  response.statusCode == 200,
+                  let page = PullRequestChecksPage(data: response.data) else { break }
+            // A push between pages invalidates this collection, even when all
+            // fetched pages happened to contain passing checks.
+            if let currentSHA, currentSHA != page.headSHA { return nil }
+            currentSHA = page.headSHA
+            mergeStatus = page.mergeStatus
+            for context in page.contexts {
+                if let previous = contexts[context.identity], previous.startedAt > context.startedAt { continue }
+                contexts[context.identity] = context
+            }
+            guard let next = page.nextCursor else { complete = true; break }
+            guard seenCursors.insert(next).inserted else { break }
+            cursor = next
         }
-        let summary = PullRequestChecksSummary(
-            checks: checks,
-            mergeStatus: PullRequestMergeStatus(mergeable: detail?.mergeable, mergeableState: detail?.mergeableState),
-            complete: runResult.complete && statusResult.complete
-        )
-        // Never cache a result under an older commit's identity.
-        if summary.status != .unavailable, sha == headSHA {
+        guard !Task.isCancelled else { return nil }
+        let checks = contexts.values.map(\.check).sorted { $0.name == $1.name ? $0.id < $1.id : $0.name < $1.name }
+        let summary = PullRequestChecksSummary(checks: checks, mergeStatus: mergeStatus, complete: complete)
+        if complete, summary.status != .unavailable, currentSHA == headSHA {
             await checksCache.insert(summary, for: key, now: Date())
         }
         return summary
     }
-
 }

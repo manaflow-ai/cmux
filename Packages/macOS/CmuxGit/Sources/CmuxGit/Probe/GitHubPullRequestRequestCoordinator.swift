@@ -40,6 +40,7 @@ public actor GitHubPullRequestRequestCoordinator {
 
     internal struct RequestKey: Hashable, Sendable {
         let endpoint: String
+        let body: Data?
         let authorizationFingerprint: Data
     }
 
@@ -107,7 +108,8 @@ public actor GitHubPullRequestRequestCoordinator {
 
     func response(
         endpoint: String,
-        authHeader: String?
+        authHeader: String?,
+        body: Data? = nil
     ) async -> WorkspacePullRequestHTTPResponse? {
         guard let authHeader,
               !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -115,6 +117,7 @@ public actor GitHubPullRequestRequestCoordinator {
         }
         let requestKey = RequestKey(
             endpoint: endpoint,
+            body: body,
             authorizationFingerprint: githubAuthorizationFingerprint(for: authHeader)
         )
         guard activeRateLimitRetryDate(
@@ -193,7 +196,11 @@ public actor GitHubPullRequestRequestCoordinator {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = requestKey.body == nil ? "GET" : "POST"
+        request.httpBody = requestKey.body
+        if requestKey.body != nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue(Self.userAgentHeaderValue, forHTTPHeaderField: "User-Agent")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")

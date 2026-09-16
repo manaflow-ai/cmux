@@ -389,15 +389,15 @@ extension SidebarGitMetadataService {
         switch snapshot.pullRequest {
         case .resolved(let pullRequest):
             if shouldTrackPullRequests {
+                // This local snapshot cannot verify the remote commit. Its
+                // lifecycle badge must not preserve the previous CI result.
                 let nextBadge = SidebarPullRequestBadge(
                     number: pullRequest.number,
                     label: pullRequest.label,
                     url: pullRequest.url,
                     status: pullRequest.status,
                     branch: pullRequest.branch,
-                    isStale: false,
-                    checks: host.pullRequestChecksEnabled && previousPullRequestBadge?.url == pullRequest.url
-                        ? previousPullRequestBadge?.checks : nil
+                    isStale: false
                 )
                 didApplyMaterialSidebarGitChange = didApplyMaterialSidebarGitChange
                     || previousPullRequestBadge != nextBadge
