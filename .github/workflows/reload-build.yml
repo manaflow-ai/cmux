@@ -43,6 +43,11 @@ on:
         required: false
         default: ""
         type: string
+      backend_url:
+        description: Registered private Tailscale backend origin for this tag
+        required: false
+        default: ""
+        type: string
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -63,6 +68,7 @@ jobs:
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_DEV_BACKEND_URL: ${{ inputs.backend_url }}
       # A degraded cache must lose to a cold build instead of stalling this
       # latency-sensitive lane for actions/cache's ten-minute default.
       SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
