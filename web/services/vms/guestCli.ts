@@ -2804,7 +2804,7 @@ esac
 export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
   const openURL = Buffer.from(GUEST_CMUX_OPEN_URL, "utf8").toString("base64");
-  const browserEnv = "[ -x /usr/local/bin/cmux-open-url ] && { [ -n \"${BROWSER-}\" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n \"${GH_BROWSER-}\" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }";
+  const browserEnv = "[ -x /usr/local/bin/cmux-open-url ] && { [ -n \"$" + "{BROWSER-}\" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n \"$" + "{GH_BROWSER-}\" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }";
   return [
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
