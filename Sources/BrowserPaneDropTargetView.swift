@@ -132,11 +132,11 @@ final class BrowserPaneDropTargetView: NSView {
 
     private var enclosingPaneDropRoutingHost: (any PaneDropRoutingHost)? {
         var ancestor = superview
-        while let ancestor {
-            if let host = ancestor as? any PaneDropRoutingHost {
+        while let view = ancestor {
+            if let host = view as? any PaneDropRoutingHost {
                 return host
             }
-            ancestor = ancestor.superview
+            ancestor = view.superview
         }
         return nil
     }
