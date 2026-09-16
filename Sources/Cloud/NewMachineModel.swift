@@ -125,11 +125,13 @@ final class NewMachineModel {
     var onFinished: (@MainActor (Outcome) -> Void)?
 
     private let submit: Submit
+    private let selectionWindowID: UUID?
 
     init(
         mode: Mode,
         plan: MachinePlanSnapshot?,
         memoryOptionsMb: [Int] = [],
+        selectionWindowID: UUID? = nil,
         submit: @escaping Submit
     ) {
         self.mode = mode
@@ -139,6 +141,7 @@ final class NewMachineModel {
         // ladder. Preserve its 20 GiB default and omit --size entirely.
         self.availableMemoryOptionsMb = serverOptions
         self.submit = submit
+        self.selectionWindowID = selectionWindowID
         self.memoryMb = serverOptions.isEmpty
             ? Self.legacyPlanMachineMemoryMb
             : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
@@ -216,20 +219,24 @@ final class NewMachineModel {
     /// CLI never selects that workspace or moves keyboard focus out of the one
     /// the person is working in when it lands.
     var cliArguments: [String] {
+        var arguments: [String]
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", Self.machineKind.cliFlag]
+            arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
-            return arguments
         case .base(let workspaceID):
-            return [
+            arguments = [
                 "vm", "base", "open",
                 "--workspace", workspaceID.uuidString,
                 Self.machineKind.cliFlag,
                 "--focus", "false",
             ]
         }
+        if let selectionWindowID {
+            arguments += ["--window", selectionWindowID.uuidString]
+        }
+        return arguments
     }
 
     /// The request the coordinator tracks for this sheet's choices.
@@ -238,7 +245,8 @@ final class NewMachineModel {
             mode: mode,
             kind: Self.machineKind,
             name: nil,
-            arguments: cliArguments
+            arguments: cliArguments,
+            selectionWindowID: selectionWindowID
         )
     }
 
