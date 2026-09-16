@@ -86,9 +86,11 @@ struct SettingsPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        SettingsWindowHostRoot(initialSection: panel.initialSection) {
-            SettingsWindowPresenter.shared.deliverPendingNavigationAfterContentAppears()
-        }
+        SettingsWindowHostRoot(
+            initialSection: panel.initialSection,
+            onContentAppear: { SettingsWindowPresenter.shared.deliverPendingNavigationAfterContentAppears() },
+            presentation: .pane
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.contentBackgroundColor))
         .simultaneousGesture(TapGesture().onEnded { onRequestPanelFocus() })

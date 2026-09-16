@@ -1,14 +1,24 @@
 import CmuxSettings
 import SwiftUI
 
+/// Where the Settings root is hosted. The window keeps AppKit's split view
+/// (full-height sidebar, toolbar toggle); a workspace pane draws a flat
+/// two-column layout in the pane's own chrome, with no window furniture.
+public enum SettingsRootPresentation: Sendable {
+    case window
+    case pane
+}
+
 /// Settings sidebar and its selected category page, hosted by the app's
-/// AppKit-owned Settings window. Search results and external navigation
-/// share one path that selects a page before scrolling to its row.
+/// AppKit-owned Settings window or embedded in a workspace pane. Search
+/// results and external navigation share one path that selects a page
+/// before scrolling to its row.
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
     private let initialSection: SettingsSectionID?
+    private let presentation: SettingsRootPresentation
 
     static let selectedSectionDefaultsKey = "selectedSettingsSection"
     static let cloudMachinesBetaDefaultsKey = "cloud.beta.machines.enabled"
@@ -19,10 +29,12 @@ public struct SettingsWindowRoot: View {
     ///   - runtime: Catalog, stores, and host actions shared by every page.
     ///   - initialSection: Category rendered in the first layout pass. `nil`
     ///     restores the category saved in the view's default AppStorage.
-    public init(runtime: SettingsRuntime, initialSection: SettingsSectionID? = nil) {
+    ///   - presentation: Window split view, or the flat pane layout.
+    public init(runtime: SettingsRuntime, initialSection: SettingsSectionID? = nil, presentation: SettingsRootPresentation = .window) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
         self.initialSection = initialSection
+        self.presentation = presentation
     }
 
     init(runtime: SettingsRuntime, initialSection: SettingsSectionID, pageDrafts: SettingsPageDrafts) {
@@ -77,16 +89,10 @@ public struct SettingsWindowRoot: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detailPage
-        }
-        .navigationSplitViewStyle(.balanced)
-        .environment(\.settingsSearchIndex, searchIndex)
-        .environment(\.settingsSearchHighlightState, searchHighlight)
-        .frame(minWidth: 820, minHeight: 540)
-        .settingsErrorAlert(log: runtime.errorLog)
+        hostLayout
+            .environment(\.settingsSearchIndex, searchIndex)
+            .environment(\.settingsSearchHighlightState, searchHighlight)
+            .settingsErrorAlert(log: runtime.errorLog)
         .onAppear {
             guard initialNavigationPending else { return }
             let section = selectedSection
@@ -122,6 +128,64 @@ public struct SettingsWindowRoot: View {
             guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
             selectedSidebarEntryID = anchorID(for: selectedSection)
         }
+    }
+
+    @ViewBuilder
+    private var hostLayout: some View {
+        switch presentation {
+        case .window:
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                sidebar
+            } detail: {
+                detailPage
+            }
+            .navigationSplitViewStyle(.balanced)
+            .frame(minWidth: 820, minHeight: 540)
+        case .pane:
+            HStack(spacing: 0) {
+                paneSidebar
+                    .frame(width: 208)
+                Divider()
+                detailPage
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    /// The embedded sidebar: a compact search field over plain category rows,
+    /// tinted a step darker than the page so the two columns read as one
+    /// surface with a hairline seam, the way Xcode and Linear embed settings.
+    private var paneSidebar: some View {
+        VStack(spacing: 0) {
+            SettingsPaneSearchField(text: $searchText)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+                .padding(.bottom, 6)
+            ScrollView {
+                let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    if matches.isEmpty {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    }
+                    ForEach(matches) { entry in
+                        SettingsPaneSidebarRow(
+                            title: entry.title,
+                            symbolName: entry.symbolName,
+                            subtitle: subtitle(for: entry),
+                            isSelected: entry.id == selectedSidebarEntryID
+                        ) {
+                            selectSidebarEntry(entry.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 10)
+            }
+        }
+        .background(Color.primary.opacity(0.04))
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
@@ -248,5 +312,91 @@ public struct SettingsWindowRoot: View {
         let anchor = scrollAnchorID ?? anchorID(for: section)
         guard anchor != anchorID(for: section) else { return }
         proxy.scrollTo(anchor, anchor: .center)
+    }
+}
+
+/// One category row in the embedded sidebar: selection pill in the accent
+/// tint, a quiet hover wash, and the same glyph column as the window sidebar.
+private struct SettingsPaneSidebarRow: View {
+    let title: String
+    let symbolName: String
+    let subtitle: String?
+    let isSelected: Bool
+    let select: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 9) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, subtitle == nil ? 6 : 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.1), value: isHovered)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// The embedded sidebar's search field: a plain field in a soft capsule, no
+/// window toolbar, so it sits in the column like a native inline filter.
+private struct SettingsPaneSearchField: View {
+    @Binding var text: String
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField(String(localized: "settings.search.prompt", defaultValue: "Search"), text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($isFocused)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(String(localized: "settings.search.clear", defaultValue: "Clear Search")))
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .strokeBorder(isFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 }
