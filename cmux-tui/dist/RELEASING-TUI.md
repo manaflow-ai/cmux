@@ -29,7 +29,10 @@ scripts receive `--version`, so cutting a stable TUI release is just creating a
   on a separately published TUI package and must not silently degrade to a
   shell.
 - Windows TUI packages can still be built when the general release input
-  `include_windows` is enabled. The stable Rust machine-relay workflow excludes
+  `include_windows` is enabled. Stable and nightly releases default to Unix
+  until the experimental Windows package's registry publisher is configured;
+  the launcher advertises only the platforms included in its package set.
+  The stable Rust machine-relay workflow excludes
   Windows because `chatmux-relay` has no tested Windows PTY backend. Keep the
   chatmux Node relay as the Windows rollback lane until that backend exists.
 - PyPI `cmux`: platform wheels for `uvx cmux` / `pipx run cmux`.
