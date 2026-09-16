@@ -72,7 +72,8 @@ function fakes(options: {
       return Effect.succeed({
         ...options.row,
         status: "running",
-        resumeClaimed: options.resumeClaimed ?? options.row.status === "paused",
+        resumeClaimed: options.resumeClaimed ?? true,
+        resumeGeneration: "test-resume",
       } as CloudVmRow);
     },
   } as unknown as VmRepositoryShape;
@@ -155,12 +156,23 @@ describe("pauseVm", () => {
 });
 
 describe("resumeVm", () => {
+  test("finishes an interrupted claim when the provider is already running", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({ providerMetadata: { cmuxResume: { generation: "interrupted", phase: "pending", expiresAt: Date.now() + 90_000 } } }),
+      providerStatus: "running",
+    });
+    expect(await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)))).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.resumed).toEqual([]);
+    expect(recorded.reservations).toEqual([]);
+    expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
+  });
+
   test("does not start a paused VM twice when another caller already claimed its resume", async () => {
     const { recorded, layer } = fakes({ row: machineRow({ status: "paused" }), providerStatuses: ["paused", "running"], resumeClaimed: false });
     const result = await Effect.runPromise(resumeVm({ ...resumeCaller, maxActiveVms: 3 }).pipe(Effect.provide(layer)));
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual([]);
-    expect(recorded.events).toEqual([]);
+    expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
     expect(recorded.statusProbes).toEqual(["fs-1", "fs-1"]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
     expect(recorded.paused).toEqual([]);
@@ -175,18 +187,18 @@ describe("resumeVm", () => {
   });
 
   test("wakes a provider-paused machine whose database row is already running", async () => {
-    const { recorded, layer } = fakes({ row: machineRow(), providerStatus: "paused", resumeClaimed: false });
+    const { recorded, layer } = fakes({ row: machineRow(), providerStatus: "paused" });
     expect(await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)))).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual(["fs-1"]);
     expect(recorded.statusProbes).toEqual(["fs-1"]);
-    expect(recorded.events).toEqual([]);
+    expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
   });
 
   test("wakes a paused machine without a billing team", async () => {
     const { recorded, layer } = fakes({ row: machineRow({ status: "paused", billingTeamId: null }), providerStatus: "paused" });
     expect(await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)))).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual(["fs-1"]);
-    expect(recorded.reservations).toEqual([]);
+    expect(recorded.reservations).toEqual(["fs-1"]);
   });
 
   test("wakes a paused team machine through the reservation, records running, and bills the resume", async () => {

@@ -103,6 +103,7 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { vmResumeState } from "./resumeState";
 
 export {
   homeVolumeNameForUser,
@@ -2320,16 +2321,6 @@ function waitForRunningStatus(
   });
 }
 
-function bestEffortPause(
-  providers: VmProviderGatewayShape,
-  vm: CloudVmRow,
-  providerVmId: string,
-): Effect.Effect<void, never> {
-  const pause = providers.pause;
-  if (!pause) return Effect.void;
-  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
-}
-
 function resumeUntilRunning(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -2342,9 +2333,6 @@ function resumeUntilRunning(
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
-    // The provider start already happened; roll back so a started-but-
-    // unrecorded VM is never left running outside Postgres accounting.
-    yield* bestEffortPause(providers, vm, providerVmId);
     return yield* Effect.fail(
       new VmProviderOperationError({
         provider: vm.provider,
@@ -2355,16 +2343,14 @@ function resumeUntilRunning(
   });
 }
 
-type PausedResumeClaim = "reserved" | "unreserved" | "observed";
-
-function reservePausedResumeIfTeam(
+function resumeWithReservation(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
+  resumeSource: VmResumeSource,
   maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
-): Effect.Effect<PausedResumeClaim, VmWorkflowError> {
-  if (!vm.billingTeamId) return Effect.succeed("unreserved");
+): Effect.Effect<boolean, VmWorkflowError> {
   return Effect.gen(function* () {
     const reserved = yield* repo.reservePausedResume({
       id: vm.id,
@@ -2372,6 +2358,7 @@ function reservePausedResumeIfTeam(
       billingTeamId: vm.billingTeamId,
       providerVmId,
       maxActiveVms,
+      observedResumeGeneration: vmResumeState(vm.providerMetadata)?.generation ?? null,
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -2385,41 +2372,37 @@ function reservePausedResumeIfTeam(
         }),
       );
     }
-    // The reservation query returns the current row when another request has
-    // already claimed the paused-to-running transition. That caller owns the
-    // provider start; wait for it instead of issuing a duplicate start.
-    if (reserved.resumeClaimed) return "reserved";
-    // A provider-side pause can leave an already-accounted running row. No
-    // paused-to-running claim was needed; it still needs a provider start.
-    if (vm.status !== "paused") return "unreserved";
-
-    const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
-    if (!settled) {
-      return yield* Effect.fail(
-        new VmProviderOperationError({
-          provider: vm.provider,
-          operation: `resume(${providerVmId})`,
-          cause: new Error("another resume did not reach running"),
-        }),
+    if (reserved.resumeClaimed) {
+      yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+        Effect.tapError(() => rollbackPausedResumeReservation(repo, providers, vm, providerVmId, reserved.resumeGeneration)),
       );
+    } else if (!(yield* waitForRunningStatus(providers, vm, providerVmId))) {
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider, operation: `resume(${providerVmId})`,
+        cause: new Error("another resume did not reach running"),
+      }));
     }
-    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "running" });
-    if (!recorded) return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
-    return "observed";
+    // The reservation already counts this VM as running. A final-write failure
+    // must not pause it: another request may have confirmed and attached to it.
+    yield* recordRunningTransition(repo, vm, providerVmId, reserved.resumeGeneration, resumeSource);
+    return reserved.resumeClaimed;
   });
 }
 
 function rollbackPausedResumeReservation(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  reserved: boolean,
+  resumeGeneration: string,
 ): Effect.Effect<void, never> {
-  if (!reserved) return Effect.void;
-  return repo.markProviderObservedStatus({
-    id: vm.id,
-    providerVmId,
-    status: "paused",
+  return Effect.gen(function* () {
+    // A failed start can have reached the provider. Release capacity only
+    // after a passive read proves it stayed paused, and only for our claim.
+    if (!providers.getStatus) return;
+    const status = yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.timeout(RESUME_STATUS_PROBE_TIMEOUT));
+    if (status !== "paused") return;
+    yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", resumeGeneration });
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
@@ -2462,7 +2445,8 @@ function preflightResumeIfSuspended(
     // A passive/exec path can trust the row and let the provider operation
     // perform its own wake. User-open paths opt into a live probe because a
     // provider can idle-pause a VM while Postgres still says `running`.
-    if (vm.status === "running" && !forceProviderProbe) return false;
+    const pendingResume = vmResumeState(vm.providerMetadata);
+    if (vm.status === "running" && !forceProviderProbe && pendingResume?.phase !== "pending") return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
@@ -2524,6 +2508,12 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status === "running") {
+      // Recover a caller that started the VM but died before completing its
+      // durable claim. Completion is generation-checked and emits at most once.
+      if (pendingResume?.phase === "pending") {
+        yield* recordRunningTransition(repo, vm, providerVmId, pendingResume.generation, resumeSource);
+        return false;
+      }
       // A provider-side action can resume a VM entirely outside the control
       // plane; if the durable row still says paused, record the observed
       // running state so active-limit reconciliation can see the VM.
@@ -2541,23 +2531,7 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return false;
 
-    const claim = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, options.maxActiveVms);
-    if (claim === "observed") return false;
-    const reserved = claim === "reserved";
-    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
-      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-    );
-    yield* recordRunningTransition(
-      repo,
-      providers,
-      vm,
-      providerVmId,
-      new VmNotFoundError({ vmId: providerVmId }),
-    ).pipe(
-      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-    );
-    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
-    return true;
+    return yield* resumeWithReservation(repo, providers, vm, providerVmId, resumeSource, options.maxActiveVms);
   });
 }
 
@@ -2595,53 +2569,38 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        const claim = yield* reservePausedResumeIfTeam(repo, providers, vm, providerVmId, maxActiveVms);
-        if (claim === "observed") return yield* op;
-        const reserved = claim === "reserved";
-        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
-          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+        yield* resumeWithReservation(repo, providers, vm, providerVmId, resumeSource, maxActiveVms).pipe(
           Effect.catchAll(() => Effect.fail(originalError)),
         );
-        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
-          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
-        );
-        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
         return yield* op;
       });
     }),
   );
 }
 
-// After a successful provider resume, Postgres must record the running
-// transition before the workflow proceeds. When the write fails (or the row
-// was destroyed concurrently), roll the provider back to the durable state
-// with a best-effort pause so a running VM is never left invisible to
-// active-limit accounting; Freestyle's idle auto-suspend (~10s) is the
-// backstop if the pause itself fails.
-function recordRunningTransition<E extends VmWorkflowError>(
+// Either the starter or a waiter may confirm the provider's running state.
+// Only the winner of this generation's durable completion records the event.
+function recordRunningTransition(
   repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  staleRowError: E,
-): Effect.Effect<void, VmDatabaseError | E> {
-  const rollbackPause = (): Effect.Effect<void, never> => {
-    const pause = providers.pause;
-    if (!pause) return Effect.void;
-    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
-  };
+  resumeGeneration: string,
+  resumeSource: VmResumeSource,
+): Effect.Effect<void, VmWorkflowError> {
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId,
       status: "running",
-    }).pipe(
-      Effect.tapError(() => rollbackPause()),
-    );
+      resumeGeneration,
+    });
     if (!didUpdate) {
-      yield* rollbackPause();
-      return yield* Effect.fail(staleRowError);
+      const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.billingTeamId, providerVmId });
+      const completed = vmResumeState(current?.providerMetadata);
+      if (current?.status === "running" && completed?.generation === resumeGeneration && completed.phase === "running") return;
+      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
+    yield* recordResumeUsageEvent(repo, vm, resumeSource);
   });
 }
 
