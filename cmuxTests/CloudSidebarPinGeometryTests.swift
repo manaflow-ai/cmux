@@ -16,7 +16,7 @@ struct CloudSidebarPinGeometryTests {
     func leadingPin(width: Double, percent: Int) throws {
         let unpinned = try contentBounds(width: width, pinned: false, percent: percent)
         let pinned = try contentBounds(width: width, pinned: true, percent: percent)
-        #expect(pinned.minX > unpinned.minX + 4, "The pin must precede the identity instead of consuming its trailing edge")
+        #expect(abs(pinned.minX - unpinned.minX) <= 1, "The pin slot must keep the identity column fixed")
         #expect(abs(pinned.maxX - unpinned.maxX) <= 1, "Trailing alignment must not move when pinning")
     }
 
@@ -24,7 +24,7 @@ struct CloudSidebarPinGeometryTests {
     func pinMagnification() throws {
         let small = try contentBounds(width: 140, pinned: true, percent: 75)
         let large = try contentBounds(width: 140, pinned: true, percent: 200)
-        #expect(large.minX > small.minX + 4)
+        #expect(abs(large.minX - small.minX) <= 1)
         #expect(abs(large.maxX - small.maxX) <= 1)
     }
 
@@ -151,7 +151,7 @@ struct CloudSidebarPinGeometryTests {
 
     private func contentBounds(width: Double, pinned: Bool, percent: Int) throws -> CGRect {
         let host = NSHostingView(rootView: Color.blue
-            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: false))
+            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: false, showsPinSlot: true))
             .environment(\.cmuxGlobalFontMagnificationPercent, percent))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 28)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)

@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -34,5 +35,29 @@ struct CloudTreeLayoutMetricsTests {
     func referenceInsetIsTwelvePoints() {
         #expect(metrics.referenceInset == 12)
         #expect(CloudTreeRowGrid.trailingPadding == metrics.referenceInset)
+    }
+
+    @Test("machine pins persist by account and team and keep stable order")
+    @MainActor
+    func machinePinsPersistAndOrder() {
+        let suite = "cloud-machine-pins-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var scope: String? = "user:a|team:one"
+        let first = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        first.reconcile(machineIDs: ["b", "a", "c"])
+        first.setPinned(true, machineID: "c")
+        first.setPinned(true, machineID: "a")
+        #expect(first.orderedMachineIDs(["b", "a", "c"]) == ["c", "a", "b"])
+
+        let restored = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        #expect(restored.orderedMachineIDs(["a", "b", "c"]) == ["c", "a", "b"])
+        scope = "user:a|team:two"
+        restored.refreshScope()
+        #expect(restored.orderedMachineIDs(["a", "b", "c"]) == ["a", "b", "c"])
+        scope = "user:a|team:one"
+        restored.refreshScope()
+        restored.reconcile(machineIDs: ["a", "c"])
+        #expect(restored.orderedMachineIDs(["a", "b", "c"]) == ["c", "a"])
     }
 }

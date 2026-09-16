@@ -26,10 +26,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     }
 
     private func installDependencies(on appDelegate: AppDelegate, presenter: RecordingSheetPresenter, signedIn: Bool = true) {
-        let defaults = UserDefaults(suiteName: "CloudShortcutTests.\(UUID().uuidString)")!
-        let store = DefaultCloudMachineStore(defaults: defaults)
         appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-            defaultMachineStore: store,
             allowsOperation: { CloudMachinesFeature.isEnabled && signedIn },
             loadMachines: { [CloudMachineDescriptor(id: "starred", isDesktop: true)] },
             createWorkspace: { _, _ in UUID() }
@@ -358,12 +355,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
-        let defaults = UserDefaults(suiteName: "CloudShortcutCoalescingTests.\(UUID().uuidString)")!
-        let store = DefaultCloudMachineStore(defaults: defaults)
         var createCount = 0
         var releaseCreate: CheckedContinuation<Void, Never>?
         appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-            defaultMachineStore: store,
             allowsOperation: { true },
             loadMachines: { [CloudMachineDescriptor(id: "starred", isDesktop: true)] },
             createWorkspace: { _, _ in
@@ -377,9 +371,9 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         appDelegate.newMachineSheetPresenter = presenter
         appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
 
-        XCTAssertTrue(appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.first"))
+        XCTAssertTrue(appDelegate.performNewCloudWorkspaceOnMachineAction(machineID: "starred", focus: true, debugSource: "test.first"))
         XCTAssertFalse(
-            appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.duplicate"),
+            appDelegate.performNewCloudWorkspaceOnMachineAction(machineID: "starred", focus: true, debugSource: "test.duplicate"),
             "a second Cmd+Y must not create another remote workspace while the first is attaching"
         )
         for _ in 0..<20 where releaseCreate == nil {

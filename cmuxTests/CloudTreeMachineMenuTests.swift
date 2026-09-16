@@ -77,7 +77,7 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
-            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
+            Self.title("machines.row.pin", "Pin Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
@@ -106,6 +106,7 @@ struct CloudTreeMachineMenuTests {
         ])
 
         // The verbs that stay are still wired, not merely titled.
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: menu)
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
         try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64), in: diskMenu)
@@ -132,6 +133,7 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
         #expect(recorder.deletions == [Self.machineID])
+        #expect(recorder.pinChanges == [(Self.machineID, true)])
     }
 
     @Test("A nested terminal activates its owning Cloud workspace for click and Return")
@@ -280,7 +282,8 @@ struct CloudTreeMachineMenuTests {
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
-            promptUpgrade: {}
+            promptUpgrade: {},
+            setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)) }
         )
     }
 
@@ -321,4 +324,5 @@ private final class CloudTreeMenuVerbRecorder {
     var resizes: [(String, Int)] = []
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
+    var pinChanges: [(String, Bool)] = []
 }
