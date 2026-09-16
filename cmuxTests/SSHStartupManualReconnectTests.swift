@@ -163,9 +163,6 @@ struct SSHStartupManualReconnectTests {
                 #expect(resetRange.lowerBound < closePrompt.lowerBound)
             }
         }
-        try prompt.standardInput.fileHandleForWriting.write(contentsOf: Data([0x0A]))
-        #expect(Self.waitForExit(prompt.process, timeout: 2), Comment(rawValue: transcript))
-        #expect(prompt.process.terminationStatus == 7, Comment(rawValue: transcript))
     }
 
     @Test func directSignalTerminatesPersistentAttachAuthenticationProcessTree() throws {

@@ -392,10 +392,10 @@ final class SidebarLazyLayoutScaleTests {
         let projections = harness.counter.workspaceRowInputProjections
         #expect(projections > 0, "The parent row-input projection probe did not run.")
         #expect(
-            projections <= Self.workspaceCount * 4,
+            projections <= harness.tabManager.tabs.count * 4,
             """
             \(projections) parent row-input projections ran for one \(targets.count)-workspace \
-            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
+            event batch at \(harness.tabManager.tabs.count) workspaces. The batch must cause O(N) parent \
             projection work, not O(N²) work from one parent invalidation per emitter.
             """
         )
