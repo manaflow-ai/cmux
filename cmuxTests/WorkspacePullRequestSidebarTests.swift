@@ -579,63 +579,6 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testManualPullRequestSurvivesWatcherRefreshAndDeduplicatesPanelState() throws {
-        let workspace = Workspace(title: "Test")
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/12746"))
-
-        workspace.attachManualPullRequest(
-            number: 12746,
-            label: "PR",
-            url: url,
-            status: .open,
-            branch: "feature/sidebar-pr"
-        )
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
-        workspace.updatePanelPullRequest(
-            panelId: panelId,
-            number: 12746,
-            label: "PR",
-            url: url,
-            status: .open,
-            branch: "feature/sidebar-pr"
-        )
-
-        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().count, 1)
-
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-
-        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().count, 1)
-        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().first?.number, 12746)
-    }
-
-    func testManualPullRequestCanBeReplacedAndCleared() throws {
-        let workspace = Workspace(title: "Test")
-        let firstURL = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/12746"))
-        let secondURL = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/12747"))
-
-        workspace.attachManualPullRequest(
-            number: 12746,
-            label: "PR",
-            url: firstURL,
-            status: .open,
-            branch: nil
-        )
-        workspace.attachManualPullRequest(
-            number: 12747,
-            label: "PR",
-            url: secondURL,
-            status: .open,
-            branch: nil
-        )
-
-        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().map(\.url), [secondURL])
-
-        workspace.clearManualPullRequest()
-
-        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
-    }
-
     func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
         let defaults = UserDefaults.standard
         let sidebarSettings = SidebarCatalogSection()

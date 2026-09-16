@@ -392,7 +392,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "surface.send_text",
         "surface.send_key",
     ]
-
     /// The v1 sidebar telemetry family, whose worker-lane bodies
     /// (`ControlCommandCoordinator.handleSidebarTelemetryV1`) parse/validate/
     /// format on the worker and either enqueue their mutation on the ordered
@@ -427,6 +426,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_pr",
         "report_review",
         "clear_pr",
+        "report_workspace_pr", "clear_workspace_pr",
         "report_pr_action",
         "report_ports",
         "clear_ports",
@@ -435,7 +435,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_tty",
         "ports_kick",
     ]
-
     /// The v1 notification family, whose worker-lane bodies live on
     /// `TerminalController`: parse/format on the worker; `notify_target_async`
     /// and `clear_notifications` are pure mutation-bus enqueues (zero main
@@ -576,6 +575,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_pr",
         "report_review",
         "clear_pr",
+        "report_workspace_pr", "clear_workspace_pr",
         "report_pr_action",
         "report_ports",
         "clear_ports",
