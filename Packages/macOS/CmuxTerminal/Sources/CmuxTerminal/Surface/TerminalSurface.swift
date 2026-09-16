@@ -313,10 +313,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// A runtime creation that waits for the first committed pane geometry so
     /// the PTY's initial window size is the pane's real size.
     var pendingRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
-    /// The smallest size a terminal starts at while no host shows it, in
-    /// points. Matches the headless bootstrap window so an unseen pane never
-    /// spawns its PTY from a clipped placeholder frame.
-    static let hiddenPaneDefaultSize = CGSize(width: 800, height: 600)
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the

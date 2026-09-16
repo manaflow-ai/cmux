@@ -920,7 +920,7 @@ final class WindowTerminalPortal: NSObject {
     /// True while the hosting window is in an interactive live resize
     /// (title-bar/edge drag). Split-divider drags are deliberately NOT
     /// window live resizes — they keep the immediate per-callback sync path.
-    private var isWindowLiveResizeActive: Bool {
+    var isWindowLiveResizeActive: Bool {
 #if DEBUG
         if isWindowLiveResizeActiveOverrideForTesting { return true }
 #endif
@@ -1834,25 +1834,6 @@ final class WindowTerminalPortal: NSObject {
                 }
             }
         }
-    }
-
-    /// Publishes the resting size of every visible entry whose frame changed
-    /// since its last commit. This and the drag-tick commit in
-    /// `synchronizeHostedView` are the only two paths that give a terminal a
-    /// size, so a hidden, detached, or still-moving frame cannot reach it.
-    private func commitSettledPaneGeometries() {
-        for hostedId in entriesByHostedId.keys {
-            guard let entry = entriesByHostedId[hostedId], entry.visibleInUI,
-                  entry.needsSettledCommit, let hostedView = entry.hostedView,
-                  !hostedView.isHidden, hostedView.window === window else { continue }
-            entriesByHostedId[hostedId]?.needsSettledCommit = false
-            _ = hostedView.commitPortalGeometry(phase: .settled)
-        }
-    }
-
-    /// Whether frames written right now are drag ticks the user is watching.
-    private var isInteractiveGeometryActive: Bool {
-        isWindowLiveResizeActive || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
     }
 
     private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {

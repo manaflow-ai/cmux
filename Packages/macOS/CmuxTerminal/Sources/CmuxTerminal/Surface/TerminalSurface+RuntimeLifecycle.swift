@@ -743,26 +743,7 @@ extension TerminalSurface {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
-        // A portal-owned view sizes only from the portal's committed pane
-        // geometry. Creating the runtime before that commit would give the
-        // PTY an initial window size from a frame the user never saw, and a
-        // resumed TUI reflows to it permanently. Park the creation; the first
-        // commit resumes it with the same (or a promoted) source.
-        // A pane the portal is not showing has no user-visible size yet; it
-        // starts at the default size (never smaller) like a restored upstream
-        // window and reflows once when it is revealed.
-        if view.paneGeometryIsPortalOwned, committedPaneGeometry == nil, rendererPortalVisible {
-            pendingRuntimeSurfaceCreationSource =
-                pendingRuntimeSurfaceCreationSource.map { $0.promoted(with: source) } ?? source
-#if DEBUG
-            logDebugEvent(
-                "surface.create.wait surface=\(id.uuidString.prefix(5)) reason=noCommittedPaneGeometry " +
-                "bounds=\(String(format: "%.1fx%.1f", Double(view.bounds.width), Double(view.bounds.height)))"
-            )
-#endif
-            return
-        }
-        pendingRuntimeSurfaceCreationSource = nil
+        if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -871,23 +852,7 @@ extension TerminalSurface {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        // The committed pane geometry is the size the user sees; a view outside
-        // a portal has no commit and sizes from its own bounds, as upstream does.
-        let backingSize: CGSize
-        if let committed = committedPaneGeometry {
-            backingSize = committed.backingSize
-        } else if view.paneGeometryIsPortalOwned {
-            // Hidden pane: the portal has written no visible frame, so the
-            // bounds may be a clipped placeholder. Start at least at the
-            // default size; the reveal commit supplies the real one.
-            let points = CGSize(
-                width: max(view.bounds.width, Self.hiddenPaneDefaultSize.width),
-                height: max(view.bounds.height, Self.hiddenPaneDefaultSize.height)
-            )
-            backingSize = view.convertToBacking(NSRect(origin: .zero, size: points)).size
-        } else {
-            backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
-        }
+        let backingSize = initialRuntimeBackingSize(for: view)
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
