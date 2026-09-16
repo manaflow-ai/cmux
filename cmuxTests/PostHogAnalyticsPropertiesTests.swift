@@ -749,7 +749,7 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @Test
-    func reportedExceptionReturnsNilWithoutExceptionPayload() throws {
+    func reportedExceptionFallsBackWithoutExceptionPayload() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-exception-empty-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -766,7 +766,7 @@ struct PostHogAnalyticsPropertiesTests {
         envelope.append(0x0A)
         try envelope.write(to: crashURL)
 
-        #expect(GhosttyCrashReportMetadata.reportedException(in: crashURL) == nil)
+        #expect(GhosttyCrashReportMetadata.reportedException(in: crashURL)?.type == "UnknownCrash")
         #expect(GhosttyCrashReportMetadata.reportedException(
             in: directory.appendingPathComponent("missing.ghosttycrash")
         ) == nil)
