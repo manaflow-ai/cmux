@@ -452,7 +452,7 @@ struct ManagedCapabilityPolicyGateTests {
         runtime.setSettingsPhase(.active)
         await runtime.applyManagedNetworkingPolicy()
         #expect(runtime.settingsPhase == .idle)
-        #expect(runtime.controlService == nil)
+        #expect(runtime.endpointSupervisor == nil)
     }
 
     @Test func irohRuntimeAllowsNetworkingWhenNoPolicyIsForced() {
@@ -491,7 +491,7 @@ struct ManagedCapabilityPolicyGateTests {
             // No account is signed in, so every settled state is idle. The
             // assertion that matters is that the pair always settles.
             #expect(runtime.settingsPhase == .idle)
-            #expect(runtime.controlService == nil)
+            #expect(runtime.endpointSupervisor == nil)
         }
 
         defaults.removeObject(forKey: key)
@@ -517,7 +517,7 @@ struct ManagedCapabilityPolicyGateTests {
         #expect(runtime.isNetworkingAllowed)
         await runtime.applyManagedNetworkingPolicy()
         #expect(runtime.settingsPhase == .idle)
-        #expect(runtime.controlService == nil)
+        #expect(runtime.endpointSupervisor == nil)
     }
 }
 
