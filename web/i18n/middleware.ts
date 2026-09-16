@@ -6,7 +6,11 @@ const routeLocale = createMiddleware(routing);
 
 export function localeMiddleware(request: NextRequest): NextResponse {
   const response = routeLocale(request);
-  const isBackgroundRequest = request.headers.get("rsc") === "1"
+  // Next.js removes internal RSC headers before Proxy. Fetch Metadata survives
+  // normalization and distinguishes browser fetches from document navigation.
+  const destination = request.headers.get("sec-fetch-dest");
+  const isBackgroundRequest = (destination !== null && destination !== "document")
+    || request.headers.get("rsc") === "1"
     || request.headers.has("next-router-prefetch")
     || request.headers.get("purpose")?.includes("prefetch")
     || request.headers.get("sec-purpose")?.includes("prefetch");
