@@ -14,6 +14,7 @@ on:
 concurrency:
   # Serialize with the production App Review workflow.
   group: ios-app-store-production
+  queue: max
   cancel-in-progress: false
 
 permissions:
