@@ -505,7 +505,10 @@ describe("client config", () => {
     await fetchStarted.promise;
     const secondRateLimitChecked = deferred();
     let rateLimitCalls = 0;
-    checkRateLimit.mockImplementation(async () => {
+    const rateLimitMock = checkRateLimit as unknown as {
+      mockImplementation(implementation: () => Promise<{ rateLimited: boolean; error: string | null }>): void;
+    };
+    rateLimitMock.mockImplementation(async () => {
       rateLimitCalls += 1;
       if (rateLimitCalls === 2) secondRateLimitChecked.resolve();
       return { rateLimited: rateLimitCalls === 2, error: null };
