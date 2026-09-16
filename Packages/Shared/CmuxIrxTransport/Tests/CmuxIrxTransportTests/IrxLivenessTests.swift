@@ -177,6 +177,67 @@ struct IrxLivenessTests {
         #expect(await host.connectionCount == 1)
         await engine.stop()
     }
+
+    @Test("cancelled startup transport cannot claim and close a pooled dial", arguments: [false, true])
+    func cancelledStartupPreservesPooledDial(joinExistingDial: Bool) async throws {
+        let host = try await IrxLivenessTestHost.make(behavior: .respond)
+        defer { Task { await host.stop() } }
+        let dialStarted = IrxAsyncLatch()
+        let releaseDial = IrxAsyncLatch()
+        let releaseProbe = IrxControlReleaseProbe()
+        let engine = IrxPeerEngine(
+            config: .init(keepaliveInterval: .seconds(60)), journal: host.journal
+        ) {
+            await dialStarted.signal()
+            await releaseDial.wait()
+            return try await host.dial()
+        }
+        let existingDial: Task<IrxClientSession, any Error>?
+        if joinExistingDial {
+            existingDial = Task { try await engine.ensureSession(trigger: "warmup") }
+            await dialStarted.wait()
+        } else {
+            existingDial = nil
+        }
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: {
+                let session = try await engine.ensureSession(trigger: "startup")
+                return (session.connection, session.control)
+            },
+            onClose: { _, code, retiresConnection in
+                await releaseProbe.record(closeCode: code, retiresConnection: retiresConnection)
+            }
+        )
+        let connecting = Task { try await transport.connect() }
+        if joinExistingDial {
+            try await waitUntil { host.journal.counterSnapshot()["dial-joined", default: 0] == 1 }
+        } else {
+            await dialStarted.wait()
+        }
+
+        // Auth restoration supersedes the old RPC client while the shared
+        // native dial is still pending. Closing that client cancels its waiter.
+        await transport.close()
+        await releaseDial.signal()
+        do {
+            try await connecting.value
+            Issue.record("cancelled startup unexpectedly acquired a session")
+        } catch is CancellationError {
+        } catch {
+            Issue.record("cancelled startup returned unexpected error: \(error)")
+        }
+        _ = try await existingDial?.value
+
+        #expect(await releaseProbe.count == 0)
+        let admitted = try #require(await engine.currentSession())
+        #expect(await !admitted.connection.isClosed)
+        let restored = try await engine.ensureSession(trigger: "auth-restored")
+        #expect(restored.admit.session == admitted.admit.session)
+        #expect(await host.connectionCount == 1)
+        try await expectControlRoundTrip(on: restored, message: "restored-client-can-use-pooled-session")
+        await engine.stop()
+    }
 }
 
 private actor IrxLivenessTestHost {
