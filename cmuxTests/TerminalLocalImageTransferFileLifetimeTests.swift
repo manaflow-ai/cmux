@@ -140,7 +140,7 @@ struct TerminalLocalImageTransferFileLifetimeTests {
     }
 
     @Test("An image drop reaches the TUI as one bracketed paste", arguments: [false, true])
-    func imageDropDeliversBracketedPaste(throughDropController: Bool) throws {
+    func imageDropDeliversBracketedPaste(throughDropController: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-drop-bytes-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
@@ -188,7 +188,7 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         let readyDeadline = Date().addingTimeInterval(10)
         while hosted.surface.readText(region: .screen)?.contains(ready) != true,
               Date() < readyDeadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            try await Task.sleep(for: .milliseconds(10))
         }
         try #require(hosted.surface.readText(region: .screen)?.contains(ready) == true)
         if throughDropController {
@@ -210,7 +210,7 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         }
         let captureDeadline = Date().addingTimeInterval(12)
         while !FileManager.default.fileExists(atPath: captureURL.path), Date() < captureDeadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            try await Task.sleep(for: .milliseconds(10))
         }
         let receipt = try #require(JSONSerialization.jsonObject(
             with: Data(contentsOf: captureURL)
