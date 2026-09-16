@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Exercise the app's pinned Iroh binary against a disposable System-keychain CA.
+
+Requires an isolated macOS runner and explicit --allow-system-keychain. The
+generated CA is removed in finally; no existing certificate is modified.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parents[2]
+KEYCHAIN = "/Library/Keychains/System.keychain"
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, capture_output=True, text=True, **kwargs).stdout
+
+
+def certificates(directory):
+    subject = "cmux-12714-" + uuid.uuid4().hex
+    config = directory / "openssl.cnf"
+    config.write_text(f"""[req]
+distinguished_name = dn
+prompt = no
+[dn]
+CN = {subject}
+[ca_ext]
+basicConstraints = critical,CA:true
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+[ca]
+default_ca = issuer
+[issuer]
+database = {directory}/index.txt
+serial = {directory}/serial
+new_certs_dir = {directory}
+certificate = {directory}/root.pem
+private_key = {directory}/root.key
+default_md = sha256
+default_days = 2
+policy = policy
+unique_subject = no
+[policy]
+commonName = supplied
+""")
+    (directory / "index.txt").touch()
+    (directory / "serial").write_text("01\n")
+    run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+        "-config", str(config), "-extensions", "ca_ext",
+        "-keyout", str(directory / "root.key"), "-out", str(directory / "root.pem"))
+    for name, hostname in [("valid", "localhost"), ("wrong-host", "wrong.example"),
+                           ("expired", "localhost")]:
+        ext = directory / f"{name}.ext"
+        ext.write_text(f"basicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
+                       f"extendedKeyUsage=serverAuth\nsubjectAltName=DNS:{hostname}\n")
+        run("openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
+            "-subj", f"/CN={hostname}", "-keyout", str(directory / f"{name}.key"),
+            "-out", str(directory / f"{name}.csr"))
+        dates = ["-startdate", "20200101000000Z", "-enddate", "20200102000000Z"] if name == "expired" else []
+        run("openssl", "ca", "-batch", "-config", str(config), "-extfile", str(ext),
+            "-in", str(directory / f"{name}.csr"), "-out", str(directory / f"{name}.pem"), *dates)
+    return subject
+
+
+def build_client(directory):
+    pins = json.loads((ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved").read_text())["pins"]
+    pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
+    (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
+import PackageDescription
+let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
+    dependencies: [.package(url: "{pin['location']}", exact: "{pin['state']['version']}")],
+    targets: [.executableTarget(name: "RelayTLSClient",
+        dependencies: [.product(name: "IrohLib", package: "iroh-ffi")], path: "Sources")])
+''')
+    sources = directory / "Sources"
+    sources.mkdir()
+    shutil.copyfile(Path(__file__).with_name("RelayTLSClient.swift"), sources / "RelayTLSClient.swift")
+    build = subprocess.run(["swift", "build", "--package-path", str(directory)],
+                           capture_output=True, text=True)
+    if build.returncode:
+        raise RuntimeError(build.stdout + build.stderr)
+    return directory / ".build/debug/RelayTLSClient", pin
+
+
+def handshake(client, directory, name, label, output):
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(directory / f"{name}.pem", directory / f"{name}.key")
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    listener.settimeout(15)
+    observed = {}
+
+    def serve():
+        try:
+            stream, _ = listener.accept()
+            stream.settimeout(10)
+            with context.wrap_socket(stream, server_side=True) as tls:
+                # TLS 1.3's server-side handshake can return before the client's
+                # certificate alert. Application data proves client validation.
+                data = tls.recv(4096)
+                observed["accepted"] = data.startswith(b"GET ")
+                tls.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+        except (ssl.SSLError, OSError) as error:
+            observed.update(accepted=False, server_error=type(error).__name__)
+        finally:
+            listener.close()
+
+    server = threading.Thread(target=serve)
+    server.start()
+    log = output / f"{label}.log"
+    with log.open("w") as log_file:
+        process = subprocess.Popen([str(client), f"https://localhost:{listener.getsockname()[1]}/"],
+                                   stdin=subprocess.PIPE, stdout=log_file, stderr=log_file)
+        try:
+            server.join(timeout=20)
+        finally:
+            process.stdin.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            listener.close()
+            server.join(timeout=1)
+    if server.is_alive() or not observed:
+        raise RuntimeError(f"{label}: no TLS result; inspect {log}")
+    observed["case"] = label
+    print(json.dumps(observed), flush=True)
+    return observed
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--allow-system-keychain", action="store_true")
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+    if sys.platform != "darwin" or not args.allow_system_keychain:
+        parser.error("use an isolated macOS runner with --allow-system-keychain")
+    args.output.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="cmux-relay-tls-") as temp:
+        directory = Path(temp)
+        os.chmod(directory, 0o700)
+        subject = certificates(directory)
+        client, pin = build_client(directory)
+        root = directory / "root.pem"
+        der = subprocess.check_output(["openssl", "x509", "-in", str(root), "-outform", "DER"])
+        fingerprint = hashlib.sha1(der).hexdigest().upper()
+        results = []
+        try:
+            results.append(handshake(client, directory, "valid", "untrusted-issuer", args.output))
+            run("sudo", "-n", "security", "add-trusted-cert", "-d", "-r", "trustRoot",
+                "-p", "ssl", "-k", KEYCHAIN, str(root))
+            run("security", "verify-cert", "-c", str(directory / "valid.pem"),
+                "-p", "ssl", "-s", "localhost")
+            results.append(handshake(client, directory, "valid", "system-trusted-enterprise-root", args.output))
+            results.append(handshake(client, directory, "wrong-host", "hostname-mismatch", args.output))
+            results.append(handshake(client, directory, "expired", "expired-certificate", args.output))
+        finally:
+            subprocess.run(["sudo", "-n", "security", "remove-trusted-cert", "-d", str(root)],
+                           capture_output=True, check=False)
+            subprocess.run(["sudo", "-n", "security", "delete-certificate", "-Z", fingerprint, KEYCHAIN],
+                           capture_output=True, check=False)
+        results.append(handshake(client, directory, "valid", "removed-root", args.output))
+        cleanup = subprocess.run(["security", "find-certificate", "-c", subject, KEYCHAIN],
+                                 capture_output=True, check=False).returncode != 0
+        report = {"framework": pin, "macos": run("sw_vers", "-productVersion").strip(),
+                  "results": results, "root_removed": cleanup}
+        (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+        expected = [False, True, False, False, False]
+        if [result["accepted"] for result in results] != expected or not cleanup:
+            raise SystemExit("FAIL: system trust or certificate validation did not match the contract")
+        print("PASS: System-keychain root honored; untrusted issuer, wrong host, expired and removed root rejected")
+
+
+if __name__ == "__main__":
+    main()
