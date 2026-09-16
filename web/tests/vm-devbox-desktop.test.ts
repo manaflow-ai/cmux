@@ -252,6 +252,10 @@ describe("devbox desktop layer", () => {
     expect(freestyleBake).toContain("const desktopEnvLine = `'[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh'`");
     expect(freestyleBake).toContain("...rcFiles.map((rc) => `echo ${desktopEnvLine} >> ${rc}`)");
     expect(freestyleBake).toContain("echo ${desktopEnvLine} > /etc/profile.d/cmux-desktop.sh");
+    const guestOpenURL = "'[ -x /usr/local/bin/cmux-open-url ] && { [ -n \"${BROWSER-}\" ] || BROWSER=/usr/local/bin/cmux-open-url; export BROWSER; [ -n \"${GH_BROWSER-}\" ] || GH_BROWSER=/usr/local/bin/cmux-open-url; export GH_BROWSER; }'";
+    expect(dockerfile).toContain(`echo ${guestOpenURL} > /etc/profile.d/cmux-open-url.sh`);
+    expect(freestyleBake).toContain("const guestOpenURLLine =");
+    expect(freestyleBake).toContain("echo ${guestOpenURLLine} > /etc/profile.d/cmux-open-url.sh");
     // Both bakes and the verifier prove it end to end: DISPLAY in a root login
     // shell and in the work user's, the buses only for the work user, the
     // accessibility bus reachable by cua-driver's doctor.

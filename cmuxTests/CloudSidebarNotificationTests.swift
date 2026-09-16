@@ -10,6 +10,28 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar notification identity")
 struct CloudSidebarNotificationTests {
+    @Test("Guest browser requests accept web URLs and reject non-web schemes")
+    func guestOpenURLRows() throws {
+        let request = try #require(CloudVMNotificationRow.row(fromObject: [
+            "id": "notification_0000000000000000000000000000open",
+            "title": CloudVMNotificationRow.openURLTitle,
+            "body": "https://github.com/login/device",
+            "level": "info",
+            "created_at_ms": "1",
+            "read_by": [],
+        ]))
+        #expect(request.openURL?.absoluteString == "https://github.com/login/device")
+        let nonWeb = try #require(CloudVMNotificationRow.row(fromObject: [
+            "id": "notification_0000000000000000000000000000mail",
+            "title": CloudVMNotificationRow.openURLTitle,
+            "body": "mailto:person@example.com",
+            "level": "info",
+            "created_at_ms": "1",
+            "read_by": [],
+        ]))
+        #expect(nonWeb.openURL == nil)
+    }
+
     @Test("Arrival moves the correct folder; read, replay and restart never move it again")
     func deliveryReadAndReconnect() throws {
         let fixture = CloudSidebarOrderingFixture()
