@@ -1678,6 +1678,7 @@
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
 		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
+		F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */; };
 		FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE5996010000000000000001 /* FileExplorerCellView.swift */; };
 		C40410010000000000000021 /* FileExplorerDoubleClickActionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */; };
 		FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE002010 /* FileExplorerDoubleClickActionTests.swift */; };
@@ -5454,6 +5455,7 @@
 		D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayView.swift; sourceTree = "<group>"; };
 		D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewHitTesting.swift; sourceTree = "<group>"; };
 		D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewTests.swift; sourceTree = "<group>"; };
+		F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileEditorWordWrapShortcutTests.swift; sourceTree = "<group>"; };
 		FE5996010000000000000001 /* FileExplorerCellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerCellView.swift; sourceTree = "<group>"; };
 		C40410010000000000000020 /* FileExplorerDoubleClickActionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionSettings.swift; sourceTree = "<group>"; };
 		FE002010 /* FileExplorerDoubleClickActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerDoubleClickActionTests.swift; sourceTree = "<group>"; };
@@ -10964,6 +10966,7 @@
 				8175A0010000000000000002 /* SidebarGitProcessCompositionTests.swift */,
 				C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */,
 				C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */,
+				F12748000000000000000002 /* FileEditorWordWrapShortcutTests.swift */,
 				C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */,
 				C01E00070000000000000002 /* FilePreviewCodeViewTests.swift */,
 				C01E00090000000000000002 /* FilePreviewSyntaxTestSupport.swift */,
@@ -15232,6 +15235,7 @@
 				10200F1E0000000000000003 /* FileContentObserverTransferTests.swift in Sources */,
 				781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */,
 				D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */,
+				F12748000000000000000001 /* FileEditorWordWrapShortcutTests.swift in Sources */,
 				FE002110 /* FileExplorerDoubleClickActionTests.swift in Sources */,
 				FE002112 /* FileExplorerGitStatusProviderTests.swift in Sources */,
 				9860F0029860F0029860F002 /* FileExplorerNativeDragOwnershipTests.swift in Sources */,
