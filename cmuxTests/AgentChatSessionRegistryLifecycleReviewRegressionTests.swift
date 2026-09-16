@@ -24,13 +24,15 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
         // released from a Swift concurrency thread.
         let lastReference = OffMainReleaseBox(Unmanaged.passRetained(try #require(service)))
         service = nil
-        let released = DispatchSemaphore(value: 0)
-        let thread = Thread {
-            lastReference.release()
-            released.signal()
+        // Resume when the background release returns, without blocking the main actor
+        // that the released service hands its prose-streaming cleanup back to.
+        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
+            Thread {
+                lastReference.release()
+                released.resume()
+            }.start()
         }
-        thread.start()
-        #expect(released.wait(timeout: .now() + 5) == .success)
+        // Give the main actor a turn so that cleanup runs inside this test.
         await Task.yield()
     }
 
