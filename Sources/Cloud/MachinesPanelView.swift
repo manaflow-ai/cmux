@@ -175,10 +175,10 @@ struct MachinesPanelView: View {
 
     @ViewBuilder
     private var content: some View {
-        // Show the empty state exactly when there is no Cloud row. The builder owns that decision
-        // (This Mac is listed but is not a machine); deciding it here from the raw catalog previously
-        // left a blank panel for a signed-in account with no machines.
-        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog) {
+        // Show the empty state exactly when the outline would render zero rows. The builder owns that
+        // decision, with the same local-machine setting the outline uses; deciding it here from the raw
+        // catalog previously left a blank panel for a signed-in account with no machines.
+        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog, includeLocalMachine: true) {
             emptyState
         } else {
             machinesList

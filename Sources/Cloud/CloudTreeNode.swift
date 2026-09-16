@@ -699,6 +699,7 @@ enum CloudTreeNodeBuilder {
         let titles = Dictionary(localWorkspaces.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
 
         var terminalsByWorkspace: [UUID: [SurfaceResource]] = [:]
+        let browsersByWorkspace = Dictionary(grouping: browsers.compactMap { browser in workspaceOf(browser.id).map { ($0, browser) } }, by: \.0)
         var unplaced: [SurfaceResource] = []
         for terminal in terminals {
             if let workspaceID = workspaceOf(terminal.id) {
@@ -707,8 +708,7 @@ enum CloudTreeNodeBuilder {
                 unplaced.append(terminal)
             }
         }
-        // Sidebar order first; workspaces the sidebar list did not mention come last. A
-        // workspace switcher lists every sidebar workspace, even one with no terminal.
+        // Sidebar order first; workspaces the sidebar list did not mention come last (all of them for the Cloud tab).
         var orderedWorkspaces = includeEmptyLocalWorkspaces ? localWorkspaces : localWorkspaces.filter { terminalsByWorkspace[$0.id] != nil }
         let known = Set(orderedWorkspaces.map(\.id))
         for workspaceID in terminalsByWorkspace.keys.sorted(by: { $0.uuidString < $1.uuidString }) where !known.contains(workspaceID) {
@@ -720,7 +720,7 @@ enum CloudTreeNodeBuilder {
             let title = workspace.title.isEmpty
                 ? String(localized: "cloudTree.localWorkspace.untitled", defaultValue: "Workspace")
                 : workspace.title
-            let projectedBrowsers = browsers.filter { workspaceOf($0.id) == workspace.id }
+            let projectedBrowsers = (browsersByWorkspace[workspace.id] ?? []).map(\.1)
             return CloudTreeNode(
                 id: nodeID(workspace: workspace.id.uuidString, machine: .local),
                 kind: .localWorkspace(CloudTreeLocalWorkspaceRow(
