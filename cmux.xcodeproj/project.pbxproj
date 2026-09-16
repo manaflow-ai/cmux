@@ -3290,11 +3290,15 @@
 		B88351000000000000000005 /* TerminalImageTransferPreparedContent+Cleanup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */; };
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
 		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
+		BBE26C5DFB67496482C47DFC /* TerminalLinkBrowserPlacementConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7B49B2CD8EEC480EE2A7B45 /* TerminalLinkBrowserPlacementConfigTests.swift */; };
+		A2B4B0AFB3F25729532F5394 /* TerminalLinkBrowserPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEFE802378ABFB853682CCF1 /* TerminalLinkBrowserPlacementTests.swift */; };
+		548718A7B63BB16C6E37DBFE /* TerminalLinkBrowserSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503399A01E8917127F4A7292 /* TerminalLinkBrowserSocketTests.swift */; };
 		C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
 		859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */; };
 		859110000000000000000009 /* TerminalLinkOpenRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85911000000000000000000A /* TerminalLinkOpenRequest.swift */; };
+		559B959CB29CB5150237DFBE /* TerminalLinkPlacementFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C6C930D3F035AB8FA5291B3 /* TerminalLinkPlacementFixture.swift */; };
 		A5C0B1E00000000000000001 /* TerminalNotification+Clipboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0B1E00000000000000002 /* TerminalNotification+Clipboard.swift */; };
 		D79020000000000000000001 /* TerminalNotification+NavigationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */; };
 		A5F10000000000000000000B /* TerminalNotification.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000C /* TerminalNotification.swift */; };
@@ -7050,11 +7054,15 @@
 		B88351000000000000000006 /* TerminalImageTransferPreparedContent+Cleanup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+Cleanup.swift"; sourceTree = "<group>"; };
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
 		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
+		D7B49B2CD8EEC480EE2A7B45 /* TerminalLinkBrowserPlacementConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkBrowserPlacementConfigTests.swift"; sourceTree = "<group>"; };
+		DEFE802378ABFB853682CCF1 /* TerminalLinkBrowserPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkBrowserPlacementTests.swift"; sourceTree = "<group>"; };
+		503399A01E8917127F4A7292 /* TerminalLinkBrowserSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkBrowserSocketTests.swift"; sourceTree = "<group>"; };
 		C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkLocationAndDockTests.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
 		859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinatorTests.swift; sourceTree = "<group>"; };
 		85911000000000000000000A /* TerminalLinkOpenRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenRequest.swift; sourceTree = "<group>"; };
+		9C6C930D3F035AB8FA5291B3 /* TerminalLinkPlacementFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkPlacementFixture.swift"; sourceTree = "<group>"; };
 		A5C0B1E00000000000000002 /* TerminalNotification+Clipboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+Clipboard.swift"; sourceTree = "<group>"; };
 		D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotification+NavigationSnapshot.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000C /* TerminalNotification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotification.swift; sourceTree = "<group>"; };
@@ -10468,6 +10476,10 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				503399A01E8917127F4A7292 /* TerminalLinkBrowserSocketTests.swift */,
+				D7B49B2CD8EEC480EE2A7B45 /* TerminalLinkBrowserPlacementConfigTests.swift */,
+				DEFE802378ABFB853682CCF1 /* TerminalLinkBrowserPlacementTests.swift */,
+				9C6C930D3F035AB8FA5291B3 /* TerminalLinkPlacementFixture.swift */,
 				B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */,
 				A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */,
 				A54730000000000000000003 /* RestoredStartupInputResendTests.swift */,
@@ -15667,8 +15679,12 @@
 				851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */,
 				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
+				BBE26C5DFB67496482C47DFC /* TerminalLinkBrowserPlacementConfigTests.swift in Sources */,
+				A2B4B0AFB3F25729532F5394 /* TerminalLinkBrowserPlacementTests.swift in Sources */,
+				548718A7B63BB16C6E37DBFE /* TerminalLinkBrowserSocketTests.swift in Sources */,
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
+				559B959CB29CB5150237DFBE /* TerminalLinkPlacementFixture.swift in Sources */,
 				A5C41103A1B2C3D4E5F60718 /* TerminalNotificationCallerTests.swift in Sources */,
 				A5A5A507A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift in Sources */,
 				A5C0B1E00000000000000003 /* TerminalNotificationClipboardTests.swift in Sources */,
