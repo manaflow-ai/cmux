@@ -1,8 +1,8 @@
 import Foundation
 
-/// Assigns each remote destination a color from the workspace color palette so
-/// servers are easy to tell apart at a glance, and the same destination shows the
-/// same color in every open window for the life of the app session. Gated by the
+/// Assigns each remote destination a color from ``hostPalette`` so servers are easy
+/// to tell apart at a glance, and the same destination shows the same color in every
+/// open window for the life of the app session. Gated by the
 /// `remoteTmux.originColors.beta` flag at the call sites.
 ///
 /// Keyed by the host's `destination` STRING (the ssh alias or `user@host` — the
@@ -36,9 +36,35 @@ import Foundation
 /// an injected `slotCount` to exercise the probing deterministically.
 @MainActor
 final class RemoteHostColorRegistry {
-    /// Number of palette slots to assign over. Defaults to the built-in palette
-    /// count; the built-in palette is used for indexing (fixed size/order) so a
-    /// user editing custom palette entries can't reshuffle host colors.
+    /// Sixteen colors picked for telling hosts apart, rather than borrowed from the
+    /// workspace tab palette, whose dark reds and magentas collapse into each other
+    /// once the sidebar rail brightens them (two pairs there differ by under 5).
+    /// Measured as the rail draws them, every pair differs by at least 14 in OKLab
+    /// (x100), and colors that are neighbors in this order differ by at least 29, so
+    /// a host bumped to the next slot by a collision lands on a clearly different
+    /// color. Each also differs from the selected row's blue by at least 12.
+    /// `RemoteHostColorRegistryTests` checks those floors.
+    static let hostPalette: [String] = [
+        "#EF0133", // red
+        "#8C59FF", // violet
+        "#FFB100", // amber
+        "#9A5475", // mauve
+        "#17BEF9", // sky
+        "#FF59FF", // magenta
+        "#9D4C00", // brown
+        "#009E05", // green
+        "#FF8CBA", // pink
+        "#EFFD12", // yellow
+        "#9E7E07", // ochre
+        "#F9009D", // hot pink
+        "#04C7A3", // teal
+        "#FF7839", // orange
+        "#B324C2", // purple
+        "#99BC00", // lime
+    ]
+
+    /// Number of palette slots to assign over. Defaults to ``hostPalette``'s count;
+    /// tests inject other counts to exercise the probing.
     let slotCount: Int
 
     /// destination → assigned palette slot (the stable per-host cache).
@@ -46,7 +72,7 @@ final class RemoteHostColorRegistry {
     /// palette slot → destination that holds it (drives collision probing).
     private var hostBySlot: [Int: String] = [:]
 
-    init(slotCount: Int = WorkspaceTabColorSettings.defaultPalette.count) {
+    init(slotCount: Int = RemoteHostColorRegistry.hostPalette.count) {
         self.slotCount = max(0, slotCount)
     }
 
@@ -71,15 +97,10 @@ final class RemoteHostColorRegistry {
         return chosen
     }
 
-    /// The palette color hex for `destination`, resolving the assigned slot to the
-    /// palette entry's CURRENT hex (so user palette recolors are honored while the
-    /// slot itself stays stable). `nil` when the palette is empty.
+    /// The color hex for `destination`'s assigned slot. `nil` when the palette is empty.
     func colorHex(for destination: String) -> String? {
-        guard let slot = slot(for: destination) else { return nil }
-        let palette = WorkspaceTabColorSettings.defaultPalette
-        guard slot < palette.count else { return nil }
-        let entry = palette[slot]
-        return WorkspaceTabColorSettings.currentColorHex(named: entry.name) ?? entry.hex
+        guard let slot = slot(for: destination), slot < Self.hostPalette.count else { return nil }
+        return Self.hostPalette[slot]
     }
 
     /// Stable FNV-1a/64 hash of a string — deterministic across processes (unlike
