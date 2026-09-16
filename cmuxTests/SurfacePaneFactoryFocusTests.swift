@@ -237,6 +237,7 @@ import Testing
         private(set) var createdWorkingDirectory: String?
         private(set) var createdRemoteWorkspaceID: String?
 
+        var materializePane: ((SurfaceResource, SurfaceDestination, Bool) throws -> SurfaceProjection)?
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
         let creationRequests = AsyncStream<UUID>.makeStream()
@@ -317,8 +318,9 @@ import Testing
         }
 
         /// Returns a projection fixture for unrelated provider protocol calls.
-        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
-            SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+            if let materializePane { return try materializePane(resource, destination, focus) }
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
 
         /// Records no state when the test projection ends.
@@ -387,31 +389,48 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
-    @Test("Cloud pane focus transfers keyboard ownership from the sidebar")
-    func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() throws {
+    @Test("Cloud resource drop hands keyboard ownership to its first pane")
+    func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
         let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
-
+        let catalog = SurfaceCatalog()
+        let provider = CloudCreationProvider(machine: .cloud("drop-fixture"), workingDirectory: nil)
+        catalog.register(provider)
+        var created: [UUID] = []
+        provider.materializePane = { resource, destination, focus in
+            let panel = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil, workingDirectory: nil, at: destination, focus: focus
+            )
+            created.append(panel.panelID)
+            return SurfaceProjection(resource: resource.id, workspaceID: panel.workspaceID, panelID: panel.panelID)
+        }
+        let resources = ["first", "second"].map { name in
+            SurfaceResource(id: SurfaceResourceID(machine: provider.machine, kind: .terminal, key: name),
+                            title: name, detail: nil, lifecycle: .running, agent: nil,
+                            remoteWorkspace: nil, port: nil, url: nil)
+        }
+        catalog.replaceResources(resources, on: provider.machine)
         harness.appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .machines, in: window)
         #expect(harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
-
-        let created = try SurfacePaneFactory.makeTerminalPane(
-            initialCommand: nil,
-            workingDirectory: nil,
-            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
-            focus: true
-        )
-        SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID)
-
-        #expect(!harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
-        #expect(harness.appDelegate.allowsTerminalKeyboardFocus(
-            workspaceId: workspace.id,
-            panelId: created.panelID,
-            in: window
+        #expect(workspace.handleSurfaceResourceDrop(
+            group: SurfaceResourceGroup(title: "drop", resources: resources.map(\.id)),
+            destination: .split(targetPane: paneID, orientation: .horizontal, insertFirst: false),
+            catalog: catalog
         ))
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline,
+              created.count < 2 || harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(created.count == 2)
+        let first = try #require(created.first)
+        #expect(workspace.focusedPanelId == first)
+        #expect(workspace.paneId(forPanelId: first) != paneID)
+        #expect(!harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(harness.appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: first, in: window))
     }
 
     /// Inside a socket command whose policy forbids focus mutations, the factory must
