@@ -259,9 +259,9 @@ function ChevronsUpDown() {
 
 function SettingsIcon() {
   return (
-    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+      <path d="M6.09 3.38 6.79 3.15 6.87 1.60 9.13 1.60 9.21 3.15 9.91 3.38 10.58 3.71 11.73 2.68 13.32 4.27 12.29 5.42 12.62 6.09 12.85 6.79 14.40 6.87 14.40 9.13 12.85 9.21 12.62 9.91 12.29 10.58 13.32 11.73 11.73 13.32 10.58 12.29 9.91 12.62 9.21 12.85 9.13 14.40 6.87 14.40 6.79 12.85 6.09 12.62 5.42 12.29 4.27 13.32 2.68 11.73 3.71 10.58 3.38 9.91 3.15 9.21 1.60 9.13 1.60 6.87 3.15 6.79 3.38 6.09 3.71 5.42 2.68 4.27 4.27 2.68 5.42 3.71Z" />
       <circle cx="8" cy="8" r="2.25" />
-      <path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.05 1.05M11.35 11.35l1.05 1.05M12.4 3.6l-1.05 1.05M4.65 11.35 3.6 12.4" />
     </svg>
   );
 }
