@@ -464,7 +464,7 @@ describe("route token auth spans", () => {
     const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
     const attributes: Record<string, unknown> = {};
     const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
-    const activeSpan = spyOn(trace, "getActiveSpan").mockReturnValue(span);
+    const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
     try {
       runWithCoderouterRequest(context, () => {
         recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
