@@ -119,6 +119,11 @@ export function isPostHogFlagsResponseAvailable(body: Record<string, unknown>): 
   return isFlagsRecord(body.featureFlags) || isFlagsRecord(body.flags) || isFlagsRecord(body.featureFlagPayloads);
 }
 
+export function isPostHogFlagsResponseComplete(body: Record<string, unknown>): boolean {
+  return body.errorsWhileComputingFlags !== true &&
+    (!isFlagsRecord(body.flags) || !Object.values(body.flags as Record<string, unknown>).some(isFailedDetailedFlag));
+}
+
 function isFeatureFlagsQuotaLimited(value: unknown): boolean {
   if (value === true) return true;
   return Array.isArray(value) && value.includes("feature_flags");

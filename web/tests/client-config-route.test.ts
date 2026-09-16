@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
   checkRateLimit,
@@ -15,6 +15,9 @@ process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
 const originalVercel = process.env.VERCEL;
 const originalVercelEnvironment = process.env.VERCEL_ENV;
 const originalNodeEnv = process.env.NODE_ENV;
+const originalDeploymentId = process.env.VERCEL_DEPLOYMENT_ID;
+const contextSymbol = Symbol.for("@vercel/request-context");
+const originalContext = Reflect.get(globalThis, contextSymbol);
 const mutableEnv = process.env as Record<string, string | undefined>;
 installVercelFirewallMock();
 
@@ -28,7 +31,21 @@ const { POST } = await import("../app/api/client-config/route");
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
 
+beforeEach(() => {
+  process.env.VERCEL_DEPLOYMENT_ID = "client-config-route-tests";
+  const entries = new Map<string, unknown>();
+  Reflect.set(globalThis, contextSymbol, {
+    get: () => ({ cache: {
+      get: async (key: string) => entries.get(key),
+      set: async (key: string, value: unknown) => { entries.set(key, value); },
+    } }),
+  });
+});
+
 afterEach(() => {
+  if (originalContext === undefined) Reflect.deleteProperty(globalThis, contextSymbol);
+  else Reflect.set(globalThis, contextSymbol, originalContext);
+  restoreEnv("VERCEL_DEPLOYMENT_ID", originalDeploymentId);
   globalThis.fetch = originalFetch;
   console.error = originalConsoleError;
   process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID = "cmux-client-config-test";
@@ -392,7 +409,7 @@ describe("client config", () => {
       { status: 200, headers: { "Content-Type": "application/json" } },
     ));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    const distinctId = `runtime-cache-test-${Date.now()}`;
+    const distinctId = "runtime-cache-test";
     const request = () => new Request("https://cmux.test/api/client-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -433,7 +450,7 @@ describe("client config", () => {
       );
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    const distinctId = `coalesced-test-${Date.now()}`;
+    const distinctId = "coalesced-test";
     const request = () => new Request("https://cmux.test/api/client-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -455,7 +472,10 @@ describe("client config", () => {
     expect(second.headers.get("x-cmux-client-config-cache")).toBe("coalesced");
   });
 
-  test("does not keep partial evaluations in the local cache", async () => {
+  test.each([
+    { errorsWhileComputingFlags: true },
+    { errorsWhileComputingFlags: false, flags: { broken: { enabled: true, failed: true } } },
+  ])("does not cache partial evaluations: %j", async (partial) => {
     mutableEnv.NODE_ENV = "production";
     process.env.VERCEL = "1";
     mutableEnv.VERCEL_ENV = "production";
@@ -463,14 +483,14 @@ describe("client config", () => {
     checkRateLimit.mockResolvedValue({ rateLimited: false, error: null });
     const fetchMock = mock(async () => new Response(
       JSON.stringify({
-        errorsWhileComputingFlags: fetchMock.mock.calls.length === 1,
+        ...(fetchMock.mock.calls.length === 1 ? partial : { errorsWhileComputingFlags: false }),
         featureFlags: { "partial-cache-test": true },
         featureFlagPayloads: {},
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     ));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
-    const distinctId = `partial-cache-test-${Date.now()}`;
+    const distinctId = "partial-cache-test";
     const request = () => new Request("https://cmux.test/api/client-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

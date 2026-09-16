@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 
-import { waitUntil } from "@vercel/functions";
 import { checkRateLimit } from "@vercel/firewall";
 import { NextResponse } from "next/server";
 
@@ -11,6 +10,7 @@ import {
   CLIENT_CONFIG_FLAGS_TIMEOUT_MS,
   MAX_CLIENT_CONFIG_REQUEST_BYTES,
   isPostHogFlagsResponseAvailable,
+  isPostHogFlagsResponseComplete,
   normalizeClientConfigEvaluationContext,
   normalizeDistinctId,
   normalizePostHogFlagsResponse,
@@ -18,30 +18,24 @@ import {
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
 import { rateLimitDeploymentPartition } from "../../../services/rateLimitPartition";
-import { checkAbortableRateLimit } from "../../../services/client-config/abortableRateLimit";
 import {
   clientConfigCacheKey,
-  isCompleteClientConfig,
   readCachedClientConfig,
   writeCachedClientConfig,
 } from "../../../services/client-config/runtimeCache";
 import type { ClientConfig } from "../../../services/client-config/types";
 
 type ClientConfigResult =
-  | { readonly kind: "config"; readonly config: ClientConfig; readonly cacheStatus?: "miss" | "coalesced" }
+  | { readonly kind: "config"; readonly config: ClientConfig; readonly cacheStatus?: "hit" | "miss" | "coalesced" }
   | { readonly kind: "response"; readonly body: Record<string, unknown>; readonly status: number; readonly headers?: HeadersInit };
 
 type PendingClientConfigLoad = {
   readonly operation: Promise<ClientConfigResult>;
 };
 
-const CLIENT_CONFIG_LOCAL_CACHE_TTL_MS = 5 * 60 * 1000;
-const CLIENT_CONFIG_LOAD_TIMEOUT_MS = 5_000;
-const MAX_COMPLETED_CLIENT_CONFIGS = 256;
+const CLIENT_CONFIG_LOAD_TIMEOUT_MS = 6_000;
 const MAX_IN_FLIGHT_CLIENT_CONFIG_LOADS = 128;
-const completedClientConfigLoads = new Map<string, { readonly config: ClientConfig; readonly expiresAt: number }>();
 const pendingClientConfigLoads = new Map<string, PendingClientConfigLoad>();
-let inFlightClientConfigLoads = 0;
 
 export async function POST(request: Request): Promise<Response> {
   const rateLimitRequest = request.clone();
@@ -52,20 +46,13 @@ export async function POST(request: Request): Promise<Response> {
   const distinctId = normalizeDistinctId(body.value.distinctId);
   const context = normalizeClientConfigEvaluationContext(body.value.context);
   const cacheKey = clientConfigCacheKey(distinctId, context);
-  const localConfig = cacheKey && isVercelRuntime()
-    ? readLocalClientConfig(cacheKey)
-    : undefined;
-  if (localConfig) return json(localConfig, 200, { "x-cmux-client-config-cache": "hit" });
-  const cachedConfig = cacheKey ? await readCachedClientConfig(cacheKey) : undefined;
-  // A complete, exact-evaluation hit has no downstream work left to protect.
-  // Return it before Firewall so repeated polls do not consume the durable
-  // limiter budget or call PostHog again.
-  if (cachedConfig) {
-    return json(cachedConfig, 200, { "x-cmux-client-config-cache": "hit" });
-  }
-
   const result = cacheKey
-    ? await loadClientConfigOnce(cacheKey, () => fetchClientConfig(rateLimitRequest, cacheKey, distinctId, context))
+    ? await loadClientConfigOnce(cacheKey, async () => {
+      const config = isVercelRuntime() ? await readCachedClientConfig(cacheKey) : undefined;
+      // Exact evaluations need neither another limiter check nor PostHog call.
+      if (config) return { kind: "config", config, cacheStatus: "hit" };
+      return await fetchClientConfig(rateLimitRequest, cacheKey, distinctId, context);
+    })
     : await fetchClientConfig(rateLimitRequest, cacheKey, distinctId, context);
   return result.kind === "config"
     ? json(result.config, 200, { "x-cmux-client-config-cache": result.cacheStatus ?? "miss" })
@@ -81,14 +68,13 @@ async function loadClientConfigOnce(
     const result = await withClientConfigDeadline(pending.operation);
     return result.kind === "config" ? { ...result, cacheStatus: "coalesced" } : result;
   }
-  if (inFlightClientConfigLoads >= MAX_IN_FLIGHT_CLIENT_CONFIG_LOADS) {
+  if (pendingClientConfigLoads.size >= MAX_IN_FLIGHT_CLIENT_CONFIG_LOADS) {
     return { kind: "response", body: { error: "client_config_unavailable" }, status: 503 };
   }
 
   const operation = Promise.resolve().then(load);
   const entry = { operation } satisfies PendingClientConfigLoad;
   pendingClientConfigLoads.set(key, entry);
-  inFlightClientConfigLoads += 1;
   void operation.then(
     () => finishClientConfigLoad(key, entry),
     () => finishClientConfigLoad(key, entry),
@@ -120,7 +106,6 @@ async function withClientConfigDeadline(
 function finishClientConfigLoad(key: string, entry: PendingClientConfigLoad): void {
   if (pendingClientConfigLoads.get(key) !== entry) return;
   pendingClientConfigLoads.delete(key);
-  inFlightClientConfigLoads = Math.max(0, inFlightClientConfigLoads - 1);
 }
 
 async function checkClientConfigRateLimit(
@@ -136,10 +121,11 @@ async function checkClientConfigRateLimit(
   if (process.env.VERCEL === "1" && rateLimitId) {
     try {
       const rateLimitKey = clientConfigRateLimitKey(distinctId);
-      const { error, rateLimited } = process.env.NODE_ENV === "production" &&
-        !("mock" in checkRateLimit)
-        ? await checkAbortableRateLimit(rateLimitId, request, rateLimitKey)
-        : await checkRateLimit(rateLimitId, { request, rateLimitKey });
+      const { error, rateLimited } = await checkRateLimit(rateLimitId, {
+        request,
+        rateLimitKey,
+        signal: AbortSignal.timeout(1_000),
+      });
       if (rateLimited || error === "blocked") {
         return { kind: "response", body: { error: "rate_limited" }, status: 429, headers: { "retry-after": "60" } };
       }
@@ -186,46 +172,14 @@ async function fetchClientConfig(
     }
 
     const config = normalizePostHogFlagsResponse(raw as Record<string, unknown>);
-    if (cacheKey && isVercelRuntime()) {
-      rememberLocalClientConfig(cacheKey, config);
-      scheduleClientConfigCacheWrite(cacheKey, config);
+    if (cacheKey && isVercelRuntime() && isPostHogFlagsResponseComplete(raw as Record<string, unknown>)) {
+      // Hold the shared load until the bounded cache write finishes. A next
+      // request can then read the stored value without a second local cache.
+      await writeCachedClientConfig(cacheKey, config);
     }
     return { kind: "config", config };
   } catch {
     return { kind: "response", body: { error: "client_config_unavailable" }, status: 502 };
-  }
-}
-
-function scheduleClientConfigCacheWrite(key: string, config: ClientConfig): void {
-  const write = writeCachedClientConfig(key, config);
-  try {
-    waitUntil(write);
-  } catch {
-    void write;
-  }
-}
-
-function readLocalClientConfig(key: string): ClientConfig | undefined {
-  const entry = completedClientConfigLoads.get(key);
-  if (!entry) return undefined;
-  if (entry.expiresAt <= Date.now()) {
-    completedClientConfigLoads.delete(key);
-    return undefined;
-  }
-  return entry.config;
-}
-
-function rememberLocalClientConfig(key: string, config: ClientConfig): void {
-  if (!isCompleteClientConfig(config)) return;
-  completedClientConfigLoads.delete(key);
-  completedClientConfigLoads.set(key, {
-    config,
-    expiresAt: Date.now() + CLIENT_CONFIG_LOCAL_CACHE_TTL_MS,
-  });
-  while (completedClientConfigLoads.size > MAX_COMPLETED_CLIENT_CONFIGS) {
-    const oldest = completedClientConfigLoads.keys().next().value;
-    if (typeof oldest !== "string") break;
-    completedClientConfigLoads.delete(oldest);
   }
 }
 

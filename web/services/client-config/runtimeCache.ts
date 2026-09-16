@@ -10,6 +10,8 @@ import type {
 export const CLIENT_CONFIG_CACHE_TTL_SECONDS = 5 * 60;
 
 const CACHE_NAMESPACE = "cmux-client-config";
+// The SDK otherwise re-hashes our SHA-256 key into only 32 bits.
+const CACHE_OPTIONS = { namespace: CACHE_NAMESPACE, keyHashFunction: (key: string) => key };
 const CACHE_VERSION = "v1";
 const MAX_CACHE_KEY_DEPTH = 32;
 const MAX_CACHE_KEY_NODES = 2_048;
@@ -19,18 +21,19 @@ const CACHE_FAILURE_COOLDOWN_MS = 30_000;
 const MAX_IN_FLIGHT_CACHE_OPERATIONS = 32;
 
 let cacheDisabledUntil = 0;
-let activeCacheOperations = 0;
 let unresolvedCacheOperations = 0;
 
 export function clientConfigCacheKey(
   distinctId: string,
   context: ClientConfigEvaluationContext,
 ): string | undefined {
+  const deployment = process.env.VERCEL_DEPLOYMENT_ID?.trim() || process.env.VERCEL_URL?.trim();
+  if (process.env.VERCEL === "1" && !deployment) return undefined;
   const sortedContext = sortRecord(context, { remainingNodes: MAX_CACHE_KEY_NODES }, 0);
   if (sortedContext === CANONICALIZATION_FAILED) return undefined;
   const evaluation = JSON.stringify({
     environment: process.env.VERCEL_ENV ?? "development",
-    deployment: process.env.VERCEL_DEPLOYMENT_ID ?? process.env.VERCEL_URL ?? "local",
+    deployment: deployment ?? "local",
     distinctId,
     context: sortedContext,
   });
@@ -46,9 +49,8 @@ export async function readCachedClientConfig(
   if (!lease) return undefined;
   try {
     const result = await withCacheDeadline(
-      getCache({ namespace: CACHE_NAMESPACE }).get(key),
+      getCache(CACHE_OPTIONS).get(key),
       CACHE_READ_TIMEOUT_MS,
-      lease.releaseActive,
       lease.settle,
     );
     if (!result.completed) {
@@ -73,12 +75,11 @@ export async function writeCachedClientConfig(
   if (!lease) return;
   try {
     const result = await withCacheDeadline(
-      getCache({ namespace: CACHE_NAMESPACE }).set(key, config, {
+      getCache(CACHE_OPTIONS).set(key, config, {
         name: "client-config",
         ttl: CLIENT_CONFIG_CACHE_TTL_SECONDS,
       }),
       CACHE_WRITE_TIMEOUT_MS,
-      lease.releaseActive,
       lease.settle,
     );
     if (!result.completed) tripCacheCircuit();
@@ -92,12 +93,10 @@ export async function writeCachedClientConfig(
 async function withCacheDeadline<T>(
   operation: Promise<T>,
   timeoutMs: number,
-  onTimeout: () => void,
   onSettled: () => void,
 ): Promise<{ readonly completed: true; readonly value: T } | { readonly completed: false }> {
   return await new Promise((resolve) => {
     const timer = setTimeout(() => {
-      onTimeout();
       resolve({ completed: false });
     }, timeoutMs);
     operation.then(
@@ -115,26 +114,17 @@ async function withCacheDeadline<T>(
   });
 }
 
-function beginCacheOperation(): { releaseActive: () => void; settle: () => void } | undefined {
+function beginCacheOperation(): { settle: () => void } | undefined {
   if (
     Date.now() < cacheDisabledUntil ||
     unresolvedCacheOperations >= MAX_IN_FLIGHT_CACHE_OPERATIONS
   ) return undefined;
-  activeCacheOperations += 1;
   unresolvedCacheOperations += 1;
-  let activeReleased = false;
   let settled = false;
-  const releaseActive = () => {
-    if (activeReleased) return;
-    activeReleased = true;
-    activeCacheOperations = Math.max(0, activeCacheOperations - 1);
-  };
   return {
-    releaseActive,
     settle: () => {
       if (settled) return;
       settled = true;
-      releaseActive();
       unresolvedCacheOperations = Math.max(0, unresolvedCacheOperations - 1);
     },
   };
@@ -152,7 +142,8 @@ export function isCompleteClientConfig(value: unknown): value is ClientConfig {
     Object.values(config.featureFlags).every(
       (flag) => typeof flag === "boolean" || typeof flag === "string",
     ) &&
-    isRecord(config.featureFlagPayloads);
+    isRecord(config.featureFlagPayloads) &&
+    (config.requestId === undefined || typeof config.requestId === "string");
 }
 
 const CANONICALIZATION_FAILED = Symbol("canonicalization_failed");

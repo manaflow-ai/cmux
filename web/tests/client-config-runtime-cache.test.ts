@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   CLIENT_CONFIG_CACHE_TTL_SECONDS,
   clientConfigCacheKey,
@@ -10,6 +10,8 @@ import {
 const originalNodeEnv = process.env.NODE_ENV;
 const originalDeploymentId = process.env.VERCEL_DEPLOYMENT_ID;
 const originalVercelEnvironment = process.env.VERCEL_ENV;
+const originalVercel = process.env.VERCEL;
+const originalVercelUrl = process.env.VERCEL_URL;
 const mutableEnv = process.env as Record<string, string | undefined>;
 
 afterEach(() => {
@@ -19,6 +21,10 @@ afterEach(() => {
   else mutableEnv.VERCEL_DEPLOYMENT_ID = originalDeploymentId;
   if (originalVercelEnvironment === undefined) delete mutableEnv.VERCEL_ENV;
   else mutableEnv.VERCEL_ENV = originalVercelEnvironment;
+  if (originalVercel === undefined) delete mutableEnv.VERCEL;
+  else mutableEnv.VERCEL = originalVercel;
+  if (originalVercelUrl === undefined) delete mutableEnv.VERCEL_URL;
+  else mutableEnv.VERCEL_URL = originalVercelUrl;
 });
 
 describe("client config runtime cache", () => {
@@ -42,6 +48,13 @@ describe("client config runtime cache", () => {
     const second = clientConfigCacheKey("install-1", {});
 
     expect(first).not.toBe(second);
+  });
+
+  test("bypasses Vercel caching without a deployment scope", () => {
+    mutableEnv.VERCEL = "1";
+    delete mutableEnv.VERCEL_URL;
+    delete mutableEnv.VERCEL_DEPLOYMENT_ID;
+    expect(clientConfigCacheKey("identity", {})).toBeUndefined();
   });
 
   test("keeps different identities separate through the SDK's key transformation", async () => {
@@ -93,10 +106,46 @@ describe("client config runtime cache", () => {
     })).toBe(false);
     expect(isCompleteClientConfig({ featureFlags: {}, featureFlagPayloads: {} })).toBe(false);
     expect(isCompleteClientConfig({
+      featureFlags: {}, featureFlagPayloads: {}, errorsWhileComputingFlags: false, requestId: 42,
+    })).toBe(false);
+    expect(isCompleteClientConfig({
       featureFlags: { enabled: "true" },
       featureFlagPayloads: {},
       errorsWhileComputingFlags: false,
     })).toBe(true);
+  });
+
+  test("expires stored results after five minutes", async () => {
+    mutableEnv.NODE_ENV = "production";
+    let now = Date.now();
+    const clock = spyOn(Date, "now").mockImplementation(() => now);
+    const key = clientConfigCacheKey("expiry-test", {});
+    if (!key) throw new Error("expected a cache key");
+    const config = { featureFlags: { enabled: true }, featureFlagPayloads: {}, errorsWhileComputingFlags: false };
+    try {
+      await writeCachedClientConfig(key, config);
+      now += 299_000;
+      expect(await readCachedClientConfig(key)).toEqual(config);
+      now += 1_001;
+      expect(await readCachedClientConfig(key)).toBeUndefined();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  test("isolates each targeting input while preserving property order equivalence", () => {
+    const baseline = clientConfigCacheKey("identity", {});
+    const contexts = [
+      { groups: { team: "one" } },
+      { personProperties: { plan: "pro" } },
+      { groupProperties: { team: { plan: "pro" } } },
+      { anonDistinctId: "anon" },
+      { deviceId: "device" },
+      { timezone: "UTC" },
+      { evaluationContexts: ["web"] },
+    ];
+    const keys = contexts.map((context) => clientConfigCacheKey("identity", context));
+    expect(new Set([baseline, clientConfigCacheKey("other-identity", {}), ...keys]).size).toBe(9);
   });
 
   test("does not replace a complete entry with a partial evaluation", async () => {
