@@ -22,16 +22,17 @@ struct TerminalWorkSentryContextTests {
         #expect(event.tags?["terminal.evidence"] == "unavailable")
     }
 
-    @Test func nestedPhaseIsAttributedAtCaptureEvenIfItLaterCompletes() {
+    @Test(arguments: [TerminalWorkDiagnostic.Phase.layout, .resizePublication, .ptyResizeRequest])
+    func nestedPhaseIsAttributedAtCaptureEvenIfItLaterCompletes(phase: TerminalWorkDiagnostic.Phase) {
         let outer = UUID(), inner = UUID()
         let event = hang(at: 3)
         event.breadcrumbs = [
             crumb(id: outer, phase: .geometryPublication, transition: .restore, at: 1),
-            crumb(id: inner, phase: .layout, at: 2),
-            crumb(id: inner, phase: .layout, finished: true, at: 4)
+            crumb(id: inner, phase: phase, at: 2),
+            crumb(id: inner, phase: phase, finished: true, at: 4)
         ]
         _ = SentryEventScrubber().scrub(event)
-        #expect(event.tags?["terminal.phase"] == "layout")
+        #expect(event.tags?["terminal.phase"] == phase.rawValue)
         #expect(event.tags?["terminal.transition"] == "restore")
         #expect(event.tags?["terminal.evidence"] == "unfinished_at_capture")
         #expect(event.context?["cmux.terminal_work"]?["surface_count"] as? Int == 24)

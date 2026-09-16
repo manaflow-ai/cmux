@@ -329,7 +329,7 @@ class GhosttyApp {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
         },
         terminalWork: TerminalSurfaceWorkDiagnostics(log: MobileHostDiagnostics.log) { workspaceID in
-            TerminalGeometryDiagnostics().context(workspaceID: workspaceID, transition: .resize)
+            TerminalGeometryDiagnostics().context(workspaceID: workspaceID, transition: .unknown)
         }
     )
 
