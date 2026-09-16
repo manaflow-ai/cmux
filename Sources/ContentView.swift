@@ -11250,7 +11250,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
-    @LiveSetting(\.sidebar.showCloudButton) private var showCloudButton
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
@@ -15294,6 +15293,7 @@ struct SidebarFooterButtons: View {
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @LiveSetting(\.sidebar.showCloudButton) private var showCloudButton
     // Reuse the exact Command-hold shortcut-hint signal that drives the per-row shortcut badges
     // (`showModifierHoldHints && modifierKeyMonitor.isModifierPressed`, see `resolvedShowsModifierShortcutHints`).
     // Reading `isModifierPressed` (the monitor is `@Observable`) localizes the reveal re-render to the footer.
