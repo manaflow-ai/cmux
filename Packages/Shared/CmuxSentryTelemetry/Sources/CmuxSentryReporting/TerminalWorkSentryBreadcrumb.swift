@@ -41,7 +41,7 @@ public struct TerminalWorkSentryBreadcrumb: Sendable {
         if let count = work.context.workspaceCount { data["workspace_count"] = count }
         if let count = work.context.surfaceCount { data["surface_count"] = count }
         if let ms = event.ms { data["duration_ms"] = ms }
-        for (key, value) in data { crumb.setDataValue(value, forKey: key) }
+        crumb.replaceData(data)
         return crumb
     }
 }

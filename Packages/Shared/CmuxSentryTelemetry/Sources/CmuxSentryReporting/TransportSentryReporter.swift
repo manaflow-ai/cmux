@@ -179,7 +179,7 @@ public final class TransportSentryReporter: Sendable {
         for field in described.fields {
             data[field.key] = field.value
         }
-        crumb.data = data
+        crumb.replaceData(data)
         delivery.addBreadcrumb(crumb)
     }
 
