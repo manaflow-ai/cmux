@@ -4046,7 +4046,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
-    private weak var portalResizeAuthority: (any TerminalSurfaceResizeAuthority)?
     private var deferSurfaceSizeForPortalGeometrySettlement = false
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
     private var deferredSurfaceSizeNonMetalRetryCount = 0
@@ -4112,18 +4111,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !visible { terminalPointerGesture.cancel() }
     }
 
-    fileprivate var isRendererResizeDeferred: Bool {
-        portalResizeAuthority?.isRendererResizeDeferred == true
-    }
-
-    /// Reads resize permission from the portal that currently owns this view.
-    fileprivate func setPortalResizeAuthority(_ authority: (any TerminalSurfaceResizeAuthority)?) {
-        portalResizeAuthority = authority
-        terminalSurface?.setSurfaceResizeAuthority(authority)
-        clipsToBounds = true
-        layer?.masksToBounds = true
-    }
-
     override init(frame frameRect: NSRect) {
         imageTransferPreparation = nil
         super.init(frame: frameRect)
@@ -4168,7 +4155,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // GhosttyMetalLayer provides render stats and opt-in frame notifications for
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
-        clipsToBounds = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
@@ -4554,7 +4540,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface = surface
         tabId = surface.tabId
-        surface.setSurfaceResizeAuthority(portalResizeAuthority)
         if !isAlreadyAttached {
             surface.attachToView(self)
         } else {
@@ -5133,8 +5118,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private var isWindowLiveResizeActive: Bool {
-        portalResizeAuthority?.isRendererResizeDeferred
-            ?? (inLiveResize || window?.inLiveResize == true)
+        inLiveResize || window?.inLiveResize == true
     }
 
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
@@ -5146,7 +5130,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
 
-    /// Publishes view geometry only after its portal permits renderer resizing.
     @discardableResult
     private func updateSurfaceSize(
         size: CGSize? = nil, bypassLiveResizeCoalescing: Bool = false, caller: StaticString = #function
@@ -5169,21 +5152,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if pendingSurfaceSize != size { deferredSurfaceSizeNonMetalRetryCount = 0 }
         pendingSurfaceSize = size
-        clipsToBounds = true
-        layer?.masksToBounds = true
-        if isRendererResizeDeferred {
-#if DEBUG
-            let signature = "windowLiveResize-\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
-            if lastSizeSkipSignature != signature {
-                cmuxDebugLog(
-                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                    "reason=windowLiveResize size=\(String(format: "%.1fx%.1f", size.width, size.height))"
-                )
-                lastSizeSkipSignature = signature
-            }
-#endif
-            return false
-        }
         if let deferralReason = activeSurfaceResizeDeferralReason() {
             scheduleDeferredSurfaceSizeRetryIfNeeded()
 #if DEBUG
@@ -9713,8 +9681,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
-    /// Keeps asynchronous presents matched to the renderer throughout a live drag.
-    private var committedRendererSize: CGSize?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
@@ -9911,15 +9877,6 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
-    /// Binds the renderer to its portal's read-only publication authority.
-    func setPortalResizeAuthority(_ authority: (any TerminalSurfaceResizeAuthority)?) {
-        surfaceView.setPortalResizeAuthority(authority)
-        clipsToBounds = true
-        layer?.masksToBounds = true
-        surfaceView.clipsToBounds = true
-        surfaceView.layer?.masksToBounds = true
-    }
-
     init(surfaceView: GhosttyNSView) {
         #if DEBUG
         dispatchPrecondition(condition: .onQueue(.main))
@@ -9948,7 +9905,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
         scrollView.drawsBackground = false
-        scrollView.clipsToBounds = true
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
@@ -9956,17 +9912,12 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.surfaceView = surfaceView
 
         documentView = NSView(frame: .zero)
-        surfaceView.autoresizingMask = []
-        surfaceView.translatesAutoresizingMaskIntoConstraints = true
         scrollView.documentView = documentView
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
         wantsLayer = true
-        clipsToBounds = true
         layer?.masksToBounds = true
-        scrollView.clipsToBounds = true
-        documentView.clipsToBounds = true
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -10419,31 +10370,11 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
-    /// Uses the last valid renderer size while the portal holds publication.
-    private func resolvedDeferredRendererSize(deferred: Bool, fallback: CGSize) -> CGSize {
-        guard deferred,
-              let committedRendererSize,
-              committedRendererSize.width > 0,
-              committedRendererSize.height > 0 else {
-            return fallback
-        }
-        return committedRendererSize
-    }
-
-    /// Moves pane chrome immediately while committing renderer geometry through its authority.
     @discardableResult
     private func synchronizeGeometryAndContent(
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
-        clipsToBounds = true
-        layer?.masksToBounds = true
-        scrollView.clipsToBounds = true
-        scrollView.contentView.clipsToBounds = true
-        surfaceView.clipsToBounds = true
-        surfaceView.layer?.masksToBounds = true
-        surfaceView.autoresizingMask = []
-        let deferRendererResize = surfaceView.isRendererResizeDeferred
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -10460,20 +10391,15 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         let contentFrame = sessionContentFrame
         _ = setFrameIfNeeded(scrollView, to: contentFrame)
-        if didScrollbarAppearanceChange { scrollView.tile() }
-        let targetSize = scrollView.contentView.bounds.size
+        let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let rendererSize = resolvedDeferredRendererSize(
-            deferred: deferRendererResize,
-            fallback: targetSize
-        )
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
-            size: CGSize(width: targetSize.width, height: documentView.frame.height)
+            size: CGSize(width: scrollView.bounds.width, height: documentView.frame.height)
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         _ = setFrameIfNeeded(mobileViewportBorderOverlayView, to: contentFrame)
@@ -10507,14 +10433,12 @@ final class GhosttySurfaceScrollView: NSView {
             _ = setFrameIfNeeded(overlay, to: contentFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
+        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
+        // which makes interactive width changes arrive a queue turn late on Sequoia.
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
         scrollView.layoutSubtreeIfNeeded()
-        let settledTargetSize = scrollView.contentView.bounds.size
-        let settledRendererSize = resolvedDeferredRendererSize(
-            deferred: deferRendererResize,
-            fallback: settledTargetSize
-        )
-        let committedRendererFrame = CGRect(origin: surfaceView.frame.origin, size: settledRendererSize)
-        _ = setFrameIfNeeded(surfaceView, to: committedRendererFrame)
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
@@ -10523,11 +10447,8 @@ final class GhosttySurfaceScrollView: NSView {
             preservedReviewOriginY: preservedReviewOriginY
         )
         synchronizeSurfaceView()
-        let didCoreSurfaceChange = deferRendererResize ? false : synchronizeCoreSurface()
-        if !deferRendererResize {
-            committedRendererSize = surfaceView.frame.size
-        }
-        return !sizeApproximatelyEqual(previousSurfaceSize, surfaceView.frame.size) || didCoreSurfaceChange
+        let didCoreSurfaceChange = synchronizeCoreSurface()
+        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
     /// Updates terminal content geometry without shrinking pane-level overlays.
@@ -13246,12 +13167,7 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
         scrollView.layoutSubtreeIfNeeded()
         let targetSize = scrollView.contentView.bounds.size
-        let deferRendererResize = surfaceView.isRendererResizeDeferred
-        let rendererSize = resolvedDeferredRendererSize(
-            deferred: deferRendererResize,
-            fallback: targetSize
-        )
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: rendererSize)
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
@@ -13259,10 +13175,7 @@ final class GhosttySurfaceScrollView: NSView {
         )
         _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
         synchronizeSurfaceView()
-        if !deferRendererResize {
-            _ = synchronizeCoreSurface()
-            committedRendererSize = surfaceView.frame.size
-        }
+        _ = synchronizeCoreSurface()
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
@@ -13869,7 +13782,7 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
-    @Environment(\.workspaceAttentionColor) var workspaceAttentionColor
+    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
     @Environment(\.paneDropZone) var paneDropZone
 
     let terminalSurface: TerminalSurface
@@ -13989,5 +13902,4 @@ struct GhosttyTerminalView: NSViewRepresentable {
         /// already be gone by then.
         weak var vacancyParkedSurface: TerminalSurface?
     }
-
 }
