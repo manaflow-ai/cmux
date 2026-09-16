@@ -42,6 +42,22 @@ The top entry's version MUST equal the checked-in
 for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
+## [1.0.5] - 2026-09-15
+
+### Internal
+
+- Require explicit opt-in for iOS pairing on each Mac before discovery.
+- Fix Mac NIGHTLY registration when build settings are empty.
+- Keep iOS terminal scrolling and Iroh connections alive through reconnect gaps, stalls, and traffic bursts.
+- Preserve older iOS access to v2 Macs and saved computer metadata.
+- Add the IROH v2 Cloudflare backend and clients.
+- Improve iOS readiness receipts so they identify the installed build.
+- Dogfood focus: update from 1.0.4, confirm sign-in survives relaunch, verify both NIGHTLY Macs connect, and exercise recovery after backgrounding.
+
+### External
+
+- This build is for internal cmux BETA testing only.
+
 ---
 
 ## [1.0.4] - 2026-07-09

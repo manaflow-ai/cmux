@@ -31,7 +31,7 @@ ASC_VERSION_ID = "version-1.0.0"
 ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 APPSTORE_MARKETING_VERSION = "1.0.0"
-BETA_MARKETING_VERSION = "1.0.4"
+BETA_MARKETING_VERSION = "1.0.5"
 PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXAuthEnvironment": "production",
     "CMUXApiBaseURL": "https://cmux.com",
