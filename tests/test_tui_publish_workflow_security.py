@@ -1639,6 +1639,15 @@ def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
         assert (result.returncode == 0) == (key is None), result.stderr
 
 
+def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None:
+    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
+        document = yaml.safe_load(workflow(name))
+        assert document["jobs"]["build-package"]["with"]["build_cloudflare_relay"] is False
+    shared = workflow("cmux-tui-build-package.yml")
+    assert "if: inputs.build_cloudflare_relay" in shared
+    assert "npm audit --audit-level=high" in shared
+
+
 def test_relay_publisher_owns_the_cmux_relay_dist_tags_exclusively() -> None:
     # The chatmux machine relay publishes ONLY through the cmux-relay-v* tag
     # family. If the coordinated TUI publish or the nightly lane ever grows a
