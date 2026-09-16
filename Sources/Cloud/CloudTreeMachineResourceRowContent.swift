@@ -8,7 +8,13 @@ struct CloudTreeMachineResourceRowContent: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        HStack(spacing: scaled(CloudTreeRowGrid.detailGap)) {
+        HStack(spacing: scaled(style.iconGap)) {
+            // Resources intentionally have no glyph, but keep the same leading
+            // column as the other nested rows so their labels align with
+            // Desktop, terminal, and port content.
+            Color.clear
+                .frame(width: scaled(style.iconSlot))
+                .accessibilityHidden(true)
             Text(row.title)
                 .cmuxFont(size: style.titleSize, design: style.fontDesign)
                 .foregroundStyle(.primary)

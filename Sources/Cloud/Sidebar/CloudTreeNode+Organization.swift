@@ -1,9 +1,9 @@
 extension CloudTreeNode {
     var showsAttentionSlot: Bool {
         switch kind {
-        // Surface and empty-state rows share a leading glyph column.
-        // Resource rows are text-only and do not reserve an attention slot.
-        case .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder: return true
+        // Surface, resource, and empty-state rows share a leading attention
+        // column so every nested row uses the same horizontal rhythm.
+        case .workspace, .localWorkspace, .terminal, .display, .browser, .port, .resource, .placeholder: return true
         default: return false
         }
     }

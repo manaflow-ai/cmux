@@ -3,7 +3,10 @@ import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 6
+    /// Small separation between a disclosure control and its row content.
+    /// Keeping this below the tree indent makes group headers read as one
+    /// shared outline rather than disconnected columns.
+    static let disclosureGap: CGFloat = 4
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
