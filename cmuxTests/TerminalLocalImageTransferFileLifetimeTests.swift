@@ -151,7 +151,7 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         let scriptURL = directory.appendingPathComponent("capture.py")
         let ready = "CMUX_IMAGE_CAPTURE_READY"
         let script = """
-        import os, select, sys, termios, time, tty
+        import base64, json, os, select, shlex, sys, termios, time, tty
         fd = sys.stdin.fileno()
         previous = termios.tcgetattr(fd)
         try:
@@ -165,8 +165,17 @@ struct TerminalLocalImageTransferFileLifetimeTests {
                     data.extend(os.read(fd, 65536))
                     if data.endswith(b"\\x1b[201~"):
                         break
-            with open(sys.argv[1], "wb") as output:
-                output.write(data)
+            framed = data.startswith(b"\\x1b[200~") and data.endswith(b"\\x1b[201~")
+            payload = data[6:-6] if framed else data
+            paths = shlex.split(payload.decode())
+            image = b""
+            if len(paths) == 1 and os.path.isfile(paths[0]):
+                with open(paths[0], "rb") as source:
+                    image = source.read()
+            result = {"framed": framed, "paths": paths, "image": base64.b64encode(image).decode()}
+            with open(sys.argv[1] + ".tmp", "w") as output:
+                json.dump(result, output)
+            os.replace(sys.argv[1] + ".tmp", sys.argv[1])
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, previous)
         """
@@ -183,9 +192,16 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         }
         try #require(hosted.surface.readText(region: .screen)?.contains(ready) == true)
         if throughDropController {
+            let pasteboard = NSPasteboard(name: .init("cmux-routed-drop-\(UUID().uuidString)"))
+            defer { pasteboard.releaseGlobally() }
+            let item = NSPasteboardItem()
+            #expect(item.setData(try Data(contentsOf: imageURL), forType: .png))
+            #expect(item.setString(directory.absoluteString, forType: .fileURL))
+            #expect(pasteboard.writeObjects([item]))
             #expect(FileDropTextDropController.performTerminalFileDrop(
                 terminal: hosted.surfaceView,
-                urls: [imageURL]
+                urls: [directory],
+                pasteboard: pasteboard
             ))
         } else {
             #expect(hosted.surfaceView.executePreparedImageTransfer(
@@ -196,9 +212,23 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         while !FileManager.default.fileExists(atPath: captureURL.path), Date() < captureDeadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
-        let bytes = try Data(contentsOf: captureURL)
-        let expected = "\u{1b}[200~" + TerminalImageTransferPlanner.escapeForShell(imageURL.path) + "\u{1b}[201~"
-        #expect(bytes == Data(expected.utf8))
+        let receipt = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: captureURL)
+        ) as? [String: Any])
+        #expect(receipt["framed"] as? Bool == true)
+        let paths = try #require(receipt["paths"] as? [String])
+        #expect(paths.count == 1)
+        let path = try #require(paths.first)
+        #expect(path.hasSuffix(".png"))
+        #expect(receipt["image"] as? String == Self.onePixelPNGBase64)
+        if throughDropController {
+            let deliveredURL = URL(fileURLWithPath: path)
+            defer { GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles([deliveredURL]) }
+            #expect(GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(deliveredURL))
+        } else {
+            #expect(URL(fileURLWithPath: path).resolvingSymlinksInPath()
+                == imageURL.resolvingSymlinksInPath())
+        }
         #expect(FileManager.default.fileExists(atPath: imageURL.path))
     }
 

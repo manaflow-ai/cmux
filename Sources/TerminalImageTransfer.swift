@@ -516,21 +516,21 @@ enum TerminalImageTransferPlanner {
         from pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> [URL]? {
-        guard let urls = pasteboardService.durableDroppedFileURLs(
-            fileURLs(from: pasteboard),
-            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types ?? []
+        let urls = fileURLs(from: pasteboard)
+        let durableURLs = {
+            pasteboardService.durableDroppedFileURLs(
+                urls,
+                sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
             )
-        ) else {
-            return nil
         }
-        if !urls.isEmpty {
-            return urls
+        // An existing backing file wins over its drag thumbnail. Auxiliary
+        // folder, web, or expired file URLs must not hide the actual pixels.
+        if !urls.isEmpty, urls.allSatisfy(isRemoteUploadableFileURL) { return durableURLs() }
+        switch pasteboardService.materializeImageFileURLsIfNeeded(from: pasteboard) {
+        case .saved(let urls): return urls
+        case .rejectedImagePayload: return nil
+        case .noDecodableImagePayload: return durableURLs()
         }
-        return pasteboardService.saveImageFileURLsIfNeeded(
-            from: pasteboard,
-            assumeNoText: true
-        )
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
