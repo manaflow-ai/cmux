@@ -11,9 +11,6 @@ public import GhosttyKit
 /// callback context identifies its host view through that core seam.
 @MainActor
 public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
-    /// Whether a window portal owns this view's pane geometry.
-    var paneGeometryIsPortalOwned: Bool { get }
-
     /// The owning workspace id mirrored onto the view for focus routing.
     var tabId: UUID? { get set }
 
@@ -41,6 +38,11 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// - Returns: Whether a refresh was performed.
     @discardableResult
     func forceRefreshSurface() -> Bool
+
+    /// Whether a window portal positions this view and therefore owns the
+    /// pane geometry it may publish. A portal-owned view never derives a
+    /// terminal size from its own bounds; it waits for the portal's commit.
+    var paneGeometryIsPortalOwned: Bool { get }
 
     /// Monotonic count of drawables vended by the native renderer.
     ///
@@ -80,10 +82,10 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
 }
 
 public extension TerminalSurfaceNativeViewing {
+    var renderedFrameSequence: UInt64 { 0 }
+
     /// Views outside a portal size themselves from their own bounds.
     var paneGeometryIsPortalOwned: Bool { false }
-
-    var renderedFrameSequence: UInt64 { 0 }
 
     /// Leaves input synchronous for hosts without clipboard sequencing.
     ///

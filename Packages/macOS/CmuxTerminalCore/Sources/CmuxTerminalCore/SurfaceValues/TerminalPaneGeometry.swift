@@ -1,23 +1,36 @@
 public import CoreGraphics
 
 /// The one pane size a terminal may publish to its renderer grid and PTY.
+///
+/// A host produces this value only from geometry the user can see: a pane
+/// that layout has finished placing, or a pane that is being dragged and
+/// whose every intermediate frame is therefore on screen. A hidden, detached,
+/// or not-yet-laid-out frame never becomes a `TerminalPaneGeometry`, so it
+/// cannot reach the PTY. The surface stores the last committed value and
+/// re-applies it on demand instead of reading view bounds.
 public struct TerminalPaneGeometry: Equatable, Sendable {
     /// Why the host considers this size publishable.
     public enum Phase: Equatable, Sendable {
-        /// A window-edge or divider drag is in progress.
+        /// A window-edge or divider drag is in progress; every tick is visible.
         case interactive
-        /// Layout has stopped changing.
+        /// Layout has stopped changing; this is the pane's resting size.
         case settled
     }
 
     /// The pane size in points.
     public var size: CGSize
-    /// The window backing scale used to derive pixels.
+    /// The window backing scale the pixel grid derives from.
     public var backingScale: CGFloat
-    /// Whether the size comes from a drag tick or settled layout.
+    /// Whether the size comes from a drag tick or from settled layout.
     public var phase: Phase
 
-    /// Creates a valid pane geometry value.
+    /// Creates a committed pane geometry.
+    ///
+    /// - Parameters:
+    ///   - size: The pane size in points; both dimensions must be positive.
+    ///   - backingScale: The window backing scale, clamped to at least 1.
+    ///   - phase: Whether the size comes from a drag tick or settled layout.
+    /// - Returns: `nil` when either dimension is not positive.
     public init?(size: CGSize, backingScale: CGFloat, phase: Phase) {
         guard size.width > 0, size.height > 0,
               size.width.isFinite, size.height.isFinite else { return nil }
