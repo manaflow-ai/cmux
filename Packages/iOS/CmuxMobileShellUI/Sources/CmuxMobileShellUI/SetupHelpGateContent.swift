@@ -40,7 +40,7 @@ struct SetupHelpGateContent {
                     The computer then appears on this phone automatically. \
                     To pair through Tailscale, install Tailscale on both devices \
                     and connect them to the same Tailscale network. \
-                    Open Tailscale Pairing on the Mac and scan its QR here, or enter the Mac's \
+                    Open Mobile Pairing on the Mac and scan its QR here, or enter the Mac's \
                     numeric Tailscale IP and port.
                     """
                 ) + " " + MobilePairingCopy().enableOnMac,
