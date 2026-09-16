@@ -8,6 +8,7 @@ import {
   withVaultLease,
   bindCodexOwnerIdentity,
   encryptedCredentialForAccount,
+  transferEncryptedAccount,
   updateAccountLabel,
 } from "./repository";
 import { decryptCredential, encryptCredential, type CredentialKeyService } from "./encryption";
@@ -18,6 +19,14 @@ import {
 } from "./types";
 import { deleteVaultCredential } from "./vault";
 import { reportCoderouterFailure } from "./observability";
+
+export async function transferAccount(input: { sourceTeamId: string; destinationTeamId: string; accountId: string; stackUserId: string }): Promise<boolean> {
+  const envelope = await encryptedCredentialForAccount(input.sourceTeamId, input.accountId);
+  if (!envelope) return false;
+  const credential = await decryptCredential(envelope);
+  const moved = await encryptCredential({ accountId: input.accountId, teamId: input.destinationTeamId, provider: envelope.provider, credentialRevision: envelope.credentialRevision + 1, credential });
+  return await transferEncryptedAccount({ ...input, credential: moved });
+}
 import { providerIdentityKey, withCodexOwner } from "./codexIdentity";
 import { verifyCodexCredential, verifyStoredCodexCredential } from "./codexSignature";
 

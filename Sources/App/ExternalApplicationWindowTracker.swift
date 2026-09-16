@@ -285,14 +285,14 @@ final class ExternalApplicationWindowTracker {
         processIdentifier: pid_t,
         primaryScreenMaxY: CGFloat
     ) -> Snapshot? {
+        // This API expects pointer-sized window IDs, not boxed CFNumbers.
+        // Query the tracked ID directly so ordered-out windows retain their
+        // identity without scanning every window on each sample.
         guard windowID != kCGNullWindowID else { return nil }
-        // Quartz expects unboxed window IDs in pointer-sized CFArray slots,
-        // not NSNumber objects. Nil callbacks keep the raw ID from being
-        // retained or released as an object. This queries only the tracked
-        // window, including while it is ordered offscreen.
         var rawWindowID = UnsafeRawPointer(bitPattern: UInt(windowID))
         guard let windowIDs = CFArrayCreate(kCFAllocatorDefault, &rawWindowID, 1, nil),
-              let windowInfo = CGWindowListCreateDescriptionFromArray(windowIDs) as? [[String: Any]] else {
+              let windowInfo = CGWindowListCreateDescriptionFromArray(windowIDs) as? [[String: Any]]
+        else {
             return nil
         }
         return windowInfo.compactMap {
@@ -305,7 +305,7 @@ final class ExternalApplicationWindowTracker {
         }.first
     }
 
-    private nonisolated static func snapshot(
+    nonisolated static func snapshot(
         from entry: [String: Any],
         expectedWindowID: CGWindowID?,
         processIdentifier: pid_t,
@@ -334,6 +334,8 @@ final class ExternalApplicationWindowTracker {
                 width: quartzFrame.width,
                 height: quartzFrame.height
             ),
+            // Missing visibility metadata is ambiguous. Suppress companion
+            // presentation until WindowServer confirms that the window is on screen.
             isOnScreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
         )
     }

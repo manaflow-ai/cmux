@@ -26,7 +26,6 @@ import Testing
         .workspaceTodo: "todo",
         .notifications: "notifications",
         .cloudVMLoading: "cloudVMLoading",
-        .cloudVPNSetup: "cloud_vpn_setup",
         .mobilePairing: "mobilePairing",
         .accountSignIn: "accountSignIn",
     ]

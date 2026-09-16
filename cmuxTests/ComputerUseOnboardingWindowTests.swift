@@ -130,7 +130,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(!first.hasShadow)
     }
 
-    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
+    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() {
         let expandedSize = CGSize(width: 600, height: 440)
         let companionSize = ComputerUsePermissionCompanionLayout.size
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
@@ -164,12 +164,15 @@ struct ComputerUseOnboardingWindowTests {
                 window.setFrame(placementFrame, display: true, animate: false)
                 #expect(window.frame == placementFrame)
             }
+            // Exercise repeated layout invalidations. Each pass is synchronous
+            // and must preserve the frame, even after an earlier pass matched.
             for _ in 0..<12 {
                 contentView.invalidateIntrinsicContentSize()
                 contentView.needsLayout = true
                 contentView.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
-                await Task.yield()
+                #expect(window.frame.size == expectedSize)
+                #expect(contentView.frame.size == expectedSize)
             }
 
             #expect(window.frame.size == expectedSize)
@@ -393,8 +396,10 @@ struct ComputerUseOnboardingWindowTests {
 
     @Test @MainActor func externalWindowCompanionUsesFloatingNonactivatingPresentation() {
         var orderedWindow: NSWindow?
+        var behaviorDuringOrder: NSWindow.CollectionBehavior?
         let presenter = ExternalWindowCompanionPresenter { window in
             orderedWindow = window
+            behaviorDuringOrder = window.collectionBehavior
         }
         let companionWindow = NSPanel(
             contentRect: .zero,
@@ -410,6 +415,7 @@ struct ComputerUseOnboardingWindowTests {
         presenter.present(companionWindow)
 
         #expect(orderedWindow === companionWindow)
+        #expect(behaviorDuringOrder?.contains(.moveToActiveSpace) == true)
         #expect(companionWindow.level == .floating)
         #expect(companionWindow.hidesOnDeactivate == false)
         #expect(!companionWindow.collectionBehavior.contains(.moveToActiveSpace))

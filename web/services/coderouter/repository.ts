@@ -453,6 +453,57 @@ async function countActiveSessionsByAccount(
   }
 }
 
+/** Atomically moves one account and its encrypted envelope to another team. */
+export async function transferEncryptedAccount(input: {
+  accountId: string;
+  sourceTeamId: string;
+  destinationTeamId: string;
+  stackUserId: string;
+  credential: EncryptedCredential;
+}): Promise<boolean> {
+  if (input.sourceTeamId === input.destinationTeamId) return false;
+  if (input.credential.accountId !== input.accountId || input.credential.teamId !== input.destinationTeamId) {
+    throw new CodeRouterCredentialRace("transfer envelope scope mismatch");
+  }
+  const expectedRevision = input.credential.credentialRevision - 1;
+  return await cloudDb().transaction(async (tx) => {
+    // Coordinate with account deletion using its existing team lock. Sorting
+    // both teams prevents opposite-direction transfers from deadlocking.
+    for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`);
+    }
+    // Match refresh/replacement lock order: credential first, then account.
+    // Encryption happens before this transaction, so compare the source
+    // revision instead of overwriting a refresh that completed in the meantime.
+    const [updatedCredential] = await tx.update(coderouterCredentials)
+      .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.provider, input.credential.provider),
+        eq(coderouterCredentials.credentialRevision, expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
+    const [updated] = await tx.update(coderouterAccounts)
+      .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.provider, input.credential.provider),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+        isNull(coderouterAccounts.refreshLeaseId),
+      ))
+      .returning({ id: coderouterAccounts.id });
+    if (!updated) throw new CodeRouterCredentialRace("transfer account changed or refresh is in progress");
+    await tx.delete(coderouterSessionAccounts).where(and(
+      eq(coderouterSessionAccounts.accountId, input.accountId),
+      eq(coderouterSessionAccounts.teamId, input.sourceTeamId),
+    ));
+    return true;
+  });
+}
+
 export async function listCoderouterTeamIds(): Promise<readonly string[]> {
   return await cloudDb()
     .selectDistinct({ teamId: coderouterAccounts.teamId })

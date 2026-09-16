@@ -3042,6 +3042,10 @@
       "nb": "Standard technical UI term with the same spelling in this language."
     }
   },
+  "cloudTree.resources.loading.symbol": {
+    "source": "…",
+    "class": "format"
+  },
   "cloudTree.resources.missing": {
     "source": "—",
     "class": "format"
@@ -3059,6 +3063,15 @@
       "pt-BR": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
       "th": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required.",
       "tr": "Established resource abbreviation with the same spelling; an explicit translated catalog entry remains required."
+    }
+  },
+  "settings.shortcuts.paneResizeStep.value": {
+    "source": "%d px",
+    "identityLocales": {
+      "de": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "fr": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
+      "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
   }
 }

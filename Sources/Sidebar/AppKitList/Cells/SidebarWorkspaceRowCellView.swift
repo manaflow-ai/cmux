@@ -16,8 +16,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Chrome
     private let backgroundView = NSView()
     private let railView = NSView()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
     /// Hosts every content subview so the Done-status dim composites like the
     /// legacy row's `.opacity(0.6)` on the content VStack — the selection
@@ -1146,14 +1146,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             x += glyphSize.width + titleRowSpacing
         }
 
+        x = cloudImageView.layoutLeadingSidebarWorkspaceAccessory(
+            minX: x, centerY: firstLineCenter, side: model.scaled(10) + 4, spacing: titleRowSpacing, apply: apply
+        )
         // Trailing slot
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let accessoryMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
-        let titleMaxX = cloudImageView.layoutSidebarWorkspaceAccessory(
-            maxX: accessoryMaxX, centerY: firstLineCenter, side: model.scaled(10) + 4, spacing: titleRowSpacing, apply: apply
-        )
+        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }
@@ -1352,17 +1352,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
-            let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)
-            topDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: model.isFirstRow ? 0 : -(model.rowSpacing / 2),
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
-            bottomDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: y - 2 + model.rowSpacing / 2,
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
+            let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)
+            topDropIndicator.position(in: indicatorBounds, at: model.isFirstRow ? 0 : -(model.rowSpacing / 2))
+            bottomDropIndicator.position(in: indicatorBounds, at: y - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2)
             let pillSize = hintPill.fittingPillSize()
             hintPill.frame = NSRect(
                 x: width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.settings.sidebarShortcutHintXOffset),
