@@ -181,6 +181,15 @@ pub fn dispatch(args: &mut Vec<String>) -> Result<i32> {
         println!("cmux rust-cli 0.1.0");
         return Ok(0);
     }
+    if command == "capabilities" {
+        let value = json!({"product":"cmux","cli_version":"0.1.0","protocol_version":2,"output_modes":["text","json","jsonl"],"features":["socket","command_manifest","structured_errors"],"commands":["help","version","capabilities"]});
+        if ctx.json {
+            ctx.emit(&value)?;
+        } else {
+            println!("cmux capabilities: socket, command_manifest, structured_errors");
+        }
+        return Ok(0);
+    }
     let modules: &[fn(&Context, &str, &[String]) -> Result<Option<i32>>] = commands::ALL;
     for module in modules {
         if let Some(code) = module(&ctx, &command, args)? {
