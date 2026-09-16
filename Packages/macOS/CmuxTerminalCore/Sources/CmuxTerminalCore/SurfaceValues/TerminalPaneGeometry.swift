@@ -1,4 +1,4 @@
-import CoreGraphics
+public import CoreGraphics
 
 /// The one pane size a terminal may publish to its renderer grid and PTY.
 ///
