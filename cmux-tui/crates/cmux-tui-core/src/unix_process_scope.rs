@@ -78,6 +78,9 @@ impl Default for TrackedProcesses {
 #[derive(Clone)]
 struct ScopeRegistration {
     marker: String,
+    // Keep the unlinked marker inode reserved until every asynchronous scan
+    // releases this registration, even after the command scope is dropped.
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
@@ -146,7 +149,7 @@ struct ProcessScopeTracker {
 /// that leave that group.
 pub struct UnixProcessScope {
     marker: String,
-    _marker_fd: OwnedFd,
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: Option<ProcessIdentity>,
     #[cfg(target_os = "linux")]
@@ -307,7 +310,7 @@ impl UnixProcessScope {
         let (marker_fd, file_marker) = create_file_marker(&marker)?;
         Ok(Self {
             marker,
-            _marker_fd: marker_fd,
+            _marker_fd: Arc::new(marker_fd),
             file_marker,
             root: None,
             #[cfg(target_os = "linux")]
@@ -430,6 +433,7 @@ impl UnixProcessScope {
         let registry = process_scope_tracker();
         let registration = registry.register(ScopeRegistration {
             marker: self.marker.clone(),
+            _marker_fd: self._marker_fd.clone(),
             file_marker: self.file_marker,
             root,
             tracked: self.tracked.clone(),
@@ -1612,6 +1616,7 @@ mod tests {
         let identity = process_identity(pid as u32).unwrap();
         let scopes = [&unrelated, &intended].map(|scope| ScopeRegistration {
             marker: scope.marker.clone(),
+            _marker_fd: scope._marker_fd.clone(),
             file_marker: scope.file_marker,
             // This scan tests descriptor ownership alone, with no root lineage
             // or marker environment entry able to claim the forked process.
