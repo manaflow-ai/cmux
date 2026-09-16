@@ -171,6 +171,22 @@ fn require_url(args: &[String], command: &str) -> Result<String> {
     }
 }
 
+fn help(ctx: &Context, subcommand: Option<&str>) -> Result<Option<i32>> {
+    let text = match subcommand.map(str::to_ascii_lowercase).as_deref() {
+        None | Some("--help") | Some("-h") => "Usage: cmux browser [surface] <subcommand> [options]\n\nNavigation: open, goto, back, forward, reload, url, tab\nAutomation: snapshot, eval, wait, click, dblclick, hover, focus, type, fill, press, select, scroll\nInspection: get, is, find, frame, dialog, screenshot, console, errors\nState: cookies, storage, download, profile, import, viewport, geolocation, offline, trace, network, screencast\nUse `cmux browser <subcommand> --help` for command-specific syntax.".to_string(),
+        Some("snapshot") => "Usage: cmux browser <surface> snapshot [--selector CSS] [--interactive] [--cursor] [--compact] [--max-depth N]".into(),
+        Some("screenshot") => "Usage: cmux browser <surface> screenshot [--out PATH]\nCapture the browser surface as PNG.".into(),
+        Some("wait") => "Usage: cmux browser <surface> wait [--selector CSS|--text TEXT|--url URL] [--timeout-ms N|--timeout SEC]".into(),
+        Some("download") => "Usage: cmux browser <surface> download [list [--limit 1..25]|wait [PATH] [--timeout-ms N]]".into(),
+        Some("viewport") => "Usage: cmux browser <surface> viewport <width> <height> | reset".into(),
+        Some("cookies") => "Usage: cmux browser <surface> cookies [get|set|clear] [--name NAME] [--value VALUE]".into(),
+        Some("storage") => "Usage: cmux browser <surface> storage <local|session> [get [KEY]|set KEY VALUE|clear]".into(),
+        Some(other) => format!("Usage: cmux browser <surface> {other} [options]"),
+    };
+    ctx.print(text)?;
+    Ok(Some(0))
+}
+
 fn routing_params(
     ctx: &Context,
     mut args: Vec<String>,
@@ -178,6 +194,7 @@ fn routing_params(
 ) -> Result<Map<String, Value>> {
     let workspace = take(&mut args, &["--workspace"])?;
     let window = take(&mut args, &["--window"])?;
+    let return_to = take(&mut args, &["--return-to"])?;
     let mut p = Map::new();
     if let Some(raw) = explicit_surface {
         p.insert(
@@ -193,6 +210,11 @@ fn routing_params(
     if let Some(raw) = window {
         if let Some(id) = ctx.resolve_id("window", Some(&raw))? {
             p.insert("window_id".into(), Value::String(id));
+        }
+    }
+    if let Some(raw) = return_to {
+        if let Some(id) = ctx.resolve_id("surface", Some(&raw))? {
+            p.insert("return_to".into(), Value::String(id));
         }
     }
     Ok(p)
@@ -290,6 +312,10 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
     }
     let mut all = raw_args.to_vec();
     let json_flag = flag(&mut all, &["--json"]);
+    // Browser skill examples put display flags at the end. The global parser owns the
+    // effective format; consume the local spelling here so it never leaks into a URL
+    // or selector.
+    let _ = take(&mut all, &["--id-format"])?;
     let _ = json_flag; // root Context owns the global JSON switch; trailing --json is accepted for parity.
     let surface_opt = take(&mut all, &["--surface"])?;
     let verbs_without_surface = [
@@ -322,6 +348,15 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
         .map(|s| s.to_ascii_lowercase())
         .ok_or_else(|| usage("browser requires a subcommand"))?;
     let mut args = all.into_iter().skip(1).collect::<Vec<_>>();
+    if sub == "--help" || sub == "-h" {
+        return help(ctx, None);
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        args.retain(|a| a != "--help" && a != "-h");
+        if args.is_empty() {
+            return help(ctx, Some(&sub));
+        }
+    }
 
     if sub == "identify" {
         let mut out = ctx.rpc("system.identify", Value::Object(Map::new()))?;
@@ -719,7 +754,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             let method = match sub.as_str() {
                 "scrollintoview" | "scrollinto" | "scroll-into-view" => "browser.scroll_into_view",
                 x => {
-                    automation(
+                    return automation(
                         ctx,
                         &format!("browser.{x}"),
                         json!({"surface_id":id,"selector":selector,"snapshot_after":flag(&mut args,&["--snapshot-after"])}),
@@ -958,7 +993,7 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
                         .first()
                         .cloned()
                         .ok_or_else(|| usage(format!("browser find {loc} requires a value")))?;
-                    p[loc.clone()] = v.into();
+                    p[loc.as_str()] = v.into();
                     if flag(&mut args, &["--exact"]) {
                         p["exact"] = true.into();
                     }
@@ -1302,10 +1337,12 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
         }
         "focus-mode" | "design-mode" => {
             let design = sub == "design-mode";
-            let mode = args.first().map(String::as_str).unwrap_or(if design {
-                "status"
-            } else {
-                "toggle"
+            let mode = args.first().cloned().unwrap_or_else(|| {
+                if design {
+                    "status".into()
+                } else {
+                    "toggle".into()
+                }
             });
             let method = if design && mode == "status" {
                 "browser.design_mode.status"
@@ -1314,15 +1351,15 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             } else {
                 "browser.focus_mode.set"
             };
-            let mut p = routing_params(ctx, args, surface_raw.as_deref())?;
-            p.insert("mode".into(), mode.into());
+            let mut p = routing_params(ctx, args.clone(), surface_raw.as_deref())?;
+            p.insert("mode".into(), mode.clone().into());
             automation(ctx, method, Value::Object(p))?;
         }
         "zoom" => {
-            let v = args.first().ok_or_else(|| {
+            let v = args.first().cloned().ok_or_else(|| {
                 usage("browser zoom requires in, out, reset, or a numeric factor")
             })?;
-            let mut p = routing_params(ctx, args, surface_raw.as_deref())?;
+            let mut p = routing_params(ctx, args.clone(), surface_raw.as_deref())?;
             if ["in", "out", "reset"].contains(&v.as_str()) {
                 p.insert("direction".into(), v.clone().into());
             } else {
@@ -1367,7 +1404,11 @@ pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i
             if ctx.json {
                 ctx.emit(&out)?
             } else {
-                let key = if sub == "console" { "entries" } else { "errors" };
+                let key = if sub == "console" {
+                    "entries"
+                } else {
+                    "errors"
+                };
                 ctx.print(browser_log_text(
                     out.get(key),
                     if sub == "console" {

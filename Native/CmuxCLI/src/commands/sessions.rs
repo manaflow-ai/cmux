@@ -13,7 +13,9 @@ use std::env;
 use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::Duration;
 
 pub fn run(ctx: &Context, command: &str, raw_args: &[String]) -> Result<Option<i32>> {
     match command {
@@ -212,7 +214,7 @@ fn sessions_list(ctx: &Context, raw: &[String]) -> Result<()> {
             let launch = object
                 .get("launchCommand")
                 .or_else(|| object.get("launch_command"));
-            let launch_args = launch
+            let captured_args = launch
                 .and_then(|v| v.get("arguments"))
                 .cloned()
                 .unwrap_or_else(|| json!([]));
@@ -228,7 +230,7 @@ fn sessions_list(ctx: &Context, raw: &[String]) -> Result<()> {
             let active_for_workspace = active_record_matches(active_ws, &workspace_id, &session_id);
             let active_for_surface =
                 active_record_matches(active_surface, &surface_id, &session_id);
-            let launch_backed = launch_args.as_array().is_some_and(|a| !a.is_empty());
+            let launch_backed = captured_args.as_array().is_some_and(|a| !a.is_empty());
             let visible = include_all
                 || session.is_some()
                 || workspace.is_some()
@@ -256,6 +258,66 @@ fn sessions_list(ctx: &Context, raw: &[String]) -> Result<()> {
             payload.insert("launch_backed".into(), json!(launch_backed));
             payload.insert("active_for_workspace".into(), json!(active_for_workspace));
             payload.insert("active_for_surface".into(), json!(active_for_surface));
+            payload.insert(
+                "agent_display_name".into(),
+                json!(display_agent_name(&agent_name)),
+            );
+            payload.insert(
+                "launch_arguments".into(),
+                crate::commands::sessions::launch_args(object)
+                    .map_or_else(|| json!([]), |v| json!(v)),
+            );
+            payload.insert(
+                "transcript_path".into(),
+                transcript.clone().map_or(Value::Null, Value::String),
+            );
+            payload.insert(
+                "pid".into(),
+                object.get("pid").cloned().unwrap_or(Value::Null),
+            );
+            payload.insert(
+                "is_restorable".into(),
+                object
+                    .get("isRestorable")
+                    .or_else(|| object.get("is_restorable"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            );
+            let fork_available = launch_backed
+                || object
+                    .get("fork_command")
+                    .or_else(|| object.get("legacy_fork_command"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|v| !v.trim().is_empty());
+            payload.insert("fork_command_available".into(), json!(fork_available));
+            payload.insert(
+                "fork_supported".into(),
+                json!(
+                    fork_available
+                        && matches!(
+                            agent_name.as_str(),
+                            "claude" | "codex" | "opencode" | "pi" | "omp"
+                        )
+                ),
+            );
+            if agent_name == "codex" {
+                let indexed = default_codex_home.join("session_index.jsonl");
+                let found = fs::read_to_string(indexed).ok().is_some_and(|body| {
+                    body.lines()
+                        .any(|line| line.contains(&format!("\"id\":\"{session_id}\"")))
+                });
+                payload.insert("session_home".into(), json!(default_codex_home));
+                payload.insert(
+                    "session_dir".into(),
+                    json!(default_codex_home.join("sessions")),
+                );
+                payload.insert("codex_indexed".into(), json!(found));
+                payload.insert("codex_transcript_found".into(), json!(transcript_backed));
+                payload.insert(
+                    "codex_transcript_path".into(),
+                    transcript.clone().map_or(Value::Null, Value::String),
+                );
+            }
             payload.insert("default_visible".into(), json!(visible));
             entries.push((updated, payload));
         }
@@ -263,10 +325,7 @@ fn sessions_list(ctx: &Context, raw: &[String]) -> Result<()> {
     entries.sort_by(|a, b| {
         b.0.partial_cmp(&a.0)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                string(a.1, &["session_id"])
-                    .cmp(&string(b.1, &["session_id"]))
-            })
+            .then_with(|| string(&a.1, &["session_id"]).cmp(&string(&b.1, &["session_id"])))
     });
     let total = entries.len();
     entries.truncate(limit);
@@ -341,6 +400,105 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             "this session's saved fork data is not compatible",
         ));
     }
+    if ctx.dry_run {
+        let argv = if fork {
+            record
+                .get("fork_arguments")
+                .or_else(|| record.get("forkArguments"))
+                .and_then(Value::as_array)
+                .map(strings)
+                .or_else(|| build_fork_argv(&kind, checkpoint.as_deref(), record))
+        } else {
+            build_restore_argv(&mode, &kind, checkpoint.as_deref(), record)
+        };
+        ctx.emit(&json!({
+            "dry_run": true,
+            "command": if fork { "fork" } else { "restore" },
+            "surface_id": surface_id,
+            "kind": kind,
+            "checkpoint_id": checkpoint,
+            "arguments": argv,
+            "working_directory": string(record, &["working_directory", "workingDirectory"]).or_else(|| launch_cwd(record)),
+        }))?;
+        return Ok(());
+    }
+    let admission = if !fork
+        && (mode == "resumeAgent" || mode == "relaunchAgent")
+        && payload
+            .get("agent_restore_admission_supported")
+            .and_then(Value::as_bool)
+            == Some(true)
+    {
+        let session_id = checkpoint
+            .as_deref()
+            .ok_or_else(|| surface_error(fork, "session identity is missing"))?;
+        let workspace_id = payload
+            .get("workspace_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| surface_error(fork, "workspace identity is missing"))?;
+        let response = ctx.rpc(
+            "agent.restore.admit",
+            json!({
+                "workspace_id": workspace_id,
+                "surface_id": surface_id,
+                "kind": kind,
+                "session_id": session_id,
+                "record_session_id": session_id,
+            }),
+        )?;
+        if response.get("admitted").and_then(Value::as_bool) != Some(true) {
+            return Err(surface_error(
+                fork,
+                "this agent session is already running or another launch is starting",
+            ));
+        }
+        Some(json!({
+            "workspace_id": workspace_id,
+            "surface_id": surface_id,
+            "kind": kind,
+            "session_id": session_id,
+            "claim_id": response.get("claim_id").cloned().unwrap_or(Value::Null),
+        }))
+    } else {
+        None
+    };
+    if mode == "resumeAgent"
+        && kind == "codex"
+        && string(record, &["source"]).as_deref() == Some("agent-hook")
+    {
+        let binding = payload
+            .get("resume_binding")
+            .and_then(Value::as_object)
+            .ok_or_else(|| surface_error(fork, "current resume binding is missing"))?;
+        let bound_checkpoint = string(binding, &["checkpoint_id", "checkpointId"]);
+        if bound_checkpoint.as_deref() != checkpoint.as_deref() {
+            release_admission(ctx, admission.as_ref());
+            return Err(surface_error(
+                fork,
+                "this command no longer matches the session",
+            ));
+        }
+        if let Err(error) = verify_codex_owner(record, checkpoint.as_deref().unwrap_or("")) {
+            release_admission(ctx, admission.as_ref());
+            return Err(error);
+        }
+        let response = ctx.rpc(
+            "surface.resume.get",
+            json!({
+                "surface_id": surface_id,
+                "claim_checkpoint_id": checkpoint,
+                "claim_source": binding.get("source").cloned().unwrap_or(Value::Null),
+                "claim_updated_at": binding.get("updated_at").cloned().unwrap_or(Value::Null),
+            }),
+        )?;
+        if response.get("resume_claimed").and_then(Value::as_bool) != Some(true) {
+            release_admission(ctx, admission.as_ref());
+            return Err(surface_error(
+                fork,
+                "this command no longer matches the session",
+            ));
+        }
+    }
     let args = if fork {
         record
             .get("fork_arguments")
@@ -349,23 +507,11 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             .map(strings)
             .or_else(|| build_fork_argv(kind.as_str(), checkpoint.as_deref(), record))
     } else {
-        record
-            .get("prepared_arguments")
-            .or_else(|| record.get("preparedArguments"))
-            .and_then(Value::as_array)
-            .map(strings)
-            .or_else(|| launch_args(record))
+        build_restore_argv(&mode, &kind, checkpoint.as_deref(), record)
     };
     let cwd =
         string(record, &["working_directory", "workingDirectory"]).or_else(|| launch_cwd(record));
     let mut environment: BTreeMap<String, String> = env::vars().collect();
-    if let Some(saved) = record.get("environment").and_then(Value::as_object) {
-        for (k, v) in saved {
-            if let Some(v) = v.as_str() {
-                environment.insert(k.clone(), v.into());
-            }
-        }
-    }
     if let Some(launch) = record
         .get("launch_command")
         .or_else(|| record.get("launchCommand"))
@@ -378,9 +524,19 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             }
         }
     }
+    if let Some(saved) = record.get("environment").and_then(Value::as_object) {
+        for (k, v) in saved {
+            if let Some(v) = v.as_str() {
+                environment.insert(k.clone(), v.into());
+            }
+        }
+    }
     if let Some(argv) = args.filter(|v| !v.is_empty()) {
         let executable = argv[0].clone();
-        let mut command = Command::new(resolve_executable(&executable, &environment["PATH"]));
+        let mut command = Command::new(resolve_executable(
+            &executable,
+            environment.get("PATH").map(String::as_str).unwrap_or(""),
+        ));
         command
             .args(argv.iter().skip(1))
             .env_clear()
@@ -391,6 +547,7 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             }
         }
         let err = command.exec();
+        release_admission(ctx, admission.as_ref());
         return Err(surface_error(
             fork,
             format!("saved process could not be started: {err}"),
@@ -411,11 +568,13 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
             command.current_dir(cwd);
         }
         let err = command.exec();
+        release_admission(ctx, admission.as_ref());
         return Err(surface_error(
             fork,
             format!("saved process could not be started: {err}"),
         ));
     }
+    release_admission(ctx, admission.as_ref());
     Err(surface_error(
         fork,
         if fork {
@@ -425,6 +584,219 @@ fn continuation(ctx: &Context, raw: &[String], fork: bool) -> Result<()> {
         },
     ))
 }
+fn release_admission(ctx: &Context, claim: Option<&Value>) {
+    if let Some(claim) = claim {
+        let _ = ctx.rpc("agent.restore.release", claim.clone());
+    }
+}
+
+fn verify_codex_owner(record: &Map<String, Value>, session_id: &str) -> Result<()> {
+    let captured = record
+        .get("launch_command")
+        .or_else(|| record.get("launchCommand"));
+    let home = record
+        .get("environment")
+        .and_then(|v| v.get("CODEX_HOME"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            captured
+                .and_then(|v| v.get("environment"))
+                .and_then(|v| v.get("CODEX_HOME"))
+                .and_then(Value::as_str)
+        })
+        .map(str::to_owned)
+        .or_else(|| env::var("CODEX_HOME").ok())
+        .unwrap_or_else(|| format!("{}/.codex", env::var("HOME").unwrap_or_default()));
+    let mut home = expand_path(&home);
+    if home.is_relative() {
+        if let Some(cwd) = launch_cwd(record)
+            .or_else(|| string(record, &["working_directory", "workingDirectory"]))
+        {
+            home = Path::new(&cwd).join(home);
+        }
+    }
+    let database = home.join("state_5.sqlite");
+    let mut indexed_source = Value::Null;
+    let indexed_path = if database.is_file() {
+        let safe_id = session_id.replace('\'', "''");
+        let mut decoded = None;
+        for columns in [
+            "rollout_path, source, thread_source",
+            "rollout_path, source",
+            "rollout_path",
+        ] {
+            let output = Command::new("/usr/bin/sqlite3")
+                .args(["-readonly", "-json", "-cmd", ".timeout 500"])
+                .arg(&database)
+                .arg(format!(
+                    "SELECT {columns} FROM threads WHERE id = '{safe_id}' LIMIT 1;"
+                ))
+                .output()
+                .map_err(|_| {
+                    CliError::new(
+                        "codex_checkpoint_unavailable",
+                        "restore: the saved Codex session could not be verified",
+                    )
+                })?;
+            if output.status.success() {
+                decoded = Some(if output.stdout.is_empty() {
+                    json!([])
+                } else {
+                    serde_json::from_slice(&output.stdout)?
+                });
+                break;
+            }
+        }
+        let rows = decoded.ok_or_else(|| {
+            CliError::new(
+                "codex_checkpoint_unavailable",
+                "restore: the saved Codex session could not be verified",
+            )
+        })?;
+        if let Some(row) = rows.as_array().and_then(|v| v.first()) {
+            indexed_source = json!([row.get("source"), row.get("thread_source")]);
+            Some(
+                row.get("rollout_path")
+                    .and_then(Value::as_str)
+                    .filter(|v| !v.is_empty())
+                    .ok_or_else(|| {
+                        CliError::new(
+                            "codex_checkpoint_unavailable",
+                            "restore: the saved Codex session has no rollout",
+                        )
+                    })?
+                    .to_owned(),
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let paths = if let Some(path) = indexed_path {
+        let path = PathBuf::from(path);
+        vec![if path.is_absolute() {
+            path
+        } else {
+            home.join(path)
+        }]
+    } else {
+        let mut candidates = Vec::new();
+        let mut remaining = 8192;
+        collect_rollouts(
+            &home.join("sessions"),
+            session_id,
+            &mut remaining,
+            &mut candidates,
+        );
+        candidates
+    };
+    for path in paths {
+        use std::io::{BufRead, BufReader, Read};
+        let Ok(file) = fs::File::open(&path) else {
+            continue;
+        };
+        let reader = BufReader::new(file.take(4 * 1024 * 1024));
+        for line in reader.lines().take(2048) {
+            let Ok(line) = line else {
+                break;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            if value.get("type").and_then(Value::as_str) != Some("session_meta") {
+                continue;
+            }
+            let payload = &value["payload"];
+            if payload.get("id").and_then(Value::as_str) != Some(session_id) {
+                break;
+            }
+            let source = json!([payload.get("source"), indexed_source]);
+            let origin = payload
+                .get("originator")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            let thread_source = payload
+                .get("thread_source")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if source_marker(&source, "exec")
+                || source_marker(&source, "review")
+                || source_marker(&source, "automation")
+                || source_marker(&source, "subagent")
+                || origin.contains("codex_exec")
+                || origin.contains("review")
+                || thread_source == "subagent"
+            {
+                return Err(CliError::new(
+                    "codex_checkpoint_rejected",
+                    "restore: a child or automation session cannot own this terminal",
+                ));
+            }
+            if ["cli", "tui", "vscode"]
+                .iter()
+                .any(|m| source_marker(&source, m))
+            {
+                return Ok(());
+            }
+            return Err(CliError::new(
+                "codex_checkpoint_rejected",
+                "restore: the saved Codex session's ownership could not be verified",
+            ));
+        }
+    }
+    Err(CliError::new("codex_checkpoint_unavailable", "restore: the saved Codex session is unavailable. Retry later or start a new agent session."))
+}
+
+fn source_marker(source: &Value, marker: &str) -> bool {
+    match source {
+        Value::String(s) => {
+            s.eq_ignore_ascii_case(marker)
+                || serde_json::from_str::<Value>(s)
+                    .ok()
+                    .filter(|v| !v.is_string())
+                    .is_some_and(|v| source_marker(&v, marker))
+        }
+        Value::Array(a) => a.iter().any(|v| source_marker(v, marker)),
+        Value::Object(o) => o
+            .iter()
+            .any(|(k, v)| k.eq_ignore_ascii_case(marker) || source_marker(v, marker)),
+        _ => false,
+    }
+}
+
+fn collect_rollouts(
+    root: &Path,
+    session_id: &str,
+    remaining: &mut usize,
+    matches: &mut Vec<PathBuf>,
+) {
+    if *remaining == 0 || matches.len() >= 32 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if *remaining == 0 || matches.len() >= 32 {
+            return;
+        }
+        *remaining -= 1;
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() {
+            collect_rollouts(&entry.path(), session_id, remaining, matches);
+        } else if file_type.is_file()
+            && entry.file_name().to_string_lossy().contains(session_id)
+            && entry.path().extension().is_some_and(|v| v == "jsonl")
+        {
+            matches.push(entry.path());
+        }
+    }
+}
 
 #[derive(Debug)]
 struct Selector {
@@ -433,6 +805,13 @@ struct Selector {
     checkpoint: Option<String>,
 }
 fn parse_selector(raw: &[String], fork: bool) -> Result<Selector> {
+    if raw == ["--surface"] {
+        return Ok(Selector {
+            surface: None,
+            kind: None,
+            checkpoint: None,
+        });
+    }
     let mut args = raw.to_vec();
     let surface_count = args
         .iter()
@@ -485,12 +864,49 @@ enum ManagedKind {
     Omc,
 }
 fn launch_managed(
-    _ctx: &Context,
+    ctx: &Context,
     executable: &str,
     raw: &[String],
     kind: ManagedKind,
 ) -> Result<()> {
+    let informational = if matches!(kind, ManagedKind::ClaudeTeams) {
+        ["--help", "-h", "--version", "-v"]
+            .iter()
+            .any(|option| claude_has_real_option(raw, option))
+    } else {
+        raw.first().is_some_and(|v| v == "help")
+            || raw
+                .iter()
+                .take_while(|v| v.as_str() != "--")
+                .any(|v| matches!(v.as_str(), "--help" | "-h" | "--version" | "-V"))
+    };
+    if !informational
+        && ctx.socket.is_none()
+        && env::var("CMUX_SOCKET_PATH")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_none()
+        && env::var("CMUX_SOCKET")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_none()
+    {
+        return Err(CliError::new(
+            "managed_terminal_required",
+            format!(
+                "{} must be launched from a cmux-managed terminal surface",
+                executable
+            ),
+        ));
+    }
     let mut envs: BTreeMap<String, String> = env::vars().collect();
+    if let Some(socket) = ctx.socket.as_deref() {
+        envs.insert("CMUX_SOCKET_PATH".into(), socket.into());
+        envs.remove("CMUX_SOCKET");
+    }
+    if let Some(password) = ctx.password.as_deref().filter(|v| !v.trim().is_empty()) {
+        envs.insert("CMUX_SOCKET_PASSWORD".into(), password.into());
+    }
     let path =
         find_executable(executable, envs.get("PATH").map(String::as_str)).ok_or_else(|| {
             CliError::new(
@@ -503,25 +919,54 @@ fn launch_managed(
         })?;
     let mut argv = raw.to_vec();
     let launch_path = path.clone();
+    if ctx.dry_run {
+        ctx.emit(&json!({"dry_run": true, "executable": launch_path, "arguments": argv}))?;
+        return Ok(());
+    }
+    let mut shim_root = None;
     match kind {
         ManagedKind::ClaudeTeams => {
             if !has_option(&argv, "--teammate-mode") {
                 argv.splice(0..0, ["--teammate-mode".into(), "auto".into()]);
             }
             envs.insert("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS".into(), "1".into());
+            envs.remove("CLAUDE_CODE_SANDBOXED");
+            envs.remove("CMUX_CLAUDE_TEAMS_SANDBOXED");
+            if claude_has_real_option(raw, "--dangerously-skip-permissions") {
+                envs.insert("CLAUDE_CODE_SANDBOXED".into(), "1".into());
+                envs.insert("CMUX_CLAUDE_TEAMS_SANDBOXED".into(), "1".into());
+            }
         }
         ManagedKind::CodexTeams => {
             envs.insert("CMUX_CODEX_TEAMS".into(), "1".into());
         }
         ManagedKind::Omo => {
             envs.insert("CMUX_OMO".into(), "1".into());
+            shim_root = Some(write_managed_shims("omo")?);
         }
         ManagedKind::Omx => {
             envs.insert("CMUX_OMX".into(), "1".into());
+            shim_root = Some(write_managed_shims("omx")?);
         }
         ManagedKind::Omc => {
             envs.insert("CMUX_OMC".into(), "1".into());
+            shim_root = Some(write_managed_shims("omc")?);
         }
+    }
+    if let Some(root) = shim_root {
+        let old_path = envs.get("PATH").cloned().unwrap_or_default();
+        envs.insert(
+            "CMUX_AGENT_COMMAND_SHIM_ROOT".into(),
+            root.display().to_string(),
+        );
+        envs.insert(
+            "CMUX_OMO_CMUX_BIN".into(),
+            env::args().next().unwrap_or_else(|| "cmux".into()),
+        );
+        envs.insert("PATH".into(), format!("{}:{old_path}", root.display()));
+    }
+    if matches!(kind, ManagedKind::CodexTeams) && !informational {
+        return launch_codex_teams(&launch_path, &argv, &mut envs);
     }
     let mut command = Command::new(launch_path);
     command.args(argv).env_clear().envs(envs);
@@ -531,13 +976,199 @@ fn launch_managed(
         format!("Failed to launch {executable}: {err}"),
     ))
 }
+
+/// Start Codex's localhost app-server and run the root TUI against it. The
+/// Swift implementation also runs a websocket watcher that mirrors spawned
+/// threads into cmux panes. Keeping the server/root lifecycle here preserves
+/// resume/fork routing and guarantees the server is reaped when the root exits;
+/// the watcher remains an explicit follow-up migration.
+fn launch_codex_teams(
+    executable: &str,
+    args: &[String],
+    environment: &mut BTreeMap<String, String>,
+) -> Result<()> {
+    use std::net::TcpListener;
+    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| {
+        CliError::new(
+            "codex_teams_port",
+            format!("Failed to allocate a localhost port: {e}"),
+        )
+    })?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| CliError::new("codex_teams_port", e.to_string()))?
+        .port();
+    drop(listener);
+    let url = format!("ws://127.0.0.1:{port}");
+    let mut server = Command::new(executable);
+    server
+        .args(["app-server", "--listen", &url])
+        .env_clear()
+        .envs(environment.iter())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut server = server.spawn().map_err(|e| {
+        CliError::new(
+            "codex_teams_server",
+            format!("Failed to start Codex app-server: {e}"),
+        )
+    })?;
+    thread::sleep(Duration::from_millis(100));
+    environment.insert("CMUX_CODEX_TEAMS_APP_SERVER_URL".into(), url.clone());
+    environment.insert("CMUX_CODEX_TEAMS_MAX_AUTO_DEPTH".into(), "2".into());
+    environment.insert("CMUX_AGENT_LAUNCH_KIND".into(), "codexTeams".into());
+    environment.insert("CMUX_AGENT_LAUNCH_EXECUTABLE".into(), executable.into());
+    let mut root_args = Vec::with_capacity(args.len() + 2);
+    if matches!(args.first().map(String::as_str), Some("resume" | "fork")) {
+        root_args.push(args[0].clone());
+        root_args.push("--remote".into());
+        root_args.push(url);
+        root_args.extend_from_slice(&args[1..]);
+    } else {
+        root_args.extend(["--remote".into(), url]);
+        root_args.extend_from_slice(args);
+    }
+    let status = Command::new(executable)
+        .args(root_args)
+        .env_clear()
+        .envs(environment.iter())
+        .status()
+        .map_err(|e| CliError::new("codex_teams_exec", format!("Failed to launch codex: {e}")))?;
+    let _ = server.kill();
+    let _ = server.wait();
+    if status.success() {
+        Ok(())
+    } else {
+        Err(
+            CliError::new("codex_teams_exit", "Codex exited with a non-zero status")
+                .exit(status.code().unwrap_or(1)),
+        )
+    }
+}
+
+/// Create provider shims that delegate layout work to the canonical
+/// `cmux __tmux-compat` command.
+fn write_managed_shims(name: &str) -> Result<PathBuf> {
+    let root = env::temp_dir().join(format!("cmux-cli-shims-{}-{}", name, std::process::id()));
+    fs::create_dir_all(&root)?;
+    let cmux = env::args().next().unwrap_or_else(|| "cmux".into());
+    let tmux = format!(
+        "#!/bin/sh\ncase \"${{1:-}}\" in -V|-v) echo 'tmux 3.4'; exit 0;; esac\nexec {} __tmux-compat \"$@\"\n",
+        shell_quote(&cmux)
+    );
+    write_executable(&root.join("tmux"), &tmux)?;
+    if name == "omo" {
+        let notifier = format!(
+            "#!/bin/sh\ntitle='' body=''\nwhile [ $# -gt 0 ]; do case \"$1\" in -title) title=\"$2\"; shift 2;; -message) body=\"$2\"; shift 2;; *) shift;; esac; done\nexec {} notify --title \"${{title:-OpenCode}}\" --body \"${{body:-}}\"\n",
+            shell_quote(&cmux)
+        );
+        write_executable(&root.join("terminal-notifier"), &notifier)?;
+    }
+    Ok(root)
+}
+
+fn write_executable(path: &Path, content: &str) -> Result<()> {
+    fs::write(path, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 fn has_option(args: &[String], name: &str) -> bool {
     args.iter()
         .any(|v| v == name || v.starts_with(&format!("{name}=")))
 }
 
+/// Claude accepts a prompt at several boundaries. Only an option token counts
+/// as a permission opt-in; prompt text or another option's value never does.
+fn claude_has_real_option(args: &[String], target: &str) -> bool {
+    let value_options = [
+        "--model",
+        "--fallback-model",
+        "--effort",
+        "--permission-mode",
+        "--settings",
+        "--system-prompt",
+        "--append-system-prompt",
+        "--system-prompt-file",
+        "--append-system-prompt-file",
+        "--resume",
+        "-r",
+        "--session-id",
+        "--agent",
+        "--agents",
+        "--teammate-mode",
+        "--allowedTools",
+        "--disallowedTools",
+        "--tools",
+        "--mcp-config",
+        "--output-format",
+        "--input-format",
+        "--max-turns",
+        "--max-budget-usd",
+    ];
+    let mut i = 0;
+    while i < args.len() {
+        let argument = args[i].as_str();
+        if argument == "--" || argument == "--tmux" || argument.starts_with("--tmux=") {
+            return false;
+        }
+        if argument == target
+            || argument
+                .strip_prefix(target)
+                .is_some_and(|tail| tail.starts_with('='))
+        {
+            return true;
+        }
+        if value_options.contains(&argument) {
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    false
+}
+
 fn discover_store_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
-    let mut out = Vec::new();
+    let known = [
+        "claude",
+        "codex",
+        "grok",
+        "opencode",
+        "pi",
+        "omp",
+        "campfire",
+        "amp",
+        "cursor",
+        "gemini",
+        "kiro",
+        "antigravity",
+        "rovodev",
+        "hermes-agent",
+        "copilot",
+        "codebuddy",
+        "factory",
+        "qoder",
+        "kimi",
+    ];
+    let mut out: Vec<(String, PathBuf)> = known
+        .iter()
+        .map(|agent| {
+            (
+                (*agent).into(),
+                dir.join(format!("{agent}-hook-sessions.json")),
+            )
+        })
+        .collect();
     if !dir.is_dir() {
         return Ok(out);
     }
@@ -552,7 +1183,10 @@ fn discover_store_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
         let Some(agent) = name.strip_suffix("-hook-sessions.json") else {
             continue;
         };
-        out.push((canonical_agent(agent), path));
+        let canonical = canonical_agent(agent);
+        if !out.iter().any(|(known, _)| known == &canonical) {
+            out.push((canonical, path));
+        }
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
@@ -563,6 +1197,17 @@ fn canonical_agent(v: &str) -> String {
         "agy" => "antigravity".into(),
         "rovo" => "rovodev".into(),
         x => x.into(),
+    }
+}
+fn display_agent_name(agent: &str) -> &'static str {
+    match agent {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "opencode" => "OpenCode",
+        "hermes-agent" => "Hermes Agent",
+        "rovodev" => "Rovo Dev",
+        "antigravity" => "Antigravity",
+        _ => "Agent",
     }
 }
 fn normalize(v: &str) -> String {
@@ -647,6 +1292,96 @@ fn build_fork_argv(kind: &str, id: Option<&str>, obj: &Map<String, Value>) -> Op
     }
 }
 
+fn build_restore_argv(
+    mode: &str,
+    kind: &str,
+    id: Option<&str>,
+    object: &Map<String, Value>,
+) -> Option<Vec<String>> {
+    let prepared = object
+        .get("prepared_arguments")
+        .or_else(|| object.get("preparedArguments"))
+        .and_then(Value::as_array)
+        .map(strings)
+        .filter(|v| !v.is_empty());
+    let captured = launch_args(object).filter(|v| !v.is_empty());
+    if mode == "direct" || mode == "relaunchAgent" {
+        return prepared.or(captured);
+    }
+    if mode == "forkAgent" {
+        return prepared.or_else(|| build_fork_argv(kind, id, object));
+    }
+    if mode != "resumeAgent" {
+        return None;
+    }
+    let id = id?;
+    let launch = captured.unwrap_or_default();
+    let fallback = match kind {
+        "factory" => "droid",
+        "qoder" => "qodercli",
+        "cursor" => "cursor-agent",
+        "hermes-agent" => "hermes",
+        "kiro" => "kiro-cli",
+        "rovodev" => "acli",
+        _ => kind,
+    };
+    let executable = launch.first().cloned().unwrap_or_else(|| fallback.into());
+    let mut tail = if launch.len() > 1 {
+        preserved_launch_tail(&launch[1..])
+    } else {
+        vec![]
+    };
+    let launch_object = object
+        .get("launch_command")
+        .or_else(|| object.get("launchCommand"));
+    let launcher = launch_object
+        .and_then(|v| v.get("launcher"))
+        .and_then(Value::as_str);
+    if let Some(wrapper) = launcher {
+        let subcommand = match wrapper {
+            "claudeTeams" => Some("claude-teams"),
+            "codexTeams" => Some("codex-teams"),
+            "omo" => Some("omo"),
+            "omx" => Some("omx"),
+            "omc" => Some("omc"),
+            _ => None,
+        };
+        if let Some(subcommand) = subcommand {
+            if tail.first().is_some_and(|v| v == subcommand) {
+                tail.remove(0);
+            }
+            let mut result = vec![executable, subcommand.into()];
+            match wrapper {
+                "claudeTeams" => result.extend(["--resume".into(), id.into()]),
+                "codexTeams" => result.extend(["resume".into(), id.into()]),
+                "omo" => result.extend(["--session".into(), id.into()]),
+                _ => return prepared,
+            }
+            result.extend(tail);
+            return Some(result);
+        }
+    }
+    let prefix = match kind {
+        "claude" => vec!["claude".into(), "--resume".into(), id.into()],
+        "codex" => vec![executable, "resume".into(), id.into()],
+        "opencode" => vec![executable, "--session".into(), id.into()],
+        "amp" => vec![executable, "threads".into(), "continue".into(), id.into()],
+        "kiro" => vec![executable, "chat".into(), "--resume-id".into(), id.into()],
+        "rovodev" => vec![
+            executable,
+            "rovodev".into(),
+            "run".into(),
+            "--restore".into(),
+            id.into(),
+        ],
+        "pi" | "omp" | "campfire" => vec![executable, "--session".into(), id.into()],
+        "grok" | "cursor" | "gemini" | "hermes-agent" | "copilot" | "codebuddy" | "factory"
+        | "qoder" | "kimi" => vec![executable, "--resume".into(), id.into()],
+        _ => return prepared,
+    };
+    Some([prefix, tail].concat())
+}
+
 /// Remove identity-bearing continuation options from a captured launch. The
 /// old `--resume <id>` pair must not be replayed after we substitute a new id.
 fn preserved_launch_tail(args: &[String]) -> Vec<String> {
@@ -682,17 +1417,55 @@ fn resolve_executable(exe: &str, path: &str) -> String {
     }
 }
 fn find_executable(name: &str, search: Option<&str>) -> Option<String> {
-    let entries = search.unwrap_or("").split(':').chain([
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-    ]);
+    let mut directories = search
+        .unwrap_or("")
+        .split(':')
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if let Ok(home) = env::var("HOME") {
+        for suffix in [
+            ".local/bin",
+            ".bun/bin",
+            ".nvm/current/bin",
+            ".volta/bin",
+            ".fnm/current/bin",
+            ".local/share/mise/shims",
+            ".asdf/shims",
+            "bin",
+        ] {
+            directories.push(format!("{home}/{suffix}"));
+        }
+    }
+    directories.extend(
+        ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+            .iter()
+            .map(|v| v.to_string()),
+    );
+    let entries = directories.iter().map(String::as_str);
     entries
         .filter(|v| !v.is_empty())
         .map(|d| Path::new(d).join(name))
-        .find(|p| p.is_file() && is_executable(p))
+        .find(|p| p.is_file() && is_executable(p) && !is_managed_provider_shim(p))
         .map(|p| p.to_string_lossy().into())
+}
+fn is_managed_provider_shim(path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    if text.contains(".app/Contents/Resources/bin/")
+        || text.contains("/cmux-cli-shims/")
+        || text.contains("/cmux-cli-shims-")
+    {
+        return true;
+    }
+    if let Ok(mut file) = fs::File::open(path) {
+        use std::io::Read;
+        let mut prefix = [0u8; 512];
+        if let Ok(size) = file.read(&mut prefix) {
+            return String::from_utf8_lossy(&prefix[..size])
+                .contains("cmux claude wrapper - injects hooks and session tracking");
+        }
+    }
+    false
 }
 #[cfg(unix)]
 fn is_executable(p: &Path) -> bool {
@@ -728,7 +1501,8 @@ fn iso8601(seconds: f64) -> String {
     let z = days + 719_468;
     let era = (if z >= 0 { z } else { z - 146_096 }).div_euclid(146_097);
     let doe = z - era * 146_097;
-    let yoe = (doe - doe.div_euclid(1_460) + doe.div_euclid(36_524) - doe.div_euclid(146_096)).div_euclid(365);
+    let yoe = (doe - doe.div_euclid(1_460) + doe.div_euclid(36_524) - doe.div_euclid(146_096))
+        .div_euclid(365);
     let y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe.div_euclid(4) - yoe.div_euclid(100));
     let mp = (5 * doy + 2).div_euclid(153);
@@ -747,7 +1521,19 @@ fn render_line(v: &Map<String, Value>) -> String {
     let surface = string(v, &["surface_id", "surfaceId"]).unwrap_or_else(|| "-".into());
     let cwd = string(v, &["cwd"]).unwrap_or_else(|| "-".into());
     let updated = string(v, &["updated_at"]).unwrap_or_else(|| "-".into());
-    format!("{agent} {id}  workspace={ws}  surface={surface}  cwd={cwd}  active_ws={}  active_surface={}  updated={updated}", if v.get("active_for_workspace").and_then(Value::as_bool)==Some(true){"yes"}else{"no"}, if v.get("active_for_surface").and_then(Value::as_bool)==Some(true){"yes"}else{"no"})
+    format!(
+        "{agent} {id}  workspace={ws}  surface={surface}  cwd={cwd}  active_ws={}  active_surface={}  updated={updated}",
+        if v.get("active_for_workspace").and_then(Value::as_bool) == Some(true) {
+            "yes"
+        } else {
+            "no"
+        },
+        if v.get("active_for_surface").and_then(Value::as_bool) == Some(true) {
+            "yes"
+        } else {
+            "no"
+        }
+    )
 }
 fn sessions_usage() -> &'static str {
     "Usage: cmux sessions list [options]\n\nPrint saved agent session records from ~/.cmuxterm/*-hook-sessions.json.\nOptions: --agent --session --workspace --surface --cwd --state-dir --codex-home --limit --all --json"
@@ -813,5 +1599,45 @@ mod tests {
             Some("exec agent --resume sid")
         );
         assert!(legacy_command(&object, true).is_none());
+    }
+
+    #[test]
+    fn iso8601_matches_swift_shape() {
+        assert_eq!(iso8601(0.0), "");
+        assert_eq!(iso8601(1_700_000_000.123), "2023-11-14T22:13:20.123Z");
+    }
+
+    #[test]
+    fn continuation_identity_options_are_removed_as_pairs() {
+        let tail = preserved_launch_tail(&[
+            "--model".into(),
+            "sonnet".into(),
+            "--resume".into(),
+            "old".into(),
+            "--fork-session".into(),
+            "--verbose".into(),
+        ]);
+        assert_eq!(tail, vec!["--model", "sonnet", "--verbose"]);
+    }
+
+    #[test]
+    fn dangerous_permission_opt_in_is_not_prompt_or_option_value() {
+        let target = "--dangerously-skip-permissions";
+        assert!(claude_has_real_option(
+            &[target.into(), "--version".into()],
+            target
+        ));
+        assert!(!claude_has_real_option(
+            &["--".into(), target.into()],
+            target
+        ));
+        assert!(!claude_has_real_option(
+            &["--model".into(), target.into()],
+            target
+        ));
+        assert!(!claude_has_real_option(
+            &["--tmux".into(), target.into()],
+            target
+        ));
     }
 }
