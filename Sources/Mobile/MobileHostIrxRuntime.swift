@@ -266,7 +266,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
                     self.setSettingsPhase(.failed)
-                    Self.journal.record("v2-host", "setup-retry", ["error": String(describing: type(of: error))])
+                    Self.journal.record("v2-host", "setup-retry", [
+                        "error": (error as? V2ControlFailure)?.diagnosticCode ?? String(describing: type(of: error))
+                    ])
                     let delay = Self.activationRetryDelay(after: error, failureCount: failureCount, jitterUnitInterval: Double.random(in: 0...1))
                     failureCount += 1
                     try? await Task.sleep(for: .seconds(delay))
