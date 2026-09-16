@@ -27,6 +27,7 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       upload: ${{ steps.decide.outputs.upload }}
+      retry_build_number: ${{ steps.decide.outputs.retry_build_number }}
     steps:
       - name: Skip an unchanged scheduled revision
         id: decide
@@ -45,6 +46,29 @@ jobs:
               exit 0
             fi
           fi
+          if [ "$EVENT_NAME" = schedule ]; then
+            RUN_IDS="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=completed&head_sha=$HEAD_SHA&per_page=20" --jq '.workflow_runs[].id')"
+            for RUN_ID in $RUN_IDS; do
+              MARKER_ID="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts" --jq '.artifacts[] | select(.name == "cmux-app-testflight-upload" and .expired == false) | .id')"
+              [ -n "$MARKER_ID" ] || continue
+              MARKER_DIR="$(mktemp -d)"
+              gh run download "$RUN_ID" --repo "$REPOSITORY" --name cmux-app-testflight-upload --dir "$MARKER_DIR"
+              BUILD_NUMBER="$(python3 - "$MARKER_DIR/upload.json" "$HEAD_SHA" <<'PYCODE'
+          import json, re, sys
+          with open(sys.argv[1]) as f:
+              marker = json.load(f)
+          assert marker['sha'] == sys.argv[2] and marker['app_id'] == '6783338052'
+          assert re.fullmatch(r'[0-9]+', marker['build_number'])
+          print(marker['build_number'])
+          PYCODE
+              )"
+              rm -rf "$MARKER_DIR"
+              echo 'upload=false' >> "$GITHUB_OUTPUT"
+              echo "retry_build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+              echo "Retrying internal assignment for uploaded build $BUILD_NUMBER." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            done
+          fi
           echo 'upload=true' >> "$GITHUB_OUTPUT"
 
   upload:
@@ -55,6 +79,8 @@ jobs:
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
+    outputs:
+      build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
       ASC_APP_ID: "6783338052"
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -165,14 +191,25 @@ jobs:
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Shipped CFBundleVersion: $FINAL_BN"
 
-      - name: Assign build to official internal testers
+      - name: Record completed upload before group assignment
         env:
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
         run: |
-          python3 ios/scripts/asc_assign_internal_testflight_group.py \
-            --bundle-id com.cmux.app \
-            --build-number "$BUILD_NUMBER" \
-            --group-id ac3d6e62-36ce-4669-88e1-7ee489aac612
+          mkdir -p "$RUNNER_TEMP/cmux-app-upload-marker"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': os.environ['BUILD_NUMBER']}
+          Path(os.environ['RUNNER_TEMP'], 'cmux-app-upload-marker', 'upload.json').write_text(json.dumps(marker))
+          PY
+
+      - name: Retain completed upload for assignment retries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-app-testflight-upload
+          retention-days: 90
+          if-no-files-found: error
+          path: ${{ runner.temp }}/cmux-app-upload-marker/upload.json
 
       - name: Save upload evidence
         if: always()
@@ -206,3 +243,28 @@ jobs:
         run: |
           rm -f "${ASC_API_KEY_PATH:-}"
           security delete-keychain ios-appstore.keychain >/dev/null 2>&1 || true
+
+  assign-internal:
+    name: Make build available to official internal testers
+    needs: [decide, upload]
+    if: >-
+      always() && needs.decide.result == 'success' &&
+      (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
+      (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    env:
+      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      BUILD_NUMBER: ${{ needs.upload.outputs.build_number || needs.decide.outputs.retry_build_number }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Wait for processing and assign the official internal group
+        run: |
+          python3 ios/scripts/asc_assign_internal_testflight_group.py \
+            --bundle-id com.cmux.app \
+            --build-number "$BUILD_NUMBER" \
+            --group-id ac3d6e62-36ce-4669-88e1-7ee489aac612
