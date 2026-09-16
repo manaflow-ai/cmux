@@ -222,7 +222,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             outlineView.indentationPerLevel = style.indentPerLevel
             reloadDataAndRestoreState(in: outlineView)
         }
-
         /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
             apply(nodes: nodes, allowDuringNativeDrag: false)
@@ -242,6 +241,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
+            expansionStore.reconcile(nodes: nodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG

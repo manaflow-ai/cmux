@@ -165,7 +165,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(row.toolTip.contains(usage))
         #expect(
             CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: true)
-                == CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: false)
+                > CloudTreeStyle.aero.machineRowHeight(hasStats: true, hasUsage: false)
         )
     }
 
@@ -198,7 +198,6 @@ struct CloudTreeMachineResourcesTests {
         )
         for style in CloudTreeStyle.presets {
             let row = CloudTreeMachineRowContent(machine: snapshot, style: style, now: Self.sampleTime)
-            #expect(row.inlineFact == nil)
             let section = CloudTreeMachineResourceSection(machine: snapshot, now: Self.sampleTime)
             #expect(section.rows.map(\.metric) == [.cpu, .memory, .disk, .usage])
             #expect(section.rows[0].detail.contains("9%"))
@@ -247,7 +246,11 @@ struct CloudTreeMachineResourcesTests {
                     #expect(host.fittingSize.height <= view.height(width: width, magnification: scale) + 1)
                 }
             }
-            #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
+            if style.machineRowLayout == .twoLine {
+                #expect(style.machineRowHeight(hasStats: true) > style.machineRowHeight(hasStats: false))
+            } else {
+                #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
+            }
         }
     }
 
@@ -304,7 +307,8 @@ struct CloudTreeMachineResourcesTests {
         let workspaces = try #require(machineNode.children.first)
         let terminals = try #require(machineNode.children.dropFirst(3).first)
         let resources = try #require(machineNode.children.last)
-        let store = CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!)
+        let defaults = UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!
+        let store = CloudTreeExpansionStore(defaults: defaults)
         #expect(store.isExpanded(workspaces))
         #expect(store.isExpanded(machineNode.children[1]))
         #expect(!store.isExpanded(terminals))
@@ -313,6 +317,9 @@ struct CloudTreeMachineResourcesTests {
         store.setExpanded(false, node: workspaces)
         #expect(store.isExpanded(resources))
         #expect(!store.isExpanded(workspaces))
+        store.reconcile(nodes: [])
+        let reloaded = CloudTreeExpansionStore(defaults: defaults)
+        #expect(reloaded.isExpanded(workspaces), "removed dynamic rows do not leave stale collapsed state")
     }
 
     @Test func resourceRowsKeepTelemetryStatesDistinctAndPreserveZero() {

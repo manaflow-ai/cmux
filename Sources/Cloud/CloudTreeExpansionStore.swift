@@ -50,4 +50,18 @@ final class CloudTreeExpansionStore {
         defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
         defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
     }
+
+    /// Drops expansion entries for rows that no longer exist after a catalog
+    /// refresh, keeping persisted state bounded as machines and workspaces churn.
+    func reconcile(nodes: [CloudTreeNode]) {
+        let flattened = CloudTreeNodeBuilder.flattened(nodes)
+        let nodeIDs = Set(flattened.filter { !$0.isMachineRow }.map(\.id))
+        let machineIDs = Set(flattened.filter(\.isMachineRow).map { $0.machine.rawValue })
+        collapsedNodeIDs.formIntersection(nodeIDs)
+        expandedNodeIDs.formIntersection(nodeIDs)
+        collapsedMachineIDs.formIntersection(machineIDs)
+        defaults.set(Array(collapsedMachineIDs).sorted(), forKey: Self.collapsedMachinesKey)
+        defaults.set(Array(collapsedNodeIDs).sorted(), forKey: Self.collapsedNodesKey)
+        defaults.set(Array(expandedNodeIDs).sorted(), forKey: Self.expandedNodesKey)
+    }
 }

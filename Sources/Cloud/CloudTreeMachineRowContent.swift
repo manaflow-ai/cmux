@@ -51,13 +51,6 @@ struct CloudTreeMachineRowContent: View {
                         .foregroundStyle(.secondary)
                         .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
                 }
-                if style.machineRowLayout == .singleLine, let fact = inlineFact {
-                    Text(fact)
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
             }
             Spacer(minLength: 0)
         }
@@ -146,13 +139,21 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The compact header reserves its detail slot for identity only. Resource
-    /// and cost telemetry lives in the collapsed Resources section.
+    /// Legacy summary retained for callers that use the machine row model;
+    /// rendering now places these details in the Resources section.
     var inlineFact: String? {
         if machine.freeAccess == .expired {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
-        return nil
+        var parts: [String] = []
+        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
+        if style.showsMachineStats {
+            parts.append([metrics.cpu, metrics.memory, metrics.disk]
+                .map { "\($0.label)\u{00A0}\($0.value)" }
+                .joined(separator: " · "))
+        }
+        parts.append(usageSummary)
+        return parts.joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {
