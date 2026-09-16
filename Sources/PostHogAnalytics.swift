@@ -15,9 +15,11 @@ final class PostHogAnalytics: @unchecked Sendable {
 
     private let dailyActiveEvent = "cmux_daily_active"
     private let hourlyActiveEvent = "cmux_hourly_active"
+    private let crashExceptionEvent = "$exception"
 
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
+    private let lastReportedCrashAtKey = "posthog.lastReportedCrashAt"
 
     private let workQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
@@ -112,6 +114,34 @@ final class PostHogAnalytics: @unchecked Sendable {
             var merged = properties
             merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
             self.capturePostHog(event, merged)
+        }
+    }
+
+    /// Mirror a previous-run crash into PostHog Error Tracking as one
+    /// `$exception` event per crash. The crash is detected from the
+    /// `.ghosttycrash` artifact on the next launch, so the event is sent by
+    /// the reporting launch; the `crash_app_*` properties identify the build
+    /// that actually crashed, which differs after an upgrade. No-op when
+    /// telemetry is disabled, the SDK never started, or this crash artifact
+    /// was already reported.
+    func captureCrashException(pendingCrash: GhosttyCrashBreadcrumb.PendingCrash) {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            // One event per crash artifact, even across relaunches that never
+            // surface the crash breadcrumb notification.
+            let lastReported = self.userDefaults.object(forKey: self.lastReportedCrashAtKey) as? Date ?? .distantPast
+            guard pendingCrash.modifiedAt > lastReported else { return }
+            self.userDefaults.set(pendingCrash.modifiedAt, forKey: self.lastReportedCrashAtKey)
+            let reported = GhosttyCrashReportMetadata.reportedException(in: pendingCrash.fileURL)
+            self.capturePostHog(
+                self.crashExceptionEvent,
+                Self.crashExceptionProperties(
+                    reported: reported,
+                    infoDictionary: Bundle.main.infoDictionary ?? [:]
+                )
+            )
         }
     }
 
@@ -282,6 +312,78 @@ final class PostHogAnalytics: @unchecked Sendable {
         ]
         properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
         return properties
+    }
+
+    /// PostHog Error Tracking payload for a previous-run crash. The crashed
+    /// build's version/namespace come from the crash envelope (`crash_app_*`),
+    /// while `versionProperties` describe the reporting launch, matching every
+    /// other cmux event. The posthog-ios SDK additionally attaches its
+    /// automatic `$app_version`/`$app_build`/`$app_namespace` at capture time.
+    nonisolated static func crashExceptionProperties(
+        reported: GhosttyCrashReportMetadata.ReportedException?,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        let type = sanitizedExceptionToken(reported?.type) ?? "UnknownCrash"
+        let mechanism: [String: Any] = [
+            "handled": false,
+            "type": sanitizedExceptionToken(reported?.mechanismType) ?? "ghostty_crash_report",
+        ]
+        let exception: [String: Any] = [
+            "type": type,
+            "value": scrubbedCrashValue(reported?.value)
+                ?? "Previous launch crashed; crash report detail unavailable",
+            "mechanism": mechanism,
+        ]
+        var properties: [String: Any] = [
+            "$exception_level": "error",
+            // Group by crash type only; the version breakdown comes from the
+            // crash_app_* and version properties, not the fingerprint.
+            "$exception_fingerprint": String("cmux-mac-crash:\(type)".prefix(200)),
+            "$exception_list": [exception],
+        ]
+        if let appVersion = reported?.appVersion, !appVersion.isEmpty {
+            properties["crash_app_version"] = appVersion
+        }
+        if let appBuild = reported?.appBuild, !appBuild.isEmpty {
+            properties["crash_app_build"] = appBuild
+        }
+        if let appNamespace = reported?.appNamespace, !appNamespace.isEmpty {
+            properties["crash_app_namespace"] = appNamespace
+        }
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    /// Exception and mechanism types are identifier-like tokens; anything else
+    /// collapses to nil so unexpected payloads never reach PostHog.
+    nonisolated static func sanitizedExceptionToken(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        guard !trimmed.isEmpty,
+              trimmed.count <= 120,
+              trimmed.unicodeScalars.allSatisfy(allowed.contains)
+        else { return nil }
+        return trimmed
+    }
+
+    /// Crash values are system reason strings, but they can embed absolute
+    /// paths or addresses; scrub both before mirroring them to PostHog.
+    nonisolated static func scrubbedCrashValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        value = value.replacingOccurrences(
+            of: #"/(?:[^\s/]+/)*[^\s/]+"#,
+            with: "[path]",
+            options: .regularExpression
+        )
+        value = value.replacingOccurrences(
+            of: #"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"#,
+            with: "[email]",
+            options: .regularExpression
+        )
+        return String(value.prefix(500))
     }
 
     nonisolated static func shouldFlushAfterCapture(event: String) -> Bool {

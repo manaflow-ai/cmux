@@ -2674,7 +2674,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return pendingCrashScanTask
         }
         let task = Task {
-            await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage()
+            let pendingCrash = await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage()
+            if let pendingCrash {
+                // Mirror the previous run's crash into PostHog Error Tracking
+                // so crash rate is comparable by app version (#12717).
+                PostHogAnalytics.shared.captureCrashException(pendingCrash: pendingCrash)
+            }
+            return pendingCrash
         }
         pendingCrashScanTask = task
         return task

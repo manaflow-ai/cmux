@@ -85,3 +85,53 @@ enum GhosttyCrashReportMetadata {
         return object as? [String: Any]
     }
 }
+
+extension GhosttyCrashReportMetadata {
+    /// Crash summary parsed from a `.ghosttycrash` Sentry envelope, used to
+    /// mirror the crash into PostHog Error Tracking as an `$exception`. All
+    /// fields are best effort; only `type` is required for a non-nil result.
+    struct ReportedException: Equatable, Sendable {
+        /// Sentry exception type, e.g. `EXC_BAD_ACCESS` or an NSException name.
+        let type: String
+        /// System-generated reason string, e.g. `KERN_INVALID_ADDRESS at 0x0`.
+        let value: String?
+        /// Sentry mechanism type, e.g. `mach`, `signal`, or `NSException`.
+        let mechanismType: String?
+        /// Version of the build that crashed, from the envelope's app context.
+        let appVersion: String?
+        /// Build number of the build that crashed.
+        let appBuild: String?
+        /// Bundle identifier of the crashed build, e.g. `com.cmuxterm.app`.
+        let appNamespace: String?
+    }
+
+    /// Reads the exception and app context out of a crash envelope. Returns
+    /// nil when the envelope has no parseable event or exception payload.
+    static func reportedException(in url: URL) -> ReportedException? {
+        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+              let event = sentryEvent(from: data),
+              let exception = event["exception"] as? [String: Any],
+              let values = exception["values"] as? [[String: Any]]
+        else {
+            return nil
+        }
+        // Sentry orders exception values oldest first; the last one is the
+        // crash that terminated the process.
+        guard let crash = values.last,
+              let type = crash["type"] as? String,
+              !type.isEmpty
+        else {
+            return nil
+        }
+        let mechanism = crash["mechanism"] as? [String: Any]
+        let appContext = (event["contexts"] as? [String: Any])?["app"] as? [String: Any]
+        return ReportedException(
+            type: type,
+            value: crash["value"] as? String,
+            mechanismType: mechanism?["type"] as? String,
+            appVersion: appContext?["app_version"] as? String,
+            appBuild: appContext?["app_build"] as? String,
+            appNamespace: appContext?["app_identifier"] as? String
+        )
+    }
+}

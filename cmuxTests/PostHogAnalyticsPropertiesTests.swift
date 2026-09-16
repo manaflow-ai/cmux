@@ -615,6 +615,235 @@ struct PostHogAnalyticsPropertiesTests {
         flushCanReturn.signal()
         #expect(flushReturned.wait(timeout: .now() + .seconds(1)) == .success)
     }
+
+    @Test
+    func crashExceptionPropertiesIncludeCrashAndLaunchVersions() throws {
+        let reported = GhosttyCrashReportMetadata.ReportedException(
+            type: "EXC_BAD_ACCESS",
+            value: "KERN_INVALID_ADDRESS at 0x0000000000000000",
+            mechanismType: "mach",
+            appVersion: "0.64.22",
+            appBuild: "6422",
+            appNamespace: "com.cmuxterm.app"
+        )
+        let properties = PostHogAnalytics.crashExceptionProperties(
+            reported: reported,
+            infoDictionary: [
+                "CFBundleShortVersionString": "0.64.23",
+                "CFBundleVersion": "6423",
+            ]
+        )
+
+        #expect(properties["$exception_level"] as? String == "error")
+        #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:EXC_BAD_ACCESS")
+        let list = try #require(properties["$exception_list"] as? [[String: Any]])
+        let entry = try #require(list.first)
+        #expect(entry["type"] as? String == "EXC_BAD_ACCESS")
+        #expect(entry["value"] as? String == "KERN_INVALID_ADDRESS at 0x0000000000000000")
+        let mechanism = try #require(entry["mechanism"] as? [String: Any])
+        #expect(mechanism["handled"] as? Bool == false)
+        #expect(mechanism["type"] as? String == "mach")
+        // The crashed build and the reporting launch are identified separately.
+        #expect(properties["crash_app_version"] as? String == "0.64.22")
+        #expect(properties["crash_app_build"] as? String == "6422")
+        #expect(properties["crash_app_namespace"] as? String == "com.cmuxterm.app")
+        #expect(properties["app_version"] as? String == "0.64.23")
+        #expect(properties["app_build"] as? String == "6423")
+        #expect((properties["channel"] as? String)?.isEmpty == false)
+    }
+
+    @Test
+    func crashExceptionPropertiesTolerateMissingReport() {
+        let properties = PostHogAnalytics.crashExceptionProperties(
+            reported: nil,
+            infoDictionary: [:]
+        )
+
+        #expect(properties["$exception_level"] as? String == "error")
+        #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:UnknownCrash")
+        let entry = (properties["$exception_list"] as? [[String: Any]])?.first
+        #expect(entry?["type"] as? String == "UnknownCrash")
+        let mechanism = entry?["mechanism"] as? [String: Any]
+        #expect(mechanism?["handled"] as? Bool == false)
+        #expect(mechanism?["type"] as? String == "ghostty_crash_report")
+        #expect(properties["crash_app_version"] == nil)
+        #expect(properties["crash_app_build"] == nil)
+        #expect(properties["crash_app_namespace"] == nil)
+        #expect(properties["app_version"] == nil)
+        #expect(properties["app_build"] == nil)
+    }
+
+    @Test
+    func crashExceptionPropertiesSanitizeTokensAndScrubValues() {
+        #expect(PostHogAnalytics.sanitizedExceptionToken("EXC_CRASH") == "EXC_CRASH")
+        #expect(PostHogAnalytics.sanitizedExceptionToken("NSInternalInconsistencyException") == "NSInternalInconsistencyException")
+        #expect(PostHogAnalytics.sanitizedExceptionToken("bad type /Users/lawrence") == nil)
+        #expect(PostHogAnalytics.sanitizedExceptionToken("   ") == nil)
+        #expect(PostHogAnalytics.sanitizedExceptionToken(nil) == nil)
+
+        let scrubbed = PostHogAnalytics.scrubbedCrashValue(
+            "Crash at /Users/lawrence/Library/cmux reported by lawrence@cmux.com"
+        )
+        #expect(scrubbed?.contains("/Users") == false)
+        #expect(scrubbed?.contains("lawrence@cmux.com") == false)
+        #expect(scrubbed?.contains("[path]") == true)
+        #expect(scrubbed?.contains("[email]") == true)
+        #expect(PostHogAnalytics.scrubbedCrashValue("") == nil)
+        #expect(PostHogAnalytics.scrubbedCrashValue(nil) == nil)
+    }
+
+    @Test
+    func reportedExceptionReadsCrashAndAppContextFromEnvelope() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-exception-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let crashURL = directory.appendingPathComponent("sample.ghosttycrash")
+        let event: [String: Any] = [
+            "exception": [
+                "values": [
+                    [
+                        "type": "EXC_BAD_ACCESS",
+                        "value": "KERN_INVALID_ADDRESS at 0x0",
+                        "mechanism": ["type": "mach"],
+                    ],
+                ],
+            ],
+            "contexts": [
+                "app": [
+                    "app_version": "0.64.22",
+                    "app_build": "6422",
+                    "app_identifier": "com.cmuxterm.app",
+                ],
+            ],
+        ]
+        let eventData = try JSONSerialization.data(withJSONObject: event)
+        var envelope = Data(#"{"event_id":"00000000-0000-0000-0000-000000000000"}"#.utf8)
+        envelope.append(0x0A)
+        envelope.append(Data(#"{"type":"event","length":\#(eventData.count)}"#.utf8))
+        envelope.append(0x0A)
+        envelope.append(eventData)
+        envelope.append(0x0A)
+        try envelope.write(to: crashURL)
+
+        let reported = try #require(GhosttyCrashReportMetadata.reportedException(in: crashURL))
+        #expect(reported.type == "EXC_BAD_ACCESS")
+        #expect(reported.value == "KERN_INVALID_ADDRESS at 0x0")
+        #expect(reported.mechanismType == "mach")
+        #expect(reported.appVersion == "0.64.22")
+        #expect(reported.appBuild == "6422")
+        #expect(reported.appNamespace == "com.cmuxterm.app")
+    }
+
+    @Test
+    func reportedExceptionReturnsNilWithoutExceptionPayload() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-exception-empty-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let crashURL = directory.appendingPathComponent("no-exception.ghosttycrash")
+        let eventData = try JSONSerialization.data(withJSONObject: [
+            "debug_meta": ["images": [["code_file": "/Applications/cmux.app/Contents/MacOS/cmux"]]],
+        ])
+        var envelope = Data(#"{"event_id":"00000000-0000-0000-0000-000000000000"}"#.utf8)
+        envelope.append(0x0A)
+        envelope.append(Data(#"{"type":"event","length":\#(eventData.count)}"#.utf8))
+        envelope.append(0x0A)
+        envelope.append(eventData)
+        envelope.append(0x0A)
+        try envelope.write(to: crashURL)
+
+        #expect(GhosttyCrashReportMetadata.reportedException(in: crashURL) == nil)
+        #expect(GhosttyCrashReportMetadata.reportedException(
+            in: directory.appendingPathComponent("missing.ghosttycrash")
+        ) == nil)
+    }
+
+    @Test
+    func captureCrashExceptionCapturesOncePerCrashArtifact() throws {
+        let suiteName = "cmux.posthog.crash.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let crashURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-capture-\(UUID().uuidString).ghosttycrash")
+        defer { try? FileManager.default.removeItem(at: crashURL) }
+        try Data("not an envelope".utf8).write(to: crashURL)
+        let crashDate = Date(timeIntervalSince1970: 1_000)
+
+        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.analytics")
+        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.capture")
+        var capturedEvents: [(event: String, properties: [String: Any])] = []
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: workQueue,
+            didStart: true,
+            userDefaults: defaults,
+            now: { Date(timeIntervalSince1970: 2_000) },
+            capturePostHog: { event, properties in
+                capturedQueue.sync {
+                    capturedEvents.append((event: event, properties: properties))
+                }
+            },
+            flushPostHog: {}
+        )
+        let pendingCrash = GhosttyCrashBreadcrumb.PendingCrash(fileURL: crashURL, modifiedAt: crashDate)
+
+        analytics.captureCrashException(pendingCrash: pendingCrash)
+        workQueue.sync {}
+        #expect(capturedQueue.sync { capturedEvents }.count == 1)
+
+        // The same crash artifact is never reported twice.
+        analytics.captureCrashException(pendingCrash: pendingCrash)
+        workQueue.sync {}
+        #expect(capturedQueue.sync { capturedEvents }.count == 1)
+
+        // A newer crash artifact reports again.
+        let newerCrash = GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashURL,
+            modifiedAt: crashDate.addingTimeInterval(60)
+        )
+        analytics.captureCrashException(pendingCrash: newerCrash)
+        workQueue.sync {}
+        let events = capturedQueue.sync { capturedEvents }
+        #expect(events.count == 2)
+        #expect(events.allSatisfy { $0.event == "$exception" })
+        let properties = try #require(events.first?.properties)
+        #expect(properties["$exception_level"] as? String == "error")
+        #expect(properties["$exception_fingerprint"] as? String == "cmux-mac-crash:UnknownCrash")
+    }
+
+    @Test
+    func captureCrashExceptionSkipsWhenTelemetryNeverStarted() throws {
+        let suiteName = "cmux.posthog.crash.disabled.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let crashURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-capture-disabled-\(UUID().uuidString).ghosttycrash")
+        defer { try? FileManager.default.removeItem(at: crashURL) }
+        try Data("not an envelope".utf8).write(to: crashURL)
+
+        let workQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.disabled.analytics")
+        let capturedQueue = DispatchQueue(label: "com.cmux.tests.posthog.crash.disabled.capture")
+        var capturedEvents: [String] = []
+        let analytics = PostHogAnalytics.makeForTesting(
+            workQueue: workQueue,
+            didStart: false,
+            userDefaults: defaults,
+            now: { Date(timeIntervalSince1970: 2_000) },
+            capturePostHog: { event, _ in
+                capturedQueue.sync { capturedEvents.append(event) }
+            },
+            flushPostHog: {}
+        )
+
+        analytics.captureCrashException(pendingCrash: GhosttyCrashBreadcrumb.PendingCrash(
+            fileURL: crashURL,
+            modifiedAt: Date(timeIntervalSince1970: 1_000)
+        ))
+        workQueue.sync {}
+
+        #expect(capturedQueue.sync { capturedEvents }.isEmpty)
+        #expect(defaults.object(forKey: "posthog.lastReportedCrashAt") == nil)
+    }
 }
 
 private actor FeatureFlagRemoteLoaderProbe {
