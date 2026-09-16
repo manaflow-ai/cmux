@@ -35,6 +35,8 @@ struct MemoryResourceSample: Sendable {
         var aggregatePayload = aggregate.privacySafeDiagnosticPayload()
         aggregatePayload["severity"] = MemoryPressureAggregatePolicy.default
             .severity(for: aggregate).logName
+        let memorySource = appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
+        let residentSource = appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
         return [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "app": [
@@ -43,8 +45,8 @@ struct MemoryResourceSample: Sendable {
                 "resident_bytes": appProcess?.residentBytes ?? 0,
                 "virtual_bytes": appProcess?.virtualBytes ?? 0,
                 "thread_count": appProcess?.threadCount ?? 0,
-                "memory_source": appProcess?.memorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue,
-                "resident_memory_source": appProcess?.residentMemorySource.rawValue ?? CmuxTopProcessMemorySource.unavailable.rawValue
+                "memory_source": memorySource,
+                "resident_memory_source": residentSource
             ],
             "terminal_surfaces": surfaces.payload(),
             "aggregate": aggregatePayload,
