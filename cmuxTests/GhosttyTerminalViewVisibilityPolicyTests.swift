@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Bonsplit
 import QuartzCore
 import SwiftUI
