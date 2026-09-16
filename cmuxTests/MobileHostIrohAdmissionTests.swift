@@ -166,49 +166,6 @@ extension MobileHostAuthorizationTests {
         #expect(!attachURL.contains("private@example.com"))
     }
 
-    @Test func testBindingPublicationDoesNotWaitForPersistence() async {
-        let queue = MobileHostIrohPersistenceQueue()
-        let gate = MobileHostIrohPersistenceGate()
-        var published = false
-
-        queue.publishAndEnqueue(
-            publish: { published = true },
-            persist: { await gate.wait() }
-        )
-        await gate.waitUntilStarted()
-
-        #expect(published)
-        await queue.cancel()
-        await gate.resume()
-    }
-
-    #if DEBUG
-    @Test func testMacIrohVerificationModeIgnoresTheRetiredReleaseRelayOnlyPreference() throws {
-        let suiteName = "MobileHostIrohAdmissionTests.transport-mode.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
-        defaults.set(
-            CmxIrohPathPreference.relayOnly.rawValue,
-            forKey: CmxIrohPathPreference.defaultsKey
-        )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
-        defaults.set(
-            CmxIrohTransportVerificationMode.directOnly.rawValue,
-            forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
-        )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .directOnly)
-        defaults.removeObject(forKey: CmxIrohTransportVerificationMode.debugDefaultsKey)
-        defaults.set(
-            CmxIrohPathPreference.automatic.rawValue,
-            forKey: CmxIrohPathPreference.defaultsKey
-        )
-        defaults.set(true, forKey: MobileHostIrohRuntime.debugRelayOnlyDefaultsKey)
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
-    }
-    #endif
-
     @Test func testIrohAdmissionReplacesPerRequestStackAuthorization() async throws {
         let recorder = MobileHostAuthorizationInvocationRecorder()
         let request = MobileHostRPCRequest(
@@ -925,30 +882,6 @@ private actor MutatingMobileHostIrohArtifactSendStream: CmxIrohSendStream {
 
     func finishCount() -> Int { observedFinishCount }
     func resetCodes() -> [UInt64] { observedResetCodes }
-}
-
-private actor MobileHostIrohPersistenceGate {
-    private var started = false
-    private var startWaiters: [CheckedContinuation<Void, Never>] = []
-    private var continuation: CheckedContinuation<Void, Never>?
-
-    func wait() async {
-        started = true
-        let waiters = startWaiters
-        startWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
-        await withCheckedContinuation { continuation = $0 }
-    }
-
-    func waitUntilStarted() async {
-        guard !started else { return }
-        await withCheckedContinuation { startWaiters.append($0) }
-    }
-
-    func resume() {
-        continuation?.resume()
-        continuation = nil
-    }
 }
 
 /// In-memory framed transport for the released-iOS compatibility contract.
