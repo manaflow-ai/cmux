@@ -27,20 +27,24 @@ pub fn run(ctx: &Context, command: &str, args: &[String]) -> Result<Option<i32>>
     let mut argv = args.to_vec();
     let verb = if command == "vm" {
         argv.first().cloned().unwrap_or_default()
-    } else {
-        command.strip_prefix("vm ").unwrap_or(command).to_string()
-    };
-    if command != "vm" {
+    } else if let Some(rest) = command.strip_prefix("vm ") {
         // A dispatcher may pass `vm exec` as the command and the tail as args.
-        if let Some((head, tail)) = command.split_once(' ') {
-            if head == "vm" {
-                argv.splice(0..0, tail.split_whitespace().map(str::to_owned));
-            }
-        }
-    }
+        let words: Vec<String> = rest.split_whitespace().map(str::to_owned).collect();
+        argv.splice(0..0, words.clone());
+        words.first().cloned().unwrap_or_default()
+    } else {
+        command.to_owned()
+    };
     let verb = verb.as_str();
     if command == "vm" && !argv.is_empty() {
         argv.remove(0);
+    } else if command.starts_with("vm ") {
+        let count = command
+            .strip_prefix("vm ")
+            .unwrap()
+            .split_whitespace()
+            .count();
+        argv.drain(0..count.min(argv.len()));
     }
     match verb {
         "exec" => vm_exec(ctx, &argv),
@@ -209,13 +213,10 @@ fn vm_run(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     if command_args.is_empty() {
         return Err(usage("Usage: cmux vm run [options] -- <command...>"));
     }
-    let id = machine.unwrap_or_else(|| select_machine(ctx, new_machine).unwrap_or_default());
-    if id.is_empty() {
-        return Err(CliError::new(
-            "route_failed",
-            "no usable cloud machine was returned",
-        ));
-    }
+    let id = match machine {
+        Some(id) => id,
+        None => select_machine(ctx, new_machine)?,
+    };
     let mut prefix = String::new();
     if sync {
         let cwd = std::env::current_dir().map_err(io_err)?;
@@ -330,6 +331,10 @@ fn select_machine(ctx: &Context, force_new: bool) -> Result<String> {
 
 fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     let mut args = input.to_vec();
+    let timeout = parse_timeout(&mut args, 900, 3600)?;
+    let _wait = take_flag(&mut args, "--wait");
+    let output = take_flag(&mut args, "--output");
+    let _no_open = take_flag(&mut args, "--no-open");
     let agent = take_value(&mut args, "--agent")?
         .or_else(|| args.first().cloned())
         .ok_or_else(|| {
@@ -347,7 +352,10 @@ fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     if tail.is_empty() {
         return Err(usage("vm agent requires a prompt or agent arguments"));
     }
-    let id = match machine { Some(id) => id, None => select_machine(ctx, false)? };
+    let id = match machine {
+        Some(id) => id,
+        None => select_machine(ctx, false)?,
+    };
     let command = format!(
         "{} {}",
         agent,
@@ -358,10 +366,14 @@ fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     );
     let value = ctx.rpc(
         "vm.exec",
-        json!({"id": id, "command": command, "timeout_ms": 900_000}),
+        json!({"id": id, "command": command, "timeout_ms": timeout * 1000}),
     )?;
     if ctx.json {
         ctx.emit(&value)?;
+    } else if output {
+        if let Some(s) = value.get("stdout").and_then(Value::as_str) {
+            ctx.print(s)?;
+        }
     } else if let Some(s) = value.get("stdout").and_then(Value::as_str) {
         ctx.print(s)?;
     }
@@ -376,6 +388,12 @@ fn vm_agent(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
 
 fn vm_push(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
     let mut args = input.to_vec();
+    if args.iter().any(|a| a == "--watch") {
+        return Err(CliError::new(
+            "unsupported",
+            "vm push --watch is not available in the Rust CLI yet; run a one-shot push or keep using the Swift cmux command",
+        ));
+    }
     let secret = take_flag(&mut args, "--secret");
     let mode = take_value(&mut args, "--mode")?.unwrap_or_else(|| "600".into());
     let excludes = take_multi_value(&mut args, "--exclude");
@@ -394,6 +412,12 @@ fn vm_push(ctx: &Context, input: &[String]) -> Result<Option<i32>> {
             .unwrap_or("payload")
             .into()
     });
+    if fs::metadata(&local).map_err(io_err)?.is_dir() {
+        return Err(CliError::new(
+            "unsupported",
+            "directory push is not available in this first Rust slice; use vm push on individual files",
+        ));
+    }
     let data = fs::read(&local)
         .map_err(|e| CliError::new("io", format!("cannot read {}: {}", local, e)))?;
     if data.is_empty() {

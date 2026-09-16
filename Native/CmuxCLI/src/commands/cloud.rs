@@ -465,16 +465,41 @@ fn run_vm_fork(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
     Ok(Some(0))
 }
 fn run_vm_restore(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
-    let id = one_id(
-        args,
-        "Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--detach|-d]",
-    )?;
-    let r = ctx.rpc(
-        "vm.restore",
-        json!({"snapshot_id":id,"idempotency_key":uuid::Uuid::new_v4().to_string()}),
-    )?;
+    let mut id = None;
+    let mut provider = None;
+    let mut detach = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--provider" => provider = Some(next(args, &mut i)?),
+            "--window" => {
+                let _ = next(args, &mut i)?;
+            }
+            "--detach" | "-d" => detach = true,
+            x if !x.starts_with('-') && id.is_none() => id = Some(x.to_string()),
+            _ => {
+                return Err(CliError::usage(
+                    "Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]",
+                ));
+            }
+        }
+        i += 1;
+    }
+    let id = id.ok_or_else(|| CliError::usage("Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]"))?;
+    let mut p = json!({"snapshot_id":id,"idempotency_key":uuid::Uuid::new_v4().to_string()});
+    if let Some(v) = provider {
+        p["provider"] = json!(v);
+    }
+    let r = ctx.rpc("vm.restore", p)?;
     if ctx.json {
         ctx.emit(&r)?;
+    } else if detach {
+        ctx.print(format!(
+            "OK {}\n  provider: {}\n  image:    {}",
+            strv(&r, "id", "?"),
+            strv(&r, "provider", "?"),
+            strv(&r, "image", &id)
+        ))?;
     } else {
         ctx.print(format!("Restored Cloud VM {}", strv(&r, "id", "?")))?;
     }
@@ -511,7 +536,20 @@ fn run_base(ctx: &Context, args: &[String]) -> Result<Option<i32>> {
     } else {
         "vm.base_open"
     };
-    let r = ctx.rpc(m, json!({}))?;
+    if action != "open" && action != "reset" {
+        return Err(CliError::usage(
+            "Usage: cmux vm base [open|reset] [--reason <text>] [--detach|-d]",
+        ));
+    }
+    let mut p = json!({"kind":"desktop"});
+    if action == "reset" {
+        if let Some(i) = args.iter().position(|x| x == "--reason") {
+            if let Some(v) = args.get(i + 1) {
+                p["reason"] = json!(v);
+            }
+        }
+    }
+    let r = ctx.rpc(m, p)?;
     if ctx.json {
         ctx.emit(&r)?;
     } else {
@@ -686,7 +724,10 @@ fn domain_publish(ctx: &Context, a: &[String]) -> Result<()> {
             "--yes" => yes = true,
             x if !x.starts_with('-') && vm.is_none() => vm = Some(x.to_string()),
             x if !x.starts_with('-') && port.is_none() => {
-                port = Some(x.parse::<i32>().map_err(|_| CliError::usage(DOMAIN_USAGE))?)
+                port = Some(
+                    x.parse::<i32>()
+                        .map_err(|_| CliError::usage(DOMAIN_USAGE))?,
+                )
             }
             _ => return Err(CliError::usage(DOMAIN_USAGE)),
         };
@@ -695,6 +736,15 @@ fn domain_publish(ctx: &Context, a: &[String]) -> Result<()> {
     let port = port.ok_or_else(|| CliError::usage(DOMAIN_USAGE))?;
     if !(1..=65535).contains(&port) {
         return Err(CliError::usage("port must be 1-65535"));
+    }
+    if !matches!(access.as_str(), "personal" | "team" | "public") {
+        return Err(CliError::usage("access must be personal, team, or public"));
+    }
+    if access == "team" && team.is_none() {
+        return Err(CliError::usage("team access requires --team <id>"));
+    }
+    if access != "team" && team.is_some() {
+        return Err(CliError::usage("--team can only be used with team access"));
     }
     if access == "public" && !yes && ctx.non_interactive {
         return Err(CliError::usage(
@@ -950,6 +1000,10 @@ fn parse_create_args(args: &[String], usage: &str) -> Result<(String, Option<Str
                         .ok_or_else(|| CliError::usage(usage))?
                         .clone(),
                 )
+            }
+            "--window" => {
+                let _ = args.get(i + 1).ok_or_else(|| CliError::usage(usage))?;
+                i += 1;
             }
             "--detach" | "-d" => detach = true,
             x if !x.starts_with('-') && id.is_none() => id = Some(x.to_string()),

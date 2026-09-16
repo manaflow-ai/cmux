@@ -1,0 +1,3169 @@
+{
+  "schema": 1,
+  "scope": "smoke",
+  "cases": [
+    {
+      "id": "startup-missing-command",
+      "family": "startup",
+      "argv": [],
+      "socket": false
+    },
+    {
+      "id": "startup-help",
+      "family": "startup",
+      "argv": [
+        "--help"
+      ],
+      "socket": false
+    },
+    {
+      "id": "startup-help-alias",
+      "family": "startup",
+      "argv": [
+        "help"
+      ],
+      "socket": false
+    },
+    {
+      "id": "startup-capabilities-json",
+      "family": "startup",
+      "argv": [
+        "capabilities",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "system.capabilities": {
+            "version": 1,
+            "commands": [
+              "ping",
+              "workspace.list"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "startup-missing-socket-value",
+      "family": "startup",
+      "argv": [
+        "--socket"
+      ],
+      "socket": false
+    },
+    {
+      "id": "transport-ping",
+      "family": "socket-transport",
+      "argv": [
+        "ping"
+      ],
+      "replies": {
+        "v1": {
+          "ping": "PONG"
+        }
+      }
+    },
+    {
+      "id": "transport-rpc",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.fixture",
+        "{\"text\":\"a b\\nline\",\"count\":2}"
+      ],
+      "replies": {
+        "v2": {
+          "system.fixture": {
+            "text": "a b\nline",
+            "count": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "transport-env-socket-and-password",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.fixture",
+        "{\"ok\":true}"
+      ],
+      "socket_env": true,
+      "environment": {
+        "CMUX_SOCKET_PASSWORD": "fixture-env-password"
+      },
+      "replies": {
+        "v2": {
+          "system.fixture": {
+            "ok": true
+          }
+        }
+      },
+      "files": {}
+    },
+    {
+      "id": "transport-v2-error",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.error",
+        "{}"
+      ],
+      "replies": {
+        "v2": {
+          "system.error": {
+            "__error__": {
+              "code": "fixture_error",
+              "message": "Fixture failure"
+            }
+          }
+        }
+      },
+      "files": {}
+    },
+    {
+      "id": "coderouter-native-add-codex",
+      "family": "coderouter-native",
+      "argv": [
+        "cr",
+        "add",
+        "codex"
+      ],
+      "replies": {
+        "v2": {
+          "aiAccounts.upload": {
+            "id": "account-fixture",
+            "provider": "codex",
+            "label": "fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-native-ai-list-human",
+      "family": "coderouter-native",
+      "argv": [
+        "ai-accounts",
+        "list"
+      ],
+      "replies": {
+        "v2": {
+          "aiAccounts.list": {
+            "accounts": [
+              {
+                "id": "acct-1",
+                "kind": "codex",
+                "label": "work",
+                "createdAt": "2026-09-06T00:00:00Z"
+              },
+              {
+                "id": "acct-2",
+                "provider": "claude",
+                "label": "side"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-native-ai-list-empty",
+      "family": "coderouter-native",
+      "argv": [
+        "ai-accounts",
+        "list"
+      ],
+      "replies": {
+        "v2": {
+          "aiAccounts.list": {
+            "accounts": []
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-native-ai-upload-key-json",
+      "family": "coderouter-native",
+      "argv": [
+        "ai-accounts",
+        "upload",
+        "anthropic-key",
+        "--team",
+        "team-fixture",
+        "--validate",
+        "--json"
+      ],
+      "environment": {
+        "ANTHROPIC_API_KEY": "sk-ant-fixture"
+      },
+      "replies": {
+        "v2": {
+          "aiAccounts.upload": {
+            "account": {
+              "id": "acct-key",
+              "provider": "anthropic-key",
+              "label": "key"
+            },
+            "validated": true
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-native-ai-upload-codex-json",
+      "family": "coderouter-native",
+      "argv": [
+        "ai-accounts",
+        "upload",
+        "codex",
+        "--label",
+        "work",
+        "--team",
+        "team-fixture",
+        "--validate",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "aiAccounts.upload": {
+            "account": {
+              "id": "acct-codex",
+              "provider": "codex",
+              "label": "work"
+            },
+            "validated": true
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-native-ai-remove-human",
+      "family": "coderouter-native",
+      "argv": [
+        "ai-accounts",
+        "remove",
+        "acct-1",
+        "--team",
+        "team-fixture"
+      ],
+      "replies": {
+        "v2": {
+          "aiAccounts.remove": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-delegated-argv",
+      "family": "coderouter-delegated",
+      "argv": [
+        "cr",
+        "fixture",
+        "a b",
+        "--json",
+        "$(literal)"
+      ],
+      "socket": false
+    },
+    {
+      "id": "coderouter-team-status",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "status",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": true,
+            "user": {
+              "email": "fixture@example.invalid"
+            },
+            "selected_team_id": "team-fixture"
+          },
+          "coderouter.claude_upstream.get": {
+            "accounts": [],
+            "selection": null
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-remove-label",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "remove",
+        "work",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.get": {
+            "accounts": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "kind": "anthropic_api_key",
+                "identifier": "sk-ant-...abcd",
+                "label": "work"
+              }
+            ]
+          },
+          "coderouter.claude_upstream.remove": {
+            "removed": true
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-disable-label",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "disable",
+        "work",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.get": {
+            "accounts": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "kind": "anthropic_api_key",
+                "identifier": "sk-ant-...abcd",
+                "label": "work"
+              }
+            ]
+          },
+          "coderouter.claude_upstream.update": {
+            "state": "disabled"
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-status",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "status",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "authenticated": true,
+            "email": "fixture@example.invalid",
+            "teamId": "team-fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-status-human-signed-out",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "status"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": false
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-status-human-signed-in",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "status"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": true,
+            "user": {
+              "email": "fixture@example.invalid",
+              "display_name": "Fixture User",
+              "id": "user-fixture"
+            },
+            "selected_team_id": "team-fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-login-already-signed-in",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "login"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": true,
+            "user": {
+              "email": "fixture@example.invalid"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-login-flow",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "login"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": false
+          },
+          "auth.sign_in_url": {
+            "url": "https://auth.example.invalid/login"
+          },
+          "auth.begin_sign_in": {
+            "signed_in": true,
+            "user": {
+              "email": "fixture@example.invalid"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-logout-already-signed-out",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "logout"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": false
+          }
+        }
+      }
+    },
+    {
+      "id": "app-auth-logout-signed-in",
+      "family": "app-and-settings",
+      "argv": [
+        "auth",
+        "logout"
+      ],
+      "replies": {
+        "v2": {
+          "auth.status": {
+            "signed_in": true
+          },
+          "auth.sign_out": {
+            "signed_in": false
+          }
+        }
+      }
+    },
+    {
+      "id": "app-docs-index",
+      "family": "app-and-settings",
+      "argv": [
+        "docs"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-docs-settings-json",
+      "family": "app-and-settings",
+      "argv": [
+        "docs",
+        "settings",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-settings-path-json",
+      "family": "app-and-settings",
+      "argv": [
+        "settings",
+        "path",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-config-doctor-missing",
+      "family": "app-and-settings",
+      "argv": [
+        "config",
+        "doctor",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-welcome",
+      "family": "app-and-settings",
+      "argv": [
+        "welcome"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-help",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "--help"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-config-get-font",
+      "family": "app-and-settings",
+      "argv": [
+        "config",
+        "get",
+        "sidebar-font-size",
+        "--json"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.fixture"
+      },
+      "files": {
+        "Library/Application Support/com.cmuxterm.app.fixture/config.ghostty": "# fixture\nsidebar-font-size = 17.50\n"
+      }
+    },
+    {
+      "id": "app-path-open-missing",
+      "family": "app-and-settings",
+      "argv": [
+        "./definitely/missing"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-clear",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "clear"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-clear-json",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "clear",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-clear-existing",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "clear"
+      ],
+      "socket": false,
+      "files": {
+        "Library/Application Support/com.cmuxterm.app.nightly/config.ghostty": "font-size = 12\n# cmux themes start\ntheme = dark\n# cmux themes end\n"
+      }
+    },
+    {
+      "id": "app-themes-set-missing",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "set"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-set-unknown",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "set",
+        "DefinitelyMissingTheme"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-list-json",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "list",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "app-themes-list-existing-json",
+      "family": "app-and-settings",
+      "argv": [
+        "themes",
+        "list",
+        "--json"
+      ],
+      "socket": false,
+      "files": {
+        "Library/Application Support/com.cmuxterm.app.nightly/config.ghostty": "font-size = 12\ntheme = dark\n"
+      }
+    },
+    {
+      "id": "browser-availability-status-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "status",
+        "--json"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"
+      }
+    },
+    {
+      "id": "browser-availability-disable-json",
+      "family": "browser",
+      "argv": [
+        "disable-browser",
+        "--json"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"
+      }
+    },
+    {
+      "id": "browser-availability-enable-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "enable",
+        "--json"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"
+      }
+    },
+    {
+      "id": "browser-availability-status-human",
+      "family": "browser",
+      "argv": [
+        "browser-status"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"
+      }
+    },
+    {
+      "id": "topology-workspace-list",
+      "family": "topology",
+      "argv": [
+        "list-workspaces",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "workspace.list": {
+            "workspaces": []
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-window-default-display-empty",
+      "family": "topology",
+      "argv": [
+        "window",
+        "default-display",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "topology-window-default-display-set",
+      "family": "topology",
+      "argv": [
+        "window",
+        "default-display",
+        "Studio",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "topology-window-default-display-clear",
+      "family": "topology",
+      "argv": [
+        "window",
+        "default-display",
+        "--clear",
+        "--json"
+      ],
+      "socket": false,
+      "files": {
+        ".config/cmux/cmux.json": "{\n  \"app\" : {\n    \"devWindowDisplay\" : \"Studio\"\n  }\n}"
+      }
+    },
+    {
+      "id": "topology-window-displays-json",
+      "family": "topology",
+      "argv": [
+        "window",
+        "displays",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "window.displays": {
+            "displays": [
+              {
+                "index": 0,
+                "name": "Main",
+                "main": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-window-display-json",
+      "family": "topology",
+      "argv": [
+        "window",
+        "display",
+        "Main",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "window.display": {
+            "display": "Main",
+            "moved": []
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-read-screen",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "read-screen",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "replies": {
+        "v2": {
+          "surface.read_text": {
+            "text": "first line\nsecond line\n"
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-read-selection-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "read-selection",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.read_selection": {
+            "text": "selected text"
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-send-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "send",
+        "hello\\nworld",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.send_text": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-notify-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "notify",
+        "--title",
+        "Title",
+        "--subtitle",
+        "Sub",
+        "--body",
+        "Body",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.create": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-list-notifications-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "list-notifications",
+        "--json"
+      ],
+      "replies": {
+        "v1": {
+          "list_notifications": "No notifications"
+        }
+      }
+    },
+    {
+      "id": "terminal-dismiss-notification-id-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "dismiss-notification",
+        "--id",
+        "notification-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.dismiss": {
+            "dismissed": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-dismiss-notification-all-read-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "dismiss-notification",
+        "--all-read",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.dismiss": {
+            "dismissed": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-mark-notification-id-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "mark-notification-read",
+        "--id",
+        "notification-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.mark_read": {
+            "marked": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-mark-notification-workspace-surface-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "mark-notification-read",
+        "--workspace",
+        "workspace-1",
+        "--surface",
+        "surface-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.mark_read": {
+            "marked": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-mark-notification-all-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "mark-notification-read",
+        "--all",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.mark_read": {
+            "marked": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-open-notification-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "open-notification",
+        "--id",
+        "notification-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.open": {
+            "opened": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-jump-unread-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "jump-to-unread",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "notification.jump_to_unread": {
+            "opened": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-clear-notifications-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "clear-notifications"
+      ],
+      "replies": {
+        "v1": {
+          "clear_notifications": "OK"
+        }
+      }
+    },
+    {
+      "id": "terminal-set-status-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "set-status",
+        "deploy",
+        "compiling",
+        "--icon",
+        "hammer",
+        "--color",
+        "#ff9500",
+        "--priority",
+        "80"
+      ],
+      "replies": {
+        "v1_default": "OK"
+      }
+    },
+    {
+      "id": "terminal-list-status-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "list-status"
+      ],
+      "replies": {
+        "v1_default": "OK"
+      }
+    },
+    {
+      "id": "terminal-set-progress-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "set-progress",
+        "0.5",
+        "--label",
+        "Building..."
+      ],
+      "replies": {
+        "v1_default": "OK"
+      }
+    },
+    {
+      "id": "terminal-log-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "log",
+        "--level",
+        "error",
+        "--source",
+        "build",
+        "Compilation failed"
+      ],
+      "replies": {
+        "v1_default": "OK"
+      }
+    },
+    {
+      "id": "terminal-sidebar-state-v1",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "sidebar-state"
+      ],
+      "replies": {
+        "v1_default": "OK"
+      }
+    },
+    {
+      "id": "browser-snapshot",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "snapshot",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "replies": {
+        "v2": {
+          "browser.snapshot": {
+            "snapshot": "- button \"Continue\" [ref=e1]"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-navigate-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "navigate",
+        "https://example.invalid",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.navigate": {
+            "url": "https://example.invalid"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-url-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "url",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.url.get": {
+            "url": "https://example.invalid"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-click-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "click",
+        "--selector",
+        "button",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.click": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-cookies-get-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "cookies",
+        "get",
+        "--url",
+        "https://example.invalid",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.cookies.get": {
+            "cookies": []
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-back-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "back",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.back": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-forward-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "forward",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.forward": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-reload-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "reload",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.reload": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-focus-webview-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "focus-webview",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.focus_webview": {
+            "focused": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-is-webview-focused-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "is-webview-focused",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.is_webview_focused": {
+            "focused": false
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-eval-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "eval",
+        "document.title",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.eval": {
+            "value": "Example"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-storage-local-get-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "storage",
+        "local",
+        "get",
+        "token",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.storage.get": {
+            "key": "token",
+            "value": "fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-storage-session-set-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "storage",
+        "session",
+        "set",
+        "token",
+        "fixture",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.storage.set": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-tab-switch-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "tab",
+        "switch",
+        "2",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.tab.switch": {
+            "index": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-network-route-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "network",
+        "route",
+        "https://example.invalid/*",
+        "--abort",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.network.route": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-viewport-set-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "viewport",
+        "1280",
+        "720",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.viewport.set": {
+            "width": 1280,
+            "height": 720
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-profiles-list-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "profiles",
+        "list",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.profiles.list": {
+            "profiles": []
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-profiles-create-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "profiles",
+        "add",
+        "Work",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.profiles.create": {
+            "id": "profile-1",
+            "name": "Work"
+          }
+        }
+      }
+    },
+    {
+      "id": "agents-outside-terminal-hook",
+      "family": "agents-and-hooks",
+      "argv": [
+        "codex-hook",
+        "notify"
+      ],
+      "stdin": "{}"
+    },
+    {
+      "id": "agents-hooks-help",
+      "family": "agents-and-hooks",
+      "argv": [
+        "hooks",
+        "--help"
+      ],
+      "socket": false
+    },
+    {
+      "id": "agents-hooks-setup-unknown",
+      "family": "agents-and-hooks",
+      "argv": [
+        "hooks",
+        "setup",
+        "--agent",
+        "unknown"
+      ],
+      "socket": false
+    },
+    {
+      "id": "agents-hooks-uninstall-unknown",
+      "family": "agents-and-hooks",
+      "argv": [
+        "hooks",
+        "uninstall",
+        "--agent",
+        "unknown"
+      ],
+      "socket": false
+    },
+    {
+      "id": "agents-hooks-setup-codex-missing-config",
+      "family": "agents-and-hooks",
+      "argv": [
+        "hooks",
+        "setup",
+        "codex"
+      ],
+      "socket": false
+    },
+    {
+      "id": "cloud-remotes-list",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "remotes",
+        "list",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "remotes.list": {
+            "remotes": []
+          }
+        }
+      }
+    },
+    {
+      "id": "cloud-remotes-add-json",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "remotes",
+        "add",
+        "lab",
+        "--route",
+        "host.example:443",
+        "--tag",
+        "test",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "remotes.add": {
+            "name": "lab",
+            "deviceId": "device-1",
+            "routes": [
+              "host.example:443"
+            ],
+            "tag": "test"
+          }
+        }
+      }
+    },
+    {
+      "id": "cloud-remotes-remove-json",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "remote",
+        "remove",
+        "device-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "remotes.remove": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "cloud-vm-status-json",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "cloud",
+        "status",
+        "vm-1",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "vm.status": {
+            "id": "vm-1",
+            "status": "running"
+          }
+        }
+      }
+    },
+    {
+      "id": "cloud-vm-snapshot-json",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "vm",
+        "snapshot",
+        "vm-1",
+        "--name",
+        "snap",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "vm.snapshot": {
+            "id": "snapshot-1",
+            "name": "snap"
+          }
+        }
+      }
+    },
+    {
+      "id": "compatibility-resize-help",
+      "family": "compatibility",
+      "argv": [
+        "resize-pane",
+        "--help"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-capture-pane-json",
+      "family": "compatibility",
+      "argv": [
+        "capture-pane",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--scrollback",
+        "--lines",
+        "20",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.read_text": {
+            "text": "line one\nline two\n"
+          }
+        }
+      }
+    },
+    {
+      "id": "compatibility-resize-pane-json",
+      "family": "compatibility",
+      "argv": [
+        "resize-pane",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--pane",
+        "33333333-3333-4333-8333-333333333333",
+        "-L",
+        "--amount",
+        "2",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "pane.resize": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "compatibility-set-buffer",
+      "family": "compatibility",
+      "argv": [
+        "set-buffer",
+        "hello",
+        "world"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-buffer-named",
+      "family": "compatibility",
+      "argv": [
+        "set-buffer",
+        "--name",
+        "build",
+        "--",
+        "ok"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-list-buffers-json",
+      "family": "compatibility",
+      "argv": [
+        "list-buffers",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-hook",
+      "family": "compatibility",
+      "argv": [
+        "set-hook",
+        "after-create",
+        "echo",
+        "hi"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-hook-list-json",
+      "family": "compatibility",
+      "argv": [
+        "set-hook",
+        "--list",
+        "--json"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-hook-unset",
+      "family": "compatibility",
+      "argv": [
+        "set-hook",
+        "--unset",
+        "after-create"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-hook-list-empty",
+      "family": "compatibility",
+      "argv": [
+        "set-hook",
+        "--list"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-paste-buffer-missing",
+      "family": "compatibility",
+      "argv": [
+        "paste-buffer",
+        "--name",
+        "missing"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-paste-buffer-json",
+      "family": "compatibility",
+      "argv": [
+        "paste-buffer",
+        "--name",
+        "default",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "files": {
+        ".cmuxterm/tmux-compat-store.json": "{\"mainVerticalLayouts\":{},\"lastSplitSurface\":{},\"buffers\":{\"default\":\"hello world\"},\"hooks\":{}}"
+      },
+      "replies": {
+        "v2": {
+          "surface.send_text": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "compatibility-list-buffers-empty",
+      "family": "compatibility",
+      "argv": [
+        "list-buffers"
+      ],
+      "socket": false
+    },
+    {
+      "id": "compatibility-set-hook-missing",
+      "family": "compatibility",
+      "argv": [
+        "set-hook"
+      ],
+      "socket": false
+    },
+    {
+      "id": "coderouter-team-machines-json",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "machines",
+        "--team",
+        "team-fixture",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "coderouter.machines": {
+            "kind": "ready",
+            "periodDays": 30,
+            "machines": [
+              {
+                "vmId": "vm-1",
+                "displayName": "Build",
+                "totals": {
+                  "totalTokens": 1234,
+                  "apiEquivalentUsd": 1.25
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-list-json",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "list",
+        "--team",
+        "team-fixture",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.get": {
+            "teamId": "team-fixture",
+            "accounts": [
+              {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "kind": "anthropic_api_key",
+                "identifier": "sk-ant-...abcd",
+                "label": "work",
+                "state": "active"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-add-api-key-json",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "add",
+        "api-key",
+        "--team",
+        "team-fixture",
+        "--label",
+        "work",
+        "--json"
+      ],
+      "environment": {
+        "ANTHROPIC_API_KEY": "sk-ant-fixture"
+      },
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.add": {
+            "account": {
+              "id": "11111111-1111-4111-8111-111111111111",
+              "kind": "anthropic_api_key",
+              "identifier": "sk-ant-...ture",
+              "label": "work"
+            },
+            "teamId": "team-fixture",
+            "accountsTotal": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-add-bedrock-json",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "add",
+        "bedrock",
+        "--team",
+        "team-fixture",
+        "--region",
+        "us-west-2",
+        "--model",
+        "claude-sonnet-4=us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "--json"
+      ],
+      "environment": {
+        "AWS_ACCESS_KEY_ID": "AKIAFIXTURE",
+        "AWS_SECRET_ACCESS_KEY": "secret-fixture",
+        "AWS_SESSION_TOKEN": "session-fixture"
+      },
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.add": {
+            "account": {
+              "id": "22222222-2222-4222-8222-222222222222",
+              "kind": "bedrock",
+              "region": "us-west-2",
+              "modelIds": {
+                "claude-sonnet-4": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+              }
+            },
+            "teamId": "team-fixture"
+          }
+        }
+      }
+    },
+    {
+      "id": "coderouter-team-claude-clear-json",
+      "family": "coderouter-team",
+      "argv": [
+        "coderouter",
+        "claude",
+        "clear",
+        "--team",
+        "team-fixture",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "coderouter.claude_upstream.clear": {
+            "removed": true,
+            "count": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-cookies-set-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "cookies",
+        "set",
+        "session",
+        "fixture",
+        "--url",
+        "https://example.invalid",
+        "--http-only",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.cookies.set": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-console-clear-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "console",
+        "clear",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.console.clear": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-errors-clear-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "errors",
+        "clear",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.errors.list": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-frame-select-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "frame",
+        "iframe#app",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.frame.select": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-dialog-accept-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "dialog",
+        "accept",
+        "yes",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.dialog.accept": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-download-timeout-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "download",
+        "wait",
+        "--path",
+        "/tmp/fixture.bin",
+        "--timeout-ms",
+        "2000",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.download.wait": {
+            "path": "/tmp/fixture.bin"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-addscript-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "addscript",
+        "console.log(1)",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.addscript": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-focus-mode-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "focus-mode",
+        "enter",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.focus_mode.set": {
+            "mode": "enter"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-history-clear-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "history",
+        "clear",
+        "--force",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.history.clear": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-screenshot-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "screenshot",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.screenshot": {
+            "url": "https://example.invalid/shot.png",
+            "width": 1,
+            "height": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-get-text-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "get",
+        "text",
+        "--selector",
+        "h1",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.get.text": {
+            "value": "Example"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-get-attr-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "get",
+        "attr",
+        "h1",
+        "--attr",
+        "id",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.get.attr": {
+            "value": "title"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-is-visible-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "is",
+        "visible",
+        "h1",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.is.visible": {
+            "value": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-find-role-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "find",
+        "role",
+        "button",
+        "--name",
+        "Continue",
+        "--exact",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.find.role": {
+            "count": 1
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-find-nth-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "find",
+        "nth",
+        "2",
+        "button",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.find.nth": {
+            "index": 2,
+            "selector": "button"
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-screencast-start-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "screencast",
+        "start",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.screencast.start": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-input-mouse-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "input",
+        "mouse",
+        "move",
+        "10",
+        "20",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.input_mouse": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-input-keyboard-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "input_keyboard",
+        "key",
+        "Enter",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.input_keyboard": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-import-noninteractive-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "import",
+        "--non-interactive",
+        "--from",
+        "Safari",
+        "--profile",
+        "Default",
+        "--to-profile",
+        "Work",
+        "--domain",
+        "example.invalid",
+        "--all-profiles",
+        "--create-profile",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.import.cookies": {
+            "browser": "Safari",
+            "imported_cookies": 2,
+            "skipped_cookies": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-react-grab-return-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "react-grab",
+        "toggle",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--return-to",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.react_grab.toggle": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-devtools-console-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "devtools",
+        "console",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.console.show": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-design-mode-enable-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "design-mode",
+        "enable",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.design_mode.set": {
+            "enabled": true
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-zoom-factor-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "zoom",
+        "2",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.zoom.set": {
+            "zoom": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "browser-open-routing-json",
+      "family": "browser",
+      "argv": [
+        "browser",
+        "open",
+        "https://example.invalid",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "environment": {
+        "CMUX_RESPECT_EXTERNAL_OPEN_RULES": "1"
+      },
+      "replies": {
+        "v2": {
+          "browser.open_split": {
+            "surface_id": "22222222-2222-4222-8222-222222222222",
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "respect_external_open_rules": true
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-list-windows-json",
+      "family": "topology",
+      "argv": [
+        "list-windows",
+        "--json"
+      ],
+      "replies": {
+        "v1": {
+          "list_windows": "*0: win-1 selected_workspace=ws-1 workspaces=2\n1: win-2 selected_workspace=none workspaces=0"
+        }
+      }
+    },
+    {
+      "id": "topology-current-window-json",
+      "family": "topology",
+      "argv": [
+        "current-window",
+        "--json"
+      ],
+      "replies": {
+        "v1": {
+          "current_window": "win-1"
+        }
+      }
+    },
+    {
+      "id": "topology-list-panes-json",
+      "family": "topology",
+      "argv": [
+        "list-panes",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "pane.list": {
+            "panes": [
+              {
+                "id": "pane-1",
+                "focused": true,
+                "surface_count": 1
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-tree-json",
+      "family": "topology",
+      "argv": [
+        "tree",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "system.tree": {
+            "windows": []
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-pane-surfaces-json",
+      "family": "topology",
+      "argv": [
+        "list-pane-surfaces",
+        "--pane",
+        "33333333-3333-4333-8333-333333333333",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "pane.surfaces": {
+            "surfaces": [
+              {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "surface_ref": "surface:1",
+                "title": "Shell",
+                "selected": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "topology-workspace-create-json",
+      "family": "topology",
+      "argv": [
+        "workspace",
+        "create",
+        "--name",
+        "Work",
+        "--cwd",
+        "/tmp",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "workspace.create": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "workspace_ref": "workspace:1"
+          }
+        }
+      }
+    },
+    {
+      "id": "cloud-vm-list-json",
+      "family": "cloud-and-remotes",
+      "argv": [
+        "vm",
+        "list",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "vm.list": {
+            "vms": [
+              {
+                "id": "vm-1",
+                "displayName": "Lab",
+                "status": "running",
+                "provider": "macos",
+                "image": "fixture"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-send-key-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "send-key",
+        "ENTER",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.send_key": {
+            "ok": true
+          }
+        }
+      }
+    },
+    {
+      "id": "terminal-read-screen-lines-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "read-screen",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--scrollback",
+        "--lines",
+        "2",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.read_text": {
+            "text": "line1\nline2\n"
+          }
+        }
+      }
+    },
+    {
+      "id": "app-refresh-surfaces",
+      "family": "app-and-settings",
+      "argv": [
+        "refresh-surfaces"
+      ],
+      "replies": {
+        "v1": {
+          "refresh_surfaces": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-reload-config",
+      "family": "app-and-settings",
+      "argv": [
+        "reload-config"
+      ],
+      "replies": {
+        "v1": {
+          "reload_config": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-set-focus",
+      "family": "app-and-settings",
+      "argv": [
+        "set-app-focus",
+        "true"
+      ],
+      "replies": {
+        "v1": {
+          "set_app_focus true": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-simulate-active",
+      "family": "app-and-settings",
+      "argv": [
+        "simulate-app-active"
+      ],
+      "replies": {
+        "v1": {
+          "simulate_app_active": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-internal-flags",
+      "family": "app-and-settings",
+      "argv": [
+        "__internal_flags"
+      ],
+      "replies": {
+        "v1": {
+          "__internal_flags": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-sidebar-icon-balance",
+      "family": "app-and-settings",
+      "argv": [
+        "__sidebar_footer_icon_balance"
+      ],
+      "replies": {
+        "v1": {
+          "__sidebar_footer_icon_balance": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "app-iroh-diag",
+      "family": "app-and-settings",
+      "argv": [
+        "iroh-diag"
+      ],
+      "replies": {
+        "v1": {
+          "iroh_diag": "fixture diagnostic"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-new-window",
+      "family": "app-and-settings",
+      "argv": [
+        "new-window"
+      ],
+      "replies": {
+        "v1": {
+          "new_window": "OK 44444444-4444-4444-8444-444444444444"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-focus-window",
+      "family": "app-and-settings",
+      "argv": [
+        "focus-window",
+        "--window",
+        "44444444-4444-4444-8444-444444444444"
+      ],
+      "replies": {
+        "v1": {
+          "focus_window 44444444-4444-4444-8444-444444444444": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-close-window",
+      "family": "app-and-settings",
+      "argv": [
+        "close-window",
+        "--window",
+        "44444444-4444-4444-8444-444444444444"
+      ],
+      "replies": {
+        "v1": {
+          "close_window 44444444-4444-4444-8444-444444444444": "OK"
+        }
+      },
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-move-workspace-window",
+      "family": "topology",
+      "argv": [
+        "move-workspace-to-window",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--window",
+        "44444444-4444-4444-8444-444444444444",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "workspace.move_to_window": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "window_id": "44444444-4444-4444-8444-444444444444"
+          }
+        }
+      },
+      "expected_methods": [
+        "workspace.move_to_window"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-focus-panel-json",
+      "family": "topology",
+      "argv": [
+        "focus-panel",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.focus": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "surface_id": "22222222-2222-4222-8222-222222222222"
+          }
+        }
+      },
+      "expected_methods": [
+        "surface.focus"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-list-panels-json",
+      "family": "topology",
+      "argv": [
+        "list-panels",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.list": {
+            "surfaces": []
+          }
+        }
+      },
+      "expected_methods": [
+        "surface.list"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "topology-current-workspace-json",
+      "family": "topology",
+      "argv": [
+        "current-workspace",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "workspace.current": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "workspace_ref": "workspace:1"
+          }
+        }
+      },
+      "expected_methods": [
+        "workspace.current"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "terminal-surface-health-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "surface-health",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.health": {
+            "surfaces": [
+              {
+                "id": "22222222-2222-4222-8222-222222222222",
+                "ref": "surface:1",
+                "type": "terminal",
+                "in_window": true
+              }
+            ]
+          }
+        }
+      },
+      "expected_methods": [
+        "surface.health"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "terminal-debug-terminals-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "debug-terminals",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "debug.terminals": {
+            "terminals": []
+          }
+        }
+      },
+      "expected_methods": [
+        "debug.terminals"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "terminal-trigger-flash-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "trigger-flash",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.trigger_flash": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "surface_id": "22222222-2222-4222-8222-222222222222"
+          }
+        }
+      },
+      "expected_methods": [
+        "surface.trigger_flash"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-browser-back-json",
+      "family": "browser",
+      "argv": [
+        "browser-back",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.back": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.back"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-browser-forward-json",
+      "family": "browser",
+      "argv": [
+        "browser-forward",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.forward": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.forward"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-browser-reload-json",
+      "family": "browser",
+      "argv": [
+        "browser-reload",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.reload": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.reload"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-get-url-json",
+      "family": "browser",
+      "argv": [
+        "get-url",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.url.get": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.url.get"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-focus-webview-json",
+      "family": "browser",
+      "argv": [
+        "focus-webview",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.focus_webview": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.focus_webview"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-is-webview-focused-json",
+      "family": "browser",
+      "argv": [
+        "is-webview-focused",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.is_webview_focused": {
+            "url": "https://example.invalid",
+            "focused": false
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.is_webview_focused"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "legacy-navigate-json",
+      "family": "browser",
+      "argv": [
+        "navigate",
+        "https://example.invalid",
+        "--panel",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "browser.navigate": {
+            "url": "https://example.invalid"
+          }
+        }
+      },
+      "expected_methods": [
+        "browser.navigate"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "transport-password-flag-precedes-environment",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.fixture",
+        "{}"
+      ],
+      "environment": {
+        "CMUX_SOCKET_PASSWORD": "wrong-env-password"
+      },
+      "password": "right-explicit-password",
+      "replies": {
+        "v2": {
+          "system.fixture": {
+            "ok": true
+          }
+        }
+      },
+      "expected_methods": [
+        "system.fixture"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "transport-explicit-socket-precedes-conflicting-env",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.fixture",
+        "{}"
+      ],
+      "environment": {
+        "CMUX_SOCKET_PATH": "/tmp/unused-a.sock",
+        "CMUX_SOCKET": "/tmp/unused-b.sock"
+      },
+      "replies": {
+        "v2": {
+          "system.fixture": {
+            "ok": true
+          }
+        }
+      },
+      "expected_methods": [
+        "system.fixture"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "transport-conflicting-environment-paths",
+      "family": "socket-transport",
+      "argv": [
+        "ping"
+      ],
+      "socket": false,
+      "environment": {
+        "CMUX_SOCKET_PATH": "/tmp/unused-a.sock",
+        "CMUX_SOCKET": "/tmp/unused-b.sock"
+      },
+      "expected_exit": 1
+    },
+    {
+      "id": "transport-structured-error-details",
+      "family": "socket-transport",
+      "argv": [
+        "rpc",
+        "system.error",
+        "{}"
+      ],
+      "expected_exit": 1,
+      "replies": {
+        "v2": {
+          "system.error": {
+            "__error__": {
+              "code": "permission_denied",
+              "message": "fixture denied",
+              "action": "retry-with-owned-target",
+              "reason": "scope",
+              "details": {
+                "surface_id": "22222222-2222-4222-8222-222222222222"
+              },
+              "retryable": false
+            }
+          }
+        }
+      },
+      "expected_methods": [
+        "system.error"
+      ]
+    },
+    {
+      "id": "terminal-send-unicode-json",
+      "family": "terminal-and-notifications",
+      "argv": [
+        "send",
+        "h\u00e9llo \ud83d\udc4b\nquote \" slash \\ tab\t",
+        "--workspace",
+        "11111111-1111-4111-8111-111111111111",
+        "--surface",
+        "22222222-2222-4222-8222-222222222222",
+        "--json"
+      ],
+      "replies": {
+        "v2": {
+          "surface.send_text": {
+            "workspace_id": "11111111-1111-4111-8111-111111111111",
+            "surface_id": "22222222-2222-4222-8222-222222222222"
+          }
+        }
+      },
+      "expected_methods": [
+        "surface.send_text"
+      ],
+      "expected_exit": 0
+    },
+    {
+      "id": "help-guide",
+      "family": "no-socket-help",
+      "argv": [
+        "guide"
+      ],
+      "socket": false,
+      "expected_exit": 0
+    },
+    {
+      "id": "help-guide-json",
+      "family": "no-socket-help",
+      "argv": [
+        "guide",
+        "--json"
+      ],
+      "socket": false,
+      "expected_exit": 0
+    },
+    {
+      "id": "help-cloud-guide",
+      "family": "no-socket-help",
+      "argv": [
+        "cloud",
+        "guide"
+      ],
+      "socket": false,
+      "expected_exit": 0
+    },
+    {
+      "id": "help-vm-skill",
+      "family": "no-socket-help",
+      "argv": [
+        "vm",
+        "--skill"
+      ],
+      "socket": false,
+      "expected_exit": 0
+    }
+  ],
+  "provenance": {
+    "seed_ref": "3f887a910da01d52a340234cd589c4d460ae88c6",
+    "seed_cases": 149,
+    "scope": "Only the exact fixtures listed here. Passing them does not establish complete command or PTY parity."
+  }
+}

@@ -11533,6 +11533,7 @@
 				7A0CE1000000000000000060 /* Embed System Extensions */,
 				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				C0DEC0DE0000000000000021 /* Build Rust cmux CLI */,
 				D1FF50000000000000000001 /* Build Diff Sidecar */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
@@ -11930,6 +11931,31 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		C0DEC0DE0000000000000021 /* Build Rust cmux CLI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Native/CmuxCLI/Cargo.toml",
+				"$(SRCROOT)/Native/CmuxCLI/Cargo.lock",
+				"$(SRCROOT)/Native/CmuxCLI/src",
+				"$(SRCROOT)/scripts/build-cmux-cli.sh",
+			);
+			name = "Build Rust cmux CLI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nif [ \"${CMUX_RUST_CLI:-0}\" != \"1\" ]; then\n  echo \"Skipping Rust cmux CLI (set CMUX_RUST_CLI=1 to enable)\"\n  exit 0\nfi\n\"${SRCROOT}/scripts/build-cmux-cli.sh\"\n";
+		};
 		C0DE47000000000000000003 /* Write Extension Point */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;

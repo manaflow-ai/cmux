@@ -151,9 +151,15 @@ where
             || a == "--output=json"
             || (a == "--output" && args.get(i + 1).is_some_and(|v| v == "json" || v == "jsonl"))
     });
+    let fallback_args = args.clone();
     match dispatch(&mut args) {
         Ok(code) => code,
         Err(e) => {
+            if e.code == "command.unknown" {
+                if let Some(code) = try_swift_fallback(&fallback_args) {
+                    return code;
+                }
+            }
             if machine {
                 println!("{}", e.envelope());
             } else {
@@ -165,6 +171,33 @@ where
             e.exit_code
         }
     }
+}
+
+/// Keep the app's legacy Swift CLI beside the Rust binary during migration.
+/// Rust owns discovery, global parsing, and every migrated command; an
+/// unclaimed legacy verb delegates to the exact app-revision sibling so a
+/// partial migration cannot break existing automation.
+fn try_swift_fallback(args: &[String]) -> Option<i32> {
+    let explicit = std::env::var_os("CMUX_CLI_SWIFT_FALLBACK").map(std::path::PathBuf::from);
+    let sibling = std::env::current_exe().ok().map(|path| {
+        let mut value = path;
+        let name = value
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("cmux")
+            .to_string();
+        value.set_file_name(format!("{name}-swift"));
+        value
+    });
+    let executable = explicit.or(sibling)?;
+    if !executable.is_file() || !executable.exists() {
+        return None;
+    }
+    let status = std::process::Command::new(executable)
+        .args(args)
+        .status()
+        .ok()?;
+    Some(status.code().unwrap_or(1))
 }
 pub fn dispatch(args: &mut Vec<String>) -> Result<i32> {
     let mut ctx = Context::default();

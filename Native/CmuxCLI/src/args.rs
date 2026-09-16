@@ -1,5 +1,51 @@
-use crate::{CliError,Result};
-pub fn take_flag(args:&mut Vec<String>, name:&str)->bool{let n=args.iter().filter(|x|x.as_str()==name).count();args.retain(|x|x.as_str()!=name);n>0}
-pub fn take_option(args:&mut Vec<String>,name:&str)->Result<Option<String>>{let mut found=None;let mut out=Vec::with_capacity(args.len());let mut i=0;while i<args.len(){if args[i]==name {if found.is_some(){return Err(CliError::usage(format!("{name} may only be supplied once")))};i+=1;found=Some(args.get(i).ok_or_else(||CliError::usage(format!("{name} requires a value")))?.clone())}else if let Some(v)=args[i].strip_prefix(&(name.to_owned()+"=")){if found.is_some(){return Err(CliError::usage(format!("{name} may only be supplied once")))};found=Some(v.to_owned())}else{out.push(args[i].clone())}i+=1}*args=out;Ok(found)}
-pub fn reject_remaining(args:&[String],usage:&str)->Result<()> {if args.is_empty(){Ok(())}else{Err(CliError::usage(format!("{usage}: unexpected argument(s): {}",args.join(" "))))}}
-pub fn parse_bool(raw:&str)->Result<bool>{match raw{"true"|"1"|"yes"=>Ok(true),"false"|"0"|"no"=>Ok(false),_=>Err(CliError::usage(format!("expected boolean, got {raw}")))}}
+use crate::{CliError, Result};
+pub fn take_flag(args: &mut Vec<String>, name: &str) -> bool {
+    let n = args.iter().filter(|x| x.as_str() == name).count();
+    args.retain(|x| x.as_str() != name);
+    n > 0
+}
+pub fn take_option(args: &mut Vec<String>, name: &str) -> Result<Option<String>> {
+    let mut found = None;
+    let mut out = Vec::with_capacity(args.len());
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == name {
+            if found.is_some() {
+                return Err(CliError::usage(format!("{name} may only be supplied once")));
+            };
+            i += 1;
+            found = Some(
+                args.get(i)
+                    .ok_or_else(|| CliError::usage(format!("{name} requires a value")))?
+                    .clone(),
+            )
+        } else if let Some(v) = args[i].strip_prefix(&(name.to_owned() + "=")) {
+            if found.is_some() {
+                return Err(CliError::usage(format!("{name} may only be supplied once")));
+            };
+            found = Some(v.to_owned())
+        } else {
+            out.push(args[i].clone())
+        }
+        i += 1
+    }
+    *args = out;
+    Ok(found)
+}
+pub fn reject_remaining(args: &[String], usage: &str) -> Result<()> {
+    if args.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::usage(format!(
+            "{usage}: unexpected argument(s): {}",
+            args.join(" ")
+        )))
+    }
+}
+pub fn parse_bool(raw: &str) -> Result<bool> {
+    match raw {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(CliError::usage(format!("expected boolean, got {raw}"))),
+    }
+}

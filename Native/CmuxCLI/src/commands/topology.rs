@@ -321,6 +321,22 @@ fn window(c: &Context, s: &str, a: &[String]) -> Result<Option<i32>> {
             let v = c.rpc("window.current", json!({}))?;
             emit(c, v, "")
         }
+        "displays" => {
+            let v = c.rpc("window.displays", json!({}))?;
+            emit(c, v, "No displays found.")
+        }
+        "display" => {
+            let mut p = Map::new();
+            let d = pos(a)
+                .first()
+                .cloned()
+                .ok_or_else(|| CliError::usage("window display requires a display name"))?;
+            p.insert("display".into(), json!(d));
+            if let Some(w) = rid(c, "window", c.window.clone())? {
+                p.insert("window_id".into(), json!(w));
+            }
+            call(c, "window.display", p, "window")
+        }
         "create" | "new" => {
             let v = c.raw("new_window")?;
             c.print(v)?;
@@ -625,6 +641,7 @@ pub fn run(c: &Context, cmd: &str, a: &[String]) -> Result<Option<i32>> {
         "rename-tab" => {
             let mut p = Map::new();
             ids(c, a, &mut p, true, false, true)?;
+            p.insert("action".into(), json!("rename"));
             p.insert(
                 "title".into(),
                 json!(
@@ -633,7 +650,7 @@ pub fn run(c: &Context, cmd: &str, a: &[String]) -> Result<Option<i32>> {
                         .unwrap_or_default()
                 ),
             );
-            call(c, "tab.rename", p, "surface")
+            call(c, "tab.action", p, "surface")
         }
         "list-panes" => pane(c, "list", a),
         "list-pane-surfaces" => pane(c, "surfaces", a),
@@ -647,7 +664,6 @@ pub fn run(c: &Context, cmd: &str, a: &[String]) -> Result<Option<i32>> {
         "split-off" => surface(c, "split-off", a),
         "move-surface" => surface(c, "move", a),
         "reorder-surface" => surface(c, "reorder", a),
-        "surface-health" => surface(c, "health", a),
         "close-workspace" => ws(c, "close", a),
         "select-workspace" => ws(c, "select", a),
         "rename-workspace" | "rename-window" => ws(c, "rename", a),

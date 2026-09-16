@@ -13,7 +13,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 pub type HookResult<T> = std::result::Result<T, HookStateError>;
@@ -202,7 +202,7 @@ pub struct ClaudeHookSessionRecord {
     pub extra: Map<String, Value>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingCursorShellApproval {
     pub command_fingerprint: String,
@@ -414,7 +414,42 @@ impl ClaudeHookSessionStore {
             }
             Err(e) => return Err(e.into()),
         };
-        let mut state = serde_json::from_slice::<ClaudeHookState>(&bytes).unwrap_or_default();
+        if bytes.len() > 64 * 1024 * 1024 {
+            let backup = self.path.with_file_name(format!(
+                ".{}.quarantined.json",
+                self.path
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("claude-hook-sessions")
+            ));
+            let _ = fs::remove_file(&backup);
+            let _ = fs::rename(&self.path, backup);
+            return Ok(ClaudeHookState {
+                version: 1,
+                ..Default::default()
+            });
+        }
+        let mut state = match serde_json::from_slice::<ClaudeHookState>(&bytes) {
+            Ok(state) => state,
+            Err(_) => {
+                let backup = self.path.with_file_name(format!(
+                    ".{}.quarantined.json",
+                    self.path
+                        .file_name()
+                        .and_then(|x| x.to_str())
+                        .unwrap_or("claude-hook-sessions")
+                ));
+                let _ = fs::remove_file(&backup);
+                let _ = fs::rename(&self.path, backup);
+                ClaudeHookState {
+                    version: 1,
+                    ..Default::default()
+                }
+            }
+        };
+        if state.version == 0 {
+            state.version = 1;
+        }
         state.prune();
         Ok(state)
     }
@@ -440,6 +475,81 @@ impl ClaudeHookSessionStore {
         let state = self.load()?;
         unlock(&lock);
         Ok(state.sessions.get(&id.unwrap()).cloned())
+    }
+    /// Insert or replace a hook record and update the pane/workspace active
+    /// boundaries in the same transaction. Callers decide whether a record is
+    /// visible; this method only persists the authoritative mapping.
+    pub fn upsert(
+        &self,
+        record: ClaudeHookSessionRecord,
+        active_workspace: bool,
+        active_surface: bool,
+    ) -> HookResult<()> {
+        let sid = record.session_id.clone();
+        self.mutate(|state| {
+            let now = now();
+            let mut record = record;
+            record.updated_at = if record.updated_at > 0.0 {
+                record.updated_at
+            } else {
+                now
+            };
+            if active_workspace && !record.workspace_id.trim().is_empty() {
+                state.active_sessions_by_workspace.insert(
+                    record.workspace_id.clone(),
+                    ClaudeHookActiveSessionRecord {
+                        session_id: sid.clone(),
+                        turn_id: record.active_prompt_turn_id.clone(),
+                        allows_new_session_replacement: None,
+                        updated_at: now,
+                    },
+                );
+            }
+            if active_surface && !record.surface_id.trim().is_empty() {
+                state.active_sessions_by_surface.insert(
+                    record.surface_id.clone(),
+                    ClaudeHookActiveSessionRecord {
+                        session_id: sid.clone(),
+                        turn_id: record.active_prompt_turn_id.clone(),
+                        allows_new_session_replacement: None,
+                        updated_at: now,
+                    },
+                );
+            }
+            state.sessions.insert(sid, record);
+            Ok(())
+        })
+    }
+    pub fn remove(&self, session_id: &str) -> HookResult<Option<ClaudeHookSessionRecord>> {
+        let sid = normalize(Some(session_id));
+        let Some(sid) = sid else { return Ok(None) };
+        self.mutate(|state| {
+            let removed = state.sessions.remove(&sid);
+            state
+                .active_sessions_by_workspace
+                .retain(|_, a| a.session_id != sid);
+            state
+                .active_sessions_by_surface
+                .retain(|_, a| a.session_id != sid);
+            state.pending_superseded_session_cleanup.remove(&sid);
+            Ok(removed)
+        })
+    }
+    pub fn enqueue_superseded_cleanup(&self, record: ClaudeHookSessionRecord) -> HookResult<()> {
+        let sid = record.session_id.clone();
+        self.mutate(|state| {
+            state.pending_superseded_session_cleanup.insert(sid, record);
+            Ok(())
+        })
+    }
+    pub fn pending_superseded_cleanup(&self) -> HookResult<Vec<ClaudeHookSessionRecord>> {
+        let lock = self.locked()?;
+        let state = self.load()?;
+        unlock(&lock);
+        Ok(state
+            .pending_superseded_session_cleanup
+            .into_values()
+            .collect())
     }
     pub fn remember_cursor_shell_approval(
         &self,
@@ -613,18 +723,21 @@ impl CodexHookInvocation {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CodexTurnLedgerOwner {
     pub token: Option<String>,
     pub pid: Option<i64>,
     pub generation: Option<CodexProcessGeneration>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct CodexTurnLedgerPending {
     #[serde(rename = "turnID")]
     pub turn_id: Option<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CodexTurnLedgerRecord {
     pub workspace_id: String,
     pub surface_id: String,
@@ -639,6 +752,8 @@ pub struct CodexTurnLedgerRecord {
     pub updated_at: f64,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct CodexTurnLedgerFile {
     pub records: HashMap<String, CodexTurnLedgerRecord>,
     pub surface_owners: HashMap<String, String>,
@@ -708,6 +823,9 @@ impl CodexTurnLedger {
             })
             .unwrap_or_else(|| expand_path("~/.cmuxterm/codex-turn-ledger.json"));
         Self { path }
+    }
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
     }
     fn lock_path(&self) -> PathBuf {
         PathBuf::from(format!("{}.lock", self.path.display()))
@@ -985,13 +1103,19 @@ impl CodexTurnLedger {
         {
             return;
         }
-        let children = r.active_children_by_turn.entry(key.clone()).or_default();
-        if !children.contains(&id) {
-            if children.len() >= Self::MAXIMUM_CHILDREN_PER_TURN as usize {
-                Self::increment_unknown(r, &key)
+        let should_increment = {
+            let children = r.active_children_by_turn.entry(key.clone()).or_default();
+            if children.contains(&id) {
+                false
+            } else if children.len() >= Self::MAXIMUM_CHILDREN_PER_TURN as usize {
+                true
             } else {
-                children.push(id)
+                children.push(id);
+                false
             }
+        };
+        if should_increment {
+            Self::increment_unknown(r, &key);
         }
     }
     fn stop_child(r: &mut CodexTurnLedgerRecord, id: Option<String>, turn: Option<String>) {
@@ -1458,4 +1582,322 @@ pub enum CodexTranscriptFailureReadResult<T = Value> {
     Pending,
     Healthy(Option<String>),
     Failure(T),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::fs;
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("cmux-hook-state-test-{}-{}", name, Uuid::new_v4()))
+    }
+
+    #[test]
+    fn claude_store_round_trips_and_quarantines_bad_json() {
+        let path = temp_path("claude");
+        let store = ClaudeHookSessionStore::new(&path);
+        let record = ClaudeHookSessionRecord {
+            session_id: "s".into(),
+            workspace_id: "w".into(),
+            surface_id: "p".into(),
+            started_at: now(),
+            updated_at: now(),
+            ..Default::default()
+        };
+        store.upsert(record, true, true).unwrap();
+        assert_eq!(store.lookup("s").unwrap().unwrap().workspace_id, "w");
+        fs::write(&path, b"not json").unwrap();
+        assert!(store.lookup("s").unwrap().is_none());
+        assert!(
+            path.with_file_name(format!(
+                ".{}.quarantined.json",
+                path.file_name().unwrap().to_string_lossy()
+            ))
+            .exists()
+        );
+        let _ = fs::remove_file(format!("{}.lock", path.display()));
+    }
+
+    #[test]
+    fn codex_stop_waits_for_child_then_settles() {
+        let path = temp_path("ledger");
+        let ledger = CodexTurnLedger::new(path.clone());
+        let env = HashMap::new();
+        let invocation = CodexHookInvocation::from_env(&env);
+        ledger
+            .session_start("s", Some("w"), Some("p"), &invocation)
+            .unwrap();
+        ledger
+            .prompt_submit("s", Some("t"), Some("w"), Some("p"), &invocation, true)
+            .unwrap();
+        ledger
+            .subagent_start(
+                "s",
+                Some("a"),
+                Some("t"),
+                Some("w"),
+                Some("p"),
+                &invocation,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            ledger
+                .stop(
+                    "s",
+                    Some("t"),
+                    Some("w"),
+                    Some("p"),
+                    &invocation,
+                    true,
+                    true,
+                    false
+                )
+                .unwrap()
+                .settlement,
+            CodexTurnLedgerSettlement::Pending
+        );
+        assert_eq!(
+            ledger
+                .subagent_stop(
+                    "s",
+                    Some("a"),
+                    Some("t"),
+                    Some("w"),
+                    Some("p"),
+                    &invocation,
+                    true
+                )
+                .unwrap()
+                .settlement,
+            CodexTurnLedgerSettlement::Settled
+        );
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(format!("{}.lock", path.display()));
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexHookFailureCandidate {
+    pub message: String,
+    #[serde(default)]
+    pub codex_error_info: Option<String>,
+    #[serde(default)]
+    pub additional_details: Option<String>,
+    #[serde(default)]
+    pub is_stream_error: bool,
+}
+
+/// Read the tail of a Codex rollout JSONL and classify terminal failures. The
+/// parser intentionally ignores malformed/unknown records and never treats a
+/// transient `error` event as final when a later assistant/complete event
+/// supersedes it.
+pub fn read_codex_transcript_failure(
+    path: &Path,
+    turn_id: Option<&str>,
+    require_terminal_completion: bool,
+) -> CodexTranscriptFailureReadResult<CodexHookFailureCandidate> {
+    let Ok(bytes) = fs::read(path) else {
+        return CodexTranscriptFailureReadResult::Unavailable;
+    };
+    let tail = if bytes.len() > 512 * 1024 {
+        &bytes[bytes.len() - 512 * 1024..]
+    } else {
+        &bytes
+    };
+    let text = String::from_utf8_lossy(tail);
+    let mut candidate: Option<CodexHookFailureCandidate> = None;
+    let mut candidate_before_terminal = false;
+    let mut saw_assistant = false;
+    let mut saw_terminal = false;
+    let mut relevant = turn_id.is_none();
+    for line in text.lines() {
+        let Ok(object) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        if (turn_id.is_none() || relevant)
+            && object.get("type").and_then(Value::as_str) == Some("response_item")
+        {
+            if object
+                .get("payload")
+                .and_then(|p| p.get("role"))
+                .and_then(Value::as_str)
+                == Some("assistant")
+            {
+                saw_assistant = true;
+                candidate = None;
+                candidate_before_terminal = false;
+            }
+        }
+        if object.get("type").and_then(Value::as_str) != Some("event_msg") {
+            continue;
+        }
+        let Some(payload) = object.get("payload").and_then(Value::as_object) else {
+            continue;
+        };
+        let event = payload.get("type").and_then(Value::as_str).unwrap_or("");
+        let event_turn = payload
+            .get("turn_id")
+            .or_else(|| payload.get("turnId"))
+            .and_then(Value::as_str);
+        match event {
+            "task_started" => {
+                if turn_id.is_none() || event_turn == turn_id {
+                    relevant = true;
+                    candidate = None;
+                    candidate_before_terminal = false;
+                }
+            }
+            "error" | "stream_error" => {
+                if turn_id.is_some() && event_turn.is_some() && event_turn != turn_id {
+                    continue;
+                }
+                if let Some(message) = json_error_message(payload) {
+                    candidate = Some(CodexHookFailureCandidate {
+                        message,
+                        codex_error_info: None,
+                        additional_details: None,
+                        is_stream_error: event == "stream_error",
+                    });
+                    candidate_before_terminal = true;
+                }
+            }
+            "task_complete" | "turn_complete" => {
+                if turn_id.is_some() && event_turn != turn_id {
+                    continue;
+                }
+                relevant = true;
+                saw_terminal = true;
+                if let Some(err) = payload.get("error") {
+                    if let Some(message) = json_error_message(err) {
+                        candidate = Some(CodexHookFailureCandidate {
+                            message,
+                            codex_error_info: None,
+                            additional_details: None,
+                            is_stream_error: false,
+                        });
+                        candidate_before_terminal = false;
+                    } else if let Some(message) = err.as_str() {
+                        candidate = Some(CodexHookFailureCandidate {
+                            message: message.into(),
+                            codex_error_info: None,
+                            additional_details: None,
+                            is_stream_error: false,
+                        });
+                        candidate_before_terminal = false;
+                    }
+                } else if payload
+                    .get("last_agent_message")
+                    .and_then(Value::as_str)
+                    .is_some_and(|x| !x.trim().is_empty)
+                {
+                    saw_assistant = true;
+                    candidate = None;
+                    candidate_before_terminal = false;
+                } else if candidate.is_none() && !saw_assistant {
+                    candidate = Some(CodexHookFailureCandidate {
+                        message: "Codex ended before sending a final response".into(),
+                        codex_error_info: None,
+                        additional_details: None,
+                        is_stream_error: false,
+                    });
+                    candidate_before_terminal = false;
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(c) = candidate.clone() {
+        if candidate_before_terminal {
+            return CodexTranscriptFailureReadResult::Failure(c);
+        }
+        if turn_id.is_some() && !relevant {
+            return CodexTranscriptFailureReadResult::Pending;
+        }
+        return CodexTranscriptFailureReadResult::Failure(c);
+    }
+    if require_terminal_completion && !saw_terminal {
+        return CodexTranscriptFailureReadResult::Pending;
+    }
+    if !saw_terminal && !saw_assistant {
+        return CodexTranscriptFailureReadResult::Pending;
+    }
+    CodexTranscriptFailureReadResult::Healthy(None)
+}
+fn json_error_message(value: &Value) -> Option<String> {
+    match value {
+        Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Value::Object(o) => ["message", "error", "detail", "reason"]
+            .iter()
+            .find_map(|k| {
+                o.get(*k)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            }),
+        _ => None,
+    }
+}
+
+pub fn codex_transcript_terminal_turn_ids(
+    path: &Path,
+    expected: &HashSet<String>,
+) -> HashSet<String> {
+    let Ok(bytes) = fs::read(path) else {
+        return HashSet::new();
+    };
+    let tail = if bytes.len() > 512 * 1024 {
+        &bytes[bytes.len() - 512 * 1024..]
+    } else {
+        &bytes
+    };
+    let mut current = None;
+    let mut result = HashSet::new();
+    for line in String::from_utf8_lossy(tail).lines() {
+        let Ok(o) = serde_json::from_str::<Value>(line.trim()) else {
+            continue;
+        };
+        let ty = o.get("type").and_then(Value::as_str);
+        if ty == Some("turn_context") {
+            current = o
+                .get("payload")
+                .and_then(|p| p.get("turn_id").or_else(|| p.get("turnId")))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            continue;
+        }
+        if ty != Some("event_msg") {
+            continue;
+        }
+        let Some(p) = o.get("payload").and_then(Value::as_object) else {
+            continue;
+        };
+        let event = p.get("type").and_then(Value::as_str);
+        if event == Some("task_started") {
+            current = p
+                .get("turn_id")
+                .or_else(|| p.get("turnId"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+        }
+        if matches!(
+            event,
+            Some("task_complete") | Some("turn_complete") | Some("turn_aborted")
+        ) {
+            if let Some(id) = p
+                .get("turn_id")
+                .or_else(|| p.get("turnId"))
+                .and_then(Value::as_str)
+                .or(current.as_deref())
+            {
+                if expected.contains(id) {
+                    result.insert(id.to_string());
+                }
+            }
+        }
+    }
+    result
 }

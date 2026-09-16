@@ -1,0 +1,2993 @@
+{
+  "schema_version": 1,
+  "source": {
+    "swift": "CLI/cmux.swift",
+    "dispatcher": "switch command",
+    "canonical_label_count": 158
+  },
+  "commands": [
+    {
+      "label": "automation",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "show",
+        "test",
+        "enable",
+        "disable",
+        "logs",
+        "reload"
+      ],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "__sidebar_footer_icon_balance",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "__internal_flags",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "ping",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "local",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "iroh-diag",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "capabilities",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "agent-hibernation",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "vpn",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "auth",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [
+        "login",
+        "logout"
+      ],
+      "alias_of": null,
+      "nested": [
+        "status",
+        "login",
+        "logout"
+      ],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "login",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": "auth",
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "logout",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": "auth",
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "agent",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "vm",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [
+        "cloud"
+      ],
+      "alias_of": null,
+      "nested": [
+        "domains",
+        "ls",
+        "list",
+        "new",
+        "create",
+        "open",
+        "port",
+        "status",
+        "info",
+        "prompt",
+        "skill",
+        "stats",
+        "top",
+        "resize",
+        "pause",
+        "resume",
+        "base",
+        "snapshot",
+        "checkpoint",
+        "fork",
+        "restore",
+        "rm",
+        "destroy",
+        "delete",
+        "promote-template",
+        "exec",
+        "run",
+        "route",
+        "agent",
+        "push",
+        "upload",
+        "pull",
+        "download",
+        "wait",
+        "env",
+        "layout",
+        "tree",
+        "workspace",
+        "terminal",
+        "tab",
+        "shell",
+        "attach",
+        "desktop",
+        "vnc",
+        "self",
+        "tools",
+        "tool-inspector",
+        "ports",
+        "handoff",
+        "ssh-info"
+      ]
+    },
+    {
+      "label": "cloud",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": "vm",
+      "nested": [
+        "domains",
+        "ls",
+        "list",
+        "new",
+        "create",
+        "open",
+        "port",
+        "status",
+        "info",
+        "prompt",
+        "skill",
+        "stats",
+        "top",
+        "resize",
+        "pause",
+        "resume",
+        "base",
+        "snapshot",
+        "checkpoint",
+        "fork",
+        "restore",
+        "rm",
+        "destroy",
+        "delete",
+        "promote-template",
+        "exec",
+        "run",
+        "route",
+        "agent",
+        "push",
+        "upload",
+        "pull",
+        "download",
+        "wait",
+        "env",
+        "layout"
+      ]
+    },
+    {
+      "label": "remotes",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "remote"
+      ],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "add",
+        "remove"
+      ]
+    },
+    {
+      "label": "remote",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "remotes",
+      "nested": []
+    },
+    {
+      "label": "ai-accounts",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "coderouter",
+      "migration": "delegated",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "coderouter",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "coderouter",
+      "migration": "delegated",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "status",
+        "machines",
+        "claude",
+        "agent"
+      ]
+    },
+    {
+      "label": "mobile",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "set-font",
+        "compatible-tags"
+      ]
+    },
+    {
+      "label": "rpc",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "identify",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-windows",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "current-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "new-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "focus-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "close-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "move-workspace-to-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "move-surface",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "split-off",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "reorder-surface",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "reorder-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "reorder-workspaces",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "simulate-sidebar-drag",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "workspace-action",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "tab-action",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "move-tab-to-new-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "detach-tab"
+      ],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "detach-tab",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "move-tab-to-new-workspace",
+      "nested": []
+    },
+    {
+      "label": "rename-tab",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "workspace-group",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "window",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "ls",
+        "current",
+        "displays",
+        "display",
+        "create",
+        "new",
+        "focus",
+        "close"
+      ]
+    },
+    {
+      "label": "canvas",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "open",
+        "close",
+        "focus"
+      ],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "simulator",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "simulator",
+      "migration": "delegated",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "boot",
+        "shutdown",
+        "install",
+        "launch"
+      ]
+    },
+    {
+      "label": "ios",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "simulator",
+      "migration": "delegated",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "boot",
+        "shutdown",
+        "install",
+        "launch"
+      ]
+    },
+    {
+      "label": "workspace",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "list-workspaces",
+        "new-workspace"
+      ],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "ls",
+        "create",
+        "new",
+        "close",
+        "rm",
+        "delete",
+        "rename",
+        "select",
+        "focus",
+        "status",
+        "reconnect",
+        "disconnect",
+        "env",
+        "group"
+      ]
+    },
+    {
+      "label": "todo",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "add",
+        "check",
+        "uncheck",
+        "start",
+        "edit",
+        "rm",
+        "remove",
+        "clear",
+        "set",
+        "open"
+      ]
+    },
+    {
+      "label": "comments",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "ls"
+      ]
+    },
+    {
+      "label": "layout",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "get",
+        "set",
+        "apply"
+      ],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "vault",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "sessions",
+        "search",
+        "checkpoints",
+        "checkpoint",
+        "fork"
+      ]
+    },
+    {
+      "label": "list-workspaces",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "workspace",
+      "nested": []
+    },
+    {
+      "label": "ssh",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [
+        "mosh"
+      ],
+      "alias_of": null,
+      "nested": [
+        "--forward-agent",
+        "--no-forward-agent",
+        "--transport",
+        "--command"
+      ]
+    },
+    {
+      "label": "mosh",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": "ssh",
+      "nested": []
+    },
+    {
+      "label": "mosh-tmux",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "ssh-tmux",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "local-tmux",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "tmux"
+      ],
+      "alias_of": null,
+      "nested": [
+        "start",
+        "attach",
+        "list",
+        "status",
+        "detach",
+        "close",
+        "cleanup"
+      ]
+    },
+    {
+      "label": "tmux",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "local-tmux",
+      "nested": [
+        "new-session",
+        "new",
+        "new-window",
+        "neww",
+        "split-window",
+        "splitw",
+        "list-panes",
+        "list-windows",
+        "select-pane",
+        "select-window",
+        "kill-window",
+        "kill-pane",
+        "send-keys",
+        "capture-pane"
+      ]
+    },
+    {
+      "label": "ssh-pty-attach",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "ssh-session-list",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "ssh-session-attach",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "ssh-session-cleanup",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "ssh-session-end",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "vm-pty-attach",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "vm-tui-connect",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "vm-ssh-attach",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "cloud",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "new-workspace",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "workspace",
+      "nested": []
+    },
+    {
+      "label": "new-split",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-panes",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-pane-surfaces",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "tree",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "top",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "memory",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "focus-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "new-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "new-surface",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "surface",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "surface-resume"
+      ],
+      "alias_of": null,
+      "nested": [
+        "ls",
+        "list",
+        "tree",
+        "catalog",
+        "new",
+        "new-terminal",
+        "open",
+        "project",
+        "focus",
+        "close",
+        "create",
+        "split",
+        "split-off",
+        "move",
+        "reorder",
+        "health"
+      ]
+    },
+    {
+      "label": "restore",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "sessions",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "fork",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "sessions",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "surface-resume",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "surface",
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "close-surface",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "drag-surface-to-split",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "refresh-surfaces",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "reload-config",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "surface-health",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "debug-terminals",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "trigger-flash",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-panels",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "focus-panel",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "close-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "select-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "rename-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "rename-window"
+      ],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "rename-window",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "rename-workspace",
+      "nested": []
+    },
+    {
+      "label": "current-workspace",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "topology",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "read-selection",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "read-screen",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "send",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "send-key",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "send-panel",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "send-key-panel",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "terminal",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "notify",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-notifications",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "dismiss-notification",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "mark-notification-read",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "open-notification",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "jump-to-unread",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "clear-notifications",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "set-status",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "clear-status",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-status",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "set-progress",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "clear-progress",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "log",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "clear-log",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-log",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "sidebar-state",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "right-sidebar",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "open",
+        "close",
+        "toggle",
+        "focus",
+        "mode",
+        "set"
+      ]
+    },
+    {
+      "label": "sidebar",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "notifications",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "open",
+        "close",
+        "toggle",
+        "show",
+        "hide",
+        "focus",
+        "mode",
+        "set"
+      ]
+    },
+    {
+      "label": "claude-hook",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "hooks",
+      "migration": "delegated",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "codex-hook",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "hooks",
+      "migration": "delegated",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "feed-hook",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "hooks",
+      "migration": "delegated",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "hooks",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "hooks",
+      "migration": "delegated",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "catalog",
+        "list",
+        "setup",
+        "uninstall",
+        "enqueue",
+        "feed"
+      ]
+    },
+    {
+      "label": "set-app-focus",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "simulate-app-active",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "__tmux-compat",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "__codex-teams-watch",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "capture-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "resize-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "pipe-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "wait-for",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "swap-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "break-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "join-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "last-window",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "next-window",
+      "nested": []
+    },
+    {
+      "label": "last-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "next-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "previous-window",
+        "last-window"
+      ],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "previous-window",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "next-window",
+      "nested": []
+    },
+    {
+      "label": "find-window",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "clear-history",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "set-hook",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "popup",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "bind-key",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [
+        "unbind-key",
+        "copy-mode"
+      ],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "unbind-key",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "bind-key",
+      "nested": []
+    },
+    {
+      "label": "copy-mode",
+      "source": "swift.dispatcher",
+      "kind": "alias",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": "bind-key",
+      "nested": []
+    },
+    {
+      "label": "set-buffer",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "paste-buffer",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "list-buffers",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "respawn-pane",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "display-message",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "tmux",
+      "migration": "implemented",
+      "output": [
+        "text"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "help",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "swift-dispatch",
+      "migration": "fallback",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "local",
+      "interactive": false,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [],
+      "notes": "Swift dispatcher remains the compatibility owner; migrate before deleting Swift path."
+    },
+    {
+      "label": "browser",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "open",
+        "navigate",
+        "goto",
+        "back",
+        "forward",
+        "reload",
+        "url",
+        "get-url",
+        "snapshot",
+        "eval",
+        "wait",
+        "scroll",
+        "type",
+        "fill",
+        "press",
+        "select",
+        "screenshot",
+        "cookies",
+        "storage",
+        "tab",
+        "viewport",
+        "network",
+        "console",
+        "errors",
+        "state",
+        "profile"
+      ]
+    },
+    {
+      "label": "project",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "list",
+        "open"
+      ]
+    },
+    {
+      "label": "open-browser",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "open"
+      ]
+    },
+    {
+      "label": "navigate",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "browser-back",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "browser-forward",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "browser-reload",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "get-url",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "focus-webview",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "is-webview-focused",
+      "source": "swift.dispatcher",
+      "kind": "command",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "socket",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": []
+    },
+    {
+      "label": "markdown",
+      "source": "swift.dispatcher",
+      "kind": "namespace",
+      "ownership": "browser",
+      "migration": "implemented",
+      "output": [
+        "text",
+        "json"
+      ],
+      "side_effects": "mutating",
+      "auth": "socket.session",
+      "interactive": true,
+      "aliases": [],
+      "alias_of": null,
+      "nested": [
+        "open"
+      ]
+    }
+  ]
+}

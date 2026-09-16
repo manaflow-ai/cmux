@@ -483,7 +483,7 @@ fn debug_terminals(ctx: &Context, args: &[String]) -> Result<()> {
             dbgstr(&item, "ghostty_surface_ptr"), dbgstr(&item, "portal_binding_state"), dbgstr(&item, "portal_binding_generation"), dbgstr(&item, "teardown_requested_reason")
         ));
         lines.push(format!(
-    "    tty={} cwd={} branch={} ports={} visible={} inWindow={} superview={} hidden={} ancestorHidden={} firstResponder={} windowNum={}",
+    "    tty={} cwd={} branch={} ports={} visible={} inWindow={} superview={} hidden={} firstResponder={} windowNum={}",
             dbgstr(&item, "tty"), dbgstr2(&item, "current_directory", "requested_working_directory"), dbgstr(&item, "git_branch"),
             dbg(&item, "listening_ports"), dbg(&item, "hosted_view_visible_in_ui"), dbg(&item, "hosted_view_in_window"),
             dbg(&item, "hosted_view_has_superview"), dbg(&item, "hosted_view_hidden_or_ancestor_hidden"), dbg(&item, "surface_view_first_responder"),

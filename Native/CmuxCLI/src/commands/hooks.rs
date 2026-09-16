@@ -212,6 +212,13 @@ fn bounded_payload(raw: &str, max_bytes: usize) -> String {
                 | "working_directory"
         )
     });
+    for value in object.values_mut() {
+        if let Value::String(text) = value {
+            if text.len() > 512 {
+                *text = text.chars().take(512).collect();
+            }
+        }
+    }
     serde_json::to_string(&object).unwrap_or_else(|_| "{}".to_string())
 }
 

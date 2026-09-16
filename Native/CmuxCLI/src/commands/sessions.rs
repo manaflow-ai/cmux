@@ -6,8 +6,8 @@
 //! replacement.  It deliberately never invents a restore record when the
 //! socket or persisted state is unavailable.
 
-use crate::{args, CliError, Context, Result};
-use serde_json::{json, Map, Value};
+use crate::{CliError, Context, Result, args};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -747,7 +747,10 @@ fn verify_codex_owner(record: &Map<String, Value>, session_id: &str) -> Result<(
             ));
         }
     }
-    Err(CliError::new("codex_checkpoint_unavailable", "restore: the saved Codex session is unavailable. Retry later or start a new agent session."))
+    Err(CliError::new(
+        "codex_checkpoint_unavailable",
+        "restore: the saved Codex session is unavailable. Retry later or start a new agent session.",
+    ))
 }
 
 fn source_marker(source: &Value, marker: &str) -> bool {

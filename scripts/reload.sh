@@ -1442,6 +1442,12 @@ fi
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+# Forward the opt-in Rust CLI switch to the app's build phase. Keeping this
+# opt-in preserves the Swift CLI fallback for normal reloads and makes the
+# bundle implementation explicit in the xcodebuild invocation.
+if [[ "${CMUX_RUST_CLI:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_RUST_CLI=1)
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
