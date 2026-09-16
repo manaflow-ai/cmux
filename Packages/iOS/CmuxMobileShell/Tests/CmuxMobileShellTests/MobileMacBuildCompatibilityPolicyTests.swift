@@ -113,15 +113,27 @@ import Testing
         #expect(!untagged.allows(instanceTag: "unrelated"))
     }
 
-    @Test func officialKeepsStableAndNightlyAsDistinctAllowedIdentities() {
+    @Test func officialKeepsStableNightlyAndRCAsDistinctAllowedIdentities() {
         let policy = MobileMacBuildCompatibilityPolicy.official
 
         #expect(policy.allows(instanceTag: "default"))
         #expect(policy.allows(instanceTag: "nightly"))
+        #expect(policy.allows(instanceTag: "rc"))
         #expect(!policy.allows(instanceTag: "icap"))
-        #expect(!policy.allows(instanceTag: "rc"))
         #expect(!policy.allows(instanceTag: "staging"))
         #expect(!policy.allows(instanceTag: nil))
+    }
+
+    @Test func officialAcceptsRCMacNamespaces() {
+        let policy = MobileMacBuildCompatibilityPolicy.official
+
+        #expect(policy.allows(instanceTag: "rc", clientNamespace: "mac:com.cmuxterm.app.rc"))
+        // A tagged RC Mac advertises its slug as the instance tag, so distributed
+        // builds treat it like a tagged nightly Mac: recognized namespace, but not a
+        // release-lane tag, so no pairing.
+        #expect(!policy.allows(instanceTag: "candidate1", clientNamespace: "mac:com.cmuxterm.app.rc.candidate1"))
+        #expect(!policy.allows(instanceTag: "rc", clientNamespace: "mac:com.cmuxterm.app.debug.rc"))
+        #expect(!policy.allows(instanceTag: "rc", clientNamespace: "mac:com.cmuxterm.app.staging"))
     }
 
     @Test func officialAllowsOnlyAuthorizedLegacy06417WithoutAnInstanceTag() {

@@ -232,6 +232,41 @@ struct VMTunnelManagerTests {
     }
 
     @Test
+    func rcBuildOwnsItsOwnInterfaceAndCredentialPaths() {
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-path-tests", isDirectory: true)
+        let productionURL = URL(string: "https://cmux.com")!
+        let rc = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.rc",
+            apiBaseURL: productionURL
+        )
+
+        #expect(rc.interfaceName == "cmux-rc")
+        #expect(rc.privateKeyURL.lastPathComponent == "cmux-rc.private.key")
+        #expect(rc.deviceIDURL.lastPathComponent == "cmux-rc.device-id")
+        #expect(rc.configURL.lastPathComponent == "cmux-rc.conf")
+
+        let taggedRC = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.rc.candidate1",
+            apiBaseURL: productionURL
+        )
+        let stable = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        #expect(taggedRC != rc.interfaceName)
+        #expect(taggedRC.hasPrefix("cmux-r-"))
+        #expect(rc.interfaceName != stable)
+        #expect(rc.interfaceName != nightly)
+        #expect(taggedRC.utf8.count <= 15)
+        #expect(taggedRC.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
+    }
+
+    @Test
     func taggedBuildIdentityWinsOverItsBackendOrigin() {
         let productionURL = URL(string: "https://cmux.com")!
         let localURL = URL(string: "http://localhost:9170")!
